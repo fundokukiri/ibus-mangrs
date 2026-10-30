@@ -369,77 +369,18 @@ fn build(app: &Application, initial_page: Option<&str>) {
         unicode_channel,
     });
 
-    // --- tabs ---
-    let general = gtk4::Box::new(Orientation::Vertical, 8);
-    margin(&general);
-    general.append(&row("Bật tiếng Việt", &ui.enabled));
-    general.append(&row("Kiểu gõ", &ui.method));
-    general.append(&row("Hiển thị", &ui.mode));
-    general.append(&row("Bảng mã", &ui.charset));
-    general.append(&row("Phím tắt đổi chế độ", &ui.hotkey));
-    general.append(&row("Ghi log gỡ lỗi", &ui.debug_log));
-    hint(
-        &general,
-        "Ghi log gỡ lỗi: ghi quyết định của bộ gõ vào ~/.cache/ibus-mangrs/debug.log để báo lỗi.",
-    );
-    hint(
-        &general,
-        "Đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → OFF → Gõ mặc định.",
-    );
-    hint(
-        &general,
-        "Smooth/Super Smooth/Select cần quyền ghi /dev/uinput; ở app relay (mutter) hoặc terminal không hỗ trợ sẽ tự fallback về Gạch chân.",
-    );
+    // --- pages: grouped-card settings style (section header + cards) ---
 
-    let typing = gtk4::Box::new(Orientation::Vertical, 8);
-    margin(&typing);
-    typing.append(&row("Kiểu đặt dấu mới (hòa)", &ui.modern));
-    typing.append(&row("Đặt dấu tự do (hoangf → hoàng)", &ui.free));
-    typing.append(&row("Tự sửa lỗi chính tả", &ui.auto_correct));
-    typing.append(&row("Tự khôi phục từ tiếng Anh", &ui.auto_restore));
-    typing.append(&row("Không bỏ dấu sau : / @ . _ (URL, email, đường dẫn)", &ui.bypass_url));
-    typing.append(&row("W thành ư", &ui.w2u));
-    typing.append(&row("Dấu ngoặc thành ơ/ư", &ui.bracket));
-    typing.append(&row("Gõ -- thành —", &ui.em_dash));
-    typing.append(&row("Tự viết hoa sau . ! ?", &ui.auto_capitalize));
-    typing.append(&row("Hai dấu cách thành dấu chấm", &ui.double_space));
     let pacing = gtk4::Box::new(Orientation::Horizontal, 8);
-    pacing.append(&gtk4::Label::new(Some("Khoảng cách bơm phím (ms): chữ/commit")));
+    pacing.append(&gtk4::Label::new(Some("Chữ/commit")));
     pacing.append(&ui.commit_interval);
     pacing.append(&gtk4::Label::new(Some("backspace")));
     pacing.append(&ui.backspace_interval);
     pacing.append(&gtk4::Label::new(Some("sau từ")));
     pacing.append(&ui.post_delay);
-    typing.append(&pacing);
-    typing.append(&row("Kênh gửi từ tiếng Việt (uinput)", &ui.unicode_channel));
-    hint(
-        &typing,
-        "Chỉ dùng cho các chế độ uinput (Smooth, Super Smooth, Select). Mặc định 20/5/10 ms; Clipboard hoạt động cả trong app đọc phím trực tiếp (game) nhưng sẽ tạm đè clipboard.",
-    );
 
-    let macro_box = gtk4::Box::new(Orientation::Vertical, 8);
-    margin(&macro_box);
-    macro_box.append(&row("Bật gõ tắt", &ui.macro_enabled));
-    macro_box.append(&row("Viết hoa gõ tắt", &ui.capitalize_macro));
-    macro_box.append(&row("Gõ tắt khi đang tắt tiếng Việt", &ui.macro_in_off_mode));
-    macro_box.append(&row("Định dạng giờ ($TIME)", &ui.time_format));
-    macro_box.append(&row("Định dạng ngày ($DATE)", &ui.date_format));
-    macro_box.append(&label("Mỗi dòng một gõ tắt: khóa= Nội dung ($TIME, $DATE)"));
-    macro_box.append(&scrolled(&ui.macro_text, 180));
-
-    let dict_box = gtk4::Box::new(Orientation::Vertical, 8);
-    margin(&dict_box);
-    dict_box.append(&row("Bật từ điển của tôi", &ui.dictionary_enabled));
-    dict_box.append(&label("Mỗi dòng một từ. Từ trong từ điển không bị khôi phục về chuỗi phím."));
-    dict_box.append(&scrolled(&ui.dictionary_text, 220));
-
-    let rules_box = gtk4::Box::new(Orientation::Vertical, 8);
-    margin(&rules_box);
-    rules_box.append(&label(
-        "Mỗi dòng: tên-ứng-dụng=chế độ. Chế độ: nonpreedit, preedit, surrounding, smooth,\n\
-         supersmooth, select, off, defaulttyping — khớp theo tên tiến trình, không phân biệt hoa thường.",
-    ));
-    // Quick add: pick a client the engine has seen, pick a mode, add.
+    // Quick add for App Rules: pick a client the engine has seen, pick a
+    // mode, append one rule line.
     let client_combo = gtk4::ComboBoxText::new();
     for name in crate::config::recent_clients() {
         client_combo.append_text(&name);
@@ -447,15 +388,13 @@ fn build(app: &Application, initial_page: Option<&str>) {
     client_combo.set_active(Some(0));
     let rule_mode = drop_down(
         &crate::ibus_prop::MODES.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
-        1, // preedit first in the menu, keep the quick-add default consistent
+        1,
     );
     let add_btn = gtk4::Button::with_label("Thêm luật");
     let add_row = gtk4::Box::new(Orientation::Horizontal, 8);
     add_row.append(&client_combo);
     add_row.append(&rule_mode);
     add_row.append(&add_btn);
-    rules_box.append(&add_row);
-    rules_box.append(&scrolled(&ui.rules_text, 220));
     {
         let ui = ui.clone();
         add_btn.connect_clicked(move |_| {
@@ -476,74 +415,205 @@ fn build(app: &Application, initial_page: Option<&str>) {
         });
     }
 
-    let backup_box = gtk4::Box::new(Orientation::Vertical, 8);
-    margin(&backup_box);
     let export_btn = gtk4::Button::with_label("Xuất cấu hình ra JSON…");
     let import_btn = gtk4::Button::with_label("Nhập cấu hình từ JSON…");
-    let btns = gtk4::Box::new(Orientation::Horizontal, 8);
-    btns.append(&export_btn);
-    btns.append(&import_btn);
-    backup_box.append(&btns);
-    backup_box.append(&label(
-        "JSON chứa cấu hình, gõ tắt và từ điển — dùng để sao lưu hoặc chuyển máy.",
-    ));
 
-    let about = gtk4::Box::new(Orientation::Vertical, 4);
+    let general = gtk4::Box::new(Orientation::Vertical, 6);
+    section(&general, "Gõ tiếng Việt", "Bật hoặc tắt bộ gõ");
+    general.append(&card(vec![pref_row(
+        "Bật tiếng Việt",
+        "Khi tắt, phím gõ thẳng; gõ tắt vẫn chạy nếu bật ở tab Gõ tắt",
+        &ui.enabled,
+    )]));
+    section(&general, "Hiển thị & bảng mã", "Chế độ gõ và bảng mã xuất ra ứng dụng");
+    general.append(&card(vec![
+        pref_row(
+            "Hiển thị",
+            "8 chế độ; uinput cần /dev/uinput, trên GNOME Wayland tự về Gạch chân",
+            &ui.mode,
+        ),
+        pref_row("Kiểu gõ", "Telex, VNI, VIQR, Microsoft layout", &ui.method),
+        pref_row("Bảng mã", "Unicode và 10 bảng mã cũ", &ui.charset),
+    ]));
+    section(&general, "Khác", "Phím tắt và chẩn đoán");
+    general.append(&card(vec![
+        pref_row("Phím tắt đổi chế độ", "Ví dụ Control+Alt+v — để trống là chưa gán", &ui.hotkey),
+        pref_row(
+            "Ghi log gỡ lỗi",
+            "Ghi quyết định của engine vào ~/.cache/ibus-mangrs/debug.log",
+            &ui.debug_log,
+        ),
+    ]));
+    hint(
+        &general,
+        "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → OFF → Gõ mặc định.",
+    );
+
+    let typing = gtk4::Box::new(Orientation::Vertical, 6);
+    section(&typing, "Dấu thanh", "Kiểu đặt dấu trên nguyên âm");
+    typing.append(&card(vec![
+        pref_row("Dấu thanh chuẩn", "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)", &ui.modern),
+        pref_row("Bỏ dấu tự do", "Dấu đặt anywhere trong từ: hoangf → hoàng", &ui.free),
+    ]));
+    section(&typing, "Chính tả", "Sửa lỗi và khôi phục từ");
+    typing.append(&card(vec![
+        pref_row(
+            "Tự sửa lỗi chính tả",
+            "Âm tiết sai được chuyển thành âm hợp lệ gần nhất",
+            &ui.auto_correct,
+        ),
+        pref_row(
+            "Khôi phục từ Anh",
+            "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
+            &ui.auto_restore,
+        ),
+        pref_row(
+            "Không bỏ dấu trong URL",
+            "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
+            &ui.bypass_url,
+        ),
+    ]));
+    section(&typing, "Ký tự đặc biệt", "Chuyển đổi phím tắt ký tự");
+    typing.append(&card(vec![
+        pref_row("W thành ư", "Tắt / trừ đầu từ / mọi vị trí", &ui.w2u),
+        pref_row("[ ] thành ơ ư", "Tắt / trừ đầu từ / mọi vị trí", &ui.bracket),
+        pref_row("Gõ -- thành —", "Hai dấu trừ liên tiếp thành gạch dài", &ui.em_dash),
+        pref_row("Tự viết hoa", "Sau . ! ? và Enter", &ui.auto_capitalize),
+        pref_row("Hai cách → chấm", "Thử nghiệm", &ui.double_space),
+    ]));
+    section(&typing, "Uinput", "Nhịp bơm phím cho Smooth / Super Smooth / Select");
+    typing.append(&card(vec![
+        pref_row("Nhịp bơm phím (ms)", "Chữ/commit · backspace · sau từ", &pacing),
+        pref_row(
+            "Kênh gửi từ tiếng Việt",
+            "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
+            &ui.unicode_channel,
+        ),
+    ]));
+
+    let macro_box = gtk4::Box::new(Orientation::Vertical, 6);
+    section(&macro_box, "Gõ tắt", "Mở rộng cụm tắt thành câu đầy đủ");
+    macro_box.append(&card(vec![
+        pref_row("Bật gõ tắt", "Khóa gõ tắt mở rộng ở cuối từ", &ui.macro_enabled),
+        pref_row(
+            "Viết hoa gõ tắt",
+            "Khóa viết hoa → nội dung viết hoa theo",
+            &ui.capitalize_macro,
+        ),
+        pref_row("Gõ tắt khi OFF", "Vẫn mở rộng khi tiếng Việt đang tắt", &ui.macro_in_off_mode),
+        pref_row("Định dạng giờ ($TIME)", "Ví dụ %H:%M", &ui.time_format),
+        pref_row("Định dạng ngày ($DATE)", "Ví dụ %d/%m/%Y", &ui.date_format),
+    ]));
+    section(&macro_box, "Bảng gõ tắt", "Mỗi dòng: khóa= Nội dung ($TIME, $DATE)");
+    macro_box.append(&card_widget(&scrolled(&ui.macro_text, 180)));
+
+    let dict_box = gtk4::Box::new(Orientation::Vertical, 6);
+    section(&dict_box, "Từ điển của tôi", "Từ trong từ điển không bị khôi phục về chuỗi phím");
+    dict_box.append(&card(vec![pref_row(
+        "Bật từ điển",
+        "Đọc từ ~/.config/ibus-mangrs/dictionary.txt",
+        &ui.dictionary_enabled,
+    )]));
+    dict_box.append(&card_widget(&scrolled(&ui.dictionary_text, 220)));
+
+    let rules_box = gtk4::Box::new(Orientation::Vertical, 6);
+    section(
+        &rules_box,
+        "Luật theo ứng dụng",
+        "Mỗi dòng: tên-ứng-dụng=chế độ (nonpreedit, preedit, surrounding, smooth, supersmooth, select, off, defaulttyping)",
+    );
+    rules_box.append(&card_widget(&add_row));
+    rules_box.append(&card_widget(&scrolled(&ui.rules_text, 220)));
+
+    let backup_box = gtk4::Box::new(Orientation::Vertical, 6);
+    section(
+        &backup_box,
+        "Sao lưu & khôi phục",
+        "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng",
+    );
+    backup_box.append(&card(vec![
+        pref_row("Xuất cấu hình ra JSON", "Lưu ra file để mang đi", &export_btn),
+        pref_row("Nhập cấu hình từ JSON", "Đọc lại từ file đã xuất", &import_btn),
+    ]));
+
+    let about = gtk4::Box::new(Orientation::Vertical, 6);
     about.set_halign(gtk4::Align::Center);
     about.set_valign(gtk4::Align::Start);
-    about.set_margin_top(24);
-    about.set_margin_bottom(24);
+    about.set_margin_top(28);
 
     // Logo is embedded at compile time: the GUI has no installed asset dir.
     const LOGO: &[u8] = include_bytes!("../data/logo-no-bg.png");
     let logo = gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(LOGO)).ok();
     if let Some(texture) = &logo {
         let image = gtk4::Image::from_paintable(Some(texture));
-        image.set_pixel_size(192);
+        image.set_pixel_size(160);
         about.append(&image);
     }
 
     let name = gtk4::Label::new(Some("MăngRS"));
-    name.add_css_class("title-2");
+    name.add_css_class("title-1");
+    name.set_halign(gtk4::Align::Center);
     about.append(&name);
 
-    let tagline = label("Bộ gõ tiếng Việt cho IBus — Rust + bamboo-core");
+    let headline = gtk4::Label::new(Some(concat!(
+        "Phiên bản ",
+        env!("CARGO_PKG_VERSION"),
+        " • IBus Engine"
+    )));
+    headline.add_css_class("title-4");
+    headline.set_halign(gtk4::Align::Center);
+    about.append(&headline);
+
+    let tagline = label("Bộ gõ tiếng Việt cho lập trình viên và mọi ứng dụng — Rust + bamboo-core");
     tagline.add_css_class("dim-label");
+    tagline.set_halign(gtk4::Align::Center);
     about.append(&tagline);
 
-    let version = label(concat!("Phiên bản ", env!("CARGO_PKG_VERSION")));
-    version.add_css_class("dim-label");
-    about.append(&version);
+    section(&about, "Đặc điểm nổi bật", "");
+    about.append(&card(vec![
+        info_row(
+            "input-keyboard",
+            "8 chế độ hiển thị",
+            "Preedit, Non-preedit, Surrounding + 3 mode uinput, OFF, Gõ mặc định",
+        ),
+        info_row(
+            "applications-internet",
+            "URL & từ điển thông minh",
+            "Từ sau / : @ . giữ nguyên; kiểm tra chính tả với 38 350 từ",
+        ),
+        info_row(
+            "view-grid",
+            "App Rules theo ứng dụng",
+            "Mỗi ứng dụng một chế độ — đổi bằng menu, hotkey hoặc cửa sổ này",
+        ),
+        info_row(
+            "text-editor",
+            "Gõ tắt & macro",
+            "$TIME/$DATE, viết hoa thông minh, không kích hoạt nhầm từ Việt thật",
+        ),
+    ]));
 
-    about.append(&spacer(8));
-    about.append(&label("Tác giả: fundoku"));
-    about.append(&link_button(
-        "github.com/fundokukiri/ibus-mangrs",
-        "https://github.com/fundokukiri/ibus-mangrs",
-    ));
-    about.append(&spacer(8));
+    section(&about, "Thông tin dự án", "");
+    about.append(&card(vec![
+        pref_row(
+            "Mã nguồn GitHub",
+            "github.com/fundokukiri/ibus-mangrs",
+            &link_button("Mở", "https://github.com/fundokukiri/ibus-mangrs"),
+        ),
+        info_row("avatar-default", "Tác giả", "fundoku"),
+        info_row(
+            "help-about",
+            "Giấy phép",
+            "MIT — mã nguồn mở, chi tiết trong LICENSE và NOTICE.md",
+        ),
+        info_row(
+            "starred",
+            "Credits",
+            "Lõi gõ bamboo-core (MIT); từ điển Free Vietnamese Dictionary Project (dữ liệu GPL)",
+        ),
+    ]));
 
-    let license = label(
-        "Giấy phép MIT — mã nguồn mở, miễn phí sử dụng, sao chép và sửa đổi.\n\
-         Chi tiết: LICENSE và NOTICE.md trong kho nguồn.",
-    );
-    about.append(&license);
-
-    let credits = label(
-        "Lõi gõ: bamboo-core (MIT), kế thừa thuật toán ibus-bamboo.\n\
-         Từ điển chính tả: Free Vietnamese Dictionary Project (dữ liệu GPL).",
-    );
-    credits.add_css_class("dim-label");
-    about.append(&credits);
-
-    // Modern settings layout: icon navigation on the left, one scrolled,
-    // width-clamped page per section on the right, crossfading in a stack.
-    let stack = gtk4::Stack::new();
-    stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
-    stack.set_vexpand(true);
-    stack.set_hexpand(true);
-    // Static page table (stack name, title, themed icon); the widget boxes
-    // are positionally aligned with it.
+    // Content: one scrolled, width-clamped page per section, crossfading.
     const PAGES: [(&str, &str, &str); 7] = [
         ("general", "Chung", "preferences-system"),
         ("typing", "Kiểu gõ", "input-keyboard"),
@@ -555,66 +625,53 @@ fn build(app: &Application, initial_page: Option<&str>) {
     ];
     let page_boxes: [&gtk4::Box; 7] =
         [&general, &typing, &macro_box, &dict_box, &rules_box, &backup_box, &about];
-    for ((name, title, _icon), content) in PAGES.iter().zip(page_boxes) {
-        // Centered content column, the settings-app look on any GTK theme.
+    let stack = gtk4::Stack::new();
+    stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
+    stack.set_vexpand(true);
+    stack.set_hexpand(true);
+    for ((name, title, icon), content) in PAGES.iter().zip(page_boxes) {
         let clamp = gtk4::Box::new(Orientation::Vertical, 0);
         clamp.set_halign(gtk4::Align::Center);
         clamp.set_valign(gtk4::Align::Start);
-        clamp.set_width_request(520);
-        clamp.set_margin_top(12);
-        clamp.set_margin_bottom(18);
+        clamp.set_width_request(620);
+        clamp.set_margin_top(14);
+        clamp.set_margin_bottom(20);
         clamp.append(content);
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
         scroll.set_child(Some(&clamp));
         stack.add_titled(&scroll, Some(name), title);
+        stack.page(&scroll).set_icon_name(icon);
     }
-
-    let nav = gtk4::ListBox::new();
-    nav.add_css_class("navigation-sidebar");
-    nav.set_vexpand(true);
-    let mut first_row: Option<gtk4::ListBoxRow> = None;
-    for (_, title, icon) in PAGES {
-        let row = gtk4::ListBoxRow::new();
-        let h = gtk4::Box::new(Orientation::Horizontal, 10);
-        let img = gtk4::Image::from_icon_name(icon);
-        img.set_pixel_size(16);
-        h.append(&img);
-        h.append(&gtk4::Label::new(Some(title)));
-        row.set_child(Some(&h));
-        nav.append(&row);
-        if first_row.is_none() {
-            first_row = Some(row);
-        }
-    }
-    {
-        let stack = stack.clone();
-        nav.connect_row_selected(move |_, row| {
-            let Some(row) = row else { return };
-            let idx = row.index() as usize;
-            if let Some((name, _, _)) = PAGES.get(idx) {
-                stack.set_visible_child_name(name);
-            }
-        });
-    }
-
-    let body = gtk4::Box::new(Orientation::Horizontal, 0);
-    body.append(&nav);
-    body.append(&gtk4::Separator::new(Orientation::Vertical));
-    body.append(&stack);
 
     let window = ApplicationWindow::builder()
         .application(app)
         .title("MăngRS")
-        .default_width(760)
-        .default_height(580)
-        .child(&body)
+        .default_width(860)
+        .default_height(640)
+        .child(&stack)
         .build();
 
-    // Row shaping (rounded, padded, floating) for the navigation list.
+    // Header: logo at the start, the page switcher as the title.
+    let header = gtk4::HeaderBar::new();
+    if let Some(texture) = &logo {
+        let mark = gtk4::Image::from_paintable(Some(texture));
+        mark.set_pixel_size(24);
+        header.pack_start(&mark);
+    }
+    let switcher = gtk4::StackSwitcher::new();
+    switcher.set_stack(Some(&stack));
+    header.set_title_widget(Some(&switcher));
+    window.set_titlebar(Some(&header));
+
+    // Open a specific page when spawned with `--page=<name>` (menu items).
+    stack.set_visible_child_name(initial_page.unwrap_or("general"));
+
+    // Grouped-card look, theme-agnostic (alpha over currentColor adapts to
+    // light/dark without libadwaita).
     let css = gtk4::CssProvider::new();
     css.load_from_data(
-        ".navigation-sidebar > row { padding: 5px 10px; margin: 2px 6px; border-radius: 8px; }",
+        ".group-card { background: alpha(currentColor, 0.06); border-radius: 12px; }",
     );
     if let Some(display) = gtk4::gdk::Display::default() {
         gtk4::style_context_add_provider_for_display(
@@ -624,33 +681,6 @@ fn build(app: &Application, initial_page: Option<&str>) {
         );
     }
 
-    // Open a specific page when spawned with `--page=<name>` (menu items);
-    // selecting the row drives the stack through the row-selected handler.
-    let wanted = initial_page.unwrap_or("general");
-    stack.set_visible_child_name(wanted);
-    let selected = PAGES
-        .iter()
-        .position(|(name, _, _)| *name == wanted)
-        .and_then(|idx| nav.row_at_index(idx as i32))
-        .or(first_row);
-    if let Some(row) = selected {
-        nav.select_row(Some(&row));
-    }
-
-    // Custom header bar with the logo; with a CSD titlebar the window keeps
-    // the desktop's own controls while carrying the app identity.
-    let header = gtk4::HeaderBar::new();
-    let header_title = gtk4::Box::new(Orientation::Horizontal, 8);
-    if let Some(texture) = &logo {
-        let mark = gtk4::Image::from_paintable(Some(texture));
-        mark.set_pixel_size(24);
-        header_title.append(&mark);
-    }
-    let header_label = gtk4::Label::new(Some("MăngRS"));
-    header_label.add_css_class("title-3");
-    header_title.append(&header_label);
-    header.set_title_widget(Some(&header_title));
-    window.set_titlebar(Some(&header));
 
     {
         let ui_for_save = ui.clone();
@@ -844,34 +874,99 @@ fn label(text: &str) -> gtk4::Label {
     l
 }
 
-/// Vertical breathing room inside a box.
-fn spacer(height: i32) -> gtk4::Box {
-    let s = gtk4::Box::new(Orientation::Vertical, 0);
-    s.set_height_request(height);
-    s
-}
-
 /// A link that opens in the default browser.
 fn link_button(label_text: &str, uri: &str) -> gtk4::LinkButton {
     gtk4::LinkButton::builder().label(label_text).uri(uri).build()
 }
 
-fn margin(box_: &gtk4::Box) {
-    box_.set_margin_top(16);
-    box_.set_margin_bottom(16);
-    box_.set_margin_start(16);
-    box_.set_margin_end(16);
-    box_.set_spacing(8);
+
+/// Section header: bold title + small dim subtitle.
+fn section(box_: &gtk4::Box, title: &str, subtitle: &str) {
+    let t = gtk4::Label::new(Some(title));
+    t.add_css_class("title-4");
+    t.set_halign(gtk4::Align::Start);
+    t.set_margin_top(8);
+    box_.append(&t);
+    if !subtitle.is_empty() {
+        let s = gtk4::Label::new(None);
+        s.set_markup(&format!(
+            "<small>{}</small>",
+            gtk4::glib::markup_escape_text(subtitle)
+        ));
+        s.add_css_class("dim-label");
+        s.set_halign(gtk4::Align::Start);
+        s.set_wrap(true);
+        box_.append(&s);
+    }
 }
 
-fn row(label_text: &str, widget: &impl IsA<gtk4::Widget>) -> gtk4::Box {
-    let row = gtk4::Box::new(Orientation::Horizontal, 12);
-    let text = gtk4::Label::new(Some(label_text));
-    text.set_hexpand(true);
-    text.set_halign(gtk4::Align::Start);
-    row.append(&text);
-    row.append(widget);
-    row
+/// A grouped card: rows separated by hairline separators, rounded background.
+fn card(rows: Vec<gtk4::Box>) -> gtk4::Box {
+    let c = gtk4::Box::new(Orientation::Vertical, 0);
+    c.add_css_class("group-card");
+    for (i, r) in rows.iter().enumerate() {
+        if i > 0 {
+            c.append(&gtk4::Separator::new(Orientation::Horizontal));
+        }
+        c.append(r);
+    }
+    c
+}
+
+/// A card holding a single control (text views, the quick-add row).
+fn card_widget(widget: &impl IsA<gtk4::Widget>) -> gtk4::Box {
+    let c = gtk4::Box::new(Orientation::Vertical, 0);
+    c.add_css_class("group-card");
+    c.append(widget);
+    c
+}
+
+/// A settings row: title + small dim subtitle on the left, control right.
+fn pref_row(title: &str, subtitle: &str, widget: &impl IsA<gtk4::Widget>) -> gtk4::Box {
+    let h = gtk4::Box::new(Orientation::Horizontal, 12);
+    h.set_margin_start(14);
+    h.set_margin_end(14);
+    h.set_margin_top(10);
+    h.set_margin_bottom(10);
+    let v = gtk4::Box::new(Orientation::Vertical, 2);
+    v.set_valign(gtk4::Align::Center);
+    v.set_hexpand(true);
+    let t = gtk4::Label::new(Some(title));
+    t.set_xalign(0.0);
+    t.set_wrap(true);
+    v.append(&t);
+    if !subtitle.is_empty() {
+        let sub = gtk4::Label::new(None);
+        sub.set_markup(&format!(
+            "<small>{}</small>",
+            gtk4::glib::markup_escape_text(subtitle)
+        ));
+        sub.add_css_class("dim-label");
+        sub.set_xalign(0.0);
+        sub.set_wrap(true);
+        v.append(&sub);
+    }
+    h.append(&v);
+    widget.set_valign(gtk4::Align::Center);
+    h.append(widget);
+    h
+}
+
+/// Like `pref_row` but with a leading themed icon and no control — used for
+/// the feature/project lists on the About page.
+fn info_row(icon: &str, title: &str, subtitle: &str) -> gtk4::Box {
+    let img = gtk4::Image::from_icon_name(icon);
+    img.set_pixel_size(16);
+    img.set_valign(gtk4::Align::Center);
+    let h = gtk4::Box::new(Orientation::Horizontal, 12);
+    h.set_margin_start(14);
+    h.set_margin_end(14);
+    h.set_margin_top(10);
+    h.set_margin_bottom(10);
+    h.append(&img);
+    let inner = pref_row(title, subtitle, &gtk4::Box::new(Orientation::Horizontal, 0));
+    h.append(&inner);
+    h
 }
 
 fn hint(box_: &gtk4::Box, text: &str) {
