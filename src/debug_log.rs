@@ -27,6 +27,11 @@ pub fn log(msg: &str) {
         return;
     }
     let Some(path) = log_path() else { return };
+    if let Some(parent) = path.parent() {
+        // the cache dir may not exist (cleaned ~/.cache); without it the
+        // append fails silently and diagnosis loses the log
+        let _ = std::fs::create_dir_all(parent);
+    }
     let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
         return;
     };

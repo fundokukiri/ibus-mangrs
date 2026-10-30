@@ -356,20 +356,32 @@ impl BambooWrapper {
     /// `hoàng` -> `hòa` moves the tone. When that happens the caller cannot
     /// replay a plain deletion; it must replace the whole word instead.
     pub fn backspace(&mut self) -> Option<Edit> {
-        if !self.enabled {
+        if !self.enabled || self.raw.is_empty() {
             return None;
         }
-        let old = self.engine.output_str().to_string();
-        let old_len = old.chars().count();
-        if old_len == 0 {
-            return None;
-        }
+        let old = self.output();
+        // Vietnamese IME convention (unikey): Backspace undoes the last typed
+        // KEY and the word recomposes from the remaining raw keys — removing
+        // a tone key removes the tone, removing a letter removes its letter
+        // ("mười" -> "mươi" -> "mườ"; retyping "if" gives "mười" back).
+        // Re-feeding the keys also keeps bamboo's transform stack consistent:
+        // remove_last_output_char left it stale, so a later key resurfaced
+        // hidden transforms nondeterministically ("toool"+BS stayed "tool",
+        // retype-after-BS corrupted marks — open-questions #9/#10).
         self.raw.pop();
-        self.engine.remove_last_output_char();
+        self.engine.reset();
+        for c in self.raw.chars() {
+            let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
+        }
         let new = self.engine.output_str().to_string();
+        self.output_override = None;
         self.last_output = new.clone();
+        // undo_in_word stays: the raw keys may still contain the undo
+        // sequence ("tooo"), so the poison guard must keep watching this word
+        let old_len = old.chars().count();
+        let new_len = new.chars().count();
         if old.starts_with(&new) {
-            Some(Edit { delete_chars: old_len - new.chars().count(), insert: String::new() })
+            Some(Edit { delete_chars: old_len - new_len, insert: String::new() })
         } else {
             Some(Edit { delete_chars: old_len, insert: new })
         }
@@ -572,17 +584,56 @@ mod tests {
     }
 
     #[test]
-    fn backspace_rewrites_when_the_tone_moves() {
-        // Removing 'n' from "hoàn" moves the tone onto the next vowel, so the
-        // new word is not a prefix of the old one and a plain delete would
-        // leave the stale "hoà" on screen.
+    fn backspace_undoes_the_last_key_like_unikey() {
+        // unikey convention: Backspace pops the last raw KEY and the word
+        // recomposes — removing the tone key drops the tone, removing a
+        // letter shortens the word ("hoàng" -> "hoang" -> "hoan" -> "hoa").
         let mut w = wrapper(Method::Telex);
         type_str(&mut w, "hoangf");
         assert_eq!(w.output(), "hoàng");
+        assert_eq!(
+            w.backspace(),
+            Some(Edit { delete_chars: 5, insert: "hoang".into() })
+        );
+        assert_eq!(w.output(), "hoang");
         assert_eq!(w.backspace(), Some(Edit { delete_chars: 1, insert: String::new() }));
-        assert_eq!(w.output(), "hoàn");
-        assert_eq!(w.backspace(), Some(Edit { delete_chars: 4, insert: "hòa".into() }));
-        assert_eq!(w.output(), "hòa");
+        assert_eq!(w.output(), "hoan");
+        assert_eq!(w.backspace(), Some(Edit { delete_chars: 1, insert: String::new() }));
+        assert_eq!(w.output(), "hoa");
+    }
+
+    #[test]
+    fn backspace_rebuild_keeps_later_keys_clean() {
+        // The poison class behind open-questions #9/#10: with
+        // remove_last_output_char the stack went stale and a later key
+        // resurfaced hidden transforms ("toool"+BS stayed "tool",
+        // "muowif"+BS+BS+"if" became "mừi", "hieeur"+BS+BS+"u" became "hiu").
+        // {b} stands for one backspace.
+        for (keys, expected) in [
+            ("toool", "tool"),
+            ("toool{b}", "too"),
+            ("toool{b}l", "tool"),
+            ("muowif{b}{b}if", "mười"),
+            ("hieeur{b}{b}u", "hiêu"),
+        ] {
+            let mut w = wrapper(Method::Telex);
+            let mut keys = keys.chars().peekable();
+            while let Some(c) = keys.next() {
+                if c == '{' {
+                    let mut name = String::new();
+                    for nc in keys.by_ref() {
+                        if nc == '}' { break; }
+                        name.push(nc);
+                    }
+                    assert_eq!(name, "b");
+                    w.backspace();
+                } else {
+                    w.process_char(c);
+                }
+            }
+            let got = w.output();
+            assert_eq!(got, expected, "keys={keys:?}");
+        }
     }
 
     #[test]
