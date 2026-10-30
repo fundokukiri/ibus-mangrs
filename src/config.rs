@@ -346,15 +346,20 @@ impl Config {
         dirs::config_dir().map(|d| d.join("ibus-mangrs").join("config.toml"))
     }
 
-    /// Copy a pre-rename `unikey/config.toml` next to the new file, once.
-    /// The old file is left alone so a downgrade still finds its settings.
+    /// Copy a pre-rename `unikey`/`r-unikey` config.toml next to the new
+    /// file, once. The old file is left alone so a downgrade still finds
+    /// its settings.
     fn migrate_old_config() {
         let Some(dir) = dirs::config_dir() else { return };
         let new = dir.join("ibus-mangrs").join("config.toml");
-        let old = dir.join("unikey").join("config.toml");
-        if new.exists() || !old.exists() {
+        if new.exists() {
             return;
         }
+        let old = ["unikey", "r-unikey"]
+            .iter()
+            .map(|name| dir.join(name).join("config.toml"))
+            .find(|path| path.exists());
+        let Some(old) = old else { return };
         if let Some(parent) = new.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
