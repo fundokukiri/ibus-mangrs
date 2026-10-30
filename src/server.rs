@@ -452,6 +452,10 @@ fn register_properties(config: &Config, out: &mut Vec<Message>) {
 /// ignored — honoring them makes the last sibling of the group always win
 /// (`VIQR` for the method menu, `preedit` for the display menu).
 fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<Message>) {
+    if name == ibus_prop::KEY_ABOUT {
+        open_repo_page();
+        return;
+    }
     if name == ibus_prop::KEY_SHORTCUTS {
         open_settings();
         return;
@@ -549,6 +553,17 @@ fn open_settings() {
     let Ok(exe) = std::env::current_exe() else { return };
     let _ = std::process::Command::new(exe)
         .arg("-gui")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+/// Open the project's GitHub repository in the default browser (the
+/// "MăngRS <version>" entry at the top of the menu).
+fn open_repo_page() {
+    let _ = std::process::Command::new("xdg-open")
+        .arg(ibus_prop::HOMEPAGE)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

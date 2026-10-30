@@ -28,6 +28,9 @@ pub const TYPE_SEPARATOR: u32 = 4;
 pub const STATE_UNCHECKED: u32 = 0;
 pub const STATE_CHECKED: u32 = 1;
 
+/// Project homepage — must match `data/ibus-mangrs.xml`.
+pub const HOMEPAGE: &str = "https://github.com/fundokukiri/ibus-mangrs";
+
 pub const KEY_ABOUT: &str = "about";
 pub const KEY_SHORTCUTS: &str = "shortcuts";
 pub const KEY_SPELL_CHECK: &str = "spell_check";
@@ -223,8 +226,11 @@ pub fn properties(config: &Config) -> Vec<Prop> {
         Prop::toggle(KEY_DOUBLE_SPACE, "Hai dấu cách thành dấu chấm", config.double_space_period),
     ];
 
+    let mut about = Prop::normal(KEY_ABOUT, format!("MăngRS {}", env!("CARGO_PKG_VERSION")));
+    about.tooltip = "Mở trang GitHub của MăngRS".into();
+
     vec![
-        Prop::normal(KEY_ABOUT, format!("MăngRS {}", env!("CARGO_PKG_VERSION"))),
+        about,
         Prop::separator(),
         Prop::toggle(KEY_ENABLED, "Bật tiếng Việt", config.enabled),
         Prop::menu(KEY_CHARSET, "Bảng mã", charset_items),
