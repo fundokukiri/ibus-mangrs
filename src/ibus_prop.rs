@@ -223,7 +223,7 @@ pub fn properties(config: &Config) -> Vec<Prop> {
         Prop::toggle(KEY_FREE_TONE, "Bỏ dấu tự do", config.free_tone_marking),
         Prop::toggle(KEY_MODERN_TONE, "Dấu thanh chuẩn", config.modern_tone_style),
         Prop::toggle(KEY_HIDE_UNDERLINE, "Ẩn gạch chân khi gõ", config.hide_underline),
-        Prop::toggle(KEY_AUTO_RESTORE, "Khôi phục từ Anh", config.auto_restore),
+        Prop::toggle(KEY_AUTO_RESTORE, "Khôi phục T.Anh", config.auto_restore),
         Prop::toggle(KEY_EM_DASH, "Gõ -- thành —", config.em_dash),
         Prop::toggle(KEY_DOUBLE_SPACE, "Hai cách → chấm", config.double_space_period),
     ];
