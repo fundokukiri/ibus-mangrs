@@ -24,5 +24,9 @@ package() {
         "$pkgdir/usr/lib/ibus-mangrs/ibus-engine-ibus-mangrs"
     install -Dm644 data/ibus-mangrs.xml \
         "$pkgdir/usr/share/ibus/component/ibus-mangrs.xml"
+    install -Dm644 data/80-uinput.rules \
+        "$pkgdir/usr/lib/udev/rules.d/80-uinput.rules"
+    install -Dm644 data/vn-words.txt \
+        "$pkgdir/usr/share/ibus-mangrs/vn-words.txt"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

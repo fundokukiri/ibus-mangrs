@@ -97,6 +97,11 @@ pub const MODES: &[(&str, &str)] = &[
     ("nonpreedit", "Không gạch chân"),
     ("preedit", "Gạch chân (preedit)"),
     ("surrounding", "Surrounding text"),
+    ("smooth", "Smooth (uinput)"),
+    ("supersmooth", "Super Smooth (uinput)"),
+    ("select", "Select (uinput)"),
+    ("off", "OFF"),
+    ("defaulttyping", "Gõ mặc định"),
 ];
 
 /// One item in the engine's property list.

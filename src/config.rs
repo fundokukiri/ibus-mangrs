@@ -53,6 +53,15 @@ pub struct Config {
     pub cycle_mode_hotkey: String,
     /// Send preedit without the underline attribute (app support permitting).
     pub hide_underline: bool,
+    /// Uinput pacing: gap between injected text/commit steps (ms).
+    pub commit_interval_ms: u64,
+    /// Uinput pacing: gap between injected Backspace keys (ms).
+    pub backspace_interval_ms: u64,
+    /// Uinput pacing: idle time after a rewrite before more typing (ms).
+    pub post_delay_ms: u64,
+    /// How the Vietnamese word reaches the app in the uinput modes:
+    /// `commit` = IBus CommitText, `clipboard` = clipboard paste (Ctrl+V).
+    pub unicode_channel: UnicodeChannel,
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
@@ -66,6 +75,18 @@ pub struct Config {
 pub struct AppRule {
     pub pattern: String,
     pub mode: ModeConfig,
+}
+
+/// Channel for Vietnamese text in the uinput modes (`unicode_channel`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UnicodeChannel {
+    /// IBus `CommitText` — safe everywhere, does not touch the clipboard.
+    #[default]
+    Commit,
+    /// Set the clipboard to the word, paste with injected Ctrl+V, restore the
+    /// clipboard afterwards. Works in apps that read raw keys (games).
+    Clipboard,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -134,6 +155,19 @@ pub enum ModeConfig {
     /// verifies the text before the cursor against what it believes it
     /// committed and repairs drift (dropped deletes, manual edits).
     Surrounding,
+    /// Smooth (uinput): raw keys are forwarded while typing; at word end the
+    /// latin tail is erased with real Backspace keys and the Vietnamese word
+    /// is committed. Falls back to Preedit where injection is impossible.
+    Smooth,
+    /// Smooth without the pre-rewrite verification (minimum latency).
+    SuperSmooth,
+    /// Select (uinput): Shift+Left selects the typed tail, Delete erases it,
+    /// then the Vietnamese word is committed. Needs a surrounding-text report.
+    Select,
+    /// Vietnamese processing off, but macros and auto-capitalize still run.
+    Off,
+    /// The engine is inert: every key is forwarded, no processing at all.
+    DefaultTyping,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -191,6 +225,11 @@ impl From<ModeConfig> for Mode {
             ModeConfig::NonPreedit => Mode::NonPreedit,
             ModeConfig::Preedit => Mode::Preedit,
             ModeConfig::Surrounding => Mode::Surrounding,
+            ModeConfig::Smooth => Mode::Smooth,
+            ModeConfig::SuperSmooth => Mode::SuperSmooth,
+            ModeConfig::Select => Mode::Select,
+            ModeConfig::Off => Mode::Off,
+            ModeConfig::DefaultTyping => Mode::DefaultTyping,
         }
     }
 }
@@ -201,6 +240,11 @@ impl From<Mode> for ModeConfig {
             Mode::NonPreedit => ModeConfig::NonPreedit,
             Mode::Preedit => ModeConfig::Preedit,
             Mode::Surrounding => ModeConfig::Surrounding,
+            Mode::Smooth => ModeConfig::Smooth,
+            Mode::SuperSmooth => ModeConfig::SuperSmooth,
+            Mode::Select => ModeConfig::Select,
+            Mode::Off => ModeConfig::Off,
+            Mode::DefaultTyping => ModeConfig::DefaultTyping,
         }
     }
 }
@@ -269,6 +313,11 @@ impl ModeConfig {
             ModeConfig::NonPreedit => "nonpreedit",
             ModeConfig::Preedit => "preedit",
             ModeConfig::Surrounding => "surrounding",
+            ModeConfig::Smooth => "smooth",
+            ModeConfig::SuperSmooth => "supersmooth",
+            ModeConfig::Select => "select",
+            ModeConfig::Off => "off",
+            ModeConfig::DefaultTyping => "defaulttyping",
         }
     }
 
@@ -277,6 +326,11 @@ impl ModeConfig {
             "nonpreedit" | "non-preedit" => ModeConfig::NonPreedit,
             "preedit" => ModeConfig::Preedit,
             "surrounding" => ModeConfig::Surrounding,
+            "smooth" => ModeConfig::Smooth,
+            "supersmooth" | "super-smooth" | "super_smooth" => ModeConfig::SuperSmooth,
+            "select" => ModeConfig::Select,
+            "off" => ModeConfig::Off,
+            "defaulttyping" | "default-typing" | "default_typing" => ModeConfig::DefaultTyping,
             _ => return None,
         })
     }
@@ -335,6 +389,10 @@ impl Default for Config {
             dictionary_enabled: false,
             cycle_mode_hotkey: String::new(),
             hide_underline: false,
+            commit_interval_ms: 20,
+            backspace_interval_ms: 5,
+            post_delay_ms: 10,
+            unicode_channel: UnicodeChannel::Commit,
             debug_log: false,
             app_rules: default_app_rules(),
         }

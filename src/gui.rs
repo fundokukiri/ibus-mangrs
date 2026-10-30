@@ -29,7 +29,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 const METHODS: &[&str] = &["Telex", "VNI", "VIQR", "Microsoft layout"];
-const MODES: &[&str] = &["Không gạch chân", "Gạch chân (preedit)", "Surrounding text"];
+const MODES: &[&str] = &[
+    "Không gạch chân",
+    "Gạch chân (preedit)",
+    "Surrounding text",
+    "Smooth (uinput)",
+    "Super Smooth (uinput)",
+    "Select (uinput)",
+    "OFF",
+    "Gõ mặc định",
+];
 const CHARSETS: &[&str] = &[
     "Unicode",
     "Unicode tổ hợp",
@@ -44,6 +53,7 @@ const CHARSETS: &[&str] = &[
     "Vietware Full",
 ];
 const ON_OFF_MODES: &[&str] = &["Tắt", "Trừ đầu từ", "Mọi vị trí"];
+const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
 
 struct Ui {
     enabled: Switch,
@@ -70,6 +80,10 @@ struct Ui {
     dictionary_text: TextView,
     rules_text: TextView,
     debug_log: Switch,
+    commit_interval: Entry,
+    backspace_interval: Entry,
+    post_delay: Entry,
+    unicode_channel: DropDown,
 }
 
 fn method_index(m: MethodConfig) -> u32 {
@@ -86,6 +100,11 @@ fn mode_index(m: ModeConfig) -> u32 {
         ModeConfig::NonPreedit => 0,
         ModeConfig::Preedit => 1,
         ModeConfig::Surrounding => 2,
+        ModeConfig::Smooth => 3,
+        ModeConfig::SuperSmooth => 4,
+        ModeConfig::Select => 5,
+        ModeConfig::Off => 6,
+        ModeConfig::DefaultTyping => 7,
     }
 }
 
@@ -130,6 +149,11 @@ impl Ui {
         config.mode = match self.mode.selected() {
             1 => ModeConfig::Preedit,
             2 => ModeConfig::Surrounding,
+            3 => ModeConfig::Smooth,
+            4 => ModeConfig::SuperSmooth,
+            5 => ModeConfig::Select,
+            6 => ModeConfig::Off,
+            7 => ModeConfig::DefaultTyping,
             _ => ModeConfig::NonPreedit,
         };
         config.charset = match self.charset.selected() {
@@ -170,6 +194,14 @@ impl Ui {
         config.time_format = self.time_format.text().trim().to_string();
         config.date_format = self.date_format.text().trim().to_string();
         config.dictionary_enabled = self.dictionary_enabled.is_active();
+        config.commit_interval_ms = self.commit_interval.text().trim().parse().unwrap_or(20);
+        config.backspace_interval_ms =
+            self.backspace_interval.text().trim().parse().unwrap_or(5);
+        config.post_delay_ms = self.post_delay.text().trim().parse().unwrap_or(10);
+        config.unicode_channel = match self.unicode_channel.selected() {
+            1 => crate::config::UnicodeChannel::Clipboard,
+            _ => crate::config::UnicodeChannel::Commit,
+        };
         config
     }
 
@@ -286,6 +318,18 @@ fn build(app: &Application) {
             .join("\n"),
     );
     let debug_log = Switch::builder().active(config.debug_log).build();
+    let commit_interval =
+        Entry::builder().text(config.commit_interval_ms.to_string()).width_chars(6).build();
+    let backspace_interval =
+        Entry::builder().text(config.backspace_interval_ms.to_string()).width_chars(6).build();
+    let post_delay = Entry::builder().text(config.post_delay_ms.to_string()).width_chars(6).build();
+    let unicode_channel = drop_down(
+        CHANNELS,
+        match config.unicode_channel {
+            crate::config::UnicodeChannel::Clipboard => 1,
+            crate::config::UnicodeChannel::Commit => 0,
+        },
+    );
 
     let ui = Rc::new(Ui {
         enabled,
@@ -312,6 +356,10 @@ fn build(app: &Application) {
         dictionary_text,
         rules_text,
         debug_log,
+        commit_interval,
+        backspace_interval,
+        post_delay,
+        unicode_channel,
     });
 
     // --- tabs ---
@@ -327,7 +375,14 @@ fn build(app: &Application) {
         &general,
         "Ghi log gỡ lỗi: ghi quyết định của bộ gõ vào ~/.cache/ibus-mangrs/debug.log để báo lỗi.",
     );
-    hint(&general, "Đổi chế độ: Không gạch chân → Gạch chân → Surrounding text.");
+    hint(
+        &general,
+        "Đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → OFF → Gõ mặc định.",
+    );
+    hint(
+        &general,
+        "Smooth/Super Smooth/Select cần quyền ghi /dev/uinput; ở app relay (mutter) hoặc terminal không hỗ trợ sẽ tự fallback về Gạch chân.",
+    );
 
     let typing = gtk4::Box::new(Orientation::Vertical, 8);
     margin(&typing);
@@ -340,6 +395,19 @@ fn build(app: &Application) {
     typing.append(&row("Gõ -- thành —", &ui.em_dash));
     typing.append(&row("Tự viết hoa sau . ! ?", &ui.auto_capitalize));
     typing.append(&row("Hai dấu cách thành dấu chấm", &ui.double_space));
+    let pacing = gtk4::Box::new(Orientation::Horizontal, 8);
+    pacing.append(&gtk4::Label::new(Some("Khoảng cách bơm phím (ms): chữ/commit")));
+    pacing.append(&ui.commit_interval);
+    pacing.append(&gtk4::Label::new(Some("backspace")));
+    pacing.append(&ui.backspace_interval);
+    pacing.append(&gtk4::Label::new(Some("sau từ")));
+    pacing.append(&ui.post_delay);
+    typing.append(&pacing);
+    typing.append(&row("Kênh gửi từ tiếng Việt (uinput)", &ui.unicode_channel));
+    hint(
+        &typing,
+        "Chỉ dùng cho các chế độ uinput (Smooth, Super Smooth, Select). Mặc định 20/5/10 ms; Clipboard hoạt động cả trong app đọc phím trực tiếp (game) nhưng sẽ tạm đè clipboard.",
+    );
 
     let macro_box = gtk4::Box::new(Orientation::Vertical, 8);
     margin(&macro_box);
@@ -360,8 +428,8 @@ fn build(app: &Application) {
     let rules_box = gtk4::Box::new(Orientation::Vertical, 8);
     margin(&rules_box);
     rules_box.append(&label(
-        "Mỗi dòng: tên-ứng-dụng=chế độ (nonpreedit | preedit | surrounding).\n\
-         Ví dụ: sublime_text=surrounding — khớp theo tên tiến trình, không phân biệt hoa thường.",
+        "Mỗi dòng: tên-ứng-dụng=chế độ. Chế độ: nonpreedit, preedit, surrounding, smooth,\n\
+         supersmooth, select, off, defaulttyping — khớp theo tên tiến trình, không phân biệt hoa thường.",
     ));
     // Quick add: pick a client the engine has seen, pick a mode, add.
     let client_combo = gtk4::ComboBoxText::new();
@@ -369,7 +437,10 @@ fn build(app: &Application) {
         client_combo.append_text(&name);
     }
     client_combo.set_active(Some(0));
-    let rule_mode = drop_down(&["nonpreedit", "preedit", "surrounding"], 0);
+    let rule_mode = drop_down(
+        &crate::ibus_prop::MODES.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
+        1, // preedit first in the menu, keep the quick-add default consistent
+    );
     let add_btn = gtk4::Button::with_label("Thêm luật");
     let add_row = gtk4::Box::new(Orientation::Horizontal, 8);
     add_row.append(&client_combo);
@@ -381,11 +452,10 @@ fn build(app: &Application) {
         let ui = ui.clone();
         add_btn.connect_clicked(move |_| {
             let Some(name) = client_combo.active_text().map(|s| s.to_string()) else { return };
-            let mode = match rule_mode.selected() {
-                1 => "preedit",
-                2 => "surrounding",
-                _ => "nonpreedit",
+            let Some((key, _)) = crate::ibus_prop::MODES.get(rule_mode.selected() as usize) else {
+                return;
             };
+            let mode = *key;
             let mut text = text_of(&ui.rules_text);
             if !text.is_empty() && !text.ends_with('\n') {
                 text.push('\n');

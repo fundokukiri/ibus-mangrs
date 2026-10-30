@@ -21,5 +21,7 @@ pub mod ibus_prop;
 pub mod ibus_text;
 pub mod keymap;
 pub mod macros;
+pub mod paste;
 pub mod server;
+pub mod spellcheck;
 pub mod uinput;
