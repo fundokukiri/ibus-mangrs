@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  IBus component for MăngRS.
+  Installed by scripts/install.sh to /usr/share/ibus/component/ibus-mangrs.xml,
+  with the binary at /usr/lib/ibus-mangrs/ibus-engine-ibus-mangrs.
+-->
+<component>
+    <name>org.freedesktop.IBus.mangrs</name>
+    <description>MăngRS - Vietnamese input engine</description>
+    <exec>/usr/lib/ibus-mangrs/ibus-engine-ibus-mangrs --ibus</exec>
+    <version>0.1.0</version>
+    <author>fundoku</author>
+    <license>MIT</license>
+    <homepage>https://github.com/fundokukiri/ibus-mangrs</homepage>
+    <textdomain>ibus-mangrs</textdomain>
+    <engines>
+        <engine>
+            <symbol>vi</symbol>
+            <name>ibus-mangrs</name>
+            <language>vi</language>
+            <license>MIT</license>
+            <author>fundoku</author>
+            <layout>default</layout>
+            <longname>MăngRS</longname>
+            <description>MăngRS - Vietnamese input engine</description>
+            <setup>/usr/lib/ibus-mangrs/ibus-engine-ibus-mangrs -gui</setup>
+            <rank>1</rank>
+        </engine>
+    </engines>
+</component>
+
