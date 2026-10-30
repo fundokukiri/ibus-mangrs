@@ -1,0 +1,39 @@
+[package]
+name = "ibus-mangrs"
+version = "0.1.0"
+edition = "2021"
+authors = ["fundoku"]
+description = "MăngRS - Vietnamese IBus engine built on bamboo-core (make by fundoku with agents coding)"
+license = "MIT"
+
+[lib]
+name = "ibus_mangrs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ibus-engine-ibus-mangrs"
+path = "src/main.rs"
+
+[dependencies]
+bamboo-core = "0.5.3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+dbus = "0.9.12"
+dirs = "6"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+signal-hook = "0.3"
+toml = "0.8"
+
+[features]
+default = []
+gui = ["dep:gtk4"]
+
+[dependencies.gtk4]
+version = "0.9"
+optional = true
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
