@@ -572,22 +572,18 @@ fn build(app: &Application, initial_page: Option<&str>) {
     section(&about, "Đặc điểm nổi bật", "");
     about.append(&card(vec![
         info_row(
-            "input-keyboard",
             "8 chế độ hiển thị",
             "Preedit, Non-preedit, Surrounding + 3 mode uinput, OFF, Gõ mặc định",
         ),
         info_row(
-            "applications-internet",
             "URL & từ điển thông minh",
             "Từ sau / : @ . giữ nguyên; kiểm tra chính tả với 38 350 từ",
         ),
         info_row(
-            "view-grid",
             "App Rules theo ứng dụng",
             "Mỗi ứng dụng một chế độ — đổi bằng menu, hotkey hoặc cửa sổ này",
         ),
         info_row(
-            "text-editor",
             "Gõ tắt & macro",
             "$TIME/$DATE, viết hoa thông minh, không kích hoạt nhầm từ Việt thật",
         ),
@@ -600,28 +596,26 @@ fn build(app: &Application, initial_page: Option<&str>) {
             "github.com/fundokukiri/ibus-mangrs",
             &link_button("Mở", "https://github.com/fundokukiri/ibus-mangrs"),
         ),
-        info_row("avatar-default", "Tác giả", "fundoku"),
+        info_row("Tác giả", "fundoku"),
         info_row(
-            "help-about",
             "Giấy phép",
             "MIT — mã nguồn mở, chi tiết trong LICENSE và NOTICE.md",
         ),
         info_row(
-            "starred",
             "Credits",
             "Lõi gõ bamboo-core (MIT); từ điển Free Vietnamese Dictionary Project (dữ liệu GPL)",
         ),
     ]));
 
     // Content: one scrolled, width-clamped page per section, crossfading.
-    const PAGES: [(&str, &str, &str); 7] = [
-        ("general", "Chung", "preferences-system"),
-        ("typing", "Kiểu gõ", "input-keyboard"),
-        ("macros", "Gõ tắt", "text-editor"),
-        ("dictionary", "Từ điển", "accessories-dictionary"),
-        ("apps", "Ứng dụng", "view-grid"),
-        ("backup", "Dự phòng", "document-save"),
-        ("about", "Giới thiệu", "help-about"),
+    const PAGES: [(&str, &str); 7] = [
+        ("general", "Chung"),
+        ("typing", "Kiểu gõ"),
+        ("macros", "Gõ tắt"),
+        ("dictionary", "Từ điển"),
+        ("apps", "Ứng dụng"),
+        ("backup", "Dự phòng"),
+        ("about", "Giới thiệu"),
     ];
     let page_boxes: [&gtk4::Box; 7] =
         [&general, &typing, &macro_box, &dict_box, &rules_box, &backup_box, &about];
@@ -629,7 +623,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
     stack.set_hexpand(true);
-    for ((name, title, icon), content) in PAGES.iter().zip(page_boxes) {
+    for ((name, title), content) in PAGES.iter().zip(page_boxes) {
         let clamp = gtk4::Box::new(Orientation::Vertical, 0);
         clamp.set_halign(gtk4::Align::Center);
         clamp.set_valign(gtk4::Align::Start);
@@ -641,14 +635,13 @@ fn build(app: &Application, initial_page: Option<&str>) {
         scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
         scroll.set_child(Some(&clamp));
         stack.add_titled(&scroll, Some(name), title);
-        stack.page(&scroll).set_icon_name(icon);
     }
 
     let window = ApplicationWindow::builder()
         .application(app)
         .title("MăngRS")
-        .default_width(860)
-        .default_height(640)
+        .default_width(720)
+        .default_height(600)
         .child(&stack)
         .build();
 
@@ -657,26 +650,18 @@ fn build(app: &Application, initial_page: Option<&str>) {
     // checked pill highlighted) — GtkStackSwitcher stacks icon over label
     // and cannot match the reference layout.
     let header = gtk4::HeaderBar::new();
-    if let Some(texture) = &logo {
-        let mark = gtk4::Image::from_paintable(Some(texture));
-        mark.set_pixel_size(24);
-        header.pack_start(&mark);
-    }
-    let pillbar = gtk4::Box::new(Orientation::Horizontal, 6);
-    pillbar.set_halign(gtk4::Align::Center);
-    let mut group: Option<gtk4::CheckButton> = None;
-    let mut pills: Vec<(String, gtk4::CheckButton)> = Vec::new();
-    for (name, title, icon) in PAGES {
-        let pill = gtk4::CheckButton::new();
-        pill.set_group(group.as_ref());
-        group = Some(pill.clone());
-        let h = gtk4::Box::new(Orientation::Horizontal, 8);
-        let img = gtk4::Image::from_icon_name(icon);
-        img.set_pixel_size(16);
-        h.append(&img);
+    let pillbar = gtk4::Box::new(Orientation::Horizontal, 4);
+    pillbar.set_hexpand(true);
+    let mut pills: Vec<(String, gtk4::ToggleButton)> = Vec::new();
+    for (name, title) in PAGES {
+        let pill = gtk4::ToggleButton::new();
+        pill.set_has_frame(false);
+        let h = gtk4::Box::new(Orientation::Horizontal, 0);
+        h.set_halign(gtk4::Align::Center);
         h.append(&gtk4::Label::new(Some(title)));
         pill.set_child(Some(&h));
         pill.add_css_class("nav-pill");
+        pill.set_hexpand(true);
         let stack = stack.clone();
         let target = name.to_string();
         pill.connect_toggled(move |pill| {
@@ -703,9 +688,9 @@ fn build(app: &Application, initial_page: Option<&str>) {
     // light/dark without libadwaita).
     let css = gtk4::CssProvider::new();
     css.load_from_data(
-        ".group-card { background: alpha(currentColor, 0.06); border-radius: 12px; } \
-         .nav-pill { border-radius: 10px; padding: 7px 16px; min-height: 0; background: none; } \
-         .nav-pill > check { -gtk-icon-source: none; background: none; border: none; padding: 0; min-height: 0; min-width: 0; } \
+        "window { font-family: \"Adwaita Sans\", \"Cantarell\", sans-serif; } \
+         .group-card { background: alpha(currentColor, 0.06); border-radius: 12px; } \
+         .nav-pill { border-radius: 10px; padding: 7px 10px; min-height: 0; background: none; margin: 0 2px; } \
          .nav-pill:checked { background: alpha(currentColor, 0.10); } \
          .nav-pill label { font-weight: bold; }",
     );
@@ -988,21 +973,10 @@ fn pref_row(title: &str, subtitle: &str, widget: &impl IsA<gtk4::Widget>) -> gtk
     h
 }
 
-/// Like `pref_row` but with a leading themed icon and no control — used for
-/// the feature/project lists on the About page.
-fn info_row(icon: &str, title: &str, subtitle: &str) -> gtk4::Box {
-    let img = gtk4::Image::from_icon_name(icon);
-    img.set_pixel_size(16);
-    img.set_valign(gtk4::Align::Center);
-    let h = gtk4::Box::new(Orientation::Horizontal, 12);
-    h.set_margin_start(14);
-    h.set_margin_end(14);
-    h.set_margin_top(10);
-    h.set_margin_bottom(10);
-    h.append(&img);
-    let inner = pref_row(title, subtitle, &gtk4::Box::new(Orientation::Horizontal, 0));
-    h.append(&inner);
-    h
+/// Like `pref_row` but without a control — used for the feature/project
+/// lists on the About page.
+fn info_row(title: &str, subtitle: &str) -> gtk4::Box {
+    pref_row(title, subtitle, &gtk4::Box::new(Orientation::Horizontal, 0))
 }
 
 fn hint(box_: &gtk4::Box, text: &str) {
