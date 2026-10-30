@@ -89,6 +89,10 @@ pub const BACKSPACE: u32 = XK_BACKSPACE;
 pub const RETURN: u32 = XK_RETURN;
 pub const ESCAPE: u32 = XK_ESCAPE;
 pub const TAB: u32 = XK_TAB;
+/// Keysyms the uinput modes inject and must recognise as their own echoes.
+pub const LEFT: u32 = XK_LEFT;
+pub const DELETE: u32 = XK_DELETE;
+pub const V: u32 = 0x0076; // lowercase v (the Ctrl+V paste echo)
 
 #[cfg(test)]
 mod tests {
