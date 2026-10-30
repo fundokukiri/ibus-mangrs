@@ -243,8 +243,9 @@ impl EngineHandler {
                 let config = Config::load();
                 debug_log::set_enabled(config.debug_log);
                 debug_log::log(&format!("focus-in client={:?}", engine.client()));
-                engine.apply_config(&config);
+                let actions = engine.apply_config(&config);
                 engine.set_enabled(config.enabled);
+                emit(&mut engine, &actions, out);
                 // The panel shows the menu; rebuild it from the saved config so
                 // radio/toggle check marks survive engine restarts.
                 register_properties(&config, out);
@@ -360,8 +361,9 @@ impl EngineHandler {
         }
         {
             let mut engine = self.engine.lock().unwrap();
-            engine.apply_config(&config);
+            let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
+            emit(&mut engine, &actions, out);
         }
         self.last_config_mtime = Config::path().and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
@@ -382,8 +384,9 @@ impl EngineHandler {
             let config = Config::load();
             debug_log::set_enabled(config.debug_log);
             let mut engine = self.engine.lock().unwrap();
-            engine.apply_config(&config);
+            let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
+            emit(&mut engine, &actions, out);
             register_properties(&config, out);
         }
     }
@@ -474,8 +477,9 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
         if config.save().is_err() {
             return;
         }
-        engine.apply_config(&config);
+        let actions = engine.apply_config(&config);
         engine.set_enabled(config.enabled);
+        emit(engine, &actions, out);
         // Radios need their whole group resent so the old one loses the check.
         update_group(&ibus_prop::properties(&config), group, out);
         return;
@@ -506,8 +510,9 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
     if config.save().is_err() {
         return;
     }
-    engine.apply_config(&config);
+    let actions = engine.apply_config(&config);
     engine.set_enabled(config.enabled);
+    emit(engine, &actions, out);
     update_group(&ibus_prop::properties(&config), name, out);
 }
 
