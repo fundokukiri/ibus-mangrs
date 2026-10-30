@@ -4,10 +4,13 @@ MăngRS is MIT-licensed. It depends on the following crates; their licenses are 
 
 ## bamboo-core 0.5.3 — MIT
 
-Copyright (C) 2018 Luong Thanh Lam <ltlam93@gmail.com>
-Copyright (C) 2024 nguien <nguyen10t2lhp@gmail.com>
+**Author:** nguien (nguyen10t2) <nguyen10t2lhp@gmail.com>  
+**GitHub:** https://github.com/nguyen10t2  
+**Project:** bamboo-core — A high-performance Vietnamese input method engine core written in Rust.
 
-The Vietnamese input logic (Telex/VNI/VIQR parsing, tone placement, syllable validation) comes from `bamboo-core`. Its full MIT text is in the crate (`LICENSE` in the `bamboo-core` package). MăngRS does not copy source from `ibus-bamboo` (GPLv3); it only links this MIT library.
+`bamboo-core` is a Rust rewrite/extraction of the Vietnamese input logic (Telex/VNI/VIQR parsing, tone placement, syllable validation) originally developed for **ibus-bamboo** by **Luong Thanh Lam** <ltlam93@gmail.com> (GitHub: https://github.com/luongthanhlam). The original ibus-bamboo is a full IBus engine written in Go, licensed GPLv3.
+
+`bamboo-core` relicenses the core Vietnamese input algorithm under MIT, making it usable as a library. MăngRS links `bamboo-core` (MIT) instead of copying `ibus-bamboo` (GPLv3) to avoid license incompatibility. The full MIT license text for `bamboo-core` is in the crate (`LICENSE` file in the `bamboo-core` package).
 
 ## Other Dependencies
 
