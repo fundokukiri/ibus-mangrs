@@ -6,8 +6,8 @@
 
 | Chế độ | Mô tả |
 |--------|-------|
-| **NonPreedit** (mặc định) | Không gạch chân; commit từng phím và viết lại (rewrite) đuôi văn bản bằng `DeleteSurroundingText` |
-| **Preedit** | Hiển thị composition có gạch chân dưới ứng dụng; commit khi gặp terminator |
+| **Preedit** (mặc định) | Hiển thị composition có gạch chân dưới ứng dụng; commit khi gặp terminator |
+| **NonPreedit** | Không gạch chân; commit từng phím và viết lại (rewrite) đuôi văn bản bằng `DeleteSurroundingText` |
 | **Surrounding** | NonPreedit + kiểm tra `SetSurroundingText` để sửa chữa drift (delete bị bỏ, edit thủ công) |
 
 ---
@@ -133,7 +133,7 @@ server.rs: emit(engine, actions, out)
 out: Vec<Message> (signals) → send(conn, msg) → IBus daemon → app
 ```
 
-### 3. Luồng NonPreedit (mặc định)
+### 3. Luồng NonPreedit
 
 ```text
 User types: t i e e n g s
@@ -279,7 +279,7 @@ fn may_inject(&self) -> bool {
 ```toml
 enabled = true
 method = "telex"        # telex | vni | viqr | microsoft
-mode = "preedit"        # nonpreedit | preedit | surrounding
+mode = "preedit"        # nonpreedit | preedit | surrounding (default: preedit)
 charset = "unicode"     # 11 charsets
 modern_tone_style = true
 free_tone_marking = true
@@ -346,7 +346,7 @@ ADDR=$(grep -o 'unix:path=[^,]*' ~/.config/ibus/bus/*)
 M() { gdbus call --address "$ADDR" --dest org.freedesktop.IBus.mangrs \
       --object-path /org/freedesktop/IBus/Engine/1 \
       --method "org.freedesktop.IBus.Engine.$1" "${@:2}"; }
-M SetCapabilities "uint32 41"
+M SetCapabilities "uint32 41"                       # PREEDIT|FOCUS|SURROUNDING
 M FocusInId "/org/freedesktop/IBus/InputContext_9" "gtk4-im:chrome"
 M ProcessKeyEvent "uint32 116" "uint32 0" "uint32 0"  # 't'
 ```
