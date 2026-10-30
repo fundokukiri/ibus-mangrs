@@ -9,7 +9,7 @@ Vietnamese Input Method for IBus, written in Rust on [`bamboo-core`](https://cra
 - Arch Linux (tested) or distro with IBus ≥ 1.5
 - `ibus`, `gtk4` (for settings window)
 - Rust ≥ 1.75 to build
-- `/dev/uinput` readable/writable for real Backspace key injection (udev rule included in install: `/etc/udev/rules.d/80-uinput.rules` + `input` group); without it engine falls back to protocol delete for clients with surrounding text, while other clients won't be able to type marks.
+- `/dev/uinput` readable/writable for real Backspace key injection (manual one-time setup: udev rule `/etc/udev/rules.d/80-uinput.rules` + `input` group — see `docs/install.md`); without it engine falls back to protocol delete for clients with surrounding text, while other clients won't be able to type marks.
 
 ## Build
 
@@ -95,7 +95,7 @@ Driving the engine via `gdbus` (string arguments must be `'like-this'`) and read
 - `src/ibus_prop.rs` — IBus property menu encoding
 - `src/config.rs` — TOML shared by engine + GUI
 - `src/gui.rs` — GTK4 6 tabs (feature `gui`)
-- `CLAUDE.md` — detailed architecture + "IBus protocol facts" (not public)
+- `CLAUDE.md` — pointer to `AGENTS.md` (agent working rules, not public)
 
 ## License
 
