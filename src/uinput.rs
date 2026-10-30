@@ -177,10 +177,10 @@ mod tests {
         // Needs /dev/uinput readable+writable (udev rule 80-uinput.rules).
         // Without it the engine falls back to the protocol delete, so a
         // sandbox/CI without the device is not a code failure. Set
-        // R_UNIKEY_REQUIRE_UINPUT=1 to enforce the hardware check.
+        // MANGRS_REQUIRE_UINPUT=1 to enforce the hardware check.
         match Uinput::open() {
             Some(_) => eprintln!("uinput: OK"),
-            None if std::env::var_os("R_UNIKEY_REQUIRE_UINPUT").is_some() => {
+            None if std::env::var_os("MANGRS_REQUIRE_UINPUT").is_some() => {
                 panic!("uinput device could not be opened (check /dev/uinput permissions)")
             }
             None => eprintln!("uinput: SKIP (no writable /dev/uinput)"),

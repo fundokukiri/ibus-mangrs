@@ -194,8 +194,24 @@ impl Engine {
     }
 
     /// Apply the on-disk config: input method, tone style, free marking,
-    /// display features, macros, dictionary and per-app rules.
-    pub fn apply_config(&mut self, config: &Config) {
+    /// display features, macros, dictionary and per-app rules. Returns the
+    /// actions needed to keep a visible composition alive: the rebuild and
+    /// mode switch below swap the bamboo engine underneath it, so a pending
+    /// word must be committed first or it silently disappears (config
+    /// hot-reload or a menu change mid-word).
+    pub fn apply_config(&mut self, config: &Config) -> Vec<Action> {
+        let mut actions = Vec::new();
+        let pending = self.wrapper.output().to_string();
+        if self.preedit_commit_pending() {
+            if std::mem::take(&mut self.preedit_visible) {
+                actions.push(Action::HidePreedit);
+            }
+            actions.push(Action::Commit(encode(self.charset, &pending)));
+            self.wrapper.reset();
+            self.tail.clear();
+            self.repair_delete = None;
+            self.release_word_mode();
+        }
         let (method, mode) = config.engine_settings();
         let mut rebuilt = self.wrapper.set_config(config.bamboo_config());
         rebuilt |= self.wrapper.set_method(method);
@@ -217,6 +233,7 @@ impl Engine {
         self.hide_underline = config.hide_underline;
         self.set_mode(mode);
         self.set_charset(config.charset.into());
+        actions
     }
 
     pub fn set_mode(&mut self, mode: Mode) {
@@ -1367,11 +1384,13 @@ mod tests {
 
     #[test]
     fn backspace_then_tone_key_rewrites_correctly() {
+        // unikey convention: the Backspace undoes the last KEY — here the
+        // tone key "s" — and retyping it restores the word.
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
         let mut actions = type_str(&mut e, "tieengs"); // tiếng
-        actions.extend(e.backspace().expect("backspace")); // tiến
-        e.set_surrounding("tiến".into(), 4);
-        actions.extend(e.process_char('g'));
+        actions.extend(e.backspace().expect("backspace")); // tiêng
+        e.set_surrounding("tiêng".into(), 5);
+        actions.extend(e.process_char('s'));
         assert_eq!(replay(&actions), "tiếng");
     }
 
@@ -1390,13 +1409,12 @@ mod tests {
 
     #[test]
     fn backspace_replays_when_the_tone_moves() {
-        // bamboo-core moves the tone onto an earlier vowel as letters are
-        // removed; the actions must leave the application with the new word,
-        // not the old word minus its last char.
+        // unikey convention: each Backspace pops the last raw KEY and the
+        // word recomposes ("hoàng" -> "hoang" -> "hoan" -> "hoa").
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
         let mut actions = type_str(&mut e, "hoangf");
         assert_eq!(replay(&actions), "hoàng");
-        for expected in ["hoàn", "hòa", "hò"] {
+        for expected in ["hoang", "hoan", "hoa"] {
             actions.extend(e.backspace().expect("backspace"));
             e.set_surrounding(expected.to_string(), expected.chars().count() as u32);
             assert_eq!(replay(&actions), expected);
@@ -2234,6 +2252,42 @@ mod tests {
         assert!(e.reset().contains(&Action::Commit("tung".into())));
     }
 
+    #[test]
+    fn apply_config_commits_visible_preedit_instead_of_dropping_it() {
+        // A config hot-reload (mode cycle between test rounds, GUI menu
+        // change) rebuilds the bamboo engine underneath a pending preedit.
+        // The rebuild must commit the word that is on screen first, or the
+        // last word of a preedit round disappears ("...và" lost "mùa").
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT);
+        for c in "muaf".chars() {
+            e.process_char(c);
+        }
+        // any config change forces the wrapper rebuild (mode switch does too)
+        let mut config = Config::default();
+        config.free_tone_marking = !config.free_tone_marking;
+        let actions = e.apply_config(&config);
+        assert!(actions.contains(&Action::Commit("mùa".into())), "{actions:?}");
+        // composition is gone afterwards, so a second apply must not re-commit
+        assert!(e.apply_config(&Config::default()).is_empty());
+    }
+
+    #[test]
+    fn apply_config_mode_switch_commits_pending_preedit() {
+        // Changing only the display mode mid-word (the cycle hotkey / the
+        // test tool's config rewrite) must also commit, not drop, the word.
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT);
+        for c in "muaf".chars() {
+            e.process_char(c);
+        }
+        let config = Config { mode: Mode::NonPreedit.into(), ..Config::default() };
+        let actions = e.apply_config(&config);
+        assert!(actions.contains(&Action::Commit("mùa".into())), "{actions:?}");
+    }
+
 
     #[test]
     fn auto_restore_can_be_disabled() {
@@ -2338,6 +2392,105 @@ mod digit_probe2 {
             let rep = { let d = e2.process_key_edit(c, M::Vietnamese); (d.delete_chars, d.insert.chars().collect::<String>()) };
             let out = e2.output_str().to_string();
             println!("x+{c:?}: del={} ins={:?} out={out:?}", rep.0, rep.1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod x_probe {
+    use super::*;
+    use crate::bamboo_wrapper::Method;
+
+    /// A lone letter typed after a forwarded caret move (Home) must reach the
+    /// application exactly once in every display mode. GNOME Text Editor
+    /// renders this inconsistently (double in preedit, dropped in nonpreedit
+    /// — app-side, see open-questions #12); the engine's action stream is the
+    /// contract this test locks in.
+    #[test]
+    fn lone_letter_after_caret_move_commits_exactly_once_per_mode() {
+        for mode in [Mode::Preedit, Mode::NonPreedit, Mode::Surrounding] {
+            let mut e = Engine::new(Method::Telex, mode);
+            e.set_client(None);
+            e.set_capabilities(0b101001);
+            let mut all: Vec<Action> = Vec::new();
+            for c in "ab ".chars() {
+                all.extend(e.process_char(c));
+            }
+            all.extend(e.reset()); // Home: commit pending + the key forwards
+            all.extend(e.process_char('x'));
+            all.extend(e.process_char(' '));
+            let x_commits = all
+                .iter()
+                .filter(|a| matches!(a, Action::Commit(t) if t == "x"))
+                .count();
+            assert_eq!(x_commits, 1, "{mode:?}: {all:?}");
+            // nothing else may re-insert the letter (no second commit, and
+            // the preedit path must hide before committing)
+            assert!(
+                all.windows(2).any(|w| matches!(w, [Action::HidePreedit, Action::Commit(t)] if t == "x"))
+                    || matches!(mode, Mode::NonPreedit | Mode::Surrounding),
+                "{mode:?}: preedit must hide before committing the letter: {all:?}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod keys_workload_probe {
+    use super::*;
+    use crate::bamboo_wrapper::Method;
+
+    /// Replay test/keys-test through the engine the way the server does
+    /// (chars → process_char, Backspace → backspace(), nav/edit keys →
+    /// reset() + the key forwards) and count how many times the lone "x"
+    /// from the {home} scenario reaches the application. Exactly once per
+    /// round is the contract; the real-app runs showed 0..3.
+    #[test]
+    fn full_keys_workload_commits_the_lone_x_exactly_once_per_mode() {
+        let keys = std::fs::read_to_string("test/keys-test").expect("keys-test");
+        let mut tokens: Vec<char> = Vec::new();
+        let mut chars = keys.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '{' {
+                let mut name = String::new();
+                for nc in chars.by_ref() {
+                    if nc == '}' { break; }
+                    name.push(nc);
+                }
+                tokens.push(match name.as_str() {
+                    "backspace" => '\u{8}',
+                    "home" => '\u{1}',
+                    "end" | "delete" | "left" | "right" => '\u{1}',
+                    " " | "space" => ' ',
+                    other => panic!("token {{{other}}}"),
+                });
+            } else {
+                tokens.push(c);
+            }
+        }
+
+        for mode in [Mode::Preedit, Mode::NonPreedit, Mode::Surrounding] {
+            let mut e = Engine::new(Method::Telex, mode);
+            e.set_client(None);
+            e.set_capabilities(0b101001);
+            let mut x_commits = 0;
+            let mut all: Vec<Action> = Vec::new();
+            for t in &tokens {
+                let actions = match *t {
+                    '\u{8}' => e.backspace().unwrap_or_default(),
+                    '\u{1}' => e.reset(),
+                    c => e.process_char(c),
+                };
+                for a in &actions {
+                    if let Action::Commit(text) = a {
+                        if text.contains('x') {
+                            x_commits += 1;
+                        }
+                    }
+                }
+                all.extend(actions);
+            }
+            assert_eq!(x_commits, 1, "{mode:?}: {all:?}");
         }
     }
 }
