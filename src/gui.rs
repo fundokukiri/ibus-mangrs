@@ -652,26 +652,62 @@ fn build(app: &Application, initial_page: Option<&str>) {
         .child(&stack)
         .build();
 
-    // Header: logo at the start, the page switcher as the title.
+    // Header: logo on the left balances the window controls on the right;
+    // the title is a custom radio-pill bar (icon + label side by side,
+    // checked pill highlighted) — GtkStackSwitcher stacks icon over label
+    // and cannot match the reference layout.
     let header = gtk4::HeaderBar::new();
     if let Some(texture) = &logo {
         let mark = gtk4::Image::from_paintable(Some(texture));
         mark.set_pixel_size(24);
         header.pack_start(&mark);
     }
-    let switcher = gtk4::StackSwitcher::new();
-    switcher.set_stack(Some(&stack));
-    header.set_title_widget(Some(&switcher));
+    let pillbar = gtk4::Box::new(Orientation::Horizontal, 6);
+    pillbar.set_halign(gtk4::Align::Center);
+    let mut group: Option<gtk4::CheckButton> = None;
+    let mut pills: Vec<(String, gtk4::CheckButton)> = Vec::new();
+    for (name, title, icon) in PAGES {
+        let pill = gtk4::CheckButton::new();
+        pill.set_group(group.as_ref());
+        group = Some(pill.clone());
+        pill.set_property("draw-indicator", false);
+        let h = gtk4::Box::new(Orientation::Horizontal, 8);
+        let img = gtk4::Image::from_icon_name(icon);
+        img.set_pixel_size(16);
+        h.append(&img);
+        h.append(&gtk4::Label::new(Some(title)));
+        pill.set_child(Some(&h));
+        pill.add_css_class("nav-pill");
+        let stack = stack.clone();
+        let target = name.to_string();
+        pill.connect_toggled(move |pill| {
+            if pill.is_active() {
+                stack.set_visible_child_name(&target);
+            }
+        });
+        pills.push((name.to_string(), pill.clone()));
+        pillbar.append(&pill);
+    }
+    header.set_title_widget(Some(&pillbar));
     window.set_titlebar(Some(&header));
 
-    // Open a specific page when spawned with `--page=<name>` (menu items).
-    stack.set_visible_child_name(initial_page.unwrap_or("general"));
+    // Open a specific page when spawned with `--page=<name>` (menu items);
+    // activating the pill drives the stack through the toggled handler.
+    let wanted = initial_page.unwrap_or("general");
+    let (_, pill) = pills
+        .iter()
+        .find(|(n, _)| n == wanted)
+        .expect("initial page exists in PAGES");
+    pill.set_active(true);
 
     // Grouped-card look, theme-agnostic (alpha over currentColor adapts to
     // light/dark without libadwaita).
     let css = gtk4::CssProvider::new();
     css.load_from_data(
-        ".group-card { background: alpha(currentColor, 0.06); border-radius: 12px; }",
+        ".group-card { background: alpha(currentColor, 0.06); border-radius: 12px; } \
+         .nav-pill { border-radius: 10px; padding: 7px 16px; min-height: 0; } \
+         .nav-pill:checked { background: alpha(currentColor, 0.10); } \
+         .nav-pill label { font-weight: bold; }",
     );
     if let Some(display) = gtk4::gdk::Display::default() {
         gtk4::style_context_add_provider_for_display(
