@@ -27,6 +27,9 @@ pub struct Config {
     pub auto_correct: bool,
     /// Restore English (non-Vietnamese) words to the raw keystrokes typed.
     pub auto_restore: bool,
+    /// Keep words raw when they directly follow a URL/email/path character
+    /// (`/ : @ . _ ~ = # & % ?`) — no Vietnamese marks, no macros.
+    pub bypass_url: bool,
     /// When a plain `w` turns into `ư` (`disabled` / `nonstart` / `everywhere`).
     pub w2u: W2uConfig,
     /// When `[` `]` `{` `}` type `ơ` `ư` (`disabled` / `nonstart` / `everywhere`).
@@ -376,6 +379,7 @@ impl Default for Config {
             free_tone_marking: true,
             auto_correct: true,
             auto_restore: true,
+            bypass_url: true,
             w2u: W2uConfig::Disabled,
             bracket: BracketConfig::Disabled,
             em_dash: false,
