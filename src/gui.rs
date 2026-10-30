@@ -65,6 +65,7 @@ struct Ui {
     free: Switch,
     auto_correct: Switch,
     auto_restore: Switch,
+    bypass_url: Switch,
     w2u: DropDown,
     bracket: DropDown,
     em_dash: Switch,
@@ -175,6 +176,7 @@ impl Ui {
         config.free_tone_marking = self.free.is_active();
         config.auto_correct = self.auto_correct.is_active();
         config.auto_restore = self.auto_restore.is_active();
+        config.bypass_url = self.bypass_url.is_active();
         config.w2u = match self.w2u.selected() {
             1 => W2uConfig::NonStart,
             2 => W2uConfig::Everywhere,
@@ -283,6 +285,7 @@ fn build(app: &Application) {
     let free = Switch::builder().active(config.free_tone_marking).build();
     let auto_correct = Switch::builder().active(config.auto_correct).build();
     let auto_restore = Switch::builder().active(config.auto_restore).build();
+    let bypass_url = Switch::builder().active(config.bypass_url).build();
     let w2u = drop_down(
         ON_OFF_MODES,
         on_off_index(&config.w2u, W2uConfig::Disabled, W2uConfig::NonStart),
@@ -341,6 +344,7 @@ fn build(app: &Application) {
         free,
         auto_correct,
         auto_restore,
+        bypass_url,
         w2u,
         bracket,
         em_dash,
@@ -390,6 +394,7 @@ fn build(app: &Application) {
     typing.append(&row("Đặt dấu tự do (hoangf → hoàng)", &ui.free));
     typing.append(&row("Tự sửa lỗi chính tả", &ui.auto_correct));
     typing.append(&row("Tự khôi phục từ tiếng Anh", &ui.auto_restore));
+    typing.append(&row("Không bỏ dấu sau : / @ . _ (URL, email, đường dẫn)", &ui.bypass_url));
     typing.append(&row("W thành ư", &ui.w2u));
     typing.append(&row("Dấu ngoặc thành ơ/ư", &ui.bracket));
     typing.append(&row("Gõ -- thành —", &ui.em_dash));

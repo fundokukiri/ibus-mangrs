@@ -174,6 +174,11 @@ pub struct Engine {
     /// under the user's hands (duplicated or invisible text). Locked at the
     /// first key of a word, released when the word ends.
     word_mode: Option<Mode>,
+    /// The word being typed follows a URL/email/path character: keep it raw
+    /// until the next terminator (URL/email/path bypass).
+    url_word: bool,
+    /// Keep words raw after URL/email/path characters (`bypass_url`).
+    bypass_url: bool,
     /// The app appended suggestion text after the caret mid-word (Chrome's
     /// inline autocomplete). Its rewrite delete is dropped and repairs crash
     /// mutter, so show the following words as preedit — no delete needed.
@@ -192,6 +197,12 @@ const CAP_SURROUNDING_TEXT: u32 = 1 << 5;
 /// the same code.
 const FALLBACK_NO_DELETE_SURROUNDING: &[&str] =
     &["chrome", "chromium", "electron", "code", "brave", "msedge", "vivaldi", "slack", "discord"];
+
+/// A word typed directly after one of these characters is part of a URL,
+/// email address, file path or code (`example.com`, `a@site`, `/etc/hosts`,
+/// `get_user_id`) and must stay raw. `-` is deliberately excluded: it would
+/// break the `--` → em-dash feature.
+const URL_CONTEXT_CHARS: &[char] = &['/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?'];
 
 impl Engine {
     pub fn new(method: Method, mode: Mode) -> Self {
@@ -230,6 +241,8 @@ impl Engine {
             last_nav_inject: None,
             nav_deferred: Vec::new(),
             word_mode: None,
+            url_word: false,
+            bypass_url: true,
             suggestions: false,
             capitalize_next: false,
             commit_interval_ms: 20,
@@ -287,6 +300,8 @@ impl Engine {
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
         self.unicode_channel = config.unicode_channel;
+        self.bypass_url = config.bypass_url;
+        self.url_word = false;
         self.set_mode(mode);
         self.set_charset(config.charset.into());
         actions
@@ -792,6 +807,31 @@ impl Engine {
 
         let mode = self.key_mode();
 
+        // URL/email/path bypass: the word typed directly after one of the
+        // context characters stays raw — no marks, no macros, no
+        // auto-capitalize. The context character is the previous word's
+        // terminator, which `note_char` already recorded.
+        if !self.url_word && !self.wrapper.has_composition() {
+            self.url_word =
+                self.bypass_url && self.last_char.is_some_and(|p| URL_CONTEXT_CHARS.contains(&p));
+        }
+        if self.url_word {
+            let mut actions = Vec::new();
+            if self.preedit_visible {
+                self.preedit_visible = false;
+                actions.push(Action::HidePreedit);
+            }
+            if crate::bamboo_wrapper::is_word_terminator(c) {
+                self.url_word = false;
+                self.tail.clear();
+            } else {
+                self.tail.push(c);
+            }
+            self.note_char(c);
+            actions.push(Action::Forward);
+            return actions;
+        }
+
         // The uinput modes: the raw key goes straight to the application and
         // bamboo keeps composing internally; nothing is committed until the
         // word ends (see `process_char_smooth`). Per-key display features
@@ -894,9 +934,9 @@ impl Engine {
     /// `macro_in_off_mode` is set (the wrapper tracks the raw keys).
     fn process_char_off(&mut self, c: char) -> Vec<Action> {
         match self.wrapper.process_char(c) {
-            Outcome::Finish { raw, .. } => {
+            Outcome::Finish { raw, valid, .. } => {
                 if self.macro_enabled && self.macro_in_off_mode && !raw.is_empty() {
-                    if let Some(exp) = self.expand_macro(&raw) {
+                    if let Some(exp) = self.expand_macro(&raw, valid) {
                         let mut actions = Vec::new();
                         if !self.tail.is_empty() {
                             actions.push(Action::DeleteBefore(self.tail.chars().count() as u32));
@@ -922,8 +962,14 @@ impl Engine {
         }
     }
 
-    fn expand_macro(&self, raw: &str) -> Option<String> {
+    fn expand_macro(&self, raw: &str, valid: bool) -> Option<String> {
         if !self.macro_enabled {
+            return None;
+        }
+        // A key sequence that already forms a valid Vietnamese word is much
+        // more likely normal typing than a shorthand ("cam", "moi") — do
+        // not expand it. Shorthand keys therefore must not be valid words.
+        if valid {
             return None;
         }
         self.macros
@@ -963,7 +1009,7 @@ impl Engine {
 
         // Macros win, as in every mode: the expansion replaces the raw keys.
         if !raw.is_empty() {
-            if let Some(exp) = self.expand_macro(&raw) {
+            if let Some(exp) = self.expand_macro(&raw, valid) {
                 return self.smooth_rewrite(mode, &raw, &exp);
             }
         }
@@ -1041,7 +1087,7 @@ impl Engine {
 
         // Macros win over auto-restore.
         if !raw.is_empty() {
-            if let Some(exp) = self.expand_macro(&raw) {
+            if let Some(exp) = self.expand_macro(&raw, valid) {
                 if inline && !self.tail.is_empty() {
                     actions.push(Action::DeleteBefore(self.tail.chars().count() as u32));
                 }
@@ -1380,6 +1426,7 @@ impl Engine {
         self.tail.clear();
         self.repair_delete = None;
         self.release_word_mode();
+        self.url_word = false;
         actions
     }
 
@@ -2747,6 +2794,56 @@ mod tests {
         // The fallback checks the actual report, not just the capability.
         e.set_surrounding(String::new(), 0);
         assert_eq!(e.effective_mode(), Mode::Select);
+    }
+
+    // --- URL/email/path bypass (spell-check round, phase 2-3) ---
+
+    #[test]
+    fn url_context_keeps_words_raw() {
+        // "tieeng" right after "." and "/" would normally become "tiêng".
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        assert_eq!(type_replay(&mut e, "x.example.tieeng "), "x.example.tieeng ");
+    }
+
+    #[test]
+    fn email_context_keeps_words_raw() {
+        // "hieeu" after "@" would normally become "hiều".
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        assert_eq!(type_replay(&mut e, "a@hieeu "), "a@hieeu ");
+    }
+
+    #[test]
+    fn url_bypass_can_be_disabled() {
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.apply_config(&Config { bypass_url: false, ..Config::default() });
+        assert_eq!(type_replay(&mut e, "x.example.tieeng "), "x.example.tiêng ");
+    }
+
+    #[test]
+    fn url_bypass_releases_at_the_next_space() {
+        // The word after the URL ends must type Vietnamese again
+        // ("nhieeuf" → "nhiều" — huyền from the f).
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        assert_eq!(type_replay(&mut e, "x.tieeng nhieeuf "), "x.tieeng nhiều ");
+    }
+
+    #[test]
+    fn macro_does_not_expand_valid_vietnamese_words() {
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.macros.set_entries([("cam".to_string(), "CLIP".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "cam "), "cam ");
+        // Raw Telex for a Vietnamese word is normal typing as well.
+        e.macros.set_entries([("vieetj".to_string(), "CLIP".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "vieetj "), "việt ");
+    }
+
+    #[test]
+    fn macro_still_expands_nonvietnamese_keys_in_off_mode() {
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.apply_config(&Config { macro_in_off_mode: true, ..Config::default() });
+        e.set_enabled(false);
+        e.macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "gs "), "giờ sáng ");
     }
 
     #[test]
