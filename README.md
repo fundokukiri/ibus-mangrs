@@ -68,17 +68,6 @@ Cấu hình lưu ở `~/.config/ibus-mangrs/config.toml` — engine tự nạp l
 `ibus restart`. Chi tiết tuỳ chọn: `docs/settings.md`; chế độ hiển thị & App Rules:
 `docs/modes.md`; xử lý sự cố: `docs/troubleshooting.md`.
 
-### App Rules mặc định
-
-| Ứng dụng | Chế độ | Vì sao |
-|---|---|---|
-| Chrome/Chromium/Brave/Edge/Vivaldi, Electron apps | preedit | nhóm Chromium nuốt `DeleteSurroundingText`, preedit không cần xoá |
-| Sublime Text | surrounding | preedit bị ẩn; delete qua phím thật khi bị nuốt |
-| kgx / GNOME Console | preedit | nuốt protocol delete |
-| Khác (Firefox, gedit, …) | preedit (mặc định) | |
-
-Chỉnh trong GUI tab *Ứng dụng* — có dropdown app đã gặp.
-
 ## Gỡ lỗi
 
 Bật **"Ghi log gỡ lỗi"** trong GUI (tab *Chung*, hay `debug_log = true` trong
@@ -102,7 +91,6 @@ ibus engine ibus-mangrs
 ```
 
 Công thức lái engine qua `gdbus` (cú pháp: string phải `'kiểu-này'`) và đọc tín hiệu:
-`CLAUDE.md` — "Testing without a keyboard injector".
 
 ## Kiến trúc
 
@@ -119,4 +107,4 @@ Công thức lái engine qua `gdbus` (cú pháp: string phải `'kiểu-này'`) 
 
 ## Giấy phép
 
-MIT. Phụ thuộc `bamboo-core` (MIT) — xem `THIRD_PARTY_LICENSES.md`.
+MIT. Phụ thuộc `bamboo-core` (MIT) — xem `NOTICE.md`.
