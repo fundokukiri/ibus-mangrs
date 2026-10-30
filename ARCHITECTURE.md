@@ -1,40 +1,40 @@
-# Kiến trúc và luồng xử lý dữ liệu — ibus-mangrs
+# Architecture and Data Flow — ibus-mangrs
 
-## Tổng quan
+## Overview
 
-`ibus-mangrs` là một engine IBus (Input Method Engine) cho tiếng Việt, viết bằng Rust, chạy trên `bamboo-core`. Engine hỗ trợ 3 chế độ hiển thị chính:
+`ibus-mangrs` is a Vietnamese Input Method Engine (IME) for IBus, written in Rust on top of `bamboo-core`. The engine supports three display modes:
 
-| Chế độ | Mô tả |
-|--------|-------|
-| **Preedit** (mặc định) | Hiển thị composition có gạch chân dưới ứng dụng; commit khi gặp terminator |
-| **NonPreedit** | Không gạch chân; commit từng phím và viết lại (rewrite) đuôi văn bản bằng `DeleteSurroundingText` |
-| **Surrounding** | NonPreedit + kiểm tra `SetSurroundingText` để sửa chữa drift (delete bị bỏ, edit thủ công) |
+| Mode | Description |
+|------|-------------|
+| **Preedit** (default) | Shows inline composition with underline; commits when terminator is encountered |
+| **NonPreedit** | No underline; commits each keystroke and rewrites the tail via `DeleteSurroundingText` |
+| **Surrounding** | NonPreedit + verifies `SetSurroundingText` to repair drift (dropped deletes, manual edits) |
 
 ---
 
-## Cấu trúc thư mục (`src/`)
+## Directory Structure (`src/`)
 
 ```
 src/
 ├── lib.rs              # Module exports, layering docs
-├── main.rs             # Entry point: engine daemon hoặc -gui
+├── main.rs             # Entry point: engine daemon or -gui
 ├── server.rs           # D-Bus server: connection, IBus calls, signals
 ├── engine.rs           # State machine: key → Action (protocol-free)
-├── bamboo_wrapper.rs   # Chỉ module chạm vào bamboo-core
+├── bamboo_wrapper.rs   # Only module touching bamboo-core
 ├── macros.rs           # Macro table (macros.toml) + dictionary (dictionary.txt)
-├── config.rs           # TOML config tại ~/.config/ibus-mangrs/config.toml
-├── ibus_prop.rs        # IBusProperty/IBusPropList encoding cho menu input-source
+├── config.rs           # TOML config at ~/.config/ibus-mangrs/config.toml
+├── ibus_prop.rs        # IBusProperty/IBusPropList encoding for input-source menu
 ├── ibus_text.rs        # GVariant encode/decode IBusText/IBusAttribute
 ├── keymap.rs           # X11 keysym → char, modifier masks
-├── uinput.rs           # Virtual keyboard (/dev/uinput) cho Backspace injection
-├── debug_log.rs        # Debug log tới ~/.cache/ibus-mangrs/debug.log
+├── uinput.rs           # Virtual keyboard (/dev/uinput) for Backspace injection
+├── debug_log.rs        # Debug log to ~/.cache/ibus-mangrs/debug.log
 ├── golden.rs           # 480-case golden tests (keystroke → text)
 └── gui.rs              # GTK4 settings window (feature "gui")
 ```
 
 ---
 
-## Layering (từ ngoài vào trong)
+## Layering (outside-in)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -52,12 +52,12 @@ src/
 ┌─────────────────────────────────────────────────────────────┐
 │  engine.rs                  ← State machine, no D-Bus types │
 │  ├─ Mode resolution (AppRule, heuristic, caps)              │
-│  ├─ Word-mode lock (không đổi mode giữa từ)                 │
+│  ├─ Word-mode lock (mode doesn't change mid-word)           │
 │  ├─ on_edit: NonPreedit/Surrounding/Preedit paths           │
 │  ├─ on_finish: macro, auto-restore, commit                  │
 │  ├─ verify_surrounding: drift detection & repair            │
 │  ├─ Backspace handling (protocol vs uinput injection)       │
-│  ├─ Deferred commits (đợi Backspace echoes)                 │
+│  ├─ Deferred commits (wait for Backspace echoes)            │
 │  └─ Action emission → server.emit()                         │
 └─────────────────────────────────────────────────────────────┘
                             │
@@ -84,9 +84,9 @@ src/
 
 ---
 
-## Luồng dữ liệu chính (Data Flow)
+## Main Data Flows
 
-### 1. Khởi động engine
+### 1. Engine Startup
 
 ```text
 main()
@@ -100,7 +100,7 @@ main()
   └─ server.run()  (main loop: conn.iter(1000))
 ```
 
-### 2. Xử lý một phím (ProcessKeyEvent)
+### 2. Processing a Key (ProcessKeyEvent)
 
 ```text
 IBus daemon
@@ -113,7 +113,7 @@ server.rs: EngineHandler::handle()  (message filter)
     ▼
 engine.rs: Engine::process_char(c)
     │  ├─ key_mode()               # resolve + lock word_mode
-    │  ├─ verify_surrounding()     # drift check trước khi thay đổi
+    │  ├─ verify_surrounding()     # drift check before any change
     │  ├─ auto-capitalize
     │  └─ wrapper.process_char(c)  → Outcome
     ▼
@@ -124,8 +124,8 @@ Outcome::
     ▼
 server.rs: emit(engine, actions, out)
     │  ├─ DeleteBefore/DeleteSurrounding
-    │  │   ├─ protocol: DeleteSurroundingText (iu)  ── khi surrounding_data_ok()
-    │  │   └─ injection: Uinput::inject_backspaces() ── khi !surrounding hoặc delete_dropped
+    │  │   ├─ protocol: DeleteSurroundingText (iu)  ── when surrounding_data_ok()
+    │  │   └─ injection: Uinput::inject_backspaces() ── when !surrounding or delete_dropped
     │  ├─ CommitText(v IBusText)
     │  ├─ UpdatePreeditText(v u b u)
     │  └─ HidePreedit
@@ -133,7 +133,7 @@ server.rs: emit(engine, actions, out)
 out: Vec<Message> (signals) → send(conn, msg) → IBus daemon → app
 ```
 
-### 3. Luồng NonPreedit
+### 3. NonPreedit Flow
 
 ```text
 User types: t i e e n g s
@@ -157,25 +157,25 @@ Key 'g': wrapper → Edit{0,"g"} → emit → CommitText("g")
          tail = "tieeng"
 
 Key 's' (tone): wrapper → Edit{5,"ếng"} → emit
-         ├─ DeleteBefore(5)     # xóa "tieen"
-         └─ CommitText("ếng")   # ghi "ếng"
+         ├─ DeleteBefore(5)     # delete "tieen"
+         └─ CommitText("ếng")   # write "ếng"
          tail = "tiếng"
 ────────────────────────────────────────────────────────
-Kết quả: "tiếng" (không có underline bao giờ)
+Result: "tiếng" (never any underline)
 ```
 
-### 4. Luồng Preedit
+### 4. Preedit Flow
 
 ```text
 User types: t i e e n g s [space]
 ────────────────────────────────────────────────────────
-Mỗi key: UpdatePreeditText("tiếng", cursor=5, visible=true)
+Each key: UpdatePreeditText("tiếng", cursor=5, visible=true)
 Space (terminator): Finish{word="tiếng", raw="tieengs", valid=true}
     → on_finish → CommitText("tiếng") + Forward(space)
 ────────────────────────────────────────────────────────
 ```
 
-### 5. Luồng Surrounding (verify & repair)
+### 5. Surrounding Flow (verify & repair)
 
 ```text
 Client: SetSurroundingText("xin chào", cursor=8, anchor=8)
@@ -207,26 +207,26 @@ Client drops delete again → same drift
 
 ---
 
-## Các cơ chế quan trọng (Key Mechanisms)
+## Key Mechanisms
 
 ### Word-mode lock
-- Mode được resolve **lần đầu** khi bắt đầu từ (`key_mode()`)
-- Khóa mode đó cho toàn bộ từ (`word_mode: Option<Mode>`)
-- Giải phóng khi từ kết thúc (`Finish`) hoặc `reset()`
-- Tránh flip preedit↔non-preedit giữa từ gây duplicate/invisible text
+- Mode is resolved **once** when a word starts (`key_mode()`)
+- Locks that mode for the entire word (`word_mode: Option<Mode>`)
+- Released when word ends (`Finish`) or `reset()`
+- Prevents preedit↔non-preedit flips mid-word causing duplicate/invisible text
 
-### Deferred commits (commit trì hoãn)
-- Khi dùng **uinput injection**: Backspace keys đi qua compositor, CommitText đi D-Bus
-- Nếu commit đồng bộ → outruns Backspace → "accent flashes and reverts"
-- Giải pháp: `defer_commit(n_echoes, text)` → queue, flush khi `note_echo_forwarded()` đạt threshold
+### Deferred commits
+- When using **uinput injection**: Backspace keys go through compositor, CommitText goes D-Bus
+- If synchronous commit → outruns Backspace → "accent flashes and reverts"
+- Solution: `defer_commit(n_echoes, text)` → queue, flush when `note_echo_forwarded()` reaches threshold
 - Focus change/real key → `flush_deferred()` (force deliver)
 
 ### Delete transport selection
 ```rust
 fn deletes_allowed(&self) -> bool {
-    self.surrounding_data_ok()           // client đã report ST
-        || (self.uinput_available        // có /dev/uinput
-            && !self.injection_forbidden()) // không phải relay (gnome-shell/fake)
+    self.surrounding_data_ok()           // client has reported ST
+        || (self.uinput_available        // has /dev/uinput
+            && !self.injection_forbidden()) // not relay (gnome-shell/fake)
 }
 
 fn may_inject(&self) -> bool {
@@ -234,6 +234,7 @@ fn may_inject(&self) -> bool {
         && (self.delete_dropped || self.surrounding.is_none())
 }
 ```
+
 | Client type | surrounding_data_ok | injection_forbidden | Transport |
 |-------------|---------------------|---------------------|-----------|
 | GTK4/GTK3 (Wayland, relayed) | Yes | Yes | Protocol delete |
@@ -242,37 +243,37 @@ fn may_inject(&self) -> bool {
 | GNOME Shell search (`fake`) | No | Yes | N/A (no typing) |
 
 ### Stale SetSurroundingText classification
-`verify_surrounding` phân loại report từ client:
+`verify_surrounding` classifies client reports:
 
 1. **Healthy**: `actual` ends with `tail` → OK
 2. **Repair**: extra chars before common suffix → `DeleteSurrounding` / `RewriteByBackspace`
-3. **Rebuild**: `tail` là substring (Chrome suggestions) → `sync_from_surrounding()` (rebuild wrapper)
-4. **Stale/Ignore**: `tail` không có trong `actual` → ignore silently (trước đây tear down composition)
+3. **Rebuild**: `tail` is substring (Chrome suggestions) → `sync_from_surrounding()` (rebuild wrapper)
+4. **Stale/Ignore**: `tail` not in `actual` → ignore silently (used to tear down composition)
 
 ### Macro & Auto-restore
 - Macro: `macros.toml` (key → expansion), `$TIME`/`$DATE`, capitalize-first/all
-- Auto-restore: từ không phải tiếng Việt (invalid syllable) → restore raw keys
-- Exception: từ có `undo_in_word` (user bỏ dấu giữa từ) → KHÔNG restore
+- Auto-restore: non-Vietnamese word (invalid syllable) → restore raw keys
+- Exception: word with `undo_in_word` (user removed mark mid-word) → NO restore
 
 ---
 
-## IBus Protocol Facts (đã verify trên wire)
+## IBus Protocol Facts (verified on wire)
 
 | Fact | Detail |
 |------|--------|
-| Bus | Private bus của ibus-daemon, KHÔNG phải session bus. Connect bằng `open_private()` + `register()` |
-| CreateEngine | Return type **`o` (object path)**, không phải `s` |
-| Method reply | Phải trả lời **từ message filter** (`replace_message_callback`), return `true` để claim |
-| FocusId/ActiveSurroundingText | Trên wire là **boolean** (`g_variant_get_boolean`). Sai type → daemon warn + fallback |
-| FocusId = true | Làm daemon gửi `FocusInId(path, client)` thay vì `FocusIn` — chỉ cách biết app nào đang gõ |
-| DeleteSurroundingText | Signature **`(iu)`**: offset (signed) + count (uint), **không wrap variant** |
+| Bus | Private bus of ibus-daemon, NOT session bus. Connect with `open_private()` + `register()` |
+| CreateEngine | Return type **`o` (object path)**, not `s` |
+| Method reply | Must reply **from message filter** (`replace_message_callback`), return `true` to claim |
+| FocusId/ActiveSurroundingText | On wire are **booleans** (`g_variant_get_boolean`). Wrong type → daemon warn + fallback |
+| FocusId = true | Makes daemon send `FocusInId(path, client)` instead of `FocusIn` — only way to know which app is typing |
+| DeleteSurroundingText | Signature **`(iu)`**: offset (signed) + count (uint), **no variant wrapper** |
 | IBusText wire form | `('IBusText', @a{sv} {}, 'str', <('IBusAttrList', @a{sv} {}, [attrs])>)` |
-| PropertyActivate | GNOME Shell gửi **1 call/item** của radio group: picked=CHECKED, siblings=UNCHECKED. Phải ignore UNCHECKED |
-| RegisterProperties/UpdateProperty | Là **signals** emit từ engine object, daemon relay tới panel |
+| PropertyActivate | GNOME Shell sends **1 call/item** of radio group: picked=CHECKED, siblings=UNCHECKED. Must ignore UNCHECKED |
+| RegisterProperties/UpdateProperty | Are **signals** emitted from engine object, daemon relays to panel |
 
 ---
 
-## Cấu hình (Config)
+## Configuration (Config)
 
 **File**: `$XDG_CONFIG_HOME/ibus-mangrs/config.toml`
 
@@ -296,7 +297,7 @@ macro_in_off_mode = false
 time_format = "%H:%M"
 date_format = "%d/%m/%Y"
 dictionary_enabled = false
-cycle_mode_hotkey = ""  # ví dụ: "Control+Alt+v"
+cycle_mode_hotkey = ""  # e.g. "Control+Alt+v"
 hide_underline = false
 debug_log = false
 app_rules = [
@@ -306,32 +307,32 @@ app_rules = [
 ]
 ```
 
-**Hot-reload**: server check mtime config tối đa 1 lần/giây trên key events.
+**Hot-reload**: server checks config mtime max once per second on key events.
 
 ---
 
 ## App Rules (Per-application mode override)
 
-- Match: substring case-insensitive trên `prgname` từ `FocusInId` (`gtk4-im:chrome` → `chrome`)
+- Match: case-insensitive substring on `prgname` from `FocusInId` (`gtk4-im:chrome` → `chrome`)
 - Built-in defaults: Chrome/Electron → Preedit, Sublime → Surrounding
-- GUI cho phép quick-add từ `~/.cache/ibus-mangrs/clients` (server ghi 50 client gần nhất)
+- GUI allows quick-add from `~/.cache/ibus-mangrs/clients` (server records 50 most recent clients)
 
 ---
 
 ## uinput Virtual Keyboard
 
-- Device: `/dev/uinput` (yêu cầu udev rule, group `input`)
-- Chỉ inject **Backspace** (keycode 14)
-- Legacy path: write `struct uinput_user_dev` → `UI_DEV_CREATE` (kernel này từ chối `UI_DEV_SETUP`)
-- Timing: 10ms interval, 10ms post-delay (giống ibus-bamboo)
-- Echoes quay lại qua `ProcessKeyEvent` → `pending_injected` counter → forward untouched
+- Device: `/dev/uinput` (requires udev rule, group `input`)
+- Injects only **Backspace** (keycode 14)
+- Legacy path: write `struct uinput_user_dev` → `UI_DEV_CREATE` (this kernel rejects `UI_DEV_SETUP`)
+- Timing: 10ms interval, 10ms post-delay (same as ibus-bamboo)
+- Echoes return via `ProcessKeyEvent` → `pending_injected` counter → forwarded untouched
 
 ---
 
 ## Testing
 
 ```bash
-cargo test                    # 87 unit tests (bao gồm golden.rs 480 cases)
+cargo test                    # 133 unit tests (including golden.rs 480 cases)
 cargo clippy --all-targets
 cargo build --features gui    # GTK4 settings window
 ```
@@ -341,7 +342,7 @@ cargo build --features gui    # GTK4 settings window
 IBUS_COMPONENT_PATH=$PWD/data:/usr/share/ibus/component ibus-daemon -rx -t refresh
 ibus engine ibus-mangrs
 
-# Gọi D-Bus trực tiếp:
+# Direct D-Bus calls:
 ADDR=$(grep -o 'unix:path=[^,]*' ~/.config/ibus/bus/*)
 M() { gdbus call --address "$ADDR" --dest org.freedesktop.IBus.mangrs \
       --object-path /org/freedesktop/IBus/Engine/1 \
@@ -357,23 +358,23 @@ M ProcessKeyEvent "uint32 116" "uint32 0" "uint32 0"  # 't'
 
 - [ ] Uinput modes, Emoji Picker, Minecraft mode
 - [ ] Candidate window / lookup table
-- [ ] Per-application regex rules (chỉ substring prgname)
-- [ ] Mode Menu Hotkey (engine không thể mở panel popup)
-- [ ] Spell check dictionary riêng (hiện dùng `auto_correct` của bamboo-core)
-- [ ] Surrounding mode không sửa được drift trên client không gửi ST và không render preedit
+- [ ] Per-application regex rules (substring prgname only for now)
+- [ ] Mode Menu Hotkey (engine cannot open panel popup)
+- [ ] Separate spell-check dictionary (currently uses bamboo-core's `auto_correct`)
+- [ ] Surrounding mode cannot repair drift on clients that neither send ST nor render preedit
 
 ---
 
 ## Debug & Logging
 
 ```bash
-# Bật debug log
+# Enable debug log
 # config.toml: debug_log = true
 # Log file: ~/.cache/ibus-mangrs/debug.log
 
-# dbus-monitor để xem signals
+# dbus-monitor to watch signals
 dbus-monitor --address "$ADDR"
-# Xem: UpdatePreeditText, CommitText, DeleteSurroundingText, RegisterProperties
+# Watch: UpdatePreeditText, CommitText, DeleteSurroundingText, RegisterProperties
 ```
 
 ---
@@ -398,7 +399,7 @@ cargo build --features gui
 
 ---
 
-## Tóm tắt luồng sự kiện chính
+## Event Flow Summary
 
 ```
 ┌──────────────┐     ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
