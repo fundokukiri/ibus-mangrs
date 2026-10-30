@@ -212,19 +212,36 @@ pub fn properties(config: &Config) -> Vec<Prop> {
         Prop::toggle(KEY_SPELL_CHECK, "Kiểm tra chính tả", config.auto_correct),
         Prop::toggle(KEY_DICTIONARY, "Dùng từ điển của tôi", config.dictionary_enabled),
     ];
-    let quick = vec![
+    // GNOME sizes the popup to the widest label, so the quick settings stay
+    // short; the details live in the tooltips.
+    let mut quick = vec![
         Prop::toggle(KEY_MACROS, "Gõ tắt", config.macro_enabled),
-        Prop::toggle(KEY_AUTO_CAPITALIZE, "Tự động viết hoa sau . ! ?", config.auto_capitalize),
-        Prop::toggle(KEY_MACRO_OFF, "Gõ tắt khi tắt tiếng Việt", config.macro_in_off_mode),
+        Prop::toggle(KEY_AUTO_CAPITALIZE, "Tự viết hoa", config.auto_capitalize),
+        Prop::toggle(KEY_MACRO_OFF, "Gõ tắt khi OFF", config.macro_in_off_mode),
         Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"),
         Prop::separator(),
-        Prop::toggle(KEY_FREE_TONE, "Bỏ dấu tự do (hoangf → hoàng)", config.free_tone_marking),
-        Prop::toggle(KEY_MODERN_TONE, "Dấu thanh chuẩn (hòa thay vì hoà)", config.modern_tone_style),
+        Prop::toggle(KEY_FREE_TONE, "Bỏ dấu tự do", config.free_tone_marking),
+        Prop::toggle(KEY_MODERN_TONE, "Dấu thanh chuẩn", config.modern_tone_style),
         Prop::toggle(KEY_HIDE_UNDERLINE, "Ẩn gạch chân khi gõ", config.hide_underline),
-        Prop::toggle(KEY_AUTO_RESTORE, "Tự khôi phục từ tiếng Anh", config.auto_restore),
+        Prop::toggle(KEY_AUTO_RESTORE, "Khôi phục từ Anh", config.auto_restore),
         Prop::toggle(KEY_EM_DASH, "Gõ -- thành —", config.em_dash),
-        Prop::toggle(KEY_DOUBLE_SPACE, "Hai dấu cách thành dấu chấm", config.double_space_period),
+        Prop::toggle(KEY_DOUBLE_SPACE, "Hai cách → chấm", config.double_space_period),
     ];
+    let quick_hints = [
+        (KEY_AUTO_CAPITALIZE, "Tự động viết hoa sau . ! ? và Enter"),
+        (KEY_MACRO_OFF, "Vẫn gõ tắt khi tiếng Việt đang tắt"),
+        (KEY_FREE_TONE, "Dấu đặt anywhere trong từ: hoangf → hoàng"),
+        (KEY_MODERN_TONE, "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)"),
+        (KEY_HIDE_UNDERLINE, "Gửi preedit không kèm thuộc tính gạch chân"),
+        (KEY_AUTO_RESTORE, "Từ không phải âm tiết Việt trả về chuỗi phím gốc"),
+        (KEY_EM_DASH, "Hai dấu trừ liên tiếp thành dấu gạch dài"),
+        (KEY_DOUBLE_SPACE, "Thử nghiệm: hai dấu cách liên tiếp thành . "),
+    ];
+    for (key, hint) in quick_hints {
+        if let Some(p) = quick.iter_mut().find(|p| p.key == key) {
+            p.tooltip = hint.into();
+        }
+    }
 
     let mut about = Prop::normal(KEY_ABOUT, format!("MăngRS {}", env!("CARGO_PKG_VERSION")));
     about.tooltip = "Mở trang GitHub của MăngRS".into();
