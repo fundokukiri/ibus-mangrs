@@ -457,7 +457,7 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
         return;
     }
     if name == ibus_prop::KEY_SHORTCUTS {
-        open_settings();
+        open_settings("general");
         return;
     }
 
@@ -511,7 +511,7 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
         ibus_prop::KEY_EM_DASH => config.em_dash = checked,
         ibus_prop::KEY_DOUBLE_SPACE => config.double_space_period = checked,
         ibus_prop::KEY_MACRO_EDITOR => {
-            open_settings();
+            open_settings("macros");
             return;
         }
         _ => return,
@@ -549,10 +549,11 @@ fn push_update(prop: &Prop, out: &mut Vec<Message>) {
 }
 
 /// The "Phím tắt" item opens the GTK4 settings window, same as `-gui`.
-fn open_settings() {
+fn open_settings(page: &str) {
     let Ok(exe) = std::env::current_exe() else { return };
     let _ = std::process::Command::new(exe)
         .arg("-gui")
+        .arg(format!("--page={page}"))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

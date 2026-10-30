@@ -21,9 +21,12 @@ use crate::config::{
 use crate::macros::{Dictionary, Macros};
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    // The engine spawns us with `--page=<stack name>` to open a specific
+    // page (menu "Mở bảng gõ tắt…"); GTK parses argv itself and rejects
+    // these arguments, so read them here and hand GTK an empty argv.
+    let page = std::env::args().find_map(|a| a.strip_prefix("--page=").map(str::to_string));
     let app = Application::builder().application_id("org.freedesktop.IBus.mangrs").build();
-    app.connect_activate(build);
-    // GTK parses argv itself and rejects `-gui`; hand it an empty argv.
+    app.connect_activate(move |app| build(app, page.as_deref()));
     app.run_with_args::<&str>(&[]);
     Ok(())
 }
@@ -267,7 +270,7 @@ fn set_text(view: &TextView, text: &str) {
     view.buffer().set_text(text);
 }
 
-fn build(app: &Application) {
+fn build(app: &Application, initial_page: Option<&str>) {
     let config = Config::load();
     let macros = Macros::load();
     let dictionary = Dictionary::load();
@@ -533,45 +536,106 @@ fn build(app: &Application) {
     credits.add_css_class("dim-label");
     about.append(&credits);
 
-    // Modern settings layout: sidebar navigation + a content stack, each
-    // page scrolled independently, a header bar with the logo on top.
+    // Modern settings layout: icon navigation on the left, one scrolled,
+    // width-clamped page per section on the right, crossfading in a stack.
     let stack = gtk4::Stack::new();
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
     stack.set_hexpand(true);
-    let page_titles: [(&gtk4::Box, &str, &str); 7] = [
-        (&general, "general", "Chung"),
-        (&typing, "typing", "Kiểu gõ"),
-        (&macro_box, "macros", "Gõ tắt"),
-        (&dict_box, "dictionary", "Từ điển"),
-        (&rules_box, "apps", "Ứng dụng"),
-        (&backup_box, "backup", "Dự phòng"),
-        (&about, "about", "Giới thiệu"),
+    // Static page table (stack name, title, themed icon); the widget boxes
+    // are positionally aligned with it.
+    const PAGES: [(&str, &str, &str); 7] = [
+        ("general", "Chung", "preferences-system"),
+        ("typing", "Kiểu gõ", "input-keyboard"),
+        ("macros", "Gõ tắt", "text-editor"),
+        ("dictionary", "Từ điển", "accessories-dictionary"),
+        ("apps", "Ứng dụng", "view-grid"),
+        ("backup", "Dự phòng", "document-save"),
+        ("about", "Giới thiệu", "help-about"),
     ];
-    for (content, name, title) in page_titles {
+    let page_boxes: [&gtk4::Box; 7] =
+        [&general, &typing, &macro_box, &dict_box, &rules_box, &backup_box, &about];
+    for ((name, title, _icon), content) in PAGES.iter().zip(page_boxes) {
+        // Centered content column, the settings-app look on any GTK theme.
+        let clamp = gtk4::Box::new(Orientation::Vertical, 0);
+        clamp.set_halign(gtk4::Align::Center);
+        clamp.set_valign(gtk4::Align::Start);
+        clamp.set_width_request(520);
+        clamp.set_margin_top(12);
+        clamp.set_margin_bottom(18);
+        clamp.append(content);
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-        scroll.set_child(Some(content));
+        scroll.set_child(Some(&clamp));
         stack.add_titled(&scroll, Some(name), title);
     }
 
-    let sidebar = gtk4::StackSidebar::new();
-    sidebar.set_stack(&stack);
-    sidebar.set_size_request(160, -1);
-    sidebar.set_vexpand(true);
+    let nav = gtk4::ListBox::new();
+    nav.add_css_class("navigation-sidebar");
+    nav.set_vexpand(true);
+    let mut first_row: Option<gtk4::ListBoxRow> = None;
+    for (_, title, icon) in PAGES {
+        let row = gtk4::ListBoxRow::new();
+        let h = gtk4::Box::new(Orientation::Horizontal, 10);
+        let img = gtk4::Image::from_icon_name(icon);
+        img.set_pixel_size(16);
+        h.append(&img);
+        h.append(&gtk4::Label::new(Some(title)));
+        row.set_child(Some(&h));
+        nav.append(&row);
+        if first_row.is_none() {
+            first_row = Some(row);
+        }
+    }
+    {
+        let stack = stack.clone();
+        nav.connect_row_selected(move |_, row| {
+            let Some(row) = row else { return };
+            let idx = row.index() as usize;
+            if let Some((name, _, _)) = PAGES.get(idx) {
+                stack.set_visible_child_name(name);
+            }
+        });
+    }
 
     let body = gtk4::Box::new(Orientation::Horizontal, 0);
-    body.append(&sidebar);
+    body.append(&nav);
     body.append(&gtk4::Separator::new(Orientation::Vertical));
     body.append(&stack);
 
     let window = ApplicationWindow::builder()
         .application(app)
         .title("MăngRS")
-        .default_width(640)
-        .default_height(560)
+        .default_width(760)
+        .default_height(580)
         .child(&body)
         .build();
+
+    // Row shaping (rounded, padded, floating) for the navigation list.
+    let css = gtk4::CssProvider::new();
+    css.load_from_data(
+        ".navigation-sidebar > row { padding: 5px 10px; margin: 2px 6px; border-radius: 8px; }",
+    );
+    if let Some(display) = gtk4::gdk::Display::default() {
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &css,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+
+    // Open a specific page when spawned with `--page=<name>` (menu items);
+    // selecting the row drives the stack through the row-selected handler.
+    let wanted = initial_page.unwrap_or("general");
+    stack.set_visible_child_name(wanted);
+    let selected = PAGES
+        .iter()
+        .position(|(name, _, _)| *name == wanted)
+        .and_then(|idx| nav.row_at_index(idx as i32))
+        .or(first_row);
+    if let Some(row) = selected {
+        nav.select_row(Some(&row));
+    }
 
     // Custom header bar with the logo; with a CSD titlebar the window keeps
     // the desktop's own controls while carrying the app identity.
