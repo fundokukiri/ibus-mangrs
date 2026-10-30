@@ -1,17 +1,15 @@
 # MăngRS
 
-Bộ gõ tiếng Việt cho IBus, viết bằng Rust trên [`bamboo-core`](https://crates.io/crates/bamboo-core).
+Vietnamese Input Method for IBus, written in Rust on [`bamboo-core`](https://crates.io/crates/bamboo-core).
 
 ---
 
-## Yêu cầu
+## Requirements
 
-- Arch Linux (đã kiểm tra) hoặc distro có IBus ≥ 1.5
-- `ibus`, `gtk4` (cho cửa sổ cài đặt)
-- Rust ≥ 1.75 để build
-- `/dev/uinput` đọc/ghi được để dùng đường xoá bằng phím thật (udev rule có sẵn trong lần
-  cài: `/etc/udev/rules.d/80-uinput.rules` + nhóm `input`); thiếu nó engine tự quay về
-  protocol delete cho client có surrounding text, còn client khác sẽ không gõ được dấu.
+- Arch Linux (tested) or distro with IBus ≥ 1.5
+- `ibus`, `gtk4` (for settings window)
+- Rust ≥ 1.75 to build
+- `/dev/uinput` readable/writable for real Backspace key injection (udev rule included in install: `/etc/udev/rules.d/80-uinput.rules` + `input` group); without it engine falls back to protocol delete for clients with surrounding text, while other clients won't be able to type marks.
 
 ## Build
 
@@ -19,92 +17,86 @@ Bộ gõ tiếng Việt cho IBus, viết bằng Rust trên [`bamboo-core`](https
 cargo build --release --features gui
 ```
 
-## Cài đặt
+## Install
 
-Build + cài + restart IBus một bước:
+Build + install + restart IBus in one step:
 
 ```sh
 ./scripts/autoinstall.sh
 ```
 
-Hoặc làm thủ công:
+Or manually:
 
 ```sh
 sudo ./scripts/install.sh
 ```
 
-Script chép:
+Script copies:
 
-| File | Đích |
-|---|---|
+| File | Destination |
+|------|-------------|
 | `target/release/ibus-engine-ibus-mangrs` | `/usr/lib/ibus-mangrs/ibus-engine-ibus-mangrs` |
 | `data/ibus-mangrs.xml` | `/usr/share/ibus/component/ibus-mangrs.xml` |
 
-Rồi:
+Then:
 
 1. `ibus restart`
 2. **Settings → Keyboard → Input Sources → +** → *Vietnamese* → **MăngRS**
-   (hoặc `ibus engine ibus-mangrs`)
-3. `Super+Space` để chuyển bộ gõ
+   (or `ibus engine ibus-mangrs`)
+3. `Super+Space` to switch IME
 
-Gỡ: `sudo ./scripts/uninstall.sh` (giữ cấu hình trong `~/.config/ibus-mangrs/`).
+Uninstall: `sudo ./scripts/uninstall.sh` (keeps config in `~/.config/ibus-mangrs/`).
 
-## Sử dụng
+## Usage
 
-| Việc | Cách làm |
-|---|---|
-| Bật/tắt tiếng Việt | Menu input source → *Bật tiếng Việt*, hoặc `Super+Space` |
-| Mở cửa sổ cài đặt | Menu input source → *Phím tắt…*, hoặc `ibus-engine-ibus-mangrs -gui` |
-| Đổi kiểu gõ | Menu → *Kiểu gõ* (Telex / VNI / VIQR / Microsoft layout), hoặc GUI |
-| Đổi bảng mã | Menu → *Bảng mã* (11 bảng mã), hoặc GUI |
-| Đổi chế độ hiển thị | Menu → *Hiển thị* (Không gạch chân / Gạch chân / Surrounding text), hoặc GUI, hoặc hotkey |
-| Phím tắt đổi chế độ | GUI → *Phím tắt đổi chế độ* (vd `Control+Alt+v`) |
-| Cấu hình nhanh | Menu → *Cấu hình nhanh* (gõ tắt, viết hoa, bỏ dấu tự do, dấu thanh chuẩn, ẩn gạch chân, …) |
-| Chính tả & từ điển | Menu → *Chính tả & từ điển* |
-| Gõ tiếng Việt | Telex: `tieengs` → `tiếng`; VNI: `tie6ng1` → `tiếng` |
-| Gõ tiếng Anh | Tắt bộ gõ, hoặc gõ bình thường — từ không hợp lệ được trả về phím gốc |
+| Action | How |
+|--------|-----|
+| Toggle Vietnamese | Input source menu → *Enable Vietnamese*, or `Super+Space` |
+| Open settings window | Input source menu → *Shortcuts…*, or `ibus-engine-ibus-mangrs -gui` |
+| Change input method | Menu → *Input Method* (Telex / VNI / VIQR / Microsoft layout), or GUI |
+| Change charset | Menu → *Charset* (11 charsets), or GUI |
+| Change display mode | Menu → *Display* (NonPreedit / Preedit / Surrounding text), or GUI, or hotkey |
+| Display mode hotkey | GUI → *Cycle Mode Hotkey* (e.g. `Control+Alt+v`) |
+| Quick settings | Menu → *Quick Settings* (macros, auto-capitalize, free tone, standard tones, hide underline, ...) |
+| Spell check & dictionary | Menu → *Spell Check & Dictionary* |
+| Type Vietnamese | Telex: `tieengs` → `tiếng`; VNI: `tie6ng1` → `tiếng` |
+| Type English | Disable IME, or type normally — invalid words revert to raw keystrokes |
 
-Cấu hình lưu ở `~/.config/ibus-mangrs/config.toml` — engine tự nạp lại trong ~1 giây, không cần
-`ibus restart`. Chi tiết tuỳ chọn: `docs/settings.md`; chế độ hiển thị & App Rules:
-`docs/modes.md`; xử lý sự cố: `docs/troubleshooting.md`.
+Config lives at `~/.config/ibus-mangrs/config.toml` — engine hot-reloads in ~1 second, no `ibus restart` needed. Full option details: `docs/settings.md`; display modes & App Rules: `docs/modes.md`; troubleshooting: `docs/troubleshooting.md`.
 
-## Gỡ lỗi
+## Debugging
 
-Bật **"Ghi log gỡ lỗi"** trong GUI (tab *Chung*, hay `debug_log = true` trong
-`~/.config/ibus-mangrs/config.toml`) rồi gõ lại câu lỗi. Engine ghi mỗi focus change, capability,
-SetSurroundingText, phím và quyết định delete/inject vào `~/.cache/ibus-mangrs/debug.log` (ms từ
-epoch — đối chiếu được với `journalctl`). Gửi file log kèm báo cáo lỗi là cách nhanh nhất để
-tái hiện các bug kiểu "thỉnh thoảng mới bị".
+Enable **Debug Logging** in GUI (General tab, or `debug_log = true` in `~/.config/ibus-mangrs/config.toml`), then reproduce the issue. Engine logs every focus change, capability, SetSurroundingText, keystroke and delete/inject decision to `~/.cache/ibus-mangrs/debug.log` (ms since epoch — cross-referenceable with `journalctl`). Attaching the log file with a bug report is the fastest way to reproduce "intermittent" bugs.
 
-## Kiểm thử
+## Testing
 
 ```sh
-cargo test                      # 133 unit test, gồm 480 golden ca keystroke→text
+cargo test                      # 133 unit tests, including 480 golden cases keystroke→text
 cargo clippy --all-targets
 ```
 
-Kiểm trên daemon thật không cần cài:
+Live test on real daemon without install:
 
 ```sh
 IBUS_COMPONENT_PATH=$PWD/data:/usr/share/ibus/component ibus-daemon -rx -t refresh
 ibus engine ibus-mangrs
 ```
 
-Công thức lái engine qua `gdbus` (cú pháp: string phải `'kiểu-này'`) và đọc tín hiệu:
+Driving the engine via `gdbus` (string arguments must be `'like-this'`) and reading signals:
 
-## Kiến trúc
+## Architecture
 
 - `src/server.rs` — D-Bus, message filter, property menu, hotkey, config watch, injection transport
-- `src/engine.rs` — state machine: 3 chế độ hiển thị, App Rules, macro, restore, verify/repair
-- `src/bamboo_wrapper.rs` — nơi duy nhất chạm `bamboo-core`; tự tính delta (fix Backspace)
-- `src/uinput.rs` — bàn phím ảo 1 phím (Backspace) cho client nuốt protocol delete
-- `src/macros.rs` — macro table + từ điển
-- `src/golden.rs` — 480 ca keystroke → text
-- `src/ibus_prop.rs` — mã hoá menu thuộc tính IBus
-- `src/config.rs` — TOML chung engine + GUI
-- `src/gui.rs` — GTK4 6 tab (feature `gui`)
-- `CLAUDE.md` — kiến trúc chi tiết + "IBus protocol facts" (không public)
+- `src/engine.rs` — state machine: 3 display modes, App Rules, macro, restore, verify/repair
+- `src/bamboo_wrapper.rs` — only place touching `bamboo-core`; self-computes delta (fixes Backspace)
+- `src/uinput.rs` — single-key virtual keyboard (Backspace) for clients swallowing protocol delete
+- `src/macros.rs` — macro table + dictionary
+- `src/golden.rs` — 480 cases keystroke → text
+- `src/ibus_prop.rs` — IBus property menu encoding
+- `src/config.rs` — TOML shared by engine + GUI
+- `src/gui.rs` — GTK4 6 tabs (feature `gui`)
+- `CLAUDE.md` — detailed architecture + "IBus protocol facts" (not public)
 
-## Giấy phép
+## License
 
-MIT. Phụ thuộc `bamboo-core` (MIT) — xem `NOTICE.md`.
+MIT. Dependency `bamboo-core` (MIT) — see `NOTICE.md`.
