@@ -1,435 +1,200 @@
-# Architecture and Data Flow — ibus-mangrs
+# Architecture — ibus-mangrs
 
-## Overview
-
-`ibus-mangrs` is a Vietnamese Input Method Engine (IME) for IBus, written in Rust on top of `bamboo-core`. The engine supports three display modes:
+Vietnamese IME engine for IBus in Rust on `bamboo-core`, Wayland + X11, GTK4 settings window
+(feature `gui`). Crate `ibus_mangrs`, binary `ibus-engine-ibus-mangrs`, bus name
+`org.freedesktop.IBus.mangrs`, engine name `ibus-mangrs` — all must match `data/ibus-mangrs.xml`
+or the daemon silently never spawns the engine.
 
 | Mode | Description |
 |------|-------------|
-| **Preedit** (default) | Shows inline composition with underline; commits when terminator is encountered |
-| **NonPreedit** | No underline; commits each keystroke and rewrites the tail via `DeleteSurroundingText` |
-| **Surrounding** | NonPreedit + verifies `SetSurroundingText` to repair drift (dropped deletes, manual edits) |
+| **Preedit** (default) | Inline composition with underline; commits when a terminator arrives |
+| **NonPreedit** | No underline; commits each keystroke, rewrites the tail via `DeleteSurroundingText` |
+| **Surrounding** | NonPreedit + verifies `SetSurroundingText` against the believed `tail` and repairs drift |
 
----
+Mode resolution (`Engine::effective_mode`): hard fallback (no `IBUS_CAP_PREEDIT_TEXT` → non-preedit)
+→ `[[app_rules]]` substring match on client prgname → built-in heuristic for unlisted
+delete-dropping clients. A **word-mode lock** freezes the resolved mode for the whole word to
+prevent mid-word preedit↔non-preedit flips.
 
-## Directory Structure (`src/`)
+## Layout
 
 ```
 src/
-├── lib.rs              # Module exports, layering docs
-├── main.rs             # Entry point: engine daemon or -gui
-├── server.rs           # D-Bus server: connection, IBus calls, signals
-├── engine.rs           # State machine: key → Action (protocol-free)
-├── bamboo_wrapper.rs   # Only module touching bamboo-core
-├── macros.rs           # Macro table (macros.toml) + dictionary (dictionary.txt)
-├── config.rs           # TOML config at ~/.config/ibus-mangrs/config.toml
-├── ibus_prop.rs        # IBusProperty/IBusPropList encoding for input-source menu
-├── ibus_text.rs        # GVariant encode/decode IBusText/IBusAttribute
-├── keymap.rs           # X11 keysym → char, modifier masks
-├── uinput.rs           # Virtual keyboard (/dev/uinput) for Backspace injection
-├── debug_log.rs        # Debug log to ~/.cache/ibus-mangrs/debug.log
-├── golden.rs           # 480-case golden tests (keystroke → text)
-└── gui.rs              # GTK4 settings window (feature "gui")
+├── server.rs           D-Bus: connection, message filter, signals, PropertyActivate,
+│                       cycle hotkey, config mtime hot-reload (~1s), injection transport
+├── engine.rs           Protocol-free state machine: keys → Actions. Modes, word-mode lock,
+│                       tail tracking, surrounding verify/repair, macros, auto-restore
+├── bamboo_wrapper.rs   ONLY module touching bamboo-core; computes deltas by diffing
+│                       its own last_output (never trusts bamboo's delta)
+├── macros.rs           macros.toml + dictionary.txt in ~/.config/ibus-mangrs/
+├── config.rs           TOML at ~/.config/ibus-mangrs/config.toml, shared engine+GUI;
+│                       migrates legacy unikey / r-unikey config dirs
+├── golden.rs           480 golden cases (105 Telex + 56 VNI × 3 variants) through the
+│                       real engine into a simulated app buffer
+├── ibus_prop.rs        IBusProperty/IBusPropList encoding for the input-source menu
+├── ibus_text.rs        GVariant encode/decode IBusText/IBusAttribute
+├── keymap.rs           X11 keysym → char, modifier masks
+├── uinput.rs           Virtual single-key keyboard (/dev/uinput) for Backspace injection
+├── debug_log.rs        Debug log at ~/.cache/ibus-mangrs/debug.log
+└── gui.rs              GTK4 settings window, 6 tabs (feature "gui")
 ```
 
----
-
-## Layering (outside-in)
+## Layering
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  server.rs                  ← D-Bus, IBus protocol          │
-│  ├─ main.rs: Server::connect() → Server::run()              │
-│  ├─ EngineHandler: message filter (reply from filter)       │
-│  ├─ ProcessKeyEvent → engine.process_char()                 │
-│  ├─ PropertyActivate → config mutation + UpdateProperty     │
-│  ├─ FocusIn/Enable → clear state, register properties       │
-│  ├─ SetSurroundingText → engine.set_surrounding()           │
-│  └─ SetCapabilities → engine.set_capabilities()             │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│  engine.rs                  ← State machine, no D-Bus types │
-│  ├─ Mode resolution (AppRule, heuristic, caps)              │
-│  ├─ Word-mode lock (mode doesn't change mid-word)           │
-│  ├─ on_edit: NonPreedit/Surrounding/Preedit paths           │
-│  ├─ on_finish: macro, auto-restore, commit                  │
-│  ├─ verify_surrounding: drift detection & repair            │
-│  ├─ Backspace handling (protocol vs uinput injection)       │
-│  ├─ Deferred commits (wait for Backspace echoes)            │
-│  └─ Action emission → server.emit()                         │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│  bamboo_wrapper.rs          ← Only bamboo-core touch point  │
-│  ├─ process_char → Outcome::Edit/Finish/PassThrough         │
-│  ├─ backspace() → Edit (delta from last_output)             │
-│  ├─ rebuild(text) → sync wrapper from surrounding text      │
-│  ├─ delta tracking against last_output (not bamboo's prev)  │
-│  ├─ undo_in_word detection (mark removed mid-word)          │
-│  └─ Output override (poisoned state workaround)             │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│  bamboo-core (external crate)                               │
-│  ├─ Telex/VNI/VIQR/Microsoft layout                         │
-│  ├─ 11 charsets (Unicode, NFD, TCVN3, VNI, VIQR, ...)       │
-│  ├─ auto_correct, free_tone, w2u, bracket modes             │
-│  └─ is_valid_word()                                         │
-└─────────────────────────────────────────────────────────────┘
+server.rs (D-Bus, IBus protocol)
+  └─ engine.rs (state machine, no D-Bus types)  →  emits Actions
+       └─ bamboo_wrapper.rs (bamboo-core touch point)  →  Outcome::{Edit, Finish, PassThrough}
 ```
 
----
+`server.rs` turns `Action`s into signals: `CommitText`, `UpdatePreeditText`, `HidePreedit`,
+`DeleteSurroundingText` (protocol) or `Uinput::inject_backspaces` (real Backspace keys),
+`RewriteByBackspace` (press k+extra Backspaces, re-commit the common suffix). Key path:
+message filter → config hot-reload check → cycle hotkey → `Engine::process_char` →
+`key_mode()` (resolve + lock) → `verify_surrounding()` → wrapper → `Outcome` → actions → emit.
 
-## Main Data Flows
+## Engine Invariants (each earned by a real crash or bug — keep them)
 
-### 1. Engine Startup
+**Delete transport.** Protocol `DeleteSurroundingText` to a client whose buffer was never received
+segfaults mutter (`g_utf8_offset_to_pointer`, GNOME logs out; Shell logs "input-method engines
+should not call the delete-surrounding-text API..."). Hard rules:
 
-```text
-main()
-  └─ Config::load()
-  └─ Engine::new(method, mode)
-  └─ Server::connect(SharedEngine)
-       └─ Connection::open_private(IBUS_ADDRESS)
-       └─ conn.register()           # Hello handshake
-       └─ conn.register_name(BUS_NAME)
-       └─ conn.replace_message_callback(EngineHandler)
-  └─ server.run()  (main loop: conn.iter(1000))
-```
+- Never protocol-delete without **both** the `IBUS_CAP_SURROUNDING_TEXT` capability **and** an
+  actual ST report; clamp every delete count to what the last report says exists.
+- Never protocol-delete or repair-delete on relay clients (`gnome-shell`, `mutter`, `fake`).
+- Clients without ST data, or proven to swallow the protocol delete, get **real Backspace presses
+  via `/dev/uinput`** (10ms interval, 10ms post-delay — ibus-bamboo's params).
+- When injecting, **defer the commit** until the injected-key echoes arrive (`pending_injected`
+  counts them; those echoes are forwarded untouched — they ARE the deletion) or a 150ms stale
+  timeout flushes. A synchronous commit outruns the compositor path ("accent flashes then reverts").
+  `RewriteByBackspace {backspaces, commit}` presses k+extra keys then re-commits the common suffix
+  so the deletion lands correctly mid-word.
 
-### 2. Processing a Key (ProcessKeyEvent)
+| Client type | Transport |
+|-------------|-----------|
+| GTK3/GTK4 Wayland (relayed, report ST) | Protocol delete |
+| Chrome/Electron (report ST, drop deletes) | Protocol first, uinput after a drop is detected |
+| XWayland / Sublime / JetBrains (no client id, no ST) | uinput Backspace |
+| `gnome-shell` / `mutter` / `fake` (relay, no typing) | none |
 
-```text
-IBus daemon
-    │
-    ▼
-server.rs: EngineHandler::handle()  (message filter)
-    │  ├─ maybe_reload_config()    # hot-reload config.toml mtime
-    │  ├─ try_cycle_hotkey()       # Control+Alt+v → cycle mode
-    │  └─ process_key()
-    ▼
-engine.rs: Engine::process_char(c)
-    │  ├─ key_mode()               # resolve + lock word_mode
-    │  ├─ verify_surrounding()     # drift check before any change
-    │  ├─ auto-capitalize
-    │  └─ wrapper.process_char(c)  → Outcome
-    ▼
-Outcome::
-  ├─ PassThrough        → Action::Forward
-  ├─ Finish {word,raw}  → on_finish() → macro/auto-restore/commit
-  └─ Edit {del,ins}     → on_edit() → DeleteBefore/Commit/UpdatePreedit
-    ▼
-server.rs: emit(engine, actions, out)
-    │  ├─ DeleteBefore/DeleteSurrounding
-    │  │   ├─ protocol: DeleteSurroundingText (iu)  ── when surrounding_data_ok()
-    │  │   └─ injection: Uinput::inject_backspaces() ── when !surrounding or delete_dropped
-    │  ├─ CommitText(v IBusText)
-    │  ├─ UpdatePreeditText(v u b u)
-    │  └─ HidePreedit
-    ▼
-out: Vec<Message> (signals) → send(conn, msg) → IBus daemon → app
-```
+**Stale ST reports are classified by content** (fast typing makes reports predate our commit):
 
-### 3. NonPreedit Flow
+1. `actual` ends with `tail` → healthy, no repair.
+2. Extra chars right before the common suffix → repair delete / inject.
+3. `actual` contains `tail` as a substring (app inserted around the word — Chrome suggestions) →
+   rebuild the composition from the real text (`rebuild_from_text`; safe because the wrapper diffs
+   its own `last_output`).
+4. `tail` not in `actual` → **ignore silently** (stale or user-deleted). Treating this as an app
+   edit used to tear down the composition and eat characters. Reports where the word is not
+   adjacent to the caret (>2 chars away — Chrome search bar) fall here too.
 
-```text
-User types: t i e e n g s
-────────────────────────────────────────────────────────
-Key 't': wrapper → Edit{0,"t"} → emit → CommitText("t")
-         tail = "t"
+**bamboo-core quirks (probed, not documented upstream).** Its `EditDelta` is relative to internal
+`prev_preedit`, which `remove_last_output_char` does not refresh — the key after Backspace deletes
+an already-gone char (`tie` → BS → `n` produced `tn`); the wrapper diffs `last_output` instead.
+After a tone mark is undone the internal state stays **poisoned** — the next key resurfaces a
+hidden char (`too`+`l` → `toool`, output longer than raw keys); the wrapper uses the displayed
+`output_override` and falls back to raw keys for that word. A digit under Telex/VIQR **clears the
+entire composition** — digits and `_` are word terminators intercepted in `bamboo_wrapper`
+**before** the engine sees them (all terminators must be: bamboo's own handling would delete the
+already-committed word; bracket keys stop being terminators while bracket mode is on). Telex `w`
+transforms the adjacent vowel (u→ư, o→ơ, a→ă), `aa/ee/oo` → â/ê/ô, `aw` → ă, no auto `uo`→`ươ`.
+VNI digits go right after the vowel they transform (6=â/ê/ô, 7=ơ/ư, 8=ă, 9=đ, tones 1..5).
+Microsoft layout is append-style (`ti3ng8` → `tiếng`) and cannot type `đ` from `d`. `auto_correct`
+(on by default) reverts invalid intermediate syllables; `is_valid_word()` on the composition
+drives auto-restore of non-Vietnamese words.
 
-Key 'i': wrapper → Edit{0,"i"} → emit → CommitText("i")
-         tail = "ti"
+**Charsets.** 11 charsets from `bamboo-core::encode_charset` (Unicode default, NFD, TCVN3, VNI,
+VIQR, VISCII, VPS, CP1258, BKHCM, Vietware X/Full). Encoding happens only on text sent to the app
+(`Action::Commit`), never on preedit. Legacy encodings change the character count (VNI `â`→`aâ`),
+so the whole current word is rewritten with a correct delete count instead of replaying the
+Unicode delta; Unicode keeps the delta path.
 
-Key 'e': wrapper → Edit{0,"e"} → emit → CommitText("e")
-         tail = "tie"
-
-Key 'e': wrapper → Edit{0,"e"} → emit → CommitText("e")
-         tail = "tiee"
-
-Key 'n': wrapper → Edit{0,"n"} → emit → CommitText("n")
-         tail = "tieen"
-
-Key 'g': wrapper → Edit{0,"g"} → emit → CommitText("g")
-         tail = "tieeng"
-
-Key 's' (tone): wrapper → Edit{5,"ếng"} → emit
-         ├─ DeleteBefore(5)     # delete "tieen"
-         └─ CommitText("ếng")   # write "ếng"
-         tail = "tiếng"
-────────────────────────────────────────────────────────
-Result: "tiếng" (never any underline)
-```
-
-### 4. Preedit Flow
-
-```text
-User types: t i e e n g s [space]
-────────────────────────────────────────────────────────
-Each key: UpdatePreeditText("tiếng", cursor=5, visible=true)
-Space (terminator): Finish{word="tiếng", raw="tieengs", valid=true}
-    → on_finish → CommitText("tiếng") + Forward(space)
-────────────────────────────────────────────────────────
-```
-
-### 5. Surrounding Flow (verify & repair)
-
-```text
-Client: SetSurroundingText("xin chào", cursor=8, anchor=8)
-Engine.tail = "xin ch"
-────────────────────────────────────────────────────────
-verify_surrounding():
-  actual = "xin chào".chars().take(8) = "xin chào"
-  tail   = "xin ch"
-  ends_with(actual, tail)?  YES → healthy, no repair
-
-Client: SetSurroundingText("xin chào  ", cursor=10)  # app dropped delete
-Engine.tail = "xin chào"
-────────────────────────────────────────────────────────
-verify_surrounding():
-  actual = "xin chào  "
-  tail   = "xin chào"
-  ends_with? NO
-  common_suffix = "xin chào" (k=8)
-  extra = 2 chars ("  ") before suffix
-  → DeleteSurrounding(offset=-10, n=2)  # protocol delete
-  → repair_delete = Some((-10, 2))
-  → delete_dropped = false (first attempt)
-  
-Client drops delete again → same drift
-→ delete_dropped = true
-→ RewriteByBackspace(backspaces=10, commit="xin chào")
-   # 10 Backspace keys injected via uinput
-```
-
----
-
-## Key Mechanisms
-
-### Word-mode lock
-- Mode is resolved **once** when a word starts (`key_mode()`)
-- Locks that mode for the entire word (`word_mode: Option<Mode>`)
-- Released when word ends (`Finish`) or `reset()`
-- Prevents preedit↔non-preedit flips mid-word causing duplicate/invisible text
-
-### Deferred commits
-- When using **uinput injection**: Backspace keys go through compositor, CommitText goes D-Bus
-- If synchronous commit → outruns Backspace → "accent flashes and reverts"
-- Solution: `defer_commit(n_echoes, text)` → queue, flush when `note_echo_forwarded()` reaches threshold
-- Focus change/real key → `flush_deferred()` (force deliver)
-
-### Delete transport selection
-```rust
-fn deletes_allowed(&self) -> bool {
-    self.surrounding_data_ok()           // client has reported ST
-        || (self.uinput_available        // has /dev/uinput
-            && !self.injection_forbidden()) // not relay (gnome-shell/fake)
-}
-
-fn may_inject(&self) -> bool {
-    !self.injection_forbidden() 
-        && (self.delete_dropped || self.surrounding.is_none())
-}
-```
-
-| Client type | surrounding_data_ok | injection_forbidden | Transport |
-|-------------|---------------------|---------------------|-----------|
-| GTK4/GTK3 (Wayland, relayed) | Yes | Yes | Protocol delete |
-| XWayland/Sublime/JetBrains | No | No | uinput Backspace |
-| Chrome/Electron (drop delete) | Yes | No | Protocol (first) → uinput (after drop detected) |
-| GNOME Shell search (`fake`) | No | Yes | N/A (no typing) |
-
-### Stale SetSurroundingText classification
-`verify_surrounding` classifies client reports:
-
-1. **Healthy**: `actual` ends with `tail` → OK
-2. **Repair**: extra chars before common suffix → `DeleteSurrounding` / `RewriteByBackspace`
-3. **Rebuild**: `tail` is substring (Chrome suggestions) → `sync_from_surrounding()` (rebuild wrapper)
-4. **Stale/Ignore**: `tail` not in `actual` → ignore silently (used to tear down composition)
-
-### Macro & Auto-restore
-- Macro: `macros.toml` (key → expansion), `$TIME`/`$DATE`, capitalize-first/all
-- Auto-restore: non-Vietnamese word (invalid syllable) → restore raw keys
-- Exception: word with `undo_in_word` (user removed mark mid-word) → NO restore
-
----
-
-## IBus Protocol Facts (verified on wire)
+## IBus Protocol Facts (verified on the wire — do not re-derive)
 
 | Fact | Detail |
 |------|--------|
-| Bus | Private bus of ibus-daemon, NOT session bus. Connect with `open_private()` + `register()` |
-| CreateEngine | Return type **`o` (object path)**, not `s` |
-| Method reply | Must reply **from message filter** (`replace_message_callback`), return `true` to claim |
-| FocusId/ActiveSurroundingText | On wire are **booleans** (`g_variant_get_boolean`). Wrong type → daemon warn + fallback |
-| FocusId = true | Makes daemon send `FocusInId(path, client)` instead of `FocusIn` — only way to know which app is typing |
-| DeleteSurroundingText | Signature **`(iu)`**: offset (signed) + count (uint), **no variant wrapper** |
-| IBusText wire form | `('IBusText', @a{sv} {}, 'str', <('IBusAttrList', @a{sv} {}, [attrs])>)` |
-| PropertyActivate | GNOME Shell sends **1 call/item** of radio group: picked=CHECKED, siblings=UNCHECKED. Must ignore UNCHECKED |
-| RegisterProperties/UpdateProperty | Are **signals** emitted from engine object, daemon relays to panel |
+| Bus | Private bus of ibus-daemon, NOT the session bus. `Connection::open_private(addr)` then `conn.register()` — open_private skips Hello; every call fails AccessDenied without it |
+| Method replies | Must be answered **from the message filter** (`replace_message_callback`, return `true` to claim). A later `MsgHandler` reply is too late (libdbus already answered UnknownMethod); registering an object path is worse — its vtable swallows the message |
+| CreateEngine | Returns `o` (object path). Sending `s` makes the daemon fail to build its proxy with only a GLib critical — engine never starts |
+| FocusId / ActiveSurroundingText | **Booleans on the wire** (`g_variant_get_boolean` in engineproxy.c); any other type → daemon warns and falls back. `FocusId = true` makes the daemon send `FocusInId(s path, s client)` — the only way to learn which app is typing |
+| client ids | `gtk4-im:<prgname>` / `gtk3-im:<prgname>` / `fake` for the daemon's hotkey context. `fake` may interleave between real apps; `Engine::set_client` ignores it and resets only on a real client change. Some apps (Sublime, X11 XIM bridge) never send a client id — App Rules cannot match them |
+| DeleteSurroundingText | `(iu)` — signed offset + count, no variant wrapping (other signals wrap args in `v`) |
+| IBusText | `('IBusText', @a{sv} {}, 'str', <('IBusAttrList', @a{sv} {}, [attrs])>)`; incoming string is tuple field 2 (`ibus_text::text_from_variant`) |
+| SetSurroundingText | `(v text, u cursor, u anchor)` on the engine object; only data source for Surrounding mode. The engine must emit `RequireSurroundingText` on Enable/FocusIn or GTK IM modules never send it (found via `strings` on ibus-bamboo's binary) |
 
----
+### Property menu (input-source popup)
 
-## Configuration (Config)
+- `RegisterProperties(v)` / `UpdateProperty(v)` are **signals** the engine emits on its own object
+  path; the daemon relays them to the panel. The click comes back as the **method**
+  `PropertyActivate(s name, u state)`.
+- GNOME Shell sends **one call per item of a clicked radio group**: picked item `CHECKED`, every
+  sibling `UNCHECKED` (`keyboard.js::_buildPropSubMenu`). Ignore UNCHECKED — honoring them made
+  the last sibling always win (the "always VIQR / always preedit" bugs). After a click, re-emit
+  `UpdateProperty` for **every** child of the group or the previous checkmark persists.
+- Clicking any item closes the whole popup (`popupMenu.js itemActivated`) — Shell behavior, not
+  influenceable from the engine. An engine cannot open the panel popup itself, so no Mode Menu
+  Hotkey.
+- `IBusProperty` is a 12-field tuple: `('IBusProperty', a{sv} {}, key, type, label:v, icon:s,
+  tooltip:v, sensitive:b, visible:b, state:u, sub_props:v, symbol:v)`; types NORMAL 0 / TOGGLE 1 /
+  RADIO 2 / MENU 3 / SEPARATOR 4; states UNCHECKED 0 / CHECKED 1. `IBusPropList` is
+  `('IBusPropList', a{sv} {}, av [props])`.
+- Signatures verified against ibus 1.5.34 by capturing ibus-bamboo with `dbus-monitor`.
 
-**File**: `$XDG_CONFIG_HOME/ibus-mangrs/config.toml`
+## Configuration
 
-```toml
-enabled = true
-method = "telex"        # telex | vni | viqr | microsoft
-mode = "preedit"        # nonpreedit | preedit | surrounding (default: preedit)
-charset = "unicode"     # 11 charsets
-modern_tone_style = true
-free_tone_marking = true
-auto_correct = true
-auto_restore = true
-w2u = "disabled"        # disabled | nonstart | everywhere
-bracket = "disabled"    # disabled | nonstart | everywhere
-em_dash = false
-auto_capitalize = false
-double_space_period = false
-macro_enabled = true
-capitalize_macro = true
-macro_in_off_mode = false
-time_format = "%H:%M"
-date_format = "%d/%m/%Y"
-dictionary_enabled = false
-cycle_mode_hotkey = ""  # e.g. "Control+Alt+v"
-hide_underline = false
-debug_log = false
-app_rules = [
-  { pattern = "chrome", mode = "preedit" },
-  { pattern = "sublime_text", mode = "surrounding" },
-  ...
-]
-```
+`~/.config/ibus-mangrs/config.toml` (TOML, shared engine + GUI), hot-reloaded by mtime check
+(max once per second on key events) — no `ibus restart` needed for config changes. Keys: `enabled`,
+`method` (telex/vni/viqr/microsoft), `mode` (nonpreedit/preedit/surrounding), `charset`,
+`modern_tone_style`, `free_tone_marking`, `auto_correct`, `auto_restore`, `w2u`, `bracket`,
+`em_dash`, `auto_capitalize`, `double_space_period`, `macro_enabled`, `capitalize_macro`,
+`macro_in_off_mode`, `time_format`, `date_format`, `dictionary_enabled`, `cycle_mode_hotkey`,
+`hide_underline`, `debug_log`, `[[app_rules]]` (`pattern` + `mode`). Option details:
+`docs/settings.md`; mode & per-app behavior: `docs/modes.md`, `docs/troubleshooting.md`.
 
-**Hot-reload**: server checks config mtime max once per second on key events.
+**App Rules**: case-insensitive substring on the prgname from `FocusInId`; built-in defaults
+Chrome/Electron → preedit, Sublime → surrounding. The server records seen clients (newest 50) in
+`~/.cache/ibus-mangrs/clients` for the GUI's quick-add dropdown.
 
----
-
-## App Rules (Per-application mode override)
-
-- Match: case-insensitive substring on `prgname` from `FocusInId` (`gtk4-im:chrome` → `chrome`)
-- Built-in defaults: Chrome/Electron → Preedit, Sublime → Surrounding
-- GUI allows quick-add from `~/.cache/ibus-mangrs/clients` (server records 50 most recent clients)
-
----
-
-## uinput Virtual Keyboard
-
-- Device: `/dev/uinput` (requires udev rule, group `input`)
-- Injects only **Backspace** (keycode 14)
-- Legacy path: write `struct uinput_user_dev` → `UI_DEV_CREATE` (this kernel rejects `UI_DEV_SETUP`)
-- Timing: 10ms interval, 10ms post-delay (same as ibus-bamboo)
-- Echoes return via `ProcessKeyEvent` → `pending_injected` counter → forwarded untouched
-
----
+**uinput**: `/dev/uinput` needs udev rule `80-uinput.rules` + group `input`; injects only
+Backspace (keycode 14). This kernel rejects `UI_DEV_SETUP` (EINVAL) — the legacy path (write a
+`struct uinput_user_dev` straight to the fd, then `UI_DEV_CREATE`) is what `Uinput::open` uses.
 
 ## Testing
 
-```bash
-cargo test                    # 133 unit tests (including golden.rs 480 cases)
-cargo clippy --all-targets
-cargo build --features gui    # GTK4 settings window
-```
+```sh
+cargo test                    # 133 tests incl. 480 golden cases — no D-Bus or daemon needed
+cargo clippy --all-targets    # must stay clean; cargo fmt too
+cargo build --features gui    # the -gui settings window needs this feature
 
-**Live test (no keyboard injector)**:
-```bash
+# Live test without installing (-t refresh is required or the daemon serves a stale registry):
 IBUS_COMPONENT_PATH=$PWD/data:/usr/share/ibus/component ibus-daemon -rx -t refresh
 ibus engine ibus-mangrs
+```
 
-# Direct D-Bus calls:
+Install (root): `sudo ./scripts/install.sh` → `/usr/lib/ibus-mangrs/` + `/usr/share/ibus/component/`,
+then `ibus restart`. `~/.local/share/ibus/component/` is **not** scanned on this machine — only
+`IBUS_COMPONENT_PATH` and `/usr/share/ibus/component` work. A `PKGBUILD` exists for Arch packaging.
+
+Live checks are driven over D-Bus directly (no keyboard injector on this machine):
+
+```
 ADDR=$(grep -o 'unix:path=[^,]*' ~/.config/ibus/bus/*)
 M() { gdbus call --address "$ADDR" --dest org.freedesktop.IBus.mangrs \
       --object-path /org/freedesktop/IBus/Engine/1 \
       --method "org.freedesktop.IBus.Engine.$1" "${@:2}"; }
-M SetCapabilities "uint32 41"                       # PREEDIT|FOCUS|SURROUNDING
+M SetCapabilities "uint32 41"                        # PREEDIT|FOCUS|SURROUNDING
 M FocusInId "/org/freedesktop/IBus/InputContext_9" "gtk4-im:chrome"
-M ProcessKeyEvent "uint32 116" "uint32 0" "uint32 0"  # 't'
+M ProcessKeyEvent "uint32 116" "uint32 0" "uint32 0" # 't'
+M SetSurroundingText "<('IBusText', {}, 'hello', <('IBusAttrList', {}, [])>)>" "uint32 5" "uint32 5"
 ```
 
----
+Watch signals with `dbus-monitor --address "$ADDR"`. **gdbus string trap:** string arguments must
+be `'like-this'` — writing `"string macro"` sends the literal `string macro`; numbers take
+`"uint32 0"`. Always confirm what landed by reading it back in dbus-monitor.
 
-## Known Gaps / TODO
+Debug intermittent typing bugs: enable `debug_log = true` (GUI General tab or config), reproduce,
+read `~/.cache/ibus-mangrs/debug.log` (ms-since-epoch, cross-referenceable with `journalctl`).
+The log records engine decisions, never the typed text.
 
-- [ ] Uinput modes, Emoji Picker, Minecraft mode
-- [ ] Candidate window / lookup table
-- [ ] Per-application regex rules (substring prgname only for now)
-- [ ] Mode Menu Hotkey (engine cannot open panel popup)
-- [ ] Separate spell-check dictionary (currently uses bamboo-core's `auto_correct`)
-- [ ] Surrounding mode cannot repair drift on clients that neither send ST nor render preedit
-
----
-
-## Debug & Logging
-
-```bash
-# Enable debug log
-# config.toml: debug_log = true
-# Log file: ~/.cache/ibus-mangrs/debug.log
-
-# dbus-monitor to watch signals
-dbus-monitor --address "$ADDR"
-# Watch: UpdatePreeditText, CommitText, DeleteSurroundingText, RegisterProperties
-```
-
----
-
-## Build & Run
-
-```bash
-# Build
-cargo build --release
-
-# Dev run (no install)
-IBUS_COMPONENT_PATH=$PWD/data:/usr/share/ibus/component ibus-daemon -rx -t refresh
-ibus engine ibus-mangrs
-
-# Install (root)
-sudo ./scripts/install.sh
-
-# GUI settings
-cargo build --features gui
-./target/debug/ibus-engine-ibus-mangrs -gui
-```
-
----
-
-## Event Flow Summary
-
-```
-┌──────────────┐     ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│  IBus daemon │────▶│  server.rs  │────▶│  engine.rs   │────▶│bamboo_wrap. │
-│  (private    │     │  (D-Bus,    │     │  (state      │     │  (bamboo-   │
-│   bus)       │     │   signals)  │     │   machine)   │     │   core)     │
-└──────────────┘     └─────────────┘     └──────────────┘     └─────────────┘
-                           │                   │                   │
-                           │ ProcessKeyEvent   │ process_char    │ process_char
-                           │ PropertyActivate  │ verify_surround │ backspace
-                           │ FocusIn/Out       │ on_edit/finish  │ rebuild
-                           │ SetSurrounding    │ reset           │
-                           │ SetCapabilities   │                 │
-                           ▼                   ▼                   ▼
-                    ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-                    │  Signals    │◀────│  Actions     │◀────│  Outcome    │
-                    │  CommitText │     │  Delete/     │     │  Edit/      │
-                    │  UpdatePre..│     │  Commit/     │     │  Finish/    │
-                    │  DeleteSur..│     │  Rewrite/    │     │  PassThrough│
-                    │  Register.. │     │  HidePreedit │     │             │
-                    └─────────────┘     └──────────────┘     └─────────────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │ Application │
-                    │ (GTK/Qt/    │
-                    │  XWayland)  │
-                    └─────────────┘
-```
-
----
-
-*Generated from codebase analysis. For implementation details, see individual `src/*.rs` files.*
+Kill the engine with `pkill -x ibus-engine-ibu` (comm truncates at 15 chars; `-f` also matches
+your own shell). SIGTERM/SIGINT exit cleanly.
