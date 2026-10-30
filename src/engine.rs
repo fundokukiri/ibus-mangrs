@@ -728,10 +728,13 @@ impl Engine {
         if requested == Mode::Preedit && !can_preedit {
             return Mode::NonPreedit;
         }
-        // The uinput modes press real keys through /dev/uinput: impossible in
-        // relayed contexts (gnome-shell/mutter own the IBus context) and
-        // without the device. Select additionally needs the app's text
-        // report to know how many characters to select.
+        // The uinput modes press real keys through /dev/uinput, but on
+        // mutter-relayed contexts the rewrite products never reach the
+        // application (verified 31/10: 52 smooth rewrites injected, echoes
+        // forwarded, commits flushed — Text Editor and Firefox showed the
+        // untouched latin text, no deletion, no commit, not even the
+        // terminator space). Relay contexts therefore fall back to preedit;
+        // the uinput modes stay for contexts where injection lands (X11).
         if matches!(requested, Mode::Smooth | Mode::SuperSmooth | Mode::Select)
             && (self.injection_forbidden()
                 || !self.uinput_available
@@ -2701,6 +2704,10 @@ mod tests {
 
     #[test]
     fn smooth_falls_back_to_preedit_in_relay_context() {
+        // Empirical (31/10): with the gate open, 52 smooth rewrites injected
+        // fine but the rewrite products never reached the relayed app (raw
+        // latin stayed, no deletion, no commit). Relayed contexts must
+        // render as preedit.
         let mut e = Engine::new(Method::Telex, Mode::Smooth);
         e.set_uinput_available(true);
         // A mutter-owned IBus context (type_str would replace None).
@@ -2710,6 +2717,10 @@ mod tests {
         assert!(
             actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
             "relay context -> must render as preedit: {actions:?}"
+        );
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::InjectBackspaces(_))),
+            "no uinput rewrite may be emitted on a relay: {actions:?}"
         );
     }
 
