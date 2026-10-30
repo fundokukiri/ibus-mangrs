@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, DropDown, Entry, Notebook, Orientation, StringList, Switch,
+    Application, ApplicationWindow, DropDown, Entry, Orientation, StringList, Switch,
     TextView,
 };
 use serde::{Deserialize, Serialize};
@@ -493,9 +493,10 @@ fn build(app: &Application) {
 
     // Logo is embedded at compile time: the GUI has no installed asset dir.
     const LOGO: &[u8] = include_bytes!("../data/logo-no-bg.png");
-    if let Ok(texture) = gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(LOGO)) {
-        let image = gtk4::Image::from_paintable(Some(&texture));
-        image.set_pixel_size(128);
+    let logo = gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(LOGO)).ok();
+    if let Some(texture) = &logo {
+        let image = gtk4::Image::from_paintable(Some(texture));
+        image.set_pixel_size(192);
         about.append(&image);
     }
 
@@ -532,22 +533,60 @@ fn build(app: &Application) {
     credits.add_css_class("dim-label");
     about.append(&credits);
 
-    let tabs = Notebook::new();
-    tabs.append_page(&general, Some(&gtk4::Label::new(Some("Chung"))));
-    tabs.append_page(&typing, Some(&gtk4::Label::new(Some("Kiểu gõ"))));
-    tabs.append_page(&macro_box, Some(&gtk4::Label::new(Some("Gõ tắt"))));
-    tabs.append_page(&dict_box, Some(&gtk4::Label::new(Some("Từ điển"))));
-    tabs.append_page(&rules_box, Some(&gtk4::Label::new(Some("Ứng dụng"))));
-    tabs.append_page(&backup_box, Some(&gtk4::Label::new(Some("Dự phòng"))));
-    tabs.append_page(&about, Some(&gtk4::Label::new(Some("Giới thiệu"))));
+    // Modern settings layout: sidebar navigation + a content stack, each
+    // page scrolled independently, a header bar with the logo on top.
+    let stack = gtk4::Stack::new();
+    stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
+    stack.set_vexpand(true);
+    stack.set_hexpand(true);
+    let page_titles: [(&gtk4::Box, &str, &str); 7] = [
+        (&general, "general", "Chung"),
+        (&typing, "typing", "Kiểu gõ"),
+        (&macro_box, "macros", "Gõ tắt"),
+        (&dict_box, "dictionary", "Từ điển"),
+        (&rules_box, "apps", "Ứng dụng"),
+        (&backup_box, "backup", "Dự phòng"),
+        (&about, "about", "Giới thiệu"),
+    ];
+    for (content, name, title) in page_titles {
+        let scroll = gtk4::ScrolledWindow::new();
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+        scroll.set_child(Some(content));
+        stack.add_titled(&scroll, Some(name), title);
+    }
+
+    let sidebar = gtk4::StackSidebar::new();
+    sidebar.set_stack(&stack);
+    sidebar.set_size_request(160, -1);
+    sidebar.set_vexpand(true);
+
+    let body = gtk4::Box::new(Orientation::Horizontal, 0);
+    body.append(&sidebar);
+    body.append(&gtk4::Separator::new(Orientation::Vertical));
+    body.append(&stack);
 
     let window = ApplicationWindow::builder()
         .application(app)
         .title("MăngRS")
-        .default_width(540)
-        .default_height(480)
-        .child(&tabs)
+        .default_width(640)
+        .default_height(560)
+        .child(&body)
         .build();
+
+    // Custom header bar with the logo; with a CSD titlebar the window keeps
+    // the desktop's own controls while carrying the app identity.
+    let header = gtk4::HeaderBar::new();
+    let header_title = gtk4::Box::new(Orientation::Horizontal, 8);
+    if let Some(texture) = &logo {
+        let mark = gtk4::Image::from_paintable(Some(texture));
+        mark.set_pixel_size(24);
+        header_title.append(&mark);
+    }
+    let header_label = gtk4::Label::new(Some("MăngRS"));
+    header_label.add_css_class("title-3");
+    header_title.append(&header_label);
+    header.set_title_widget(Some(&header_title));
+    window.set_titlebar(Some(&header));
 
     {
         let ui_for_save = ui.clone();
