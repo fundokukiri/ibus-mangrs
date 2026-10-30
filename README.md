@@ -129,7 +129,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | Action | How |
 |---|---|
 | Toggle Vietnamese | input-source menu → *Enable Vietnamese*, or `Super+Space` |
-| Open settings window | input-source menu → *Shortcuts…*, or `ibus-engine-ibus-mangrs -gui` |
+| Open settings window | input-source menu → *Cài đặt…*, or `ibus-engine-ibus-mangrs -gui` |
 | Change input method | menu → *Input Method* (Telex / VNI / VIQR / Microsoft), or GUI |
 | Change charset | menu → *Charset* (11 charsets), or GUI |
 | Change display mode | menu → *Display* (8 modes), or GUI, or the cycle hotkey |

@@ -255,7 +255,7 @@ pub fn properties(config: &Config) -> Vec<Prop> {
         Prop::menu(KEY_DISPLAY, "Hiển thị", display_items),
         Prop::menu(KEY_SPELL_CHECK, "Chính tả & từ điển", spell_group),
         Prop::menu("quick", "Cấu hình nhanh", quick),
-        Prop::normal(KEY_SHORTCUTS, "Phím tắt…"),
+        Prop::normal(KEY_SHORTCUTS, "Cài đặt…"),
     ]
 }
 
