@@ -670,7 +670,6 @@ fn build(app: &Application, initial_page: Option<&str>) {
         let pill = gtk4::CheckButton::new();
         pill.set_group(group.as_ref());
         group = Some(pill.clone());
-        pill.set_property("draw-indicator", false);
         let h = gtk4::Box::new(Orientation::Horizontal, 8);
         let img = gtk4::Image::from_icon_name(icon);
         img.set_pixel_size(16);
@@ -705,7 +704,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let css = gtk4::CssProvider::new();
     css.load_from_data(
         ".group-card { background: alpha(currentColor, 0.06); border-radius: 12px; } \
-         .nav-pill { border-radius: 10px; padding: 7px 16px; min-height: 0; } \
+         .nav-pill { border-radius: 10px; padding: 7px 16px; min-height: 0; background: none; } \
+         .nav-pill > check { -gtk-icon-source: none; background: none; border: none; padding: 0; min-height: 0; min-width: 0; } \
          .nav-pill:checked { background: alpha(currentColor, 0.10); } \
          .nav-pill label { font-weight: bold; }",
     );
