@@ -485,6 +485,53 @@ fn build(app: &Application) {
         "JSON chứa cấu hình, gõ tắt và từ điển — dùng để sao lưu hoặc chuyển máy.",
     ));
 
+    let about = gtk4::Box::new(Orientation::Vertical, 4);
+    about.set_halign(gtk4::Align::Center);
+    about.set_valign(gtk4::Align::Start);
+    about.set_margin_top(24);
+    about.set_margin_bottom(24);
+
+    // Logo is embedded at compile time: the GUI has no installed asset dir.
+    const LOGO: &[u8] = include_bytes!("../data/logo-no-bg.png");
+    if let Ok(texture) = gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(LOGO)) {
+        let image = gtk4::Image::from_paintable(Some(&texture));
+        image.set_pixel_size(128);
+        about.append(&image);
+    }
+
+    let name = gtk4::Label::new(Some("MăngRS"));
+    name.add_css_class("title-2");
+    about.append(&name);
+
+    let tagline = label("Bộ gõ tiếng Việt cho IBus — Rust + bamboo-core");
+    tagline.add_css_class("dim-label");
+    about.append(&tagline);
+
+    let version = label(concat!("Phiên bản ", env!("CARGO_PKG_VERSION")));
+    version.add_css_class("dim-label");
+    about.append(&version);
+
+    about.append(&spacer(8));
+    about.append(&label("Tác giả: fundoku"));
+    about.append(&link_button(
+        "github.com/fundokukiri/ibus-mangrs",
+        "https://github.com/fundokukiri/ibus-mangrs",
+    ));
+    about.append(&spacer(8));
+
+    let license = label(
+        "Giấy phép MIT — mã nguồn mở, miễn phí sử dụng, sao chép và sửa đổi.\n\
+         Chi tiết: LICENSE và NOTICE.md trong kho nguồn.",
+    );
+    about.append(&license);
+
+    let credits = label(
+        "Lõi gõ: bamboo-core (MIT), kế thừa thuật toán ibus-bamboo.\n\
+         Từ điển chính tả: Free Vietnamese Dictionary Project (dữ liệu GPL).",
+    );
+    credits.add_css_class("dim-label");
+    about.append(&credits);
+
     let tabs = Notebook::new();
     tabs.append_page(&general, Some(&gtk4::Label::new(Some("Chung"))));
     tabs.append_page(&typing, Some(&gtk4::Label::new(Some("Kiểu gõ"))));
@@ -492,6 +539,7 @@ fn build(app: &Application) {
     tabs.append_page(&dict_box, Some(&gtk4::Label::new(Some("Từ điển"))));
     tabs.append_page(&rules_box, Some(&gtk4::Label::new(Some("Ứng dụng"))));
     tabs.append_page(&backup_box, Some(&gtk4::Label::new(Some("Dự phòng"))));
+    tabs.append_page(&about, Some(&gtk4::Label::new(Some("Giới thiệu"))));
 
     let window = ApplicationWindow::builder()
         .application(app)
@@ -693,6 +741,18 @@ fn label(text: &str) -> gtk4::Label {
     l
 }
 
+/// Vertical breathing room inside a box.
+fn spacer(height: i32) -> gtk4::Box {
+    let s = gtk4::Box::new(Orientation::Vertical, 0);
+    s.set_height_request(height);
+    s
+}
+
+/// A link that opens in the default browser.
+fn link_button(label_text: &str, uri: &str) -> gtk4::LinkButton {
+    gtk4::LinkButton::builder().label(label_text).uri(uri).build()
+}
+
 fn margin(box_: &gtk4::Box) {
     box_.set_margin_top(16);
     box_.set_margin_bottom(16);
@@ -712,7 +772,16 @@ fn row(label_text: &str, widget: &impl IsA<gtk4::Widget>) -> gtk4::Box {
 }
 
 fn hint(box_: &gtk4::Box, text: &str) {
-    let l = label(text);
+    // Small and dimmed: hints explain the row above, they must not compete
+    // with it. markup_escape_text because some hints contain < > &.
+    let l = gtk4::Label::new(None);
+    l.set_use_markup(true);
+    l.set_markup(&format!(
+        "<small>{}</small>",
+        gtk4::glib::markup_escape_text(text)
+    ));
+    l.set_halign(gtk4::Align::Start);
+    l.set_wrap(true);
     l.add_css_class("dim-label");
     box_.append(&l);
 }

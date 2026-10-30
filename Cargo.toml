@@ -32,6 +32,8 @@ gui = ["dep:gtk4"]
 [dependencies.gtk4]
 version = "0.9"
 optional = true
+# v4_6: gdk Texture::from_bytes for the embedded logo on the About page.
+features = ["v4_6"]
 
 [profile.release]
 lto = true
