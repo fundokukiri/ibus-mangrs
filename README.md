@@ -76,6 +76,21 @@ and audits, not used by the build; pull it in with `git submodule update --init`
 
 ## Install
 
+### Binary packages (from the GitHub release)
+
+Download the package for your distro and the `SHA256SUMS` file from
+[releases](https://github.com/fundokukiri/ibus-mangrs/releases), verify, then install with your
+package manager:
+
+```sh
+sha256sum -c SHA256SUMS
+sudo pacman -U ibus-ibus-mangrs-*.pkg.tar.zst        # Arch
+sudo apt install ./ibus-mangrs_*_amd64.deb           # Debian / Ubuntu
+sudo dnf install ./ibus-mangrs-*.x86_64.rpm          # Fedora / openSUSE
+```
+
+After installing, run `ibus restart` once.
+
 ### One-line install (online)
 
 Downloads the source, builds it and installs — needs `curl`, Rust (`cargo`), `ibus`, `gtk4` and
