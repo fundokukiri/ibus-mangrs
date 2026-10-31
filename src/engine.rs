@@ -747,8 +747,25 @@ impl Engine {
                 Some((t, c)) => (*c, t.chars().take(*c as usize).collect::<String>()),
                 None => (0, String::new()),
             };
-            debug_log::log("caret left while preedit was pending (click) → park the word");
-            return self.park_pending_word(expected_cursor, text_before);
+            // A click only moves the caret, so the word's true position is
+            // still reachable: delete the app-text span between the new
+            // caret and that position, then commit the span with the word
+            // appended — the word lands exactly where it was typed. When the
+            // geometry does not check out, park instead.
+            let (t1, c1) = match &pre_click {
+                Some((t, c)) => (t.clone(), *c),
+                None => (String::new(), 0),
+            };
+            match self.click_relocate_word(c1, &t1, &text, cursor as u32) {
+                Some(actions) => {
+                    debug_log::log("click: relocated the pending word to its original position");
+                    return actions;
+                }
+                None => {
+                    debug_log::log("click relocation not possible → park the word");
+                    return self.park_pending_word(expected_cursor, text_before);
+                }
+            }
         }
         // Inline autocomplete: the app appends suggestion text after the
         // caret without the caret moving past it. Only the transition from
@@ -1535,6 +1552,80 @@ impl Engine {
         self.release_word_mode();
         self.url_word = false;
         actions
+    }
+
+    /// Click with a pending word: deliver the word to its true position `p`
+    /// (the pre-click cursor) even though the caret now sits at `c2`. The
+    /// app-text span between the caret and `p` is deleted over the protocol
+    /// and re-committed with the word appended, so the word lands exactly
+    /// where it was typed and nothing is lost. mutter's preedit placeholder
+    /// (ZWSP) sits at the caret in the reports and must not distort the
+    /// geometry. Returns None when surgery is not safe — no usable report,
+    /// a client that drops protocol deletes, or a text length that changed
+    /// (the click may only move the caret) — the caller parks the word.
+    fn click_relocate_word(
+        &mut self,
+        p: u32,
+        t1: &str,
+        t2: &str,
+        c2: u32,
+    ) -> Option<Vec<Action>> {
+        if !self.surrounding_data_ok()
+            || self.client_cannot_delete_surrounding()
+            || self.delete_dropped
+        {
+            return None;
+        }
+        let strip_zwsp = |s: &str| s.chars().filter(|&c| c != '\u{200b}').collect::<Vec<char>>();
+        let real1 = strip_zwsp(t1);
+        let real2 = strip_zwsp(t2);
+        if real1.len() != real2.len() || p as usize > real2.len() || c2 as usize > real2.len() {
+            return None;
+        }
+        let (p, c2) = (p as usize, c2 as usize);
+        let (span, offset, n) = if c2 <= p {
+            (real2[c2..p].iter().collect::<String>(), 0i32, (p - c2) as u32)
+        } else {
+            (real2[p..c2].iter().collect::<String>(), -((c2 - p) as i32), (c2 - p) as u32)
+        };
+        // The word text follows the word-end rules: macros win, then
+        // auto-restore, then the composed word (charset-encoded).
+        let word = self.wrapper.output();
+        if word.is_empty() {
+            return None;
+        }
+        let raw = self.wrapper.raw().to_string();
+        let valid = self.wrapper.is_valid();
+        let dict_hit =
+            self.dictionary.as_ref().is_some_and(|d| d.contains(&word.to_lowercase()));
+        let (w, needs_encode) = if let Some(exp) = self.expand_macro(&raw, valid) {
+            (exp, false)
+        } else if self.auto_restore
+            && !valid
+            && word != raw
+            && !dict_hit
+            && !self.wrapper.undo_in_word()
+        {
+            (raw, false)
+        } else {
+            (word, true)
+        };
+        let text = if needs_encode { encode(self.charset, &w) } else { w };
+        let insert = format!("{span}{text}");
+        let mut actions = self.hide_if_visible();
+        if n > 0 {
+            actions.push(Action::DeleteSurrounding { offset, n });
+        }
+        actions.push(Action::Commit(insert.clone()));
+        self.wrapper.reset();
+        self.tail = insert;
+        if let Some(ch) = self.tail.chars().last() {
+            self.note_char(ch);
+        }
+        self.release_word_mode();
+        self.url_word = false;
+        self.repair_delete = None;
+        Some(actions)
     }
 
     /// Hide the pending word but keep it composing, waiting for the caret to
@@ -3230,6 +3321,92 @@ mod tests {
         let actions = e.set_surrounding("woxd".into(), 4);
         assert!(actions.is_empty(), "{actions:?}");
         assert!(e.parked_word.is_some(), "stays parked");
+    }
+
+    #[test]
+    fn click_relocates_the_pending_word_to_its_original_position() {
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        for c in "chaof".chars() {
+            e.process_char(c);
+        }
+        // Pre-click report: app text "xin chào ", the word belongs at 9.
+        e.set_surrounding("xin chào ".into(), 9);
+        assert!(e.on_client_reset().is_empty());
+        // Click into the middle of the existing word: same text, caret at 4.
+        let actions = e.set_surrounding("xin chào ".into(), 4);
+        assert!(actions.contains(&Action::HidePreedit), "{actions:?}");
+        assert!(
+            actions.contains(&Action::DeleteSurrounding { offset: 0, n: 5 }),
+            "{actions:?}"
+        );
+        assert!(actions.contains(&Action::Commit("chào chào".into())), "{actions:?}");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            "{actions:?}"
+        );
+        assert!(!e.preedit_visible && e.parked_word.is_none());
+        assert_eq!(e.tail(), "chào chào", "the engine knows what it delivered");
+    }
+
+    #[test]
+    fn click_after_the_word_uses_a_negative_delete_offset() {
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        for c in "chaof".chars() {
+            e.process_char(c);
+        }
+        // Word belongs at 9 (after "xin chào "); the click lands at 12.
+        e.set_surrounding("xin chào anh".into(), 9);
+        assert!(e.on_client_reset().is_empty());
+        let actions = e.set_surrounding("xin chào anh".into(), 12);
+        assert!(
+            actions.contains(&Action::DeleteSurrounding { offset: -3, n: 3 }),
+            "{actions:?}"
+        );
+        assert!(actions.contains(&Action::Commit("anhchào".into())), "{actions:?}");
+    }
+
+    #[test]
+    fn changed_text_between_the_reports_falls_back_to_parking() {
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        for c in "chaof".chars() {
+            e.process_char(c);
+        }
+        e.set_surrounding("xin chào ".into(), 9);
+        assert!(e.on_client_reset().is_empty());
+        // A click only moves the caret; a different text length means the
+        // app changed the text meanwhile — the geometry is unreliable.
+        let actions = e.set_surrounding("xin chào các".into(), 12);
+        assert!(actions.contains(&Action::HidePreedit), "{actions:?}");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+            "{actions:?}"
+        );
+        assert!(e.parked_word.is_some(), "parked, not relocated");
+        assert!(e.wrapper.has_composition());
+    }
+
+    #[test]
+    fn delete_dropping_clients_park_instead_of_relocating() {
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        e.set_client(Some("gtk4-im:chrome".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        for c in "chaof".chars() {
+            e.process_char(c);
+        }
+        e.set_surrounding("xin chào ".into(), 9);
+        assert!(e.on_client_reset().is_empty());
+        let actions = e.set_surrounding("xin chào ".into(), 4);
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+            "chrome drops protocol deletes — surgery would duplicate the span: {actions:?}"
+        );
+        assert!(e.parked_word.is_some());
     }
 
     #[test]
