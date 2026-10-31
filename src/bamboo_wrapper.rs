@@ -263,7 +263,18 @@ impl BambooWrapper {
         // feeding it there deleted the word in the application.) The same
         // holds for `_`, which no method uses as a mark.
         let digit_key = c.is_ascii_digit() && matches!(self.method, Method::Telex | Method::Viqr);
-        if (is_word_terminator(c) || digit_key) && !bracket_key {
+        // VIQR marks are punctuation keys: they must reach bamboo-core
+        // instead of ending the word (unikey convention). `0` is VIQR's
+        // remove-tone key — the only digit the method uses as a mark, so it
+        // is exempt from the digit terminator too.
+        let viqr_mark_key = self.method == Method::Viqr
+            && (matches!(c, '\'' | '`' | '?' | '~' | '.' | '^' | '+' | '*' | '(') || c == '0');
+        // The Microsoft layout types ư/ơ only through the bracket keys, so
+        // they must reach bamboo-core for this method regardless of the
+        // bracket option.
+        let ms_bracket_key = self.method == Method::MsLayout && matches!(c, '[' | ']' | '{' | '}');
+        if (is_word_terminator(c) || digit_key) && !bracket_key && !viqr_mark_key && !ms_bracket_key
+        {
             // The visible composition, not bamboo's internal string: after an
             // undone mark its state is poisoned ("tool" is "toool" inside)
             // and committing that would re-add the hidden character at the

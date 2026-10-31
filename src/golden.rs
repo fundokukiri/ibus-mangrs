@@ -218,6 +218,63 @@ const VNI: &[(&str, &str)] = &[
     ("bay2", "bày"),
 ];
 
+/// (keystrokes, expected word) for VIQR. Marks are punctuation keys
+/// (`' \` ? ~ .` tones, `^ + * (` shapes, `0` remove-tone), so they must
+/// reach bamboo-core instead of ending the word; `d` twice still strokes.
+/// bamboo-core applies a mark only where the syllable can take one and
+/// leaves the key literal otherwise; typing the same key twice yields a
+/// literal character (`hoi..`), the classic VIQR punctuation escape.
+#[cfg(test)]
+const VIQR: &[(&str, &str)] = &[
+    ("toi'", "tói"),
+    ("toi`", "tòi"),
+    ("hoi?", "hỏi"),
+    ("nga~", "ngã"),
+    ("ddem.", "đẹm"),
+    ("dda(ng.", "đặng"),
+    ("ca^", "câ"),
+    ("de^", "dê"),
+    ("to^i", "tôi"),
+    ("do^", "dô"),
+    ("bo+", "bơ"),
+    ("tu+", "tư"),
+    ("mo+", "mơ"),
+    ("sa(ng", "săng"),
+    ("vie^t.", "việt"),
+    ("toi'0", "toi"),
+    ("hoi..", "hoi."),
+    ("em.", "ẹm"),
+    ("(em", "(em"),
+    ("ok?", "ok?"),
+    ("don't", "don't"),
+    ("nam", "nam"),
+    ("toi", "toi"),
+    ("ddi", "đi"),
+];
+
+/// (keystrokes, expected word) for the Microsoft layout. The layout is
+/// insert-style: digit rules append or place the marked vowel (`ti3ng8`,
+/// `n1ng`), tones apply at the rhyme (`sach9`, `me5`), `0` inserts đ, and
+/// ư/ơ exist only on the bracket keys — which must reach bamboo-core for
+/// this method regardless of the bracket option. The insert rules place
+/// lowercase glyphs regardless of the typed case (`TI3NG8` stays `TIếNG`
+/// upstream), so these rows run without the case variants.
+#[cfg(test)]
+const MS_LAYOUT: &[(&str, &str)] = &[
+    ("ti3ng8", "tiếng"),
+    ("n1ng", "năng"),
+    ("0i", "đi"),
+    ("t[", "tư"),
+    ("t]", "tơ"),
+    ("vi3t9", "việt"),
+    ("me5", "mè"),
+    ("sach9", "sạch"),
+    ("hoi6", "hỏi"),
+    ("ngai7", "ngãi"),
+    ("nam", "nam"),
+    ("toi", "toi"),
+];
+
 /// Feed the keystrokes to the engine, simulating the application buffer: a
 /// key whose actions contain `Forward` inserts the raw character.
 #[cfg(test)]
@@ -280,10 +337,15 @@ fn variants(keys: &str, expected: &str) -> Vec<(String, String)> {
 }
 
 #[cfg(test)]
-fn run_table(method: Method, table: &[(&str, &str)]) -> Vec<String> {
+fn run_table(method: Method, table: &[(&str, &str)], case_variants: bool) -> Vec<String> {
     let mut failures = Vec::new();
     for (keys, expected) in table {
-        for (k, want) in variants(keys, expected) {
+        let rows = if case_variants {
+            variants(keys, expected)
+        } else {
+            vec![(keys.to_string(), expected.to_string())]
+        };
+        for (k, want) in rows {
             let got = typed_word(method, &k);
             if got != want {
                 failures.push(format!("{k} -> {got:?}, expected {want:?}"));
@@ -304,7 +366,7 @@ mod tests {
             "need >=300 telex cases, have {}",
             TELEX.len() * 3
         );
-        let failures = run_table(Method::Telex, TELEX);
+        let failures = run_table(Method::Telex, TELEX, true);
         assert!(
             failures.is_empty(),
             "{} failures:\n{}",
@@ -320,7 +382,29 @@ mod tests {
             "need >=150 vni cases, have {}",
             VNI.len() * 3
         );
-        let failures = run_table(Method::Vni, VNI);
+        let failures = run_table(Method::Vni, VNI, true);
+        assert!(
+            failures.is_empty(),
+            "{} failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn viqr_golden() {
+        let failures = run_table(Method::Viqr, VIQR, true);
+        assert!(
+            failures.is_empty(),
+            "{} failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn microsoft_golden() {
+        let failures = run_table(Method::MsLayout, MS_LAYOUT, false);
         assert!(
             failures.is_empty(),
             "{} failures:\n{}",

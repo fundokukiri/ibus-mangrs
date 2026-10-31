@@ -1859,7 +1859,8 @@ impl Engine {
     fn is_late_mark_key(&self, c: char) -> bool {
         match self.wrapper.method() {
             Method::Vni => c.is_ascii_digit(),
-            Method::Viqr => matches!(c, '\'' | '`' | '?' | '~' | '!'),
+            // bamboo-core's VIQR preset: `.` is nặng; `!` is not a mark.
+            Method::Viqr => matches!(c, '\'' | '`' | '?' | '~' | '.'),
             Method::Telex | Method::MsLayout => matches!(c, 's' | 'f' | 'j' | 'x' | 'r'),
         }
     }
@@ -2377,6 +2378,79 @@ mod tests {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
         e.set_client(Some("gtk4-im:test".into()));
         assert_eq!(type_replay(&mut e, "tieeng2"), "tiêng2");
+    }
+
+    #[test]
+    fn viqr_marks_apply_in_every_display_mode() {
+        // The VIQR mark keys are punctuation keys: they must compose instead
+        // of ending the word (BUG: they used to be intercepted as word
+        // terminators, so VIQR could not type any mark at all).
+        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+            let mut e = engine(
+                mode,
+                Config {
+                    method: crate::config::MethodConfig::Viqr,
+                    ..Config::default()
+                },
+            );
+            // Preedit only delivers at the terminator.
+            let (keys, want) = match mode {
+                Mode::Preedit => ("hoi? ", "hỏi "),
+                _ => ("hoi?", "hỏi"),
+            };
+            assert_eq!(type_replay(&mut e, keys), want, "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn viqr_non_mark_digits_still_terminate_and_stay_literal() {
+        // VIQR uses `0` as its only digit mark (remove tone); the other
+        // digits end the word and are kept as data.
+        let mut e = engine(
+            Mode::NonPreedit,
+            Config {
+                method: crate::config::MethodConfig::Viqr,
+                ..Config::default()
+            },
+        );
+        assert_eq!(type_replay(&mut e, "to5i"), "to5i");
+    }
+
+    #[test]
+    fn viqr_punctuation_stays_literal_where_no_mark_applies() {
+        // unikey convention: a mark key that cannot transform anything stays
+        // literal, and a doubled mark key yields the literal character.
+        let mut e = engine(
+            Mode::NonPreedit,
+            Config {
+                method: crate::config::MethodConfig::Viqr,
+                ..Config::default()
+            },
+        );
+        assert_eq!(type_replay(&mut e, "ok?"), "ok?");
+        assert_eq!(type_replay(&mut e, " "), " ");
+        assert_eq!(type_replay(&mut e, "hoi.."), "hoi.");
+    }
+
+    #[test]
+    fn microsoft_brackets_type_horn_in_every_display_mode() {
+        // The Microsoft layout types ư/ơ only on the bracket keys; they must
+        // reach the engine even with the bracket option off (BUG: the keys
+        // used to end the word, so ư/ơ were untypeable on this layout).
+        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+            let mut e = engine(
+                mode,
+                Config {
+                    method: crate::config::MethodConfig::Microsoft,
+                    ..Config::default()
+                },
+            );
+            let (keys, want) = match mode {
+                Mode::Preedit => ("t[ ", "tư "),
+                _ => ("t[", "tư"),
+            };
+            assert_eq!(type_replay(&mut e, keys), want, "{mode:?}");
+        }
     }
 
     #[test]
