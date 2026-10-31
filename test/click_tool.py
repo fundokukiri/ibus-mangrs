@@ -176,6 +176,44 @@ def type_keys(fd, keys, interval_ms):
         time.sleep(interval_ms / 1000)
 
 
+def dump_text_widgets():
+    """Print every text-ish AT-SPI widget (role, focused, text tail) so a
+    verification failure can be diagnosed from the output alone."""
+    import gi
+    gi.require_version("Atspi", "2.0")
+    from gi.repository import Atspi
+
+    desktop = Atspi.get_desktop(0)
+    text_roles = {Atspi.Role.ENTRY, Atspi.Role.TEXT, Atspi.Role.PARAGRAPH,
+                  Atspi.Role.DOCUMENT_TEXT, Atspi.Role.TERMINAL}
+
+    def walk(obj, depth):
+        if depth > 14:
+            return
+        try:
+            role = obj.get_role()
+        except Exception:
+            return
+        try:
+            if role in text_roles:
+                iface = obj.query_text()
+                text = iface.get_text(0, iface.get_character_count())
+                focused = obj.get_state_set().contains(Atspi.StateType.FOCUSED)
+                print(f"    text widget: role={role} focused={focused} "
+                      f"len={len(text)} tail={text[-40:]!r}")
+        except Exception:
+            pass
+        try:
+            count = obj.get_child_count()
+        except Exception:
+            return
+        for i in range(count):
+            walk(obj.get_child_at_index(i), depth + 1)
+
+    for i in range(desktop.get_child_count()):
+        walk(desktop.get_child_at_index(i), 0)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--delay", type=int, default=15, help="seconds before typing starts")
@@ -229,7 +267,12 @@ def main():
                     obj = read_focused_object(needle)
                     if obj is None:
                         print("  FAIL: no focused text field found via AT-SPI")
+                        dump_text_widgets()
                         failures += 1
+                        # flush the pending word: a leak merges into the next
+                        # round's prefix and auto-restores as raw text
+                        type_keys(kfd, SETTLING, args.interval)
+                        time.sleep(0.5)
                         continue
                     iface = obj.query_text()
                     text = iface.get_text(0, iface.get_character_count())
