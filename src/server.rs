@@ -843,10 +843,17 @@ fn emit_with(
     let mut injected_since_commit = 0u32;
     let mut injected_total = 0u32;
     let mut nav_since_commit = 0usize;
+    // Set when a rewrite delete could not be delivered to a client proven
+    // to swallow deletes: the paired commit must be suppressed too, or the
+    // replacement lands on top of the raw keys and duplicates the word.
+    let mut delete_failed = false;
     for action in actions {
         match action {
             Action::Commit(text) => {
-                if nav_since_commit > 0 {
+                if delete_failed {
+                    debug_log::log("commit suppressed: its rewrite delete was not deliverable");
+                    delete_failed = false;
+                } else if nav_since_commit > 0 {
                     // The same transport race as the Backspace deferral below:
                     // a commit right after injected selection keys can land
                     // before the app erased the selection.
@@ -880,6 +887,18 @@ fn emit_with(
                     debug_log::log(&format!("delete-before inject={n}"));
                     injected_since_commit += *n;
                     injected_total += *n;
+                } else if engine.delete_dropped() {
+                    // The device is gone for the session (the handle is
+                    // opened once) and the client swallows the protocol
+                    // delete: neither transport works. Keep the raw text,
+                    // suppress the paired commit, and let the engine know —
+                    // its mode resolution moves the following words to
+                    // preedit, which needs no delete.
+                    debug_log::log(
+                        "delete-before inject FAILED on a delete-dropping client → keep raw",
+                    );
+                    engine.set_uinput_available(false);
+                    delete_failed = true;
                 } else {
                     debug_log::log(&format!("delete-before inject FAILED → protocol=-{n}"));
                     let mut m =
@@ -948,6 +967,15 @@ fn emit_with(
                     debug_log::log(&format!("rewrite-by-backspace n={backspaces}"));
                     injected_since_commit += *backspaces;
                     injected_total += *backspaces;
+                } else if engine.delete_dropped() {
+                    // Device gone on a delete-swallowing client: the
+                    // protocol fallback pair would land nowhere and
+                    // duplicate. Keep the raw text (the commit rides inside
+                    // this action, so skipping the branch skips both).
+                    debug_log::log(
+                        "rewrite-by-backspace inject FAILED on a delete-dropping client → keep raw",
+                    );
+                    engine.set_uinput_available(false);
                 } else {
                     debug_log::log(&format!(
                         "rewrite-by-backspace inject FAILED → protocol delete={backspaces}"
@@ -1424,6 +1452,97 @@ mod tests {
         assert!(e.has_deferred(), "threshold not reached yet");
         assert_eq!(e.flush_deferred(), vec!["word".to_string()]);
         assert!(!e.has_deferred());
+    }
+
+    /// An engine proven (report proof) to talk to a delete-swallowing client.
+    #[cfg(test)]
+    fn delete_dropped_engine() -> Engine {
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(32); // CAP_SURROUNDING_TEXT
+        e.set_uinput_available(true);
+        e.set_surrounding("a".into(), 1);
+        let _ = e.process_char('a'); // buffer "a"
+                                     // The second `a` is a rewrite: delete 1 + commit "â" — this arms
+                                     // the delete-delivery proof.
+        let _ = e.process_char('a');
+        e.set_surrounding("aâ".into(), 2); // swallowed shape → delete_dropped
+        assert!(e.delete_dropped());
+        e
+    }
+
+    #[test]
+    fn dead_device_on_delete_dropping_client_keeps_raw() {
+        // The uinput device died mid-session on a client already proven to
+        // swallow protocol deletes: the protocol fallback lands nowhere and
+        // the paired commit would duplicate the raw keys ("aê"). Both are
+        // suppressed, and the engine is told the device is gone so the
+        // following words resolve to preedit.
+        let mut e = delete_dropped_engine();
+        let fail = |_: u32, _: u64| false;
+        let t = fake_transports(&fail);
+        let mut out = Vec::new();
+        emit_with(
+            &mut e,
+            &[Action::DeleteBefore(1), Action::Commit("ê".into())],
+            &mut out,
+            &t,
+        );
+        assert!(
+            out.is_empty(),
+            "no protocol delete, no paired commit: {:?}",
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
+        );
+        assert!(!e.uinput_available(), "device death must reach the engine");
+    }
+
+    #[test]
+    fn dead_device_suppresses_rewrite_by_backspace_on_swallowers() {
+        // Same as above for RewriteByBackspace: its commit rides inside the
+        // action, so a failed injection must not fall back to the protocol
+        // delete + commit pair the client drops anyway.
+        let mut e = delete_dropped_engine();
+        let fail = |_: u32, _: u64| false;
+        let t = fake_transports(&fail);
+        let mut out = Vec::new();
+        emit_with(
+            &mut e,
+            &[Action::RewriteByBackspace {
+                backspaces: 2,
+                commit: "ê".into(),
+            }],
+            &mut out,
+            &t,
+        );
+        assert!(out.is_empty(), "no protocol fallback pair: {out:?}");
+    }
+
+    #[test]
+    fn inject_failure_keeps_the_protocol_fallback_for_healthy_clients() {
+        // A client that has never swallowed a delete honors the protocol:
+        // when injection fails, the protocol delete is the correct fallback.
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(32);
+        e.set_uinput_available(true);
+        e.set_surrounding("abc".into(), 3);
+        let fail = |_: u32, _: u64| false;
+        let t = fake_transports(&fail);
+        let mut out = Vec::new();
+        emit_with(&mut e, &[Action::DeleteBefore(1)], &mut out, &t);
+        assert!(
+            out.iter().any(|m| m
+                .member()
+                .map(|m| m == "DeleteSurroundingText")
+                .unwrap_or(false)),
+            "protocol fallback must stay for healthy clients"
+        );
+        assert!(
+            e.uinput_available(),
+            "healthy clients keep injection marked"
+        );
     }
 
     #[test]
