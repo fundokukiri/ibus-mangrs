@@ -29,10 +29,14 @@ from datetime import datetime
 DEBUG_LOG = os.path.expanduser("~/.cache/ibus-mangrs/debug.log")
 LOGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
-# Display modes cycled through after each full workload, in order. To support
-# a future display mode, add its config.toml `mode` value here — nothing else
-# needs to change.
-MODES = ["preedit", "nonpreedit", "surrounding"]
+# Every display mode, in cycle order. To support a future display mode, add
+# its config.toml `mode` value here — nothing else needs to change. The
+# default cycle keeps the three non-uinput modes: off/defaulttyping type raw
+# keys (they fail the Vietnamese check by design) and the uinput modes fall
+# back to preedit outside terminals — opt in with --modes.
+MODES = ["preedit", "nonpreedit", "surrounding", "smooth", "supersmooth", "select",
+         "off", "defaulttyping"]
+DEFAULT_CYCLE = ["preedit", "nonpreedit", "surrounding"]
 CONFIG_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "ibus-mangrs", "config.toml")
@@ -288,8 +292,9 @@ def main():
     parser.add_argument("--file", default=os.path.join(os.path.dirname(__file__), "text-test"))
     parser.add_argument("--delay", type=int, default=30, help="seconds before typing starts")
     parser.add_argument("--interval", type=int, default=80, help="ms between key presses")
-    parser.add_argument("--modes", default=",".join(MODES),
-                        help="comma-separated display modes cycled after each full workload")
+    parser.add_argument("--modes", default=",".join(DEFAULT_CYCLE),
+                        help="comma-separated display modes cycled after each full workload "
+                             "(all: " + ",".join(MODES) + ")")
     parser.add_argument("--pause", type=int, default=2500,
                         help="ms to wait after each mode switch (engine reloads in ~1 s)")
     args = parser.parse_args()

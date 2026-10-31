@@ -354,7 +354,12 @@ impl EngineHandler {
         config.mode = match config.mode {
             ModeConfig::NonPreedit => ModeConfig::Preedit,
             ModeConfig::Preedit => ModeConfig::Surrounding,
-            ModeConfig::Surrounding => ModeConfig::NonPreedit,
+            ModeConfig::Surrounding => ModeConfig::Smooth,
+            ModeConfig::Smooth => ModeConfig::SuperSmooth,
+            ModeConfig::SuperSmooth => ModeConfig::Select,
+            ModeConfig::Select => ModeConfig::Off,
+            ModeConfig::Off => ModeConfig::DefaultTyping,
+            ModeConfig::DefaultTyping => ModeConfig::NonPreedit,
         };
         if config.save().is_err() {
             return true; // consumed anyway; do not type with a hotkey press
@@ -447,8 +452,12 @@ fn register_properties(config: &Config, out: &mut Vec<Message>) {
 /// ignored — honoring them makes the last sibling of the group always win
 /// (`VIQR` for the method menu, `preedit` for the display menu).
 fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<Message>) {
+    if name == ibus_prop::KEY_ABOUT {
+        open_repo_page();
+        return;
+    }
     if name == ibus_prop::KEY_SHORTCUTS {
-        open_settings();
+        open_settings("general");
         return;
     }
 
@@ -502,7 +511,7 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
         ibus_prop::KEY_EM_DASH => config.em_dash = checked,
         ibus_prop::KEY_DOUBLE_SPACE => config.double_space_period = checked,
         ibus_prop::KEY_MACRO_EDITOR => {
-            open_settings();
+            open_settings("macros");
             return;
         }
         _ => return,
@@ -540,10 +549,22 @@ fn push_update(prop: &Prop, out: &mut Vec<Message>) {
 }
 
 /// The "Phím tắt" item opens the GTK4 settings window, same as `-gui`.
-fn open_settings() {
+fn open_settings(page: &str) {
     let Ok(exe) = std::env::current_exe() else { return };
     let _ = std::process::Command::new(exe)
         .arg("-gui")
+        .arg(format!("--page={page}"))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+/// Open the project's GitHub repository in the default browser (the
+/// "MăngRS <version>" entry at the top of the menu).
+fn open_repo_page() {
+    let _ = std::process::Command::new("xdg-open")
+        .arg(ibus_prop::HOMEPAGE)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -560,6 +581,18 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     }
     // Ctrl/Alt/Super combinations are application shortcuts.
     if state & keymap::SHORTCUT_MASK != 0 {
+        // The Ctrl+V of a clipboard-channel paste comes back as a shortcut:
+        // it is our own injection and must reach the application untouched.
+        if let Some(commits) = engine.take_nav_echo(keymap::V) {
+            for text in commits {
+                out.push(
+                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
+                        .expect("valid signal")
+                        .append1(plain_text(&text)),
+                );
+            }
+            return false;
+        }
         if engine.take_stale_injection(Duration::from_millis(150)) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
                 out.push(
@@ -626,6 +659,18 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
 
     // Arrows, Tab, Escape, Delete... end the word and belong to the app.
     if keymap::is_editing_key(keyval) {
+        // Echoes of keys the uinput modes injected (Select's Shift+Left and
+        // Delete): forward them so the selection/erase actually happens.
+        if let Some(commits) = engine.take_nav_echo(keyval) {
+            for text in commits {
+                out.push(
+                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
+                        .expect("valid signal")
+                        .append1(plain_text(&text)),
+                );
+            }
+            return false;
+        }
         if engine.take_stale_injection(Duration::from_millis(150)) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
                 out.push(
@@ -669,16 +714,37 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
 /// old `(v...)` helper) makes ibus-daemon drop the call, which is why preedit
 /// text never appeared until the word was committed.
 fn emit(engine: &mut Engine, actions: &[Action], out: &mut Vec<Message>) -> u32 {
-    emit_with(engine, actions, out, Uinput::inject_backspaces)
+    let transports = Transports {
+        backspaces: &|n, gap| Uinput::inject_backspaces(n, gap),
+        keys: &|keys, gap| Uinput::press_keys(keys, gap),
+        select_left: &|n, gap| Uinput::select_left(n, gap),
+        paste: &|text| crate::paste::paste_and_restore(text, &|| Uinput::ctrl_v()),
+    };
+    emit_with(engine, actions, out, &transports)
 }
 
-/// `emit` with an injectable Backspace transport. Tests use it to exercise the
-/// injection path without requiring a writable `/dev/uinput`.
+/// A paced key-press transport: (keycode, shift) pairs and the gap in ms.
+type PressKeys<'a> = &'a dyn Fn(&[(u16, bool)], u64) -> bool;
+
+/// Key transports so tests can exercise the injection paths without a
+/// writable `/dev/uinput`. `backspaces(n, gap)` presses Backspace `n` times
+/// `gap` ms apart; `keys` presses (keycode, shift) pairs; `select_left`
+/// Shift+Left `n` times; `paste` puts text on the clipboard (with restore)
+/// around a Ctrl+V and reports success.
+struct Transports<'a> {
+    backspaces: &'a dyn Fn(u32, u64) -> bool,
+    keys: PressKeys<'a>,
+    select_left: &'a dyn Fn(u32, u64) -> bool,
+    paste: &'a dyn Fn(&str) -> bool,
+}
+
+/// `emit` with injectable transports. Tests use it to exercise the injection
+/// paths without requiring a writable `/dev/uinput`.
 fn emit_with(
     engine: &mut Engine,
     actions: &[Action],
     out: &mut Vec<Message>,
-    inject_backspaces: impl Fn(u32) -> bool,
+    t: &Transports,
 ) -> u32 {
     let hide_underline = engine.hide_underline();
     // The protocol delete is the primary transport whenever the client has
@@ -689,12 +755,20 @@ fn emit_with(
     // reach emit after `deletes_allowed()` in the engine, so the protocol
     // arms below additionally guard on the report.
     let inject = engine.uinput_available() && engine.may_inject();
+    let bs_gap = engine.backspace_interval_ms();
     let mut injected_since_commit = 0u32;
     let mut injected_total = 0u32;
+    let mut nav_since_commit = 0usize;
     for action in actions {
         match action {
             Action::Commit(text) => {
-                if injected_since_commit > 0 {
+                if nav_since_commit > 0 {
+                    // The same transport race as the Backspace deferral below:
+                    // a commit right after injected selection keys can land
+                    // before the app erased the selection.
+                    engine.defer_nav_commit(nav_since_commit, text.clone());
+                    nav_since_commit = 0;
+                } else if injected_since_commit > 0 {
                     // The injected Backspaces travel through the compositor
                     // while this commit would go straight over D-Bus — a
                     // synchronous commit here can land BEFORE the deletions
@@ -718,7 +792,7 @@ fn emit_with(
                 // (permissions lost mid-session), fall back to the protocol
                 // delete rather than dropping the deletion and leaving a
                 // commit deferred forever.
-                if inject_backspaces(*n) {
+                if (t.backspaces)(*n, bs_gap) {
                     debug_log::log(&format!("delete-before inject={n}"));
                     injected_since_commit += *n;
                     injected_total += *n;
@@ -752,7 +826,7 @@ fn emit_with(
                 // commit will re-type), i.e. |offset| presses — n only says
                 // how much of that range the protocol delete covered.
                 let presses = presses(*offset);
-                if inject_backspaces(presses) {
+                if (t.backspaces)(presses, bs_gap) {
                     debug_log::log(&format!(
                         "delete-surrounding inject offset={offset} presses={presses}"
                     ));
@@ -784,7 +858,7 @@ fn emit_with(
                 }
             }
             Action::RewriteByBackspace { backspaces, commit } => {
-                if inject_backspaces(*backspaces) {
+                if (t.backspaces)(*backspaces, bs_gap) {
                     debug_log::log(&format!("rewrite-by-backspace n={backspaces}"));
                     injected_since_commit += *backspaces;
                     injected_total += *backspaces;
@@ -825,6 +899,73 @@ fn emit_with(
                         .append1(false) // not visible = hide
                         .append1(0u32),
                 );
+            }
+            // uinput modes' word-end rewrite: real Backspaces, paced.
+            Action::InjectBackspaces(n) => {
+                if (t.backspaces)(*n, bs_gap) {
+                    debug_log::log(&format!("smooth rewrite: inject backspaces n={n}"));
+                    injected_since_commit += *n;
+                    injected_total += *n;
+                } else if engine.surrounding_data_ok() {
+                    // Device lost mid-session: protocol delete as fallback.
+                    debug_log::log(&format!("smooth rewrite inject FAILED → protocol -{n}"));
+                    let mut m =
+                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "DeleteSurroundingText")
+                            .expect("valid signal");
+                    m = m.append1(-(*n as i32)).append1(*n);
+                    out.push(m);
+                } else {
+                    debug_log::log(&format!(
+                        "smooth rewrite inject FAILED and no report: deletion dropped n={n}"
+                    ));
+                }
+            }
+            Action::SelectLeft(n) => {
+                if (t.select_left)(*n, bs_gap) {
+                    debug_log::log(&format!("select rewrite: shift+left n={n}"));
+                    let echoes = vec![keymap::LEFT; *n as usize];
+                    engine.add_injected_nav(&echoes);
+                    nav_since_commit += *n as usize;
+                } else if engine.surrounding_data_ok() {
+                    debug_log::log(&format!("select-left inject FAILED → protocol -{n}"));
+                    let mut m =
+                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "DeleteSurroundingText")
+                            .expect("valid signal");
+                    m = m.append1(-(*n as i32)).append1(*n);
+                    out.push(m);
+                } else {
+                    debug_log::log(&format!(
+                        "select-left inject FAILED and no report: deletion dropped n={n}"
+                    ));
+                }
+            }
+            Action::PressDelete => {
+                if (t.keys)(&[(crate::uinput::KEYCODE_DELETE, false)], 0) {
+                    debug_log::log("select rewrite: delete");
+                    engine.add_injected_nav(&[keymap::DELETE]);
+                    nav_since_commit += 1;
+                } else {
+                    debug_log::log("press-delete FAILED: selection stays selected");
+                }
+            }
+            Action::Paste(text) => {
+                if (t.paste)(text) {
+                    debug_log::log(&format!("paste channel: {:?}", crate::debug_log::brief(text)));
+                    // The Ctrl+V we injected comes back as a key event; forward it.
+                    engine.add_injected_nav(&[keymap::V]);
+                } else {
+                    debug_log::log("paste channel FAILED → CommitText fallback");
+                    out.push(
+                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
+                            .expect("valid signal")
+                            .append1(plain_text(text)),
+                    );
+                }
+            }
+            Action::PostDelay(ms) => {
+                if *ms > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(*ms));
+                }
             }
             Action::Forward | Action::Consumed => {}
         }
@@ -871,6 +1012,18 @@ const INTROSPECT_XML: &str = r#"<node>
     </method>
   </interface>
 </node>"#;
+
+/// Fake transports for tests: every key press "succeeds", the clipboard
+/// does not exist (Paste falls back to CommitText).
+#[cfg(test)]
+fn fake_transports<'a>(backspaces: &'a dyn Fn(u32, u64) -> bool) -> Transports<'a> {
+    Transports {
+        backspaces,
+        keys: &|_, _| true,
+        select_left: &|_, _| true,
+        paste: &|_| false,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -981,11 +1134,13 @@ mod tests {
         e.set_capabilities(32); // CAP_SURROUNDING_TEXT, but no data reported
         e.set_uinput_available(true);
         let mut out = Vec::new();
+        let bs = |_: u32, _: u64| true;
+        let t = fake_transports(&bs);
         let injected = emit_with(
             &mut e,
             &[Action::DeleteBefore(2), Action::DeleteSurrounding { offset: -3, n: 1 }],
             &mut out,
-            |_| true,
+            &t,
         );
         assert_eq!(injected, 5, "2 + |offset| Backspaces");
         assert!(
@@ -1005,7 +1160,9 @@ mod tests {
         e.set_capabilities(1);
         e.set_uinput_available(true);
         let mut out = Vec::new();
-        let injected = emit_with(&mut e, &[Action::DeleteBefore(2)], &mut out, |_| true);
+        let bs = |_: u32, _: u64| true;
+        let t = fake_transports(&bs);
+        let injected = emit_with(&mut e, &[Action::DeleteBefore(2)], &mut out, &t);
         assert_eq!(injected, 2);
         assert!(
             out.iter()
@@ -1025,11 +1182,13 @@ mod tests {
         e.set_client(Some("gtk4-im:test".into()));
         e.set_uinput_available(true); // no surrounding data → injection
         let mut out = Vec::new();
+        let bs = |_: u32, _: u64| true;
+        let t = fake_transports(&bs);
         let injected = emit_with(
             &mut e,
             &[Action::DeleteBefore(1), Action::Commit("ế".into())],
             &mut out,
-            |_| true,
+            &t,
         );
         e.add_injected(injected);
         assert_eq!(injected, 1);
@@ -1044,6 +1203,64 @@ mod tests {
         let ready = e.note_echo_forwarded();
         assert_eq!(ready, vec!["ế".to_string()]);
         assert!(!e.has_deferred());
+    }
+
+    #[test]
+    fn commit_after_selection_waits_for_nav_echoes() {
+        // The Select rewrite injects Shift+Left presses and a Delete; a
+        // synchronous commit would land before the app erased the selection.
+        // The commit must wait until every injected nav-key echo has been
+        // forwarded, then flush.
+        let mut e = Engine::new(Method::Telex, Mode::Select);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_uinput_available(true);
+        e.set_surrounding(String::new(), 0);
+        let mut out = Vec::new();
+        let bs = |_: u32, _: u64| true;
+        let t = fake_transports(&bs);
+        emit_with(
+            &mut e,
+            &[
+                Action::SelectLeft(3),
+                Action::PressDelete,
+                Action::Commit("việt".into()),
+            ],
+            &mut out,
+            &t,
+        );
+        assert!(
+            !out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            "commit must be deferred, got {:?}",
+            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+        );
+        assert!(e.has_deferred());
+        assert!(e.pending_nav_echoes());
+        // The three Left echoes come back, then the Delete echo: the commit
+        // is only ready after the last one.
+        for _ in 0..3 {
+            assert!(e.take_nav_echo(keymap::LEFT).unwrap().is_empty());
+        }
+        assert!(e.take_nav_echo(keymap::DELETE).unwrap() == vec!["việt".to_string()]);
+        assert!(!e.has_deferred());
+        assert!(!e.pending_nav_echoes());
+    }
+
+    #[test]
+    fn paste_failure_falls_back_to_commit() {
+        // Without a clipboard tool the Paste transport fails; the word must
+        // still reach the application (CommitText fallback).
+        let mut e = Engine::new(Method::Telex, Mode::Smooth);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_uinput_available(true);
+        let mut out = Vec::new();
+        let bs = |_: u32, _: u64| true;
+        let t = fake_transports(&bs);
+        emit_with(&mut e, &[Action::Paste("việt".into())], &mut out, &t);
+        assert!(
+            out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            "{:?}",
+            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+        );
     }
 
     #[test]

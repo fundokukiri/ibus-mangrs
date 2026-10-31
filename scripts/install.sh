@@ -20,9 +20,23 @@ bin="$here/target/release/ibus-engine-ibus-mangrs"
 # world-readable and executable.
 install -Dm755 "$bin" "$LIBDIR/ibus-engine-ibus-mangrs"
 install -Dm644 "$here/data/ibus-mangrs.xml" "$COMPONENT_DIR/ibus-mangrs.xml"
+install -Dm644 "$here/data/vn-words.txt" "$PREFIX/share/ibus-mangrs/vn-words.txt"
 
 # Rebuild the registry cache; without -t refresh the daemon serves the old list.
 ibus write-cache --system 2>/dev/null || true
+
+# /dev/uinput permission for the backspace injector (docs/install.md).
+if [ -f "$here/data/80-uinput.rules" ]; then
+    install -Dm644 "$here/data/80-uinput.rules" \
+        /etc/udev/rules.d/80-uinput.rules
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger /dev/uinput 2>/dev/null || true
+    if [ -n "${SUDO_USER:-}" ] && ! id -nG "$SUDO_USER" 2>/dev/null | tr ' ' '\n' \
+        | grep -qx input; then
+        usermod -aG input "$SUDO_USER"
+        echo "added $SUDO_USER to the input group (effective at next login)"
+    fi
+fi
 
 echo "installed:"
 echo "  $LIBDIR/ibus-engine-ibus-mangrs"

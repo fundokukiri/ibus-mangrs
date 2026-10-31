@@ -1,0 +1,4 @@
+# MăngRS presses real Backspace keys through /dev/uinput when an app cannot
+# delete text over IBus (Sublime Text, X11/XWayland apps). Give the device to
+# the `input` group; the user must be a member (see docs/install.md).
+KERNEL=="uinput", MODE="0660", GROUP="input"

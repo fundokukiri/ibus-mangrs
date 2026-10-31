@@ -23,9 +23,10 @@
 use std::time::{Duration, Instant};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
-use crate::config::{AppRule, Config};
+use crate::config::{AppRule, Config, UnicodeChannel};
 use crate::debug_log::{self, brief};
 use crate::macros::{Dictionary, Macros};
+use crate::spellcheck;
 
 /// Display mode, selected in the GUI/menu and persisted in the config file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -37,6 +38,18 @@ pub enum Mode {
     Preedit,
     /// Non-preedit with surrounding-text verification.
     Surrounding,
+    /// Raw keys are forwarded while typing; the latin tail is erased with
+    /// real Backspaces at word end and the Vietnamese word is committed.
+    Smooth,
+    /// Smooth without the pre-rewrite verification.
+    SuperSmooth,
+    /// Shift+Left selects the typed tail, Delete erases it, then the word is
+    /// committed. Needs a surrounding-text report.
+    Select,
+    /// Vietnamese processing off; macros and auto-capitalize still run.
+    Off,
+    /// The engine is inert: every key is forwarded untouched.
+    DefaultTyping,
 }
 
 /// One thing the server must tell IBus to do.
@@ -61,6 +74,20 @@ pub enum Action {
     Forward,
     /// The key was consumed; do nothing further.
     Consumed,
+    /// Press Backspace `n` times through /dev/uinput, paced — the uinput
+    /// modes' word-end rewrite. Emitted only when injection is possible
+    /// (mode resolution guarantees it); the server falls back to the
+    /// protocol delete if the device died mid-session.
+    InjectBackspaces(u32),
+    /// Select `n` characters to the left with Shift+Left (uinput, paced).
+    SelectLeft(u32),
+    /// Press the Delete key once (erases a selection made by `SelectLeft`).
+    PressDelete,
+    /// Set the clipboard to `text`, paste with injected Ctrl+V, restore the
+    /// clipboard — the clipboard Unicode channel of the uinput modes.
+    Paste(String),
+    /// Idle pause (ms) after a uinput rewrite, before the app sees more keys.
+    PostDelay(u64),
 }
 
 pub struct Engine {
@@ -110,6 +137,13 @@ pub struct Engine {
     /// When the last batch of injections happened — echoes that have not
     /// come back within the stale window are treated as lost.
     last_inject: Option<Instant>,
+    /// Injected non-Backspace keys (arrows, Delete, V) whose echoes are
+    /// still expected, in press order.
+    pending_nav: Vec<u32>,
+    /// When the last non-Backspace injection happened (stale window).
+    last_nav_inject: Option<Instant>,
+    /// Commits waiting for injected nav-key echoes to be forwarded.
+    nav_deferred: Vec<(usize, String)>,
     // --- settings, mirrors of the config file ---
     app_rules: Vec<AppRule>,
     auto_restore: bool,
@@ -123,14 +157,28 @@ pub struct Engine {
     date_format: String,
     macros: Macros,
     dictionary: Option<Dictionary>,
+    /// Bundled Vietnamese word list, loaded while Spell Check is on. Lookup
+    /// only: it never changes what is committed (owner decision).
+    spellcheck: Option<spellcheck::WordList>,
     /// Preedit shown without the underline attribute.
     hide_underline: bool,
+    /// Uinput pacing (ms): text/commit step, Backspace gap, post-rewrite idle.
+    commit_interval_ms: u64,
+    backspace_interval_ms: u64,
+    post_delay_ms: u64,
+    /// How the Vietnamese word reaches the app in the uinput modes.
+    unicode_channel: UnicodeChannel,
     /// Display mode locked for the word being typed. The daemon flips
     /// capabilities 1ms apart around focus changes and not at all on quick
     /// refocus; re-resolving the mode mid-word flips preedit↔non-preedit
     /// under the user's hands (duplicated or invisible text). Locked at the
     /// first key of a word, released when the word ends.
     word_mode: Option<Mode>,
+    /// The word being typed follows a URL/email/path character: keep it raw
+    /// until the next terminator (URL/email/path bypass).
+    url_word: bool,
+    /// Keep words raw after URL/email/path characters (`bypass_url`).
+    bypass_url: bool,
     /// The app appended suggestion text after the caret mid-word (Chrome's
     /// inline autocomplete). Its rewrite delete is dropped and repairs crash
     /// mutter, so show the following words as preedit — no delete needed.
@@ -149,6 +197,12 @@ const CAP_SURROUNDING_TEXT: u32 = 1 << 5;
 /// the same code.
 const FALLBACK_NO_DELETE_SURROUNDING: &[&str] =
     &["chrome", "chromium", "electron", "code", "brave", "msedge", "vivaldi", "slack", "discord"];
+
+/// A word typed directly after one of these characters is part of a URL,
+/// email address, file path or code (`example.com`, `a@site`, `/etc/hosts`,
+/// `get_user_id`) and must stay raw. `-` is deliberately excluded: it would
+/// break the `--` → em-dash feature.
+const URL_CONTEXT_CHARS: &[char] = &['/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?'];
 
 impl Engine {
     pub fn new(method: Method, mode: Mode) -> Self {
@@ -175,6 +229,7 @@ impl Engine {
             date_format: "%d/%m/%Y".into(),
             macros: Macros::load(),
             dictionary: None,
+            spellcheck: None,
             hide_underline: false,
             delete_dropped: false,
             uinput_available: false,
@@ -182,9 +237,18 @@ impl Engine {
             deferred: Vec::new(),
             echoes_forwarded: 0,
             last_inject: None,
+            pending_nav: Vec::new(),
+            last_nav_inject: None,
+            nav_deferred: Vec::new(),
             word_mode: None,
+            url_word: false,
+            bypass_url: true,
             suggestions: false,
             capitalize_next: false,
+            commit_interval_ms: 20,
+            backspace_interval_ms: 5,
+            post_delay_ms: 10,
+            unicode_channel: UnicodeChannel::Commit,
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -230,7 +294,14 @@ impl Engine {
         self.date_format = config.date_format.clone();
         self.macros = Macros::load();
         self.dictionary = if config.dictionary_enabled { Some(Dictionary::load()) } else { None };
+        self.spellcheck = if config.auto_correct { Some(spellcheck::WordList::load()) } else { None };
         self.hide_underline = config.hide_underline;
+        self.commit_interval_ms = config.commit_interval_ms;
+        self.backspace_interval_ms = config.backspace_interval_ms;
+        self.post_delay_ms = config.post_delay_ms;
+        self.unicode_channel = config.unicode_channel;
+        self.bypass_url = config.bypass_url;
+        self.url_word = false;
         self.set_mode(mode);
         self.set_charset(config.charset.into());
         actions
@@ -293,6 +364,24 @@ impl Engine {
         self.client.as_deref()
     }
 
+    /// Uinput pacing, from the config (ms between rewrite steps).
+    pub fn commit_interval_ms(&self) -> u64 {
+        self.commit_interval_ms
+    }
+
+    pub fn backspace_interval_ms(&self) -> u64 {
+        self.backspace_interval_ms
+    }
+
+    pub fn post_delay_ms(&self) -> u64 {
+        self.post_delay_ms
+    }
+
+    /// How the Vietnamese word is delivered in the uinput modes.
+    pub fn unicode_channel(&self) -> UnicodeChannel {
+        self.unicode_channel
+    }
+
     /// The client dropped the protocol delete at least once; the server
     /// should inject real key events for deletions from now on.
     pub fn delete_dropped(&self) -> bool {
@@ -316,22 +405,36 @@ impl Engine {
     /// Backspace while composing) leaves the counter stuck just the same.
     /// Idempotent: false when nothing is stale.
     pub fn take_stale_injection(&mut self, max: Duration) -> bool {
-        if self.pending_injected == 0 {
-            return false;
-        }
-        match self.last_inject {
-            Some(t) if t.elapsed() > max => {
-                debug_log::log(&format!(
-                    "injection echoes stale ({}ms) → drop {} pending",
-                    t.elapsed().as_millis(),
-                    self.pending_injected
-                ));
-                self.pending_injected = 0;
-                self.last_inject = None;
-                true
+        let mut stale = false;
+        if self.pending_injected > 0 {
+            if let Some(t) = self.last_inject {
+                if t.elapsed() > max {
+                    debug_log::log(&format!(
+                        "injection echoes stale ({}ms) → drop {} pending",
+                        t.elapsed().as_millis(),
+                        self.pending_injected
+                    ));
+                    self.pending_injected = 0;
+                    self.last_inject = None;
+                    stale = true;
+                }
             }
-            _ => false,
         }
+        if !self.pending_nav.is_empty() {
+            if let Some(t) = self.last_nav_inject {
+                if t.elapsed() > max {
+                    debug_log::log(&format!(
+                        "nav injection echoes stale ({}ms) → drop {} pending",
+                        t.elapsed().as_millis(),
+                        self.pending_nav.len()
+                    ));
+                    self.pending_nav.clear();
+                    self.last_nav_inject = None;
+                    stale = true;
+                }
+            }
+        }
+        stale
     }
 
     /// Consume one injected-backspace echo. True when the key is an echo and
@@ -347,7 +450,58 @@ impl Engine {
 
     /// Injected backspace echoes still expected to come back.
     pub fn pending_echoes(&self) -> bool {
-        self.pending_injected > 0
+        self.pending_injected > 0 || !self.pending_nav.is_empty()
+    }
+
+    /// Record that non-Backspace keys (arrows, Delete, V) were injected; their
+    /// echoes must be forwarded in press order, not processed.
+    pub fn add_injected_nav(&mut self, keyvals: &[u32]) {
+        if keyvals.is_empty() {
+            return;
+        }
+        self.pending_nav.extend_from_slice(keyvals);
+        self.last_nav_inject = Some(Instant::now());
+    }
+
+    /// Consume an injected nav-key echo when it matches the press order.
+    /// True when the key is an echo and must go to the application untouched;
+    /// returned commits are those whose nav echoes are all delivered.
+    pub fn take_nav_echo(&mut self, keyval: u32) -> Option<Vec<String>> {
+        if self.pending_nav.first() == Some(&keyval) {
+            self.pending_nav.remove(0);
+            Some(self.note_nav_forwarded())
+        } else {
+            None
+        }
+    }
+
+    /// Non-Backspace injected keys still awaiting echoes.
+    pub fn pending_nav_echoes(&self) -> bool {
+        !self.pending_nav.is_empty()
+    }
+
+    /// A commit that must wait until `n` more injected nav-key echoes have
+    /// been forwarded (same transport race as `defer_commit`).
+    pub fn defer_nav_commit(&mut self, n: usize, text: String) {
+        debug_log::log(&format!("defer commit after {n} nav echoes: {:?}", brief(&text)));
+        self.nav_deferred.push((n, text));
+    }
+
+    /// Record that one injected nav key was forwarded; returns commits whose
+    /// nav echoes have all been delivered.
+    fn note_nav_forwarded(&mut self) -> Vec<String> {
+        let mut ready = Vec::new();
+        let mut remaining = Vec::new();
+        for (left, text) in self.nav_deferred.drain(..) {
+            if left > 1 {
+                remaining.push((left - 1, text));
+            } else {
+                debug_log::log(&format!("flush deferred commit (nav): {:?}", brief(&text)));
+                ready.push(text);
+            }
+        }
+        self.nav_deferred = remaining;
+        ready
     }
 
     /// Queue `text` to be committed only after `n` more injected-backspace
@@ -380,22 +534,34 @@ impl Engine {
     /// lost — a focus change or a real key arriving means delivering late is
     /// better than never).
     pub fn flush_deferred(&mut self) -> Vec<String> {
-        self.deferred
+        let mut all: Vec<String> = self
+            .deferred
             .drain(..)
             .map(|(_, text)| {
                 debug_log::log(&format!("flush deferred commit (forced): {:?}", brief(&text)));
                 text
             })
-            .collect()
+            .collect();
+        all.extend(self.nav_deferred.drain(..).map(|(_, text)| {
+            debug_log::log(&format!("flush deferred commit (nav, forced): {:?}", brief(&text)));
+            text
+        }));
+        all
     }
 
     pub fn has_deferred(&self) -> bool {
-        !self.deferred.is_empty()
+        !self.deferred.is_empty() || !self.nav_deferred.is_empty()
     }
 
     /// Whether the server can inject keys (called once at startup).
     pub fn set_uinput_available(&mut self, available: bool) {
         self.uinput_available = available;
+    }
+
+    /// Test hook: pretend the app appended suggestion text after the caret.
+    #[cfg(test)]
+    pub fn set_suggestions(&mut self, suggestions: bool) {
+        self.suggestions = suggestions;
     }
 
     /// Whether real Backspace keys can be injected as the delete transport.
@@ -472,6 +638,13 @@ impl Engine {
     /// a buffer it has not caught up with. Repairs are skipped there.
     fn repair_delete_forbidden(&self) -> bool {
         self.relay_context()
+    }
+
+    /// Advisory dictionary check (Spell Check on): whether `word` is in the
+    /// bundled Vietnamese word list. Never gates a commit — see
+    /// `src/spellcheck.rs` for the owner decision.
+    pub fn known_word(&self, word: &str) -> bool {
+        self.spellcheck.as_ref().is_some_and(|list| list.known_word(word))
     }
 
     /// Record the focused application (`gtk4-im:chrome`, ...) from `FocusInId`.
@@ -564,15 +737,28 @@ impl Engine {
     /// first, then the app rule, then the built-in heuristic.
     fn effective_mode(&self) -> Mode {
         let can_preedit = self.caps & CAP_PREEDIT_TEXT != 0;
+        let ruled = self.client_rule_mode();
+        let requested = ruled.unwrap_or(self.mode);
         // Preedit is unusable when the client cannot render it.
-        if self.mode == Mode::Preedit && !can_preedit {
+        if requested == Mode::Preedit && !can_preedit {
             return Mode::NonPreedit;
         }
-        if let Some(rule) = self.client_rule_mode() {
-            if rule == Mode::Preedit && !can_preedit {
-                return Mode::NonPreedit;
-            }
-            return rule;
+        // The uinput modes press real keys through /dev/uinput, but on
+        // mutter-relayed contexts the rewrite products never reach the
+        // application (verified 31/10: 52 smooth rewrites injected, echoes
+        // forwarded, commits flushed — Text Editor and Firefox showed the
+        // untouched latin text, no deletion, no commit, not even the
+        // terminator space). Relay contexts therefore fall back to preedit;
+        // the uinput modes stay for contexts where injection lands (X11).
+        if matches!(requested, Mode::Smooth | Mode::SuperSmooth | Mode::Select)
+            && (self.injection_forbidden()
+                || !self.uinput_available
+                || (requested == Mode::Select && self.surrounding.is_none()))
+        {
+            return Mode::Preedit;
+        }
+        if ruled.is_some() {
+            return requested;
         }
         // Inline autocomplete: the app appended suggestion text after the
         // caret, and its rewrite delete is dropped (repairing crashes
@@ -583,11 +769,11 @@ impl Engine {
         }
         // Rewriting the tail is impossible for delete-dropping clients, so
         // show the word inline instead of letting the commits pile up.
-        if self.mode == Mode::NonPreedit && can_preedit && self.client_cannot_delete_surrounding()
+        if requested == Mode::NonPreedit && can_preedit && self.client_cannot_delete_surrounding()
         {
             return Mode::Preedit;
         }
-        self.mode
+        requested
     }
 
     /// Mode for the current keystroke: the word-locked mode when a word is in
@@ -610,11 +796,51 @@ impl Engine {
 
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
-        if !self.wrapper.is_enabled() {
+        if self.effective_mode() == Mode::DefaultTyping {
+            // Fully inert: the key belongs to the application, nothing is
+            // composed, nothing is remembered.
+            return vec![Action::Forward];
+        }
+        if !self.wrapper.is_enabled() || self.effective_mode() == Mode::Off {
             return self.process_char_off(c);
         }
 
         let mode = self.key_mode();
+
+        // URL/email/path bypass: the word typed directly after one of the
+        // context characters stays raw — no marks, no macros, no
+        // auto-capitalize. The context character is the previous word's
+        // terminator, which `note_char` already recorded.
+        if !self.url_word && !self.wrapper.has_composition() {
+            self.url_word =
+                self.bypass_url && self.last_char.is_some_and(|p| URL_CONTEXT_CHARS.contains(&p));
+        }
+        if self.url_word {
+            let mut actions = Vec::new();
+            if self.preedit_visible {
+                self.preedit_visible = false;
+                actions.push(Action::HidePreedit);
+            }
+            if crate::bamboo_wrapper::is_word_terminator(c) {
+                self.url_word = false;
+                self.tail.clear();
+            } else {
+                self.tail.push(c);
+            }
+            self.note_char(c);
+            actions.push(Action::Forward);
+            return actions;
+        }
+
+        // The uinput modes: the raw key goes straight to the application and
+        // bamboo keeps composing internally; nothing is committed until the
+        // word ends (see `process_char_smooth`). Per-key display features
+        // (em-dash, double space) stay off here — these modes are for
+        // terminals and games, where rewriting before the word ends cannot
+        // work anyway.
+        if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+            return self.process_char_smooth(mode, c);
+        }
 
         // `--` -> `—`: the first `-` was already forwarded by the terminator
         // path, so this key replaces it.
@@ -708,9 +934,9 @@ impl Engine {
     /// `macro_in_off_mode` is set (the wrapper tracks the raw keys).
     fn process_char_off(&mut self, c: char) -> Vec<Action> {
         match self.wrapper.process_char(c) {
-            Outcome::Finish { raw, .. } => {
+            Outcome::Finish { raw, valid, .. } => {
                 if self.macro_enabled && self.macro_in_off_mode && !raw.is_empty() {
-                    if let Some(exp) = self.expand_macro(&raw) {
+                    if let Some(exp) = self.expand_macro(&raw, valid) {
                         let mut actions = Vec::new();
                         if !self.tail.is_empty() {
                             actions.push(Action::DeleteBefore(self.tail.chars().count() as u32));
@@ -736,12 +962,121 @@ impl Engine {
         }
     }
 
-    fn expand_macro(&self, raw: &str) -> Option<String> {
+    fn expand_macro(&self, raw: &str, valid: bool) -> Option<String> {
         if !self.macro_enabled {
+            return None;
+        }
+        // A key sequence that already forms a valid Vietnamese word is much
+        // more likely normal typing than a shorthand ("cam", "moi") — do
+        // not expand it. Shorthand keys therefore must not be valid words.
+        if valid {
             return None;
         }
         self.macros
             .expand(raw, self.capitalize_macro, &self.time_format, &self.date_format)
+    }
+
+    /// The uinput modes (Smooth / SuperSmooth / Select): the application
+    /// keeps the raw keystroke; bamboo transforms internally. The rewrite
+    /// happens once, at word end.
+    fn process_char_smooth(&mut self, mode: Mode, c: char) -> Vec<Action> {
+        match self.wrapper.process_char(c) {
+            Outcome::PassThrough => {
+                self.tail.push(c);
+                self.note_char(c);
+                vec![Action::Forward]
+            }
+            Outcome::Edit(_) => {
+                // The transformed output stays internal; the application
+                // shows the raw key until the word ends.
+                vec![Action::Forward]
+            }
+            Outcome::Finish { word, raw, valid } => {
+                self.on_finish_smooth(mode, word, raw, valid, c)
+            }
+        }
+    }
+
+    /// Word end in a uinput mode: erase the latin tail with real keys and
+    /// deliver the Vietnamese word. When the word equals the raw keys
+    /// (English text, auto-restored words) nothing is touched — the keys
+    /// already sit in the application.
+    fn on_finish_smooth(&mut self, mode: Mode, word: String, raw: String, valid: bool, c: char) -> Vec<Action> {
+        let _ = valid;
+        self.release_word_mode();
+        self.tail.clear();
+        self.note_char(c);
+
+        // Macros win, as in every mode: the expansion replaces the raw keys.
+        if !raw.is_empty() {
+            if let Some(exp) = self.expand_macro(&raw, valid) {
+                return self.smooth_rewrite(mode, &raw, &exp);
+            }
+        }
+
+        if word == raw || word.is_empty() {
+            // Nothing was transformed: no rewrite, no flash.
+            return vec![Action::Forward];
+        }
+
+        // Auto Non-VN restore: bamboo "corrected" a word that is not a
+        // Vietnamese syllable (English typing). The raw keys already sit in
+        // the application — keep them instead of rewriting the word into a
+        // syllable the user never meant (same gate as the inline modes).
+        let dict_hit =
+            self.dictionary.as_ref().is_some_and(|d| d.contains(&word.to_lowercase()));
+        if self.auto_restore && !valid && !dict_hit && !self.wrapper.undo_in_word() {
+            self.wrapper.reset();
+            return vec![Action::Forward];
+        }
+
+        // Smooth (unlike Super Smooth) defers to app autofill: the app
+        // appended suggestion text after the caret, and a rewrite would eat
+        // it. Super Smooth rewrites regardless — minimum latency, the owner
+        // accepted the risk.
+        if mode == Mode::Smooth && self.suggestions {
+            self.wrapper.reset();
+            return vec![Action::Forward];
+        }
+
+        self.smooth_rewrite(mode, &raw, &word)
+    }
+
+    /// The shared word-end rewrite: erase `raw` with real keys, deliver
+    /// `text` over the configured Unicode channel.
+    fn smooth_rewrite(&mut self, mode: Mode, raw: &str, text: &str) -> Vec<Action> {
+        let mut actions = Vec::new();
+        match mode {
+            Mode::Select => {
+                // No text report -> mode resolution fell back to Preedit, so
+                // the report is here. Select the tail, erase it, then commit.
+                let n = raw.chars().count() as u32;
+                if n > 0 {
+                    actions.push(Action::SelectLeft(n));
+                    actions.push(Action::PressDelete);
+                }
+            }
+            _ => {
+                let n = raw.chars().count() as u32;
+                if n > 0 {
+                    actions.push(Action::InjectBackspaces(n));
+                }
+            }
+        }
+        let encoded = encode(self.charset, text);
+        match self.unicode_channel {
+            UnicodeChannel::Commit => actions.push(Action::Commit(encoded)),
+            UnicodeChannel::Clipboard => actions.push(Action::Paste(encoded)),
+        }
+        if self.post_delay_ms > 0 {
+            actions.push(Action::PostDelay(self.post_delay_ms));
+        }
+        self.tail = text.to_string();
+        if let Some(c) = text.chars().last() {
+            self.note_char(c);
+        }
+        actions.push(Action::Forward);
+        actions
     }
 
     /// Word end: macros and auto-restore replace the committed word, preedit
@@ -752,7 +1087,7 @@ impl Engine {
 
         // Macros win over auto-restore.
         if !raw.is_empty() {
-            if let Some(exp) = self.expand_macro(&raw) {
+            if let Some(exp) = self.expand_macro(&raw, valid) {
                 if inline && !self.tail.is_empty() {
                     actions.push(Action::DeleteBefore(self.tail.chars().count() as u32));
                 }
@@ -998,6 +1333,21 @@ impl Engine {
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
         let mode = self.effective_mode();
+        // Vietnamese processing is off; the app owns the Backspace.
+        if mode == Mode::Off || mode == Mode::DefaultTyping {
+            return None;
+        }
+        // uinput modes: the application owns the on-screen text — the
+        // Backspace is forwarded so it deletes the raw key shown there, and
+        // bamboo follows so the composition stays aligned (unikey
+        // convention: Backspace undoes the last raw key).
+        if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+            self.wrapper.backspace();
+            if !self.wrapper.has_composition() {
+                self.release_word_mode();
+            }
+            return None;
+        }
         let edit = self.wrapper.backspace()?;
         if !self.wrapper.has_composition() {
             self.release_word_mode();
@@ -1013,6 +1363,9 @@ impl Engine {
                     Some(vec![Action::UpdatePreedit { text, cursor }])
                 }
             }
+            // Gated above (returns None); keeps the match exhaustive.
+            Mode::Off | Mode::DefaultTyping => None,
+            Mode::Smooth | Mode::SuperSmooth | Mode::Select => None,
             Mode::NonPreedit | Mode::Surrounding => {
                 let actions = if self.charset == Charset::Unicode {
                     let mut actions = Vec::new();
@@ -1073,6 +1426,7 @@ impl Engine {
         self.tail.clear();
         self.repair_delete = None;
         self.release_word_mode();
+        self.url_word = false;
         actions
     }
 
@@ -2341,11 +2695,246 @@ mod tests {
         assert_eq!(e.tail, "ab");
     }
 
+    // --- OFF / Default Typing / uinput-mode fallbacks (phase 6) ---
+
+    #[test]
+    fn off_mode_forwards_raw_keys_but_keeps_macros() {
+        let mut e = Engine::new(Method::Telex, Mode::Off);
+        // apply_config would reset the mode to the config's, so carry it here.
+        e.apply_config(&Config {
+            macro_in_off_mode: true,
+            mode: ModeConfig::Off,
+            ..Config::default()
+        });
+        e.macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "vieetj "), "vieetj ");
+        assert_eq!(type_replay(&mut e, "gs "), "giờ sáng ");
+    }
+
+    #[test]
+    fn off_mode_backspace_belongs_to_the_app() {
+        let mut e = Engine::new(Method::Telex, Mode::Off);
+        assert_eq!(type_replay(&mut e, "vieetj"), "vieetj");
+        assert!(e.backspace().is_none());
+    }
+
+    #[test]
+    fn default_typing_is_fully_inert() {
+        let mut e = Engine::new(Method::Telex, Mode::DefaultTyping);
+        e.apply_config(&Config {
+            macro_in_off_mode: true,
+            mode: ModeConfig::DefaultTyping,
+            ..Config::default()
+        });
+        e.macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "vieetj gs "), "vieetj gs ");
+    }
+
+    #[test]
+    fn default_typing_backspace_belongs_to_the_app() {
+        let mut e = Engine::new(Method::Telex, Mode::DefaultTyping);
+        assert_eq!(type_replay(&mut e, "abc"), "abc");
+        assert!(e.backspace().is_none());
+    }
+
+    #[test]
+    fn smooth_falls_back_to_preedit_without_uinput() {
+        let mut e = Engine::new(Method::Telex, Mode::Smooth);
+        e.set_uinput_available(false);
+        e.set_capabilities(CAP_PREEDIT_TEXT);
+        let actions = type_str(&mut e, "vieetj");
+        assert!(
+            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            "no uinput -> must render as preedit: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn smooth_falls_back_to_preedit_in_relay_context() {
+        // Empirical (31/10): with the gate open, 52 smooth rewrites injected
+        // fine but the rewrite products never reached the relayed app (raw
+        // latin stayed, no deletion, no commit). Relayed contexts must
+        // render as preedit.
+        let mut e = Engine::new(Method::Telex, Mode::Smooth);
+        e.set_uinput_available(true);
+        // A mutter-owned IBus context (type_str would replace None).
+        e.set_client(Some("gnome-shell:gnome-shell".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT);
+        let actions = type_str(&mut e, "vieetj");
+        assert!(
+            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            "relay context -> must render as preedit: {actions:?}"
+        );
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::InjectBackspaces(_))),
+            "no uinput rewrite may be emitted on a relay: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn select_falls_back_to_preedit_without_surrounding_report() {
+        let mut e = Engine::new(Method::Telex, Mode::Select);
+        e.set_uinput_available(true);
+        e.set_client(Some("gtk4-im:test".into()));
+        // No surrounding-text capability: Select cannot know the tail length.
+        e.set_capabilities(CAP_PREEDIT_TEXT);
+        let actions = type_str(&mut e, "vieetj");
+        assert!(
+            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            "no text report -> must render as preedit: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn select_stays_select_with_a_text_report() {
+        let mut e = Engine::new(Method::Telex, Mode::Select);
+        e.set_uinput_available(true);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        // The fallback checks the actual report, not just the capability.
+        e.set_surrounding(String::new(), 0);
+        assert_eq!(e.effective_mode(), Mode::Select);
+    }
+
+    // --- URL/email/path bypass (spell-check round, phase 2-3) ---
+
+    #[test]
+    fn url_context_keeps_words_raw() {
+        // "tieeng" right after "." and "/" would normally become "tiêng".
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        assert_eq!(type_replay(&mut e, "x.example.tieeng "), "x.example.tieeng ");
+    }
+
+    #[test]
+    fn email_context_keeps_words_raw() {
+        // "hieeu" after "@" would normally become "hiều".
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        assert_eq!(type_replay(&mut e, "a@hieeu "), "a@hieeu ");
+    }
+
+    #[test]
+    fn url_bypass_can_be_disabled() {
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.apply_config(&Config { bypass_url: false, ..Config::default() });
+        assert_eq!(type_replay(&mut e, "x.example.tieeng "), "x.example.tiêng ");
+    }
+
+    #[test]
+    fn url_bypass_releases_at_the_next_space() {
+        // The word after the URL ends must type Vietnamese again
+        // ("nhieeuf" → "nhiều" — huyền from the f).
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        assert_eq!(type_replay(&mut e, "x.tieeng nhieeuf "), "x.tieeng nhiều ");
+    }
+
+    #[test]
+    fn macro_does_not_expand_valid_vietnamese_words() {
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.macros.set_entries([("cam".to_string(), "CLIP".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "cam "), "cam ");
+        // Raw Telex for a Vietnamese word is normal typing as well.
+        e.macros.set_entries([("vieetj".to_string(), "CLIP".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "vieetj "), "việt ");
+    }
+
+    #[test]
+    fn macro_still_expands_nonvietnamese_keys_in_off_mode() {
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.apply_config(&Config { macro_in_off_mode: true, ..Config::default() });
+        e.set_enabled(false);
+        e.macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "gs "), "giờ sáng ");
+    }
+
+    #[test]
+    fn smooth_forwards_raw_keys_and_rewrites_at_word_end() {
+        let mut e = Engine::new(Method::Telex, Mode::Smooth);
+        e.set_uinput_available(true);
+        let actions = type_str(&mut e, "vieetj ");
+        // Mid-word: nothing but forwards — the app shows the raw keys.
+        let word_end = actions.iter().position(|a| matches!(a, Action::InjectBackspaces(_))).unwrap();
+        assert!(
+            actions[..word_end].iter().all(|a| matches!(a, Action::Forward | Action::Consumed)),
+            "raw keys must be forwarded while typing: {:?}",
+            &actions[..word_end]
+        );
+        // Word end: erase the 6 raw keys, commit the Vietnamese word.
+        assert!(actions.iter().any(|a| matches!(a, Action::InjectBackspaces(6))));
+        assert!(actions.iter().any(|a| matches!(a, Action::Commit(t) if t == "việt")));
+        assert!(actions.iter().any(|a| matches!(a, Action::PostDelay(_))));
+        assert!(!actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })));
+    }
+
+    #[test]
+    fn smooth_leaves_english_words_alone() {
+        let mut e = Engine::new(Method::Telex, Mode::Smooth);
+        e.set_uinput_available(true);
+        let actions = type_str(&mut e, "hello ");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::InjectBackspaces(_) | Action::Commit(_))),
+            "word == raw: no rewrite, the keys already sit in the app: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn smooth_backspace_forwards_and_pops_the_raw_key() {
+        let mut e = Engine::new(Method::Telex, Mode::Smooth);
+        e.set_uinput_available(true);
+        type_str(&mut e, "vieetj");
+        assert!(e.backspace().is_none(), "the app deletes its own key");
+        let actions = type_str(&mut e, " ");
+        // raw after the pop is "vieet" (5 keys), not "vieetj".
+        assert!(
+            actions.iter().any(|a| matches!(a, Action::InjectBackspaces(5))),
+            "{actions:?}"
+        );
+    }
+
+    #[test]
+    fn select_uses_selection_then_delete() {
+        let mut e = Engine::new(Method::Telex, Mode::Select);
+        e.set_uinput_available(true);
+        // Prime the client and a text report BEFORE the first key: the word
+        // mode locks at word start, and only a report makes Select resolve.
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        e.set_surrounding(String::new(), 0);
+        let actions = type_str(&mut e, "vieetj ");
+        assert!(actions.iter().any(|a| matches!(a, Action::SelectLeft(6))));
+        assert!(actions.iter().any(|a| matches!(a, Action::PressDelete)));
+        assert!(actions.iter().any(|a| matches!(a, Action::Commit(t) if t == "việt")));
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::InjectBackspaces(_))),
+            "Select must not press Backspaces: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn super_smooth_rewrites_even_with_app_suggestions() {
+        let mut e = Engine::new(Method::Telex, Mode::SuperSmooth);
+        e.set_uinput_available(true);
+        // Prime the client first: set_client clears the suggestion flag and
+        // type_str sets the client when it is None.
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_suggestions(true);
+        let actions = type_str(&mut e, "vieetj ");
+        assert!(actions.iter().any(|a| matches!(a, Action::InjectBackspaces(6))));
+        assert!(actions.iter().any(|a| matches!(a, Action::Commit(t) if t == "việt")));
+    }
+
+    #[test]
+    fn smooth_holds_back_when_the_app_autofills() {
+        let mut e = Engine::new(Method::Telex, Mode::Smooth);
+        e.set_uinput_available(true);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_suggestions(true);
+        let actions = type_str(&mut e, "vieetj ");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::InjectBackspaces(_))),
+            "rewriting would eat the suggestion text: {actions:?}"
+        );
+    }
 }
-
-
-
-
 
 #[cfg(test)]
 mod digit_debug {
@@ -2433,6 +3022,7 @@ mod x_probe {
             );
         }
     }
+
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 [package]
 name = "ibus-mangrs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["fundoku"]
 description = "MăngRS - Vietnamese IBus engine built on bamboo-core (make by fundoku with agents coding)"
@@ -16,6 +16,9 @@ path = "src/main.rs"
 
 [dependencies]
 bamboo-core = "0.5.3"
+# The bamboo-core/ submodule is pinned to v0.5.3 for source browsing and
+# audits; the build uses the crates.io package (git submodule update --init
+# after a fresh clone).
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dbus = "0.9.12"
 dirs = "6"
@@ -32,6 +35,9 @@ gui = ["dep:gtk4"]
 [dependencies.gtk4]
 version = "0.9"
 optional = true
+# v4_6: gdk Texture::from_bytes for the embedded logo on the About page.
+# v4_8: CheckButton::set_child for the pill navigation in the header bar.
+features = ["v4_6", "v4_8"]
 
 [profile.release]
 lto = true
