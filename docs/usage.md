@@ -19,7 +19,7 @@ settings window, an assignable cycle hotkey, or per application with App Rules.
 | OFF | Vietnamese off, macros still work | mixed Vietnamese/English sessions |
 | Default Typing | engine fully inert, every key forwarded | apps that resent any processing |
 
-The uinput modes need a writable `/dev/uinput` (see [installation.md](installation.md)) and fall
+The uinput modes need a writable `/dev/uinput` (see [guide/01-cai-dat.md](guide/01-cai-dat.md)) and fall
 back to preedit wherever real-key injection cannot reach the application — on GNOME Wayland they
 resolve to preedit; they are intended for X11 sessions.
 
