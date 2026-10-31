@@ -119,6 +119,13 @@ pub struct Engine {
     /// Set once the client has been proven to drop DeleteSurroundingText:
     /// the server then injects real Backspace keys instead of the signal.
     delete_dropped: bool,
+    /// Delivery proof for the last rewrite delete: `(expected prefix length
+    /// when the delete lands, expected when it is swallowed)`. The next ST
+    /// report settles it — a report matching the swallowed shape proves the
+    /// client drops rewrite deletes, and (without uinput) the following
+    /// words leave delete-based rewriting. Skipped for pure deletions,
+    /// where a stale report is indistinguishable from a swallowed one.
+    awaiting_delete_proof: Option<(usize, usize)>,
     /// Whether /dev/uinput is usable — deletions for clients without
     /// surrounding-text data go through key injection instead.
     uinput_available: bool,
@@ -284,6 +291,7 @@ impl Engine {
             spellcheck_mtime: None,
             hide_underline: false,
             delete_dropped: false,
+            awaiting_delete_proof: None,
             uinput_available: false,
             pending_injected: 0,
             deferred: Vec::new(),
@@ -679,6 +687,7 @@ impl Engine {
         self.repair_delete = None;
         self.delete_dropped = false;
         self.suggestions = false;
+        self.awaiting_delete_proof = None;
         // A parked word's position belongs to the context that parked it.
         self.parked_word = None;
     }
@@ -781,6 +790,20 @@ impl Engine {
             "st report cursor={cursor} len={len} composing={}",
             self.wrapper.has_composition()
         ));
+        // Settle the rewrite-delete delivery proof: a report whose prefix is
+        // exactly the swallowed shape (delete missing, insert landed) proves
+        // this client drops rewrite deletes. Without real-key injection
+        // there is then no working delete transport, and effective_mode()
+        // moves the following words to preedit. A stale report shows neither
+        // delete nor insert, so it never matches the swallowed shape.
+        if let Some((healthy, swallowed)) = self.awaiting_delete_proof.take() {
+            if swallowed != healthy && cursor.min(len) == swallowed {
+                self.delete_dropped = true;
+                debug_log::log(
+                    "rewrite delete swallowed (report proof) → following words leave delete rewriting",
+                );
+            }
+        }
         // The previous report moves out (it used to be cloned separately for
         // the click check); the incoming text is cloned once for the store.
         let pre_click = self.surrounding.replace((text.clone(), cursor as u32));
@@ -948,6 +971,18 @@ impl Engine {
         if requested == Mode::NonPreedit && can_preedit && self.client_cannot_delete_surrounding() {
             return Mode::Preedit;
         }
+        // A rewrite delete was proven swallowed (report proof) and real-key
+        // injection cannot take over: without a working delete transport the
+        // following words go through preedit, which needs no delete at all.
+        // Rule-matched clients keep their configured mode (they returned
+        // above); this only heals unlisted clients.
+        if matches!(requested, Mode::NonPreedit | Mode::Surrounding)
+            && can_preedit
+            && self.delete_dropped
+            && !self.uinput_available
+        {
+            return Mode::Preedit;
+        }
         requested
     }
 
@@ -1057,7 +1092,7 @@ impl Engine {
         // The rewrite needs a delete transport; without one the second '-'
         // stays literal instead of duplicating the replacement.
         if self.em_dash && self.deletes_allowed() && c == '-' && self.last_char == Some('-') {
-            let mut actions = vec![Action::DeleteBefore(1)];
+            let mut actions = vec![self.tracked_delete(1, 1)];
             actions.push(Action::Commit("—".into()));
             self.tail = replace_tail(&self.tail, 1, "—");
             self.note_char('—');
@@ -1072,7 +1107,7 @@ impl Engine {
             && self.last_char == Some(' ')
         {
             let mut actions = self.hide_if_visible();
-            actions.push(Action::DeleteBefore(1));
+            actions.push(self.tracked_delete(1, 1));
             actions.push(Action::Commit(".".into()));
             self.tail = replace_tail(&self.tail, 1, ".");
             self.note_char(' ');
@@ -1149,6 +1184,30 @@ impl Engine {
         }
     }
 
+    /// Prefix length (in chars) of the last ST report — what the client
+    /// showed before the cursor when it last spoke.
+    fn report_prefix_len(&self) -> usize {
+        self.surrounding.as_ref().map_or(0, |(text, cursor)| {
+            (*cursor as usize).min(text.chars().count())
+        })
+    }
+
+    /// A `DeleteBefore` whose delivery the next ST report proves or refutes
+    /// (see `awaiting_delete_proof`). Pure deletions (no paired insert)
+    /// cannot be told apart from a stale report, so they stay untracked.
+    fn tracked_delete(&mut self, n: u32, insert_len: usize) -> Action {
+        if insert_len == 0 {
+            return Action::DeleteBefore(n);
+        }
+        let prefix = self.report_prefix_len();
+        let healthy = prefix.saturating_sub(n as usize) + insert_len;
+        let swallowed = prefix + insert_len;
+        if swallowed != healthy {
+            self.awaiting_delete_proof = Some((healthy, swallowed));
+        }
+        Action::DeleteBefore(n)
+    }
+
     /// English mode: forward everything, but macros still work when
     /// `macro_in_off_mode` is set (the wrapper tracks the raw keys).
     fn process_char_off(&mut self, c: char) -> Vec<Action> {
@@ -1164,7 +1223,10 @@ impl Engine {
                     if let Some(exp) = self.expand_macro(&raw, valid) {
                         let mut actions = Vec::new();
                         if !self.tail.is_empty() {
-                            actions.push(Action::DeleteBefore(self.tail.chars().count() as u32));
+                            actions.push(self.tracked_delete(
+                                self.tail.chars().count() as u32,
+                                exp.chars().count(),
+                            ));
                         }
                         actions.push(Action::Commit(exp.clone()));
                         self.tail = exp.clone();
@@ -1334,7 +1396,9 @@ impl Engine {
             };
             if let Some(exp) = expansion {
                 if inline && !self.tail.is_empty() {
-                    actions.push(Action::DeleteBefore(self.tail.chars().count() as u32));
+                    actions.push(
+                        self.tracked_delete(self.tail.chars().count() as u32, exp.chars().count()),
+                    );
                 }
                 actions.push(Action::Commit(exp.clone()));
                 self.tail = exp;
@@ -1370,7 +1434,9 @@ impl Engine {
             && (!inline || self.deletes_allowed())
         {
             if inline && !self.tail.is_empty() {
-                actions.push(Action::DeleteBefore(self.tail.chars().count() as u32));
+                actions.push(
+                    self.tracked_delete(self.tail.chars().count() as u32, raw.chars().count()),
+                );
             }
             actions.push(Action::Commit(raw.clone()));
             self.tail = raw;
@@ -1424,9 +1490,13 @@ impl Engine {
                 }
                 let mut actions = Vec::new();
                 if edit.delete_chars > 0 {
-                    actions.push(Action::DeleteBefore(
-                        self.clamp_delete(edit.delete_chars as u32),
-                    ));
+                    let insert_len = edit.insert.chars().count();
+                    actions.push(
+                        self.tracked_delete(
+                            self.clamp_delete(edit.delete_chars as u32),
+                            insert_len,
+                        ),
+                    );
                 }
                 let insert = edit.insert;
                 if !insert.is_empty() {
@@ -1469,7 +1539,8 @@ impl Engine {
         let text = encode(self.charset, &self.wrapper.output());
         let mut actions = Vec::new();
         if !self.tail.is_empty() {
-            actions.push(Action::DeleteBefore(self.tail.chars().count() as u32));
+            actions
+                .push(self.tracked_delete(self.tail.chars().count() as u32, text.chars().count()));
         }
         if !text.is_empty() {
             actions.push(Action::Commit(text.clone()));
@@ -1656,8 +1727,10 @@ impl Engine {
                 let actions = if self.charset == Charset::Unicode {
                     let mut actions = Vec::new();
                     if edit.delete_chars > 0 {
-                        actions.push(Action::DeleteBefore(
+                        let insert_len = edit.insert.chars().count();
+                        actions.push(self.tracked_delete(
                             self.clamp_delete(edit.delete_chars as u32),
+                            insert_len,
                         ));
                     }
                     if !edit.insert.is_empty() {
@@ -2267,6 +2340,12 @@ mod tests {
                     let start = (buf.len() as i64 + *offset as i64).max(0) as usize;
                     let end = (start + *n as usize).min(buf.len());
                     buf.drain(start..end);
+                }
+                // Real Backspace keys delete from the cursor, then the
+                // commit re-types the common suffix.
+                Action::RewriteByBackspace { backspaces, commit } => {
+                    buf.truncate(buf.len().saturating_sub(*backspaces as usize));
+                    buf.extend(commit.chars());
                 }
                 Action::Commit(t) => buf.extend(t.chars()),
                 _ => {}
@@ -2969,14 +3048,20 @@ mod tests {
         let actions = e.process_char('e').into_iter().collect::<Vec<_>>();
         assert!(actions.contains(&Action::Commit("ê".into())), "{actions:?}");
 
-        // The client's next SetSurroundingText reveals the drift. The next
-        // key must first delete the leftover `e` (1 char right before the
-        // common suffix `ê`).
+        // The client's next SetSurroundingText reveals the drift — and the
+        // swallowed rewrite delete itself (report proof): the client showed
+        // `tieê`, exactly the delete-missing shape. The engine therefore
+        // skips the doomed protocol repair and presses real Backspace keys
+        // right away: delete the extra `e` plus the common suffix `ê`, then
+        // re-type `ê`.
         e.set_surrounding("tieê".into(), 4);
         let actions = e.process_char('n');
         assert_eq!(
             actions.first(),
-            Some(&Action::DeleteSurrounding { offset: -2, n: 1 }),
+            Some(&Action::RewriteByBackspace {
+                backspaces: 2,
+                commit: "ê".into()
+            }),
             "{actions:?}"
         );
         // After the repair the rest of the key must still land: `tiên`.
@@ -2996,12 +3081,16 @@ mod tests {
         e.set_surrounding("tie".into(), 3);
         let _ = e.process_char('e'); // delete 1 + commit ê; client swallows the delete
         e.set_surrounding("tieê".into(), 4);
+        // The swallowed rewrite delete is already proven by the report
+        // (`tieê` is exactly the delete-missing shape), so the first repair
+        // goes straight to Backspace injection instead of trying a protocol
+        // delete this client has just proven it drops.
         let first = e.process_char('n');
         assert!(matches!(
             first.first(),
-            Some(Action::DeleteSurrounding { offset: -2, n: 1 })
+            Some(Action::RewriteByBackspace { backspaces: 2, .. })
         ));
-        assert!(!e.delete_dropped(), "first attempt still uses the protocol");
+        assert!(e.delete_dropped(), "flag set by the report proof");
 
         // The client swallowed the delete but applied the commit, so it now
         // shows `tieên` where the engine believes `tiên`. A repair was
