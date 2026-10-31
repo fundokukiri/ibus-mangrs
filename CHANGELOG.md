@@ -4,6 +4,42 @@ All notable, user-visible changes to ibus-mangrs (MăngRS) are documented here, 
 The project versions independently of `bamboo-core`; each release gets a tag `ibus-mangrs-<version>`.
 Detailed round-by-round debugging history lives in `DEVLOG.md` (internal).
 
+## [Unreleased]
+
+The pending-word behavior on mouse clicks is now configurable with three actions: Bamboo
+(default — a word left idle for 800 ms commits in place, so a later click finds nothing to
+lose, and a late tone key still re-enters the committed word: `tung` + wait + `f` → `tùng`),
+Keep word (a click hides the word but keeps it — clicking back restores it with mark-undo
+intact), and Relocate (the word is always delivered to the position where it was typed).
+Adds Vietnamese abbreviations (`ddc` → `đc`, `ddk` → `đk`, `ddt` → `đt`) as a toggle, and
+slims the quick-settings popup to the essentials with clearer naming.
+
+### Added
+
+- Three click actions for a pending word, selectable in the GUI and the quick-settings menu:
+  Bamboo (default), Keep word, Relocate to the typed position.
+- Preedit idle auto-commit: a word left pending for 800 ms (configurable, 0 = off) commits in
+  place, so a later mouse click cannot lose or relocate it. A tone key pressed after the wait
+  re-enters the committed word and still applies the mark.
+- Vietnamese abbreviations (toggle, on by default): `ddc` → `đc`, `ddk` → `đk`, `ddt` → `đt`,
+  `ddg` → `đg` — the đ is no longer lost on non-syllable shorthand.
+
+### Changed
+
+- The quick-settings popup keeps only Gõ tắt, Tự viết hoa, Mở bảng gõ tắt, Viết tắt and
+  Khôi phục từ nước ngoài; everything else lives in the control panel. "Hiển thị" is now
+  "Chế độ gõ" and shows the four main modes; "Cài đặt…" is now "Bảng điều khiển".
+- Opening the control panel twice presents the existing window instead of a second one.
+- Settings rows explain themselves on hover and entry rows note their default values; the
+  About page names the author and links https://mangrs.fundoku.io.vn.
+
+### Fixed
+
+- Changing "Hành vi khi click" in the control panel now persists: the window read every
+  control back into the config except this one, so each save silently wrote the old
+  action again. The quick-settings popup also regains its "Hành vi khi click" radio
+  group, kept in sync with the panel.
+
 ## [0.1.1] — 31/10/2026
 
 Three uinput display modes (Smooth, Super Smooth, Select) that press real keys instead of
