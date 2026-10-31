@@ -206,6 +206,16 @@ pub struct Engine {
     /// idle commit) or relocate (the word is always delivered to its typed
     /// position; the caret ends up right after it).
     click_action: ClickActionConfig,
+    /// Bamboo mode only: the last word end was the idle commit, so a late
+    /// tone key may still re-enter the committed word (`tung` + wait + `f`
+    /// → `tùng`) — what the owner measured in ibus-bamboo.
+    idle_committed: bool,
+    /// The raw keystrokes of the word the idle commit delivered, so a late
+    /// tone key can replay them back into the composition.
+    idle_raw: Option<String>,
+    /// Character count of what the idle commit delivered (encoded), for the
+    /// re-entry's DeleteBefore.
+    idle_len: u32,
 }
 
 /// Where a parked word waits to come back: the composition-start cursor and
@@ -285,6 +295,9 @@ impl Engine {
             reset_check: None,
             parked_word: None,
             click_action: ClickActionConfig::Bamboo,
+            idle_committed: false,
+            idle_raw: None,
+            idle_len: 0,
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -906,6 +919,28 @@ impl Engine {
             debug_log::log("typing away from the parked word → drop it");
             self.drop_pending_word();
         }
+        // Late tone key after the idle commit (bamboo mode): re-enter the
+        // committed word so `tung` + wait + `f` still gives `tùng`. Only
+        // mark keys re-enter — ordinary keys start the next word.
+        if self.idle_committed
+            && !self.wrapper.has_composition()
+            && self.effective_mode() == Mode::Preedit
+            && self.is_late_mark_key(c)
+        {
+            if let Some(raw) = self.idle_raw.clone() {
+                let n = self.idle_len;
+                self.idle_committed = false;
+                self.idle_raw = None;
+                debug_log::log("late tone key → re-enter the idle-committed word");
+                self.tail.clear();
+                self.wrapper.replay_raw(&raw);
+                let mut actions = vec![Action::DeleteBefore(n)];
+                actions.extend(self.process_char(c));
+                return actions;
+            }
+        }
+        self.idle_committed = false;
+        self.idle_raw = None;
         if self.effective_mode() == Mode::DefaultTyping {
             // Fully inert: the key belongs to the application, nothing is
             // composed, nothing is remembered.
@@ -1547,6 +1582,8 @@ impl Engine {
         self.wrapper.reset();
         self.reset_check = None;
         self.parked_word = None;
+        self.idle_committed = false;
+        self.idle_raw = None;
         let actions = self.hide_if_visible();
         self.tail.clear();
         self.repair_delete = None;
@@ -1713,7 +1750,12 @@ impl Engine {
         let valid = self.wrapper.is_valid();
         self.wrapper.reset();
         debug_log::log("preedit idle past timeout → commit in place");
-        self.on_finish(Mode::Preedit, word, raw, valid)
+        let actions = self.on_finish(Mode::Preedit, word.clone(), raw.clone(), valid);
+        // A late tone key may still re-enter this word (`tung` + wait + `f`).
+        self.idle_committed = true;
+        self.idle_raw = Some(raw);
+        self.idle_len = encode(self.charset, &word).chars().count() as u32;
+        actions
     }
 
     /// Milliseconds the main loop should wait before the next `tick` — the
@@ -1736,6 +1778,16 @@ impl Engine {
         }
         let elapsed = self.last_key_at.elapsed().as_millis() as u64;
         Some(self.preedit_timeout_ms.saturating_sub(elapsed).max(1))
+    }
+
+    /// Whether `c` is a tone-mark key for the current method — the keys that
+    /// may re-enter a word the idle commit just delivered.
+    fn is_late_mark_key(&self, c: char) -> bool {
+        match self.wrapper.method() {
+            Method::Vni => c.is_ascii_digit(),
+            Method::Viqr => matches!(c, '\'' | '`' | '?' | '~' | '!'),
+            Method::Telex | Method::MsLayout => matches!(c, 's' | 'f' | 'j' | 'x' | 'r'),
+        }
     }
 
     fn hide_if_visible(&mut self) -> Vec<Action> {
@@ -3277,6 +3329,35 @@ mod tests {
         let ticked = e.tick();
         assert!(ticked.contains(&Action::Commit("chào".into())), "{ticked:?}");
         assert!(!e.preedit_visible && !e.wrapper.has_composition());
+    }
+
+    #[test]
+    fn late_tone_key_reenters_the_idle_committed_word() {
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        type_str(&mut e, "tung");
+        e.last_key_at = Instant::now() - Duration::from_millis(1000);
+        e.tick(); // "tung" commits in place
+        assert!(e.idle_committed);
+        // The user presses f after the wait: the word re-enters and the
+        // mark lands ("tung" + wait + f → "tùng").
+        let actions = e.process_char('f');
+        assert!(actions.contains(&Action::DeleteBefore(4)), "{actions:?}");
+        assert!(
+            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "tùng")),
+            "{actions:?}"
+        );
+        assert!(!e.idle_committed, "consumed");
+    }
+
+    #[test]
+    fn ordinary_keys_do_not_reenter_the_idle_committed_word() {
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        type_str(&mut e, "tung");
+        e.last_key_at = Instant::now() - Duration::from_millis(1000);
+        e.tick();
+        let actions = e.process_char('z');
+        assert!(!actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))), "{actions:?}");
+        assert!(!e.idle_committed);
     }
 
     #[test]

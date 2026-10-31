@@ -216,6 +216,29 @@ impl BambooWrapper {
         self.enabled
     }
 
+    /// The active input method, for method-specific decisions upstream.
+    pub fn method(&self) -> Method {
+        self.method
+    }
+
+    /// Load raw keystrokes back into the composition (the idle-commit
+    /// re-entry): the engine replays them so tone keys can still transform
+    /// the word — `rebuild_from_text` cannot, it builds marks without
+    /// keystrokes and a following tone key starts a fresh word.
+    pub fn replay_raw(&mut self, raw: &str) {
+        self.engine.reset();
+        self.raw = raw.to_string();
+        self.composing = !raw.is_empty();
+        self.undo_in_word = false;
+        self.abbrev_fixed = false;
+        self.output_override = None;
+        self.last_output.clear();
+        for r in raw.chars() {
+            let _ = self.engine.process_key_edit(r, Mode::Vietnamese);
+        }
+        self.last_output = self.engine.output_str().to_string();
+    }
+
     /// `abbreviations` config: keep the đ in reverted non-syllable
     /// compositions (`ddc` → `đc`). See the reversion fix in `process_char`.
     pub fn set_abbreviations(&mut self, on: bool) {
