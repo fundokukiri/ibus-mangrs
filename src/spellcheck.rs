@@ -19,6 +19,12 @@ pub struct WordList {
 }
 
 impl WordList {
+    /// The file `load` reads (first candidate that exists), for mtime-gated
+    /// reloads in the engine.
+    pub(crate) fn path() -> Option<PathBuf> {
+        Self::candidates().into_iter().find(|p| p.exists())
+    }
+
     /// Candidate paths in priority order; `install_dir` is where
     /// `scripts/install.sh` / the PKGBUILD put the data file.
     fn candidates() -> Vec<PathBuf> {

@@ -20,7 +20,7 @@
 //! Per-application rules (`AppRule`) can force a mode for a matched client;
 //! clients without a rule fall back to the built-in heuristic.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
 use crate::config::{AppRule, ClickActionConfig, Config, UnicodeChannel};
@@ -160,6 +160,12 @@ pub struct Engine {
     /// Bundled Vietnamese word list, loaded while Spell Check is on. Lookup
     /// only: it never changes what is committed (owner decision).
     spellcheck: Option<spellcheck::WordList>,
+    /// mtimes of the auxiliary files behind the fields above: apply_config
+    /// runs on every focus change, and the word list alone is ~400 KB, so
+    /// each file is reloaded only when it changed on disk.
+    macros_mtime: Option<SystemTime>,
+    dictionary_mtime: Option<SystemTime>,
+    spellcheck_mtime: Option<SystemTime>,
     /// Preedit shown without the underline attribute.
     hide_underline: bool,
     /// Uinput pacing (ms): text/commit step, Backspace gap, post-rewrite idle.
@@ -272,6 +278,9 @@ impl Engine {
             macros: Macros::load(),
             dictionary: None,
             spellcheck: None,
+            macros_mtime: None,
+            dictionary_mtime: None,
+            spellcheck_mtime: None,
             hide_underline: false,
             delete_dropped: false,
             uinput_available: false,
@@ -342,17 +351,33 @@ impl Engine {
         self.macro_in_off_mode = config.macro_in_off_mode;
         self.time_format = config.time_format.clone();
         self.date_format = config.date_format.clone();
-        self.macros = Macros::load();
-        self.dictionary = if config.dictionary_enabled {
-            Some(Dictionary::load())
+        // Reload the auxiliary files only when they changed on disk (see the
+        // mtime fields above).
+        let macros_time = file_time(Macros::path().as_deref());
+        if macros_time != self.macros_mtime {
+            self.macros = Macros::load();
+            self.macros_mtime = macros_time;
+        }
+        if config.dictionary_enabled {
+            let t = file_time(Dictionary::path().as_deref());
+            if self.dictionary.is_none() || t != self.dictionary_mtime {
+                self.dictionary_mtime = t;
+                self.dictionary = Some(Dictionary::load());
+            }
         } else {
-            None
+            self.dictionary = None;
+            self.dictionary_mtime = None;
         };
         self.wrapper.set_abbreviations(config.abbreviations);
-        self.spellcheck = if config.auto_correct {
-            Some(spellcheck::WordList::load())
+        if config.auto_correct {
+            let t = file_time(spellcheck::WordList::path().as_deref());
+            if self.spellcheck.is_none() || t != self.spellcheck_mtime {
+                self.spellcheck_mtime = t;
+                self.spellcheck = Some(spellcheck::WordList::load());
+            }
         } else {
-            None
+            self.spellcheck = None;
+            self.spellcheck_mtime = None;
         };
         self.hide_underline = config.hide_underline;
         self.commit_interval_ms = config.commit_interval_ms;
@@ -755,8 +780,9 @@ impl Engine {
             "st report cursor={cursor} len={len} composing={}",
             self.wrapper.has_composition()
         ));
-        let pre_click = self.surrounding.clone();
-        let old = self.surrounding.replace((text.clone(), cursor as u32));
+        // The previous report moves out (it used to be cloned separately for
+        // the click check); the incoming text is cloned once for the store.
+        let pre_click = self.surrounding.replace((text.clone(), cursor as u32));
         // A parked word (#14): the caret has left the pending composition.
         // Back at the parked position with the text before it unchanged →
         // restore the preedit; anywhere else → stay parked, report ignored.
@@ -816,10 +842,10 @@ impl Engine {
         // "caret at the end" counts — text after the caret is normal when
         // editing mid-line from the first report on.
         if !self.suggestions && self.wrapper.has_composition() {
-            if let Some((old_text, old_cursor)) = old {
-                if old_cursor as usize >= old_text.chars().count()
+            if let Some((old_text, old_cursor)) = &pre_click {
+                if *old_cursor as usize >= old_text.chars().count()
                     && cursor < len
-                    && text.starts_with(&old_text)
+                    && text.starts_with(old_text.as_str())
                 {
                     self.suggestions = true;
                     debug_log::log(
@@ -1933,6 +1959,13 @@ impl Engine {
 }
 
 /// Drop `delete` characters from the end of `tail` and append `insert`.
+/// mtime of `path`, or None when it does not exist — the reload gate for
+/// the auxiliary settings files.
+fn file_time(path: Option<&std::path::Path>) -> Option<SystemTime> {
+    path.and_then(|p| std::fs::metadata(p).ok())
+        .and_then(|m| m.modified().ok())
+}
+
 fn replace_tail(tail: &str, delete: usize, insert: &str) -> String {
     let keep = tail.chars().count().saturating_sub(delete);
     let mut s: String = tail.chars().take(keep).collect();

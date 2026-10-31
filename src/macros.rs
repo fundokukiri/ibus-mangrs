@@ -16,7 +16,7 @@ pub struct Macros {
 }
 
 impl Macros {
-    fn path() -> Option<PathBuf> {
+    pub(crate) fn path() -> Option<PathBuf> {
         dirs::config_dir().map(|d| d.join("ibus-mangrs").join("macros.toml"))
     }
 
@@ -111,7 +111,7 @@ pub struct Dictionary {
 }
 
 impl Dictionary {
-    fn path() -> Option<PathBuf> {
+    pub(crate) fn path() -> Option<PathBuf> {
         dirs::config_dir().map(|d| d.join("ibus-mangrs").join("dictionary.txt"))
     }
 
