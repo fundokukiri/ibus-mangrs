@@ -201,6 +201,13 @@ impl Ui {
         config.auto_correct = self.auto_correct.is_active();
         config.auto_restore = self.auto_restore.is_active();
         config.abbreviations = self.abbrev.is_active();
+        // Without this mapping every save re-read the file's click action and
+        // wrote it back unchanged — the dropdown only looked changed.
+        config.click_action = match self.click_action.selected() {
+            1 => ClickActionConfig::Keep,
+            2 => ClickActionConfig::Relocate,
+            _ => ClickActionConfig::Bamboo,
+        };
         config.preedit_commit_timeout_ms =
             self.preedit_timeout.text().trim().parse().unwrap_or(800);
         config.bypass_url = self.bypass_url.is_active();

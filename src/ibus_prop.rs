@@ -16,7 +16,7 @@
 
 use dbus::arg::{RefArg, Variant};
 
-use crate::config::Config;
+use crate::config::{ClickActionConfig, Config};
 use crate::ibus_text::Props;
 
 pub const TYPE_NORMAL: u32 = 0;
@@ -220,6 +220,22 @@ pub fn properties(config: &Config) -> Vec<Prop> {
             )
         })
         .collect();
+    let click_items = [
+        (
+            ClickActionConfig::Bamboo,
+            "click:bamboo",
+            "Bamboo (mặc định)",
+        ),
+        (ClickActionConfig::Keep, "click:keep", "Giữ từ khi click"),
+        (
+            ClickActionConfig::Relocate,
+            "click:relocate",
+            "Về chỗ cũ khi click",
+        ),
+    ]
+    .iter()
+    .map(|(value, key, label)| Prop::radio(key, label, config.click_action == *value))
+    .collect();
 
     // GNOME sizes the popup to the widest label, so the quick settings stay
     // short; the details live in the tooltips. Only the essentials stay in
@@ -259,6 +275,7 @@ pub fn properties(config: &Config) -> Vec<Prop> {
         Prop::menu(KEY_CHARSET, "Bảng mã", charset_items),
         Prop::menu(KEY_METHOD, "Kiểu gõ", method_items),
         Prop::menu(KEY_DISPLAY, "Chế độ gõ", display_items),
+        Prop::menu(KEY_CLICK_ACTION, "Hành vi khi click", click_items),
         Prop::menu("quick", "Cấu hình nhanh", quick),
         Prop::normal(KEY_SHORTCUTS, "Cài đặt…"),
     ]
@@ -287,10 +304,12 @@ mod tests {
         assert_eq!(props[5].key, KEY_DISPLAY);
         // Only the main modes are in the popup; the rest live in the GUI.
         assert_eq!(props[5].sub.len(), MAIN_MODES.len());
-        assert_eq!(props[6].key, "quick");
-        assert_eq!(props[6].sub.len(), 5);
-        assert_eq!(props[7].key, KEY_SHORTCUTS);
-        assert_eq!(props[7].kind, TYPE_NORMAL);
+        assert_eq!(props[6].key, KEY_CLICK_ACTION);
+        assert_eq!(props[6].sub.len(), 3);
+        assert_eq!(props[7].key, "quick");
+        assert_eq!(props[7].sub.len(), 5);
+        assert_eq!(props[8].key, KEY_SHORTCUTS);
+        assert_eq!(props[8].kind, TYPE_NORMAL);
     }
 
     #[test]
@@ -299,6 +318,7 @@ mod tests {
             charset: crate::config::CharsetConfig::Vni,
             method: crate::config::MethodConfig::Viqr,
             mode: crate::config::ModeConfig::Preedit,
+            click_action: crate::config::ClickActionConfig::Keep,
             auto_correct: false,
             ..Config::default()
         };
@@ -312,10 +332,11 @@ mod tests {
         assert_eq!(checked(&props[3].sub), vec!["charset:vni"]);
         assert_eq!(checked(&props[4].sub), vec!["method:viqr"]);
         assert_eq!(checked(&props[5].sub), vec!["display:preedit"]);
+        assert_eq!(checked(&props[6].sub), vec!["click:keep"]);
         assert_eq!(props[2].state, STATE_CHECKED);
         // Quick group: macros, abbreviations and auto-restore on (defaults).
         assert_eq!(
-            checked(&props[6].sub),
+            checked(&props[7].sub),
             vec!["macro", "abbreviations", "auto_restore"]
         );
     }
