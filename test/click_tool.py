@@ -40,10 +40,14 @@ BTN_LEFT = 0x110
 
 # Raw keystrokes (Telex): the engine turns them into
 # `xin chào các bạn ` with the last `chào` still pending in preedit.
-PREFIX_KEYS = "xin chaof cac ban "
-WORD_KEYS = "choaf"
+PREFIX_KEYS = "xin chaof cacs banj "
+WORD_KEYS = "chaof"
 WORD = "chào"
 SETTLING = " "  # terminator typed after the click, commits the pending word
+# What the engine renders from the raw keys, and the exact final tail the
+# field must hold after the settling space.
+RENDERED_PREFIX = "xin chào các bạn "
+EXPECTED_TAIL = RENDERED_PREFIX + WORD + SETTLING
 
 
 def screen_size():
@@ -94,8 +98,13 @@ def click_at(fd, x, y, screen_w, screen_h):
     tt.emit(fd, tt.EV_SYN, 0, 0)
 
 
-def read_focused_object():
-    """The focused text widget itself (not just its text), for extents."""
+def read_focused_object(needle=None):
+    """The focused text widget itself (not just its text), for extents.
+
+    Some apps never expose StateType.FOCUSED on the text widget; when a
+    `needle` is given, any text widget containing it is accepted instead —
+    the tool knows exactly what it just typed.
+    """
     import gi
     gi.require_version("Atspi", "2.0")
     from gi.repository import Atspi
@@ -104,13 +113,19 @@ def read_focused_object():
     text_roles = {Atspi.Role.ENTRY, Atspi.Role.TEXT, Atspi.Role.PARAGRAPH,
                   Atspi.Role.DOCUMENT_TEXT, Atspi.Role.TERMINAL}
 
+    def text_of(obj):
+        iface = obj.query_text()
+        return iface.get_text(0, iface.get_character_count())
+
     def walk(obj, depth):
         if depth > 14:
             return None
         try:
-            if (obj.get_role() in text_roles
-                    and obj.get_state_set().contains(Atspi.StateType.FOCUSED)):
-                return obj
+            if obj.get_role() in text_roles:
+                if obj.get_state_set().contains(Atspi.StateType.FOCUSED):
+                    return obj
+                if needle is not None and needle in text_of(obj):
+                    return obj
         except Exception:
             return None
         try:
@@ -209,7 +224,9 @@ def main():
                     print(f"--- mode {mode}, click at {where}")
                     type_keys(kfd, PREFIX_KEYS + WORD_KEYS, args.interval)
                     time.sleep(0.4)
-                    obj = read_focused_object()
+                    # "các bạn" — what the engine renders from the raw keys `cacs banj`
+                    needle = "các bạn"  # what the engine renders from the raw keys `cacs banj`
+                    obj = read_focused_object(needle)
                     if obj is None:
                         print("  FAIL: no focused text field found via AT-SPI")
                         failures += 1
@@ -222,12 +239,12 @@ def main():
                     click_at(pfd, x, y, *size)
                     time.sleep(1.2)  # engine resolves the click (~8 ms) + settle
                     after_click = iface.get_text(0, iface.get_character_count())
-                    word_there = after_click.endswith(PREFIX_KEYS.replace("chaof", WORD) + WORD)
+                    word_there = after_click.endswith(RENDERED_PREFIX + WORD)
                     print(f"  after click: word at typed position: {'YES' if word_there else 'NO'}")
                     type_keys(kfd, SETTLING, args.interval)
                     time.sleep(0.5)
                     final = iface.get_text(0, iface.get_character_count())
-                    wanted = PREFIX_KEYS.replace("chaof", WORD) + WORD + SETTLING
+                    wanted = EXPECTED_TAIL
                     if final.endswith(wanted):
                         print("  verify: PASS (word delivered to its typed position)")
                     else:
