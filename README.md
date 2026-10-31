@@ -72,6 +72,19 @@ cargo build --release --features gui
 
 ## Install
 
+### One-line install (online)
+
+Downloads the source, builds it and installs — needs `curl`, Rust (`cargo`), `ibus`, `gtk4` and
+`sudo`; the `/dev/uinput` udev rule and `input` group are set up for you:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/dev/scripts/install-online.sh | sh
+```
+
+(Piping a script to `sh` runs code from the network — review it first if that matters to you.)
+
+### From a local checkout
+
 One step (build + install + restart IBus):
 
 ```sh
