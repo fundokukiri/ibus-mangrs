@@ -44,6 +44,7 @@ pub type SharedEngine = Arc<Mutex<Engine>>;
 
 pub struct Server {
     conn: Connection,
+    engine: SharedEngine,
 }
 
 impl Server {
@@ -65,7 +66,7 @@ impl Server {
         // path with UnknownMethod before the filter returns, so the reply must
         // be sent and the message claimed (return `true`) inside the filter.
         let mut handler = EngineHandler {
-            engine,
+            engine: Arc::clone(&engine),
             last_config_check: Instant::now(),
             last_config_mtime: None,
         };
@@ -81,16 +82,37 @@ impl Server {
             }
         })));
 
-        Ok(Self { conn })
+        Ok(Self { conn, engine })
     }
 
     /// Run the main loop until the bus goes away.
     pub fn run(&self) {
-        // The filter callback does all the work; this only keeps libdbus
-        // reading from the socket.
-        for item in self.conn.iter(1000) {
-            if matches!(item, dbus::ffidisp::ConnectionItem::Nothing) {
-                continue;
+        loop {
+            // Wake at the next engine deadline (the preedit idle commit, #14)
+            // instead of sleeping a fixed second past it.
+            let timeout = self
+                .engine
+                .lock()
+                .ok()
+                .and_then(|e| e.ms_until_tick())
+                .map_or(1000, |ms| ms.min(1000)) as i32;
+            for item in self.conn.iter(timeout) {
+                if matches!(item, dbus::ffidisp::ConnectionItem::Nothing) {
+                    break;
+                }
+            }
+            let out = match self.engine.lock() {
+                Ok(mut e) => {
+                    let actions = e.tick();
+                    let mut out = Vec::new();
+                    let injected = emit(&mut e, &actions, &mut out);
+                    e.add_injected(injected);
+                    out
+                }
+                Err(_) => Vec::new(),
+            };
+            for msg in out {
+                send(&self.conn, msg);
             }
         }
     }
@@ -220,7 +242,10 @@ impl EngineHandler {
                             brief(engine.tail()),
                             brief(&s),
                         ));
-                        engine.set_surrounding(s, cursor);
+                        // The report can resolve a deferred click-Reset
+                        // (#14): the resulting HidePreedit must go out now.
+                        let actions = engine.set_surrounding(s, cursor);
+                        emit(&mut engine, &actions, out);
                     }
                 }
                 msg.method_return()
@@ -296,7 +321,7 @@ impl EngineHandler {
                             .append1(plain_text(&text)),
                     );
                 }
-                let actions = engine.reset();
+                let actions = engine.on_client_reset();
                 let injected = emit(&mut engine, &actions, out);
                 engine.add_injected(injected);
                 msg.method_return()

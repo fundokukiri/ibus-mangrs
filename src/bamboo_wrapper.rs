@@ -414,6 +414,13 @@ impl BambooWrapper {
         }
     }
 
+    /// Whether the current composition is a valid Vietnamese syllable — the
+    /// same verdict `Outcome::Finish` carries, for word ends the engine
+    /// decides itself (the idle timeout) where `process_char` is not involved.
+    pub fn is_valid(&self) -> bool {
+        !self.output().is_empty() && self.engine.is_valid_word()
+    }
+
     pub fn has_composition(&self) -> bool {
         !self.engine.output_str().is_empty()
     }

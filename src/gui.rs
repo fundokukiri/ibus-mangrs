@@ -95,6 +95,7 @@ struct Ui {
     commit_interval: Entry,
     backspace_interval: Entry,
     post_delay: Entry,
+    preedit_timeout: Entry,
     unicode_channel: DropDown,
 }
 
@@ -211,6 +212,8 @@ impl Ui {
         config.backspace_interval_ms =
             self.backspace_interval.text().trim().parse().unwrap_or(5);
         config.post_delay_ms = self.post_delay.text().trim().parse().unwrap_or(10);
+        config.preedit_commit_timeout_ms =
+            self.preedit_timeout.text().trim().parse().unwrap_or(800);
         config.unicode_channel = match self.unicode_channel.selected() {
             1 => crate::config::UnicodeChannel::Clipboard,
             _ => crate::config::UnicodeChannel::Commit,
@@ -339,6 +342,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let backspace_interval =
         Entry::builder().text(config.backspace_interval_ms.to_string()).width_chars(6).build();
     let post_delay = Entry::builder().text(config.post_delay_ms.to_string()).width_chars(6).build();
+    let preedit_timeout =
+        Entry::builder().text(config.preedit_commit_timeout_ms.to_string()).width_chars(6).build();
     let unicode_channel = drop_down(
         CHANNELS,
         match config.unicode_channel {
@@ -376,6 +381,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         commit_interval,
         backspace_interval,
         post_delay,
+        preedit_timeout,
         unicode_channel,
     });
 
@@ -453,6 +459,16 @@ fn build(app: &Application, initial_page: Option<&str>) {
             &ui.mode,
         ),
     ]));
+    section(
+        &typing,
+        "Tự nhả từ đang gõ",
+        "Chống chữ bị dời chỗ khi click chuột giữa chừng",
+    );
+    typing.append(&card(vec![pref_row(
+        "Thời gian tự nhả (ms)",
+        "Từ chưa xong tự commit sau khi nghỉ tay lâu hơn ngưỡng này (0 = tắt)",
+        &ui.preedit_timeout,
+    )]));
     section(
         &typing,
         "Tốc độ gõ (uinput)",
@@ -897,6 +913,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
             &ui.commit_interval,
             &ui.backspace_interval,
             &ui.post_delay,
+            &ui.preedit_timeout,
         ] {
             let s = save.clone();
             entry.connect_activate(move |_| s());
