@@ -35,7 +35,7 @@ pub const KEY_ABOUT: &str = "about";
 pub const KEY_SHORTCUTS: &str = "shortcuts";
 pub const KEY_SPELL_CHECK: &str = "spell_check";
 pub const KEY_ABBREV: &str = "abbreviations";
-pub const KEY_KEEP_WORD: &str = "keep_word_on_click";
+pub const KEY_CLICK_ACTION: &str = "click";
 pub const KEY_ENABLED: &str = "enabled";
 pub const KEY_CHARSET: &str = "charset";
 pub const KEY_METHOD: &str = "method";
@@ -68,7 +68,6 @@ pub fn toggle_label(key: &str) -> Option<(&'static str, bool)> {
         KEY_MODERN_TONE => ("Dấu thanh chuẩn (hòa thay vì hoà)", true),
         KEY_HIDE_UNDERLINE => ("Ẩn gạch chân khi gõ", false),
         KEY_ABBREV => ("Giữ đ trong từ viết tắt (ddc → đc)", true),
-        KEY_KEEP_WORD => ("Click giữ từ đang gõ dở", false),
         KEY_AUTO_RESTORE => ("Tự khôi phục từ tiếng Anh", true),
         KEY_EM_DASH => ("Gõ -- thành —", false),
         KEY_DOUBLE_SPACE => ("Hai dấu cách thành dấu chấm", false),
@@ -228,7 +227,10 @@ pub fn properties(config: &Config) -> Vec<Prop> {
         Prop::toggle(KEY_MODERN_TONE, "Dấu thanh chuẩn", config.modern_tone_style),
         Prop::toggle(KEY_HIDE_UNDERLINE, "Ẩn gạch chân khi gõ", config.hide_underline),
         Prop::toggle(KEY_ABBREV, "Viết tắt", config.abbreviations),
-        Prop::toggle(KEY_KEEP_WORD, "Giữ từ khi click", config.keep_word_on_click),
+        // The #14 click actions, radio-style like the display group.
+        Prop::radio(&format!("{KEY_CLICK_ACTION}:bamboo"), "Click: Bamboo", config.click_action == crate::config::ClickActionConfig::Bamboo),
+        Prop::radio(&format!("{KEY_CLICK_ACTION}:keep"), "Click: Giữ từ", config.click_action == crate::config::ClickActionConfig::Keep),
+        Prop::radio(&format!("{KEY_CLICK_ACTION}:relocate"), "Click: Về chỗ cũ", config.click_action == crate::config::ClickActionConfig::Relocate),
         Prop::toggle(KEY_AUTO_RESTORE, "Khôi phục T.Anh", config.auto_restore),
         Prop::toggle(KEY_EM_DASH, "Gõ -- thành —", config.em_dash),
         Prop::toggle(KEY_DOUBLE_SPACE, "Hai cách → chấm", config.double_space_period),
@@ -240,7 +242,6 @@ pub fn properties(config: &Config) -> Vec<Prop> {
         (KEY_MODERN_TONE, "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)"),
         (KEY_HIDE_UNDERLINE, "Gửi preedit không kèm thuộc tính gạch chân"),
         (KEY_ABBREV, "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk"),
-        (KEY_KEEP_WORD, "Click giữ từ đang dở: quay lại là có; bật thì bỏ khoảng chờ"),
         (KEY_AUTO_RESTORE, "Từ không phải âm tiết Việt trả về chuỗi phím gốc"),
         (KEY_EM_DASH, "Hai dấu trừ liên tiếp thành dấu gạch dài"),
         (KEY_DOUBLE_SPACE, "Thử nghiệm: hai dấu cách liên tiếp thành . "),
@@ -289,7 +290,7 @@ mod tests {
         assert_eq!(props[6].key, KEY_SPELL_CHECK);
         assert_eq!(props[6].kind, TYPE_MENU);
         assert_eq!(props[7].key, "quick");
-        assert_eq!(props[7].sub.len(), 13);
+        assert_eq!(props[7].sub.len(), 15);
         assert_eq!(props[8].key, KEY_SHORTCUTS);
         assert_eq!(props[8].kind, TYPE_NORMAL);
     }
@@ -320,7 +321,7 @@ mod tests {
         // the rest off.
         assert_eq!(
             checked(&props[7].sub),
-            vec!["macro", "free_tone", "modern_tone", "abbreviations", "auto_restore"]
+            vec!["macro", "free_tone", "modern_tone", "abbreviations", "click:bamboo", "auto_restore"]
         );
     }
 

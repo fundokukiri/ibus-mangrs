@@ -508,6 +508,10 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
                 Some(m) => config.mode = m,
                 None => return,
             },
+            "click" => match crate::config::ClickActionConfig::from_key(value) {
+                Some(a) => config.click_action = a,
+                None => return,
+            },
             _ => return,
         }
         // Do not move the check mark if the setting could not be persisted.
@@ -536,7 +540,6 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
         ibus_prop::KEY_MODERN_TONE => config.modern_tone_style = checked,
         ibus_prop::KEY_HIDE_UNDERLINE => config.hide_underline = checked,
         ibus_prop::KEY_ABBREV => config.abbreviations = checked,
-        ibus_prop::KEY_KEEP_WORD => config.keep_word_on_click = checked,
         ibus_prop::KEY_AUTO_RESTORE => config.auto_restore = checked,
         ibus_prop::KEY_EM_DASH => config.em_dash = checked,
         ibus_prop::KEY_DOUBLE_SPACE => config.double_space_period = checked,

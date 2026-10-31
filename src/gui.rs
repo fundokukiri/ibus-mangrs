@@ -18,7 +18,7 @@ use gtk4::{
     TextView,
 };
 use crate::config::{
-    BracketConfig, CharsetConfig, Config, MethodConfig, ModeConfig, W2uConfig,
+    BracketConfig, CharsetConfig, ClickActionConfig, Config, MethodConfig, ModeConfig, W2uConfig,
 };
 use crate::macros::{Dictionary, Macros};
 
@@ -77,7 +77,7 @@ struct Ui {
     auto_correct: Switch,
     auto_restore: Switch,
     abbrev: Switch,
-    keep_word: Switch,
+    click_action: DropDown,
     preedit_timeout: Entry,
     bypass_url: Switch,
     w2u: DropDown,
@@ -191,7 +191,6 @@ impl Ui {
         config.auto_correct = self.auto_correct.is_active();
         config.auto_restore = self.auto_restore.is_active();
         config.abbreviations = self.abbrev.is_active();
-        config.keep_word_on_click = self.keep_word.is_active();
         config.preedit_commit_timeout_ms =
             self.preedit_timeout.text().trim().parse().unwrap_or(800);
         config.bypass_url = self.bypass_url.is_active();
@@ -306,7 +305,14 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let auto_correct = Switch::builder().active(config.auto_correct).build();
     let auto_restore = Switch::builder().active(config.auto_restore).build();
     let abbrev = Switch::builder().active(config.abbreviations).build();
-    let keep_word = Switch::builder().active(config.keep_word_on_click).build();
+    let click_action = drop_down(
+        &["Click: Bamboo (mặc định)", "Click: Giữ từ", "Click: Về chỗ cũ"],
+        match config.click_action {
+            ClickActionConfig::Bamboo => 0,
+            ClickActionConfig::Keep => 1,
+            ClickActionConfig::Relocate => 2,
+        },
+    );
     let preedit_timeout =
         Entry::builder().text(config.preedit_commit_timeout_ms.to_string()).width_chars(6).build();
     let bypass_url = Switch::builder().active(config.bypass_url).build();
@@ -369,7 +375,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         auto_correct,
         auto_restore,
         abbrev,
-        keep_word,
+        click_action,
         preedit_timeout,
         bypass_url,
         w2u,
@@ -477,9 +483,9 @@ fn build(app: &Application, initial_page: Option<&str>) {
             &ui.preedit_timeout,
         ),
         pref_row(
-            "Giữ từ khi click",
-            "Click không mất từ: click quay lại vị trí cũ là từ hiện ra nguyên vẹn. Khi bật, Thời gian tự nhả bị bỏ qua",
-            &ui.keep_word,
+            "Hành vi khi click",
+            "Bamboo: tự nhả sau khi nghỉ, click mất từ dở · Giữ từ: click quay lại là có, không tự nhả · Về chỗ cũ: từ luôn được chuyển về vị trí đã gõ",
+            &ui.click_action,
         ),
     ]));
     section(
@@ -886,7 +892,10 @@ fn build(app: &Application, initial_page: Option<&str>) {
         on_change!(ui.auto_correct);
         on_change!(ui.auto_restore);
         on_change!(ui.abbrev);
-        on_change!(ui.keep_word);
+        {
+            let s = save.clone();
+            ui.click_action.connect_selected_notify(move |_| s());
+        }
         on_change!(ui.bypass_url);
         on_change!(ui.em_dash);
         on_change!(ui.auto_capitalize);

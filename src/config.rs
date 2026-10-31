@@ -61,10 +61,8 @@ pub struct Config {
     /// ibus-bamboo, which keeps a later click from finding a pending word.
     /// Only applies when `keep_word_on_click` is off. 0 = off.
     pub preedit_commit_timeout_ms: u64,
-    /// Park mode: a click hides the pending word but keeps it — clicking
-    /// back restores it (mark-undo intact), typing elsewhere drops it.
-    /// When on, the idle timeout above never fires.
-    pub keep_word_on_click: bool,
+    /// What a mouse click with a pending preedit word does (#14).
+    pub click_action: ClickActionConfig,
     /// Hotkey cycling the display mode, e.g. `Control+Alt+v`. Empty = unassigned.
     pub cycle_mode_hotkey: String,
     /// Send preedit without the underline attribute (app support permitting).
@@ -83,6 +81,43 @@ pub struct Config {
     pub debug_log: bool,
     /// Per-application display mode overrides (phase 9).
     pub app_rules: Vec<AppRule>,
+}
+
+/// What a mouse click with a pending preedit word does (#14).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClickActionConfig {
+    /// ibus-bamboo behavior (default): the idle commit
+    /// (`preedit_commit_timeout_ms`) plus dropping whatever a click still
+    /// catches.
+    #[default]
+    Bamboo,
+    /// The click hides the pending word but keeps it: clicking back to the
+    /// same spot restores it (mark-undo intact), typing elsewhere drops it,
+    /// and the idle commit never fires.
+    Keep,
+    /// The word is always delivered to its typed position (protocol delete
+    /// + re-commit); the caret ends up right after the word.
+    Relocate,
+}
+
+impl ClickActionConfig {
+    pub fn key(self) -> &'static str {
+        match self {
+            ClickActionConfig::Bamboo => "bamboo",
+            ClickActionConfig::Keep => "keep",
+            ClickActionConfig::Relocate => "relocate",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "bamboo" => Some(ClickActionConfig::Bamboo),
+            "keep" => Some(ClickActionConfig::Keep),
+            "relocate" => Some(ClickActionConfig::Relocate),
+            _ => None,
+        }
+    }
 }
 
 /// One per-application rule: if the client prgname contains `pattern`
@@ -406,7 +441,7 @@ impl Default for Config {
             dictionary_enabled: false,
             abbreviations: true,
             preedit_commit_timeout_ms: 800,
-            keep_word_on_click: false,
+            click_action: ClickActionConfig::Bamboo,
             cycle_mode_hotkey: String::new(),
             hide_underline: false,
             commit_interval_ms: 20,

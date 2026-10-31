@@ -23,7 +23,7 @@
 use std::time::{Duration, Instant};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
-use crate::config::{AppRule, Config, UnicodeChannel};
+use crate::config::{AppRule, ClickActionConfig, Config, UnicodeChannel};
 use crate::debug_log::{self, brief};
 use crate::macros::{Dictionary, Macros};
 use crate::spellcheck;
@@ -201,11 +201,11 @@ pub struct Engine {
     /// the text before it unchanged) restores the preedit; typing elsewhere
     /// drops the word — the protocol cannot write to the old position.
     parked_word: Option<ParkedWord>,
-    /// `keep_word_on_click` (park mode): a click hides the pending word but
-    /// keeps it; clicking back restores it, typing elsewhere drops it, and
-    /// the idle commit never fires (waiting keeps the word editable). Off
-    /// (default): bamboo behavior — idle commit plus drop-on-click.
-    keep_word_on_click: bool,
+    /// What a mouse click with a pending preedit word does (#14): bamboo
+    /// (default: idle commit + drop), keep (hide, click back restores, no
+    /// idle commit) or relocate (the word is always delivered to its typed
+    /// position; the caret ends up right after it).
+    click_action: ClickActionConfig,
 }
 
 /// Where a parked word waits to come back: the composition-start cursor and
@@ -284,7 +284,7 @@ impl Engine {
             last_key_at: Instant::now(),
             reset_check: None,
             parked_word: None,
-            keep_word_on_click: false,
+            click_action: ClickActionConfig::Bamboo,
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -338,7 +338,7 @@ impl Engine {
         self.post_delay_ms = config.post_delay_ms;
         self.unicode_channel = config.unicode_channel;
         self.preedit_timeout_ms = config.preedit_commit_timeout_ms;
-        self.keep_word_on_click = config.keep_word_on_click;
+        self.click_action = config.click_action;
         self.bypass_url = config.bypass_url;
         self.url_word = false;
         self.set_mode(mode);
@@ -754,7 +754,23 @@ impl Engine {
                 Some((t, c)) => (*c, t.chars().take(*c as usize).collect::<String>()),
                 None => (0, String::new()),
             };
-            debug_log::log("caret left while preedit was pending (click) → park the word");
+            if self.click_action == ClickActionConfig::Relocate {
+                // Deliver the word to its typed position: delete the span
+                // between the new caret and the word, re-commit it with the
+                // word appended. Falls back to parking when the geometry
+                // does not check out or the client drops protocol deletes.
+                let (t1, c1) = match &pre_click {
+                    Some((t, c)) => (t.clone(), *c),
+                    None => (String::new(), 0),
+                };
+                if let Some(actions) = self.click_relocate_word(c1, &t1, &text, cursor as u32) {
+                    debug_log::log("click: relocated the pending word to its original position");
+                    return actions;
+                }
+                debug_log::log("click relocation not possible → park the word");
+            } else {
+                debug_log::log("caret left while preedit was pending (click) → park the word");
+            }
             return self.park_pending_word(expected_cursor, text_before);
         }
         // Inline autocomplete: the app appends suggestion text after the
@@ -1539,6 +1555,80 @@ impl Engine {
         actions
     }
 
+    /// Click with a pending word: deliver the word to its true position `p`
+    /// (the pre-click cursor) even though the caret now sits at `c2`. The
+    /// app-text span between the caret and `p` is deleted over the protocol
+    /// and re-committed with the word appended, so the word lands exactly
+    /// where it was typed and nothing is lost. mutter's preedit placeholder
+    /// (ZWSP) sits at the caret in the reports and must not distort the
+    /// geometry. Returns None when surgery is not safe — no usable report,
+    /// a client that drops protocol deletes, or a text length that changed
+    /// (the click may only move the caret) — the caller parks the word.
+    fn click_relocate_word(
+        &mut self,
+        p: u32,
+        t1: &str,
+        t2: &str,
+        c2: u32,
+    ) -> Option<Vec<Action>> {
+        if !self.surrounding_data_ok()
+            || self.client_cannot_delete_surrounding()
+            || self.delete_dropped
+        {
+            return None;
+        }
+        let strip_zwsp = |s: &str| s.chars().filter(|&c| c != '\u{200b}').collect::<Vec<char>>();
+        let real1 = strip_zwsp(t1);
+        let real2 = strip_zwsp(t2);
+        if real1.len() != real2.len() || p as usize > real2.len() || c2 as usize > real2.len() {
+            return None;
+        }
+        let (p, c2) = (p as usize, c2 as usize);
+        let (span, offset, n) = if c2 <= p {
+            (real2[c2..p].iter().collect::<String>(), 0i32, (p - c2) as u32)
+        } else {
+            (real2[p..c2].iter().collect::<String>(), -((c2 - p) as i32), (c2 - p) as u32)
+        };
+        // The word text follows the word-end rules: macros win, then
+        // auto-restore, then the composed word (charset-encoded).
+        let word = self.wrapper.output();
+        if word.is_empty() {
+            return None;
+        }
+        let raw = self.wrapper.raw().to_string();
+        let valid = self.wrapper.is_valid();
+        let dict_hit =
+            self.dictionary.as_ref().is_some_and(|d| d.contains(&word.to_lowercase()));
+        let (w, needs_encode) = if let Some(exp) = self.expand_macro(&raw, valid) {
+            (exp, false)
+        } else if self.auto_restore
+            && !valid
+            && word != raw
+            && !dict_hit
+            && !self.wrapper.undo_in_word()
+        {
+            (raw, false)
+        } else {
+            (word, true)
+        };
+        let text = if needs_encode { encode(self.charset, &w) } else { w };
+        let insert = format!("{span}{text}");
+        let mut actions = self.hide_if_visible();
+        if n > 0 {
+            actions.push(Action::DeleteSurrounding { offset, n });
+        }
+        actions.push(Action::Commit(insert.clone()));
+        self.wrapper.reset();
+        self.tail = insert;
+        if let Some(ch) = self.tail.chars().last() {
+            self.note_char(ch);
+        }
+        self.release_word_mode();
+        self.url_word = false;
+        self.repair_delete = None;
+        Some(actions)
+    }
+
     /// Hide the pending word but keep it composing, waiting for the caret to
     /// come back to `expected_cursor` (with `text_before` unchanged). The
     /// wrapper, tail and word-mode lock all stay alive for the restore; the
@@ -1560,7 +1650,7 @@ impl Engine {
     /// the click: a moved cursor drops the word (`set_surrounding`), an
     /// unchanged cursor commits as before. Everything else resets directly.
     pub fn on_client_reset(&mut self) -> Vec<Action> {
-        if !self.keep_word_on_click {
+        if self.click_action == ClickActionConfig::Bamboo {
             // Bamboo behavior: the idle commit has usually already landed;
             // whatever is still pending goes, and the caret is untouched.
             debug_log::log("client reset → drop the pending word");
@@ -1590,8 +1680,8 @@ impl Engine {
     /// idle-commits: waiting must keep the word editable. Mirrors the
     /// word-end path (macros, auto-restore).
     pub fn tick(&mut self) -> Vec<Action> {
-        if self.keep_word_on_click {
-            // Park mode: the word stays pending no matter how long the
+        if self.click_action != ClickActionConfig::Bamboo {
+            // Keep/relocate: the word stays pending no matter how long the
             // pause; only the rare missing-report fallback commits.
             if let Some((_, at)) = self.reset_check {
                 if at.elapsed() < Duration::from_millis(100) {
@@ -1634,7 +1724,7 @@ impl Engine {
             let left = 100u64.saturating_sub(at.elapsed().as_millis() as u64);
             return Some(left.max(1));
         }
-        if self.keep_word_on_click {
+        if self.click_action != ClickActionConfig::Bamboo {
             return None;
         }
         if self.preedit_timeout_ms == 0
@@ -3192,7 +3282,7 @@ mod tests {
     #[test]
     fn park_mode_never_idle_commits() {
         let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        e.keep_word_on_click = true;
+        e.click_action = ClickActionConfig::Keep;
         type_str(&mut e, "chaof");
         e.last_key_at = Instant::now() - Duration::from_millis(100_000);
         assert!(e.tick().is_empty(), "park mode: waiting keeps the word");
@@ -3202,7 +3292,7 @@ mod tests {
     #[test]
     fn park_mode_click_keeps_the_word_and_return_restores_it() {
         let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        e.keep_word_on_click = true;
+        e.click_action = ClickActionConfig::Keep;
         type_str(&mut e, "chaof");
         assert!(e.on_client_reset().is_empty(), "the decision defers");
         let actions = e.set_surrounding("word".into(), 4);
@@ -3229,7 +3319,7 @@ mod tests {
     #[test]
     fn park_mode_typing_elsewhere_drops_the_word() {
         let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        e.keep_word_on_click = true;
+        e.click_action = ClickActionConfig::Keep;
         type_str(&mut e, "chaof");
         assert!(e.on_client_reset().is_empty());
         assert!(e.set_surrounding("word".into(), 4).contains(&Action::HidePreedit));
@@ -3237,6 +3327,46 @@ mod tests {
         assert!(!actions.iter().any(|a| matches!(a, Action::Commit(_))));
         assert_eq!(e.wrapper.output(), "x", "fresh word at the new location");
         assert!(e.parked_word.is_none());
+    }
+
+    #[test]
+    fn relocate_mode_delivers_the_word_to_its_typed_position() {
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        e.click_action = ClickActionConfig::Relocate;
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        for c in "chaof".chars() {
+            e.process_char(c);
+        }
+        e.set_surrounding("xin chào ".into(), 9);
+        assert!(e.on_client_reset().is_empty());
+        let actions = e.set_surrounding("xin chào ".into(), 4);
+        assert!(actions.contains(&Action::HidePreedit), "{actions:?}");
+        assert!(
+            actions.contains(&Action::DeleteSurrounding { offset: 0, n: 5 }),
+            "{actions:?}"
+        );
+        assert!(actions.contains(&Action::Commit("chào chào".into())), "{actions:?}");
+        assert!(e.parked_word.is_none() && !e.wrapper.has_composition());
+    }
+
+    #[test]
+    fn relocate_mode_falls_back_to_parking_without_delete_support() {
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        e.click_action = ClickActionConfig::Relocate;
+        e.set_client(Some("gtk4-im:chrome".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        for c in "chaof".chars() {
+            e.process_char(c);
+        }
+        e.set_surrounding("xin chào ".into(), 9);
+        assert!(e.on_client_reset().is_empty());
+        let actions = e.set_surrounding("xin chào ".into(), 4);
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+            "chrome drops protocol deletes — no surgery: {actions:?}"
+        );
+        assert!(e.parked_word.is_some());
     }
 }
 #[cfg(test)]
