@@ -1,6 +1,6 @@
 [package]
 name = "ibus-mangrs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["fundoku"]
 description = "MăngRS - Vietnamese IBus engine built on bamboo-core (make by fundoku with agents coding)"

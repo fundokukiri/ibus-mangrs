@@ -2,7 +2,7 @@
 # Build: makepkg -si
 
 pkgname=ibus-ibus-mangrs
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Vietnamese input engine for IBus, built on bamboo-core (Rust)"
 arch=("x86_64")
