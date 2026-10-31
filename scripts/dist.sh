@@ -142,5 +142,10 @@ else
          "sudo pacman -S rpm-tools   (then re-run ./scripts/dist.sh)" >&2
 fi
 
+# Checksums so downloaders can verify (sha256sum -c SHA256SUMS).
+( cd "$out" && sha256sum \
+    "ibus-ibus-mangrs-$version"-1-x86_64.pkg.tar.zst \
+    "${pkgname}_${version}_amd64.deb" \
+    "${pkgname}-$version"-1.x86_64.rpm > SHA256SUMS )
 echo
 ls -la "$out"
