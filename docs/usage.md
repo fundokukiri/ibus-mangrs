@@ -43,6 +43,16 @@ The cycle hotkey (GUI *General* tab, e.g. `Control+Alt+v`) walks through all eig
   web addresses, emails and file paths are never marked.
 - **Backspace** follows the unikey convention: it undoes the last typed key and the word
   recomposes from what remains. Repeating a mark key (`teeen`, `toool`) undoes that mark.
+- **Vietnamese abbreviations** (toggle, on by default): `ddc` → `đc`, `ddk` → `đk`,
+  `ddt` → `đt`, `ddg` → `đg` — the đ survives on shorthand that is not a syllable.
+- **Idle auto-commit** (preedit mode): a word left pending for 800 ms commits in place, so a
+  later mouse click cannot lose it. A tone key pressed after the wait re-enters the word and
+  still applies the mark (`tung` + wait + `f` → `tùng`). Configurable, 0 = off.
+- **Click actions for a pending word** (Chế độ gõ tab, "Hành vi khi click"): **Bamboo** —
+  the default above, a click that still catches a pending word drops it; **Keep word** — the
+  click hides the word but keeps it, clicking back to the same spot restores it with
+  mark-undo intact (the idle commit is off in this mode); **Relocate** — the word is always
+  delivered to the position where it was typed, and the caret ends up right after it.
 - Extras (all optional): `w` → `ư`, `[`/`]` → `ơ`/`ư`, `--` → `—`, auto-capitalize after
   `. ! ?` and Enter, double space → period.
 

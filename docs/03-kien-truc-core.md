@@ -90,6 +90,51 @@ flowchart LR
 transform stack — chính hai cấu trúc này gây "poison state" khi hoàn tác dấu mà không
 replay, lý do MăngRS chọn replay-thay-vì-undo (ADR trong chương 11).
 
+## Cấu trúc dữ liệu chính
+
+```mermaid
+classDiagram
+    class Engine_Core["Engine (bamboo-core)"]
+    Engine_Core : +InputMethod rules/keys
+    Engine_Core : +Config config
+    Engine_Core : +process_key_edit(c, Mode) EditDelta
+    Engine_Core : +output_str() String
+    Engine_Core : +is_valid_word() bool
+    Engine_Core : +reset() / commit()
+    Engine_Core : +rebuild_from_text(text)
+
+    class InputMethod {
+        +name
+        +rules: phf_map key→rule
+    }
+    class Config {
+        +ToneStyle tone_style
+        +free_tone_marking
+        +auto_correct
+        +W2uMode w2u_mode
+        +BracketMode bracket_mode
+    }
+
+    class Outcome["Outcome (wrapper)"] {
+        Edit(Edit)
+        PassThrough
+        Finish{word, raw, valid}
+    }
+    class Edit {
+        +delete_chars: usize
+        +insert: String
+    }
+
+    Engine_Core *-- InputMethod : preset dạng dữ liệu
+    Engine_Core *-- Config
+    Outcome *-- Edit
+```
+
+Sơ đồ trên là các cấu trúc mà MăngRS thực sự chạm tới: `Engine` giữ `InputMethod`
+(định nghĩa kiểu gõ dạng dữ liệu) và `Config`; wrapper gói kết quả mỗi phím thành
+`Outcome` với `Edit` — delta tự tính theo `last_output`, không phải `EditDelta` của core
+(ADR-01, chương 11).
+
 ## Kiểm tra chính tả (orthography)
 
 `bamboo-core/src/orthography/` kiểm tra cấu trúc CVC của âm tiết (`is_valid_word`,
