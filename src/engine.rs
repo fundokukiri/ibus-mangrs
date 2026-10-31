@@ -1572,7 +1572,16 @@ impl Engine {
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
-        let mode = self.effective_mode();
+        // A word in flight follows the word-mode lock: a mid-word mode
+        // re-resolution (capability flip, inline suggestions) must not send
+        // the Backspace down a different branch than the keys around it —
+        // process_char locks for the same reason. With no composition there
+        // is no lock, and resolving here must not create one.
+        let mode = if self.wrapper.has_composition() {
+            self.key_mode()
+        } else {
+            self.effective_mode()
+        };
         // Vietnamese processing is off; the app owns the Backspace.
         if mode == Mode::Off || mode == Mode::DefaultTyping {
             return None;
@@ -2437,6 +2446,27 @@ mod tests {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
         e.set_client(Some("gtk4-im:test".into()));
         assert_eq!(type_replay(&mut e, "tieeng2"), "tiêng2");
+    }
+
+    #[test]
+    fn backspace_honors_the_word_mode_lock_across_an_inline_suggestion() {
+        // A NonPreedit word in flight; the app appends suggestion text after
+        // the caret, so effective_mode() now resolves to Preedit. The
+        // Backspace must follow the locked mode — a phantom preedit over the
+        // per-key-committed text is exactly the mid-word flip the lock
+        // exists to prevent.
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        assert_eq!(type_replay(&mut e, "tie"), "tie");
+        e.set_suggestions(true);
+        let actions = e.backspace().expect("backspace over the committed word");
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            "the locked NonPreedit word must not turn into a preedit: {actions:?}"
+        );
     }
 
     #[test]

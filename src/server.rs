@@ -42,6 +42,15 @@ pub const FACTORY_IFACE: &str = "org.freedesktop.IBus.Factory";
 /// main thread reads it when the GUI changes settings.
 pub type SharedEngine = Arc<Mutex<Engine>>;
 
+/// Lock the engine, recovering a poisoned mutex instead of dying: a panic
+/// while holding the lock must degrade one keystroke, not kill typing
+/// desktop-wide until IBus restarts.
+fn lock_engine(engine: &SharedEngine) -> std::sync::MutexGuard<'_, Engine> {
+    engine
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 pub struct Server {
     conn: Connection,
     engine: SharedEngine,
@@ -236,7 +245,7 @@ impl EngineHandler {
             return self.process_key_call(msg, out);
         }
 
-        let mut engine = self.engine.lock().unwrap();
+        let mut engine = lock_engine(&self.engine);
 
         match member {
             "PropertyActivate" => {
@@ -381,7 +390,7 @@ impl EngineHandler {
             return msg.method_return().append1(true);
         }
 
-        let mut engine = self.engine.lock().unwrap();
+        let mut engine = lock_engine(&self.engine);
         let consumed = process_key(&mut engine, keyval, state, out);
         msg.method_return().append1(consumed)
     }
@@ -412,7 +421,7 @@ impl EngineHandler {
             return true; // consumed anyway; do not type with a hotkey press
         }
         {
-            let mut engine = self.engine.lock().unwrap();
+            let mut engine = lock_engine(&self.engine);
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
             emit(&mut engine, &actions, out);
@@ -443,7 +452,7 @@ impl EngineHandler {
             let config = Config::load();
             debug_log::set_enabled(config.debug_log);
             self.refresh_hotkey_cache(&config);
-            let mut engine = self.engine.lock().unwrap();
+            let mut engine = lock_engine(&self.engine);
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
             emit(&mut engine, &actions, out);
@@ -1145,6 +1154,20 @@ mod tests {
         assert_eq!(parse_hotkey("Shift+v"), None);
         assert_eq!(parse_hotkey(""), None);
         assert_eq!(parse_hotkey("NotAModifier+q"), None);
+    }
+
+    #[test]
+    fn poisoned_engine_mutex_still_locks() {
+        // A panic while holding the engine mutex poisons it; unwrapping
+        // would then panic on every later key event (typing dead until IBus
+        // restarts). lock_engine must recover instead.
+        let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = lock_engine(&engine);
+            panic!("poison the mutex");
+        }));
+        let mut engine = lock_engine(&engine);
+        engine.set_capabilities(1); // any mutation proves the guard works
     }
 
     fn emitted(actions: &[Action]) -> Vec<Message> {
