@@ -233,14 +233,16 @@ More detail: `ARCHITECTURE.md` (protocol facts, engine invariants, delete-transp
 
 | Guide | Content |
 |---|---|
-| [docs/installation.md](docs/installation.md) | prerequisites per distro, one-line and manual install, `/dev/uinput` permissions, upgrade |
-| [docs/usage.md](docs/usage.md) | all eight display modes, input methods, typing behavior, macros, dictionary, App Rules, config files |
-| [docs/faq.md](docs/faq.md) | common problems and how to report a bug with a debug log |
-| [docs/development.md](docs/development.md) | code layout, build/test/lint, test tooling, packaging |
+| [docs/guide/](docs/guide/README.md) | cài đặt, thiết lập IBus, sử dụng, cấu hình, tương thích ứng dụng, xử lý sự cố, build từ source |
+| [docs/README.md](docs/README.md) | tài liệu kỹ thuật: kiến trúc, bamboo-core, luồng xử lý từng phím, mã nguồn, test, ADR, FAQ |
+| [docs/gap-analysis.md](docs/gap-analysis.md) | every typing option mapped to its implementation status (from code) |
+| [audit/typing-modes-report.md](audit/typing-modes-report.md) | input-mode audit: mode map, findings, manual test matrix |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | build/lint/test conventions, commit style |
+| [CHANGELOG.md](CHANGELOG.md) | release history |
 
 ## License
 
-MăngRS is **MIT** — see `LICENSE`. Third-party attributions: `NOTICE.md` and `data/README.md`.
+MăngRS is **MIT** — see `LICENSE`. Third-party attributions: [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md), `NOTICE.md` and `data/README.md`.
 
 - [`bamboo-core`](https://crates.io/crates/bamboo-core) (MIT) — the Vietnamese input algorithm,
   a Rust extraction of ibus-bamboo's logic.
