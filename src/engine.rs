@@ -261,6 +261,13 @@ const FALLBACK_NO_DELETE_SURROUNDING: &[&str] = &[
 const URL_CONTEXT_CHARS: &[char] = &['/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?'];
 
 impl Engine {
+    /// How long injected-key echoes may be missing before they count as
+    /// lost and deferred commits flush anyway (ibus-bamboo's pacing
+    /// ballpark). One shared constant: the key handlers and the main-loop
+    /// tick must agree or a lost echo holds the commit for different
+    /// lengths of time.
+    pub const ECHO_STALE: Duration = Duration::from_millis(150);
+
     pub fn new(method: Method, mode: Mode) -> Self {
         let mut engine = Self {
             wrapper: BambooWrapper::new(method, bamboo_core::Config::default()),
@@ -1949,6 +1956,22 @@ impl Engine {
     /// idle-commits: waiting must keep the word editable. Mirrors the
     /// word-end path (macros, auto-restore).
     pub fn tick(&mut self) -> Vec<Action> {
+        // Lost injection echoes must not hold deferred commits until the
+        // next keystroke: the user may simply stop typing, and the uinput
+        // rewrite's commit would never land (the word stays raw latin on
+        // screen). The main loop ticks for deadlines exactly like this.
+        let mut actions = Vec::new();
+        if self.take_stale_injection(Self::ECHO_STALE) {
+            for text in self.flush_deferred() {
+                actions.push(Action::Commit(text));
+            }
+        }
+        actions.extend(self.tick_deadlines());
+        actions
+    }
+
+    /// The click and idle-commit deadlines (the previous `tick` body).
+    fn tick_deadlines(&mut self) -> Vec<Action> {
         if self.click_action != ClickActionConfig::Bamboo {
             // Keep/relocate: the word stays pending no matter how long the
             // pause; only the rare missing-report fallback commits.
@@ -1991,25 +2014,50 @@ impl Engine {
     }
 
     /// Milliseconds the main loop should wait before the next `tick` — the
-    /// tightest pending deadline (reset-check fallback or idle commit), or
-    /// None when nothing is pending (loop falls back to its 1 s poll).
+    /// tightest pending deadline (lost-echo stale window, reset-check
+    /// fallback or idle commit), or None when nothing is pending (loop
+    /// falls back to its 1 s poll).
     pub fn ms_until_tick(&self) -> Option<u64> {
-        if let Some((_, at)) = self.reset_check {
-            let left = 100u64.saturating_sub(at.elapsed().as_millis() as u64);
-            return Some(left.max(1));
-        }
-        if self.click_action != ClickActionConfig::Bamboo {
-            return None;
-        }
-        if self.preedit_timeout_ms == 0
+        // Lost-echo deadline: the loop must wake to flush deferred commits
+        // even when no key arrives (the tick's stale flush). Both echo
+        // kinds share the stale window; the earliest deadline wins.
+        let echo_deadline = [
+            (self.pending_injected > 0)
+                .then_some(self.last_inject)
+                .flatten(),
+            (!self.pending_nav.is_empty())
+                .then_some(self.last_nav_inject)
+                .flatten(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(|t| {
+            Self::ECHO_STALE.as_millis() as u64
+                - t.elapsed().as_millis().min(Self::ECHO_STALE.as_millis()) as u64
+        })
+        .min();
+        let key_deadline = if let Some((_, at)) = self.reset_check {
+            Some(
+                100u64
+                    .saturating_sub(at.elapsed().as_millis() as u64)
+                    .max(1),
+            )
+        } else if self.click_action != ClickActionConfig::Bamboo
+            || self.preedit_timeout_ms == 0
             || !self.preedit_visible
             || !self.wrapper.has_composition()
             || self.effective_mode() != Mode::Preedit
         {
-            return None;
+            None
+        } else {
+            let elapsed = self.last_key_at.elapsed().as_millis() as u64;
+            Some(self.preedit_timeout_ms.saturating_sub(elapsed).max(1))
+        };
+        match (echo_deadline, key_deadline) {
+            (Some(a), Some(b)) => Some(a.min(b).max(1)),
+            (Some(a), None) => Some(a.max(1)),
+            (None, b) => b,
         }
-        let elapsed = self.last_key_at.elapsed().as_millis() as u64;
-        Some(self.preedit_timeout_ms.saturating_sub(elapsed).max(1))
     }
 
     /// Whether `c` is a tone-mark key for the current method — the keys that
@@ -2559,6 +2607,31 @@ mod tests {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
         e.set_client(Some("gtk4-im:test".into()));
         assert_eq!(type_replay(&mut e, "tieeng2"), "tiêng2");
+    }
+
+    #[test]
+    fn lost_echoes_flush_in_the_main_loop_tick() {
+        // A uinput rewrite defers its commit behind 2 injected Backspace
+        // echoes; one echo is lost. With no further key arriving, the
+        // main-loop tick must flush the deferred commit after the stale
+        // window — previously it sat until the next keystroke, leaving the
+        // erased word as raw latin for as long as the user paused.
+        let mut e = Engine::new(Method::Telex, Mode::Smooth);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_uinput_available(true);
+        e.defer_commit(2, "tiếng".into());
+        e.add_injected(2);
+        assert!(e.take_injected_echo(), "first echo arrives");
+        let _ = e.note_echo_forwarded();
+        // Inside the stale window: nothing to do yet.
+        assert!(e.tick().is_empty());
+        // The loop must be scheduled to wake for the stale deadline.
+        assert!(e.ms_until_tick().is_some());
+        // The lost echo goes stale: the tick delivers the commit.
+        e.last_inject = Some(Instant::now() - Duration::from_millis(200));
+        let actions = e.tick();
+        assert_eq!(actions, vec![Action::Commit("tiếng".into())], "{actions:?}");
+        assert!(!e.has_deferred() && !e.pending_echoes());
     }
 
     #[test]

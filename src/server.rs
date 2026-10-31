@@ -673,7 +673,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
             }
             return false;
         }
-        if engine.take_stale_injection(Duration::from_millis(150)) || !engine.pending_echoes() {
+        if engine.take_stale_injection(Engine::ECHO_STALE) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
                 out.push(
                     Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
@@ -691,7 +691,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     if keyval == keymap::BACKSPACE {
         // Echoes that never came back (injection lost) must not eat this real
         // Backspace.
-        if engine.take_stale_injection(Duration::from_millis(150)) {
+        if engine.take_stale_injection(Engine::ECHO_STALE) {
             for text in engine.flush_deferred() {
                 out.push(
                     Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
@@ -727,7 +727,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     // echoes are all in, or whose echoes have gone stale (apps that receive
     // injected keys without routing them through ibus would otherwise eat
     // every later Backspace and never see the commit).
-    if engine.take_stale_injection(Duration::from_millis(150)) || !engine.pending_echoes() {
+    if engine.take_stale_injection(Engine::ECHO_STALE) || !engine.pending_echoes() {
         for text in engine.flush_deferred() {
             out.push(
                 Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
@@ -751,7 +751,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
             }
             return false;
         }
-        if engine.take_stale_injection(Duration::from_millis(150)) || !engine.pending_echoes() {
+        if engine.take_stale_injection(Engine::ECHO_STALE) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
                 out.push(
                     Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
