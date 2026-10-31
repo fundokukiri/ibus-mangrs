@@ -209,6 +209,15 @@ verifies the result: see `test/README.md`.
 
 More detail: `ARCHITECTURE.md` (protocol facts, engine invariants, delete-transport safety rules).
 
+## Documentation
+
+| Guide | Content |
+|---|---|
+| [docs/installation.md](docs/installation.md) | prerequisites per distro, one-line and manual install, `/dev/uinput` permissions, upgrade |
+| [docs/usage.md](docs/usage.md) | all eight display modes, input methods, typing behavior, macros, dictionary, App Rules, config files |
+| [docs/faq.md](docs/faq.md) | common problems and how to report a bug with a debug log |
+| [docs/development.md](docs/development.md) | code layout, build/test/lint, test tooling, packaging |
+
 ## License
 
 MăngRS is **MIT** — see `LICENSE`. Third-party attributions: `NOTICE.md` and `data/README.md`.
