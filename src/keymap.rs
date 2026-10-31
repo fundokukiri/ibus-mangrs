@@ -41,6 +41,10 @@ pub fn keysym_to_char(keyval: u32) -> Option<char> {
     match keyval {
         // Latin-1 keysyms map 1:1 onto their code point.
         0x20..=0x7e | 0xa0..=0xff => char::from_u32(keyval),
+        // Keypad digits and decimal point (NumLock on): VNI marks must work
+        // from the numpad too.
+        0xffb0..=0xffb9 => char::from_u32(b'0' as u32 + (keyval - 0xffb0)),
+        0xffae => Some('.'),
         // Vietnamese letters reach the engine through dead keys on some
         // layouts; the Unicode keysym range is the general fallback.
         0x0100_0000..=0x0110_ffff => char::from_u32(keyval - 0x0100_0000),
@@ -65,6 +69,10 @@ pub fn is_editing_key(keyval: u32) -> bool {
             | XK_PAGE_UP
             | XK_PAGE_DOWN
             | XK_END
+            // Keypad Enter and Delete end the word like their main-block
+            // twins; without this a numpad Enter left the preedit pending.
+            | 0xff8d // KP_Enter
+            | 0xff9f // KP_Delete
     )
 }
 
@@ -111,6 +119,20 @@ mod tests {
         assert_eq!(keysym_to_char(0x0100_0111), Some('đ'));
         // 0x0100_1EA1 = U+1EA1 = ạ
         assert_eq!(keysym_to_char(0x0100_1ea1), Some('ạ'));
+    }
+
+    #[test]
+    fn keypad_digits_decimal_and_enter_decode() {
+        // VNI marks must work from the numpad (NumLock on).
+        assert_eq!(keysym_to_char(0xffb0), Some('0'));
+        assert_eq!(keysym_to_char(0xffb1), Some('1'));
+        assert_eq!(keysym_to_char(0xffb9), Some('9'));
+        assert_eq!(keysym_to_char(0xffae), Some('.'));
+        // Keypad Enter/Delete end the word like the main-block keys.
+        assert!(is_editing_key(0xff8d));
+        assert!(is_editing_key(0xff9f));
+        // KP_Multiply and friends are not text.
+        assert_eq!(keysym_to_char(0xffaa), None);
     }
 
     #[test]
