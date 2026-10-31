@@ -15,9 +15,10 @@ name = "ibus-engine-ibus-mangrs"
 path = "src/main.rs"
 
 [dependencies]
-# bamboo-core is a git submodule pinned to the v0.5.3 tag
-# (git submodule update --init after a fresh clone).
-bamboo-core = { path = "bamboo-core" }
+bamboo-core = "0.5.3"
+# The bamboo-core/ submodule is pinned to v0.5.3 for source browsing and
+# audits; the build uses the crates.io package (git submodule update --init
+# after a fresh clone).
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dbus = "0.9.12"
 dirs = "6"
