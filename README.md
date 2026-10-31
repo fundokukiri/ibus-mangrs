@@ -66,13 +66,13 @@ only the Arch line is tested. IBus must be your active input-method framework (o
 
 ## Build
 
-The `bamboo-core/` directory is a **git submodule** pinned to the `v0.5.3` tag — pull it in after
-a fresh clone:
-
 ```sh
-git submodule update --init
 cargo build --release --features gui
 ```
+
+The engine core comes from the `bamboo-core` crate on crates.io. The `bamboo-core/` directory in
+this repository is a **git submodule** pinned to the same `v0.5.3` tag — kept for source browsing
+and audits, not used by the build; pull it in with `git submodule update --init` if you want it.
 
 ## Install
 
