@@ -76,6 +76,7 @@ struct Ui {
     free: Switch,
     auto_correct: Switch,
     auto_restore: Switch,
+    abbrev: Switch,
     bypass_url: Switch,
     w2u: DropDown,
     bracket: DropDown,
@@ -187,6 +188,7 @@ impl Ui {
         config.free_tone_marking = self.free.is_active();
         config.auto_correct = self.auto_correct.is_active();
         config.auto_restore = self.auto_restore.is_active();
+        config.abbreviations = self.abbrev.is_active();
         config.bypass_url = self.bypass_url.is_active();
         config.w2u = match self.w2u.selected() {
             1 => W2uConfig::NonStart,
@@ -298,6 +300,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let free = Switch::builder().active(config.free_tone_marking).build();
     let auto_correct = Switch::builder().active(config.auto_correct).build();
     let auto_restore = Switch::builder().active(config.auto_restore).build();
+    let abbrev = Switch::builder().active(config.abbreviations).build();
     let bypass_url = Switch::builder().active(config.bypass_url).build();
     let w2u = drop_down(
         ON_OFF_MODES,
@@ -357,6 +360,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         free,
         auto_correct,
         auto_restore,
+        abbrev,
         bypass_url,
         w2u,
         bracket,
@@ -451,6 +455,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
             "Hiển thị",
             "8 chế độ; uinput cần /dev/uinput, trên GNOME Wayland tự về Gạch chân",
             &ui.mode,
+        ),
+        pref_row(
+            "Viết tắt",
+            "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
+            &ui.abbrev,
         ),
     ]));
     section(
@@ -856,6 +865,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         on_change!(ui.free);
         on_change!(ui.auto_correct);
         on_change!(ui.auto_restore);
+        on_change!(ui.abbrev);
         on_change!(ui.bypass_url);
         on_change!(ui.em_dash);
         on_change!(ui.auto_capitalize);

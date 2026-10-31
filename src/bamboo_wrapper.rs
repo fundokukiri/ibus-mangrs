@@ -137,6 +137,9 @@ pub struct BambooWrapper {
     /// auto_correct reverted and the wrapper re-fixed (`ddc` → `đc`): not a
     /// valid syllable, so the word-end auto-restore must leave it alone.
     abbrev_fixed: bool,
+    /// `abbreviations` config: whether reverted non-syllable compositions
+    /// get the dd→đ transform re-applied (đc, đk, đt, đg).
+    abbrev: bool,
     /// True while a word is being composed (raw belongs to it).
     composing: bool,
     /// The composition output after the last operation (process, backspace,
@@ -159,6 +162,7 @@ impl BambooWrapper {
             output_override: None,
             undo_in_word: false,
             abbrev_fixed: false,
+            abbrev: true,
             composing: false,
             last_output: String::new(),
         }
@@ -210,6 +214,12 @@ impl BambooWrapper {
 
     pub fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    /// `abbreviations` config: keep the đ in reverted non-syllable
+    /// compositions (`ddc` → `đc`). See the reversion fix in `process_char`.
+    pub fn set_abbreviations(&mut self, on: bool) {
+        self.abbrev = on;
     }
 
     /// Feed one character. The returned `Edit` describes how to rewrite the
@@ -268,7 +278,7 @@ impl BambooWrapper {
         // rule and the composition was reverted to exactly those raw keys,
         // re-apply the transform. Real words ("ddau" → "đau") never hit
         // this — their compositions are valid and never reverted.
-        if new_output == self.raw && self.raw.starts_with("dd") && self.raw.len() > 2 {
+        if self.abbrev && new_output == self.raw && self.raw.starts_with("dd") && self.raw.len() > 2 {
             debug_log::log("abbreviation reverted by auto_correct → keep the đ");
             new_output = format!("đ{}", &self.raw[2..]);
             self.output_override = Some(new_output.clone());
@@ -547,6 +557,44 @@ mod tests {
         let mut w = wrapper(Method::Telex);
         type_str(&mut w, "tieengs");
         assert_eq!(w.output(), "tiếng");
+    }
+
+    #[test]
+    fn abbreviation_keeps_the_dd_transform() {
+        let mut w = wrapper(Method::Telex);
+        type_str(&mut w, "ddc");
+        assert_eq!(w.output(), "đc");
+        // The word-end auto-restore must not undo the abbreviation: the
+        // finished word is "đc", not the raw keys.
+        if let Outcome::Finish { word, raw, valid } = w.process_char(' ') {
+            assert_eq!(word, "đc");
+            assert_eq!(raw, "ddc");
+            assert!(valid, "abbrev_fixed must skip auto-restore");
+        } else {
+            panic!("space must finish the word");
+        }
+    }
+
+    #[test]
+    fn abbreviation_fix_is_togglable() {
+        let mut w = wrapper(Method::Telex);
+        w.set_abbreviations(false);
+        type_str(&mut w, "ddc");
+        assert_eq!(w.output(), "ddc", "off: bamboo's raw reversion stands");
+        let mut w = wrapper(Method::Telex);
+        w.set_abbreviations(true);
+        type_str(&mut w, "ddk");
+        assert_eq!(w.output(), "đk");
+    }
+
+    #[test]
+    fn real_dd_words_are_untouched_by_the_abbrev_fix() {
+        let mut w = wrapper(Method::Telex);
+        type_str(&mut w, "ddau");
+        assert_eq!(w.output(), "đau");
+        let mut w = wrapper(Method::Telex);
+        type_str(&mut w, "ddung");
+        assert_eq!(w.output(), "đung");
     }
 
     #[test]

@@ -294,6 +294,7 @@ impl Engine {
         self.date_format = config.date_format.clone();
         self.macros = Macros::load();
         self.dictionary = if config.dictionary_enabled { Some(Dictionary::load()) } else { None };
+        self.wrapper.set_abbreviations(config.abbreviations);
         self.spellcheck = if config.auto_correct { Some(spellcheck::WordList::load()) } else { None };
         self.hide_underline = config.hide_underline;
         self.commit_interval_ms = config.commit_interval_ms;

@@ -510,6 +510,7 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
         ibus_prop::KEY_FREE_TONE => config.free_tone_marking = checked,
         ibus_prop::KEY_MODERN_TONE => config.modern_tone_style = checked,
         ibus_prop::KEY_HIDE_UNDERLINE => config.hide_underline = checked,
+        ibus_prop::KEY_ABBREV => config.abbreviations = checked,
         ibus_prop::KEY_AUTO_RESTORE => config.auto_restore = checked,
         ibus_prop::KEY_EM_DASH => config.em_dash = checked,
         ibus_prop::KEY_DOUBLE_SPACE => config.double_space_period = checked,

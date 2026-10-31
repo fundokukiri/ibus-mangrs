@@ -52,6 +52,10 @@ pub struct Config {
     pub date_format: String,
     /// Words from `dictionary.txt` are never auto-restored.
     pub dictionary_enabled: bool,
+    /// Vietnamese abbreviations keep their đ: bamboo's auto_correct reverts
+    /// non-syllable compositions (`ddc`) to the raw keys; with this on the
+    /// wrapper re-applies the dd→đ transform (`đc`, `đk`, `đt`, `đg`).
+    pub abbreviations: bool,
     /// Hotkey cycling the display mode, e.g. `Control+Alt+v`. Empty = unassigned.
     pub cycle_mode_hotkey: String,
     /// Send preedit without the underline attribute (app support permitting).
@@ -391,6 +395,7 @@ impl Default for Config {
             time_format: "%H:%M".into(),
             date_format: "%d/%m/%Y".into(),
             dictionary_enabled: false,
+            abbreviations: true,
             cycle_mode_hotkey: String::new(),
             hide_underline: false,
             commit_interval_ms: 20,
