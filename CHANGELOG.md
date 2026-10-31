@@ -12,7 +12,7 @@ rewriting over the IBus protocol, plus OFF and Default Typing as selectable mode
 macro expansion; the settings window redesigned with an About page and a balanced tab bar;
 `/dev/uinput` permissions set up automatically by the installer. Core: bamboo-core 0.5.3.
 Download:
-[ibus-mangrs-0.1.1](https://github.com/fundokukiri/ibus-mangrs/releases/tag/ibus-mangrs-0.1.1).
+[v0.1.1](https://github.com/fundokukiri/ibus-mangrs/releases/tag/v0.1.1).
 
 ### Added
 
