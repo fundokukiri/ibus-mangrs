@@ -93,6 +93,7 @@ if command -v rpmbuild >/dev/null; then
         --transform "s,^,${pkgname}-$version/," \
         src data scripts LICENSE README.md CHANGELOG.md Cargo.toml Cargo.lock
     cat > "$rpmdir/SPECS/$pkgname.spec" <<EOF
+%define debug_package %{nil}
 Name:           $pkgname
 Version:        $version
 Release:        1%{?dist}
@@ -138,7 +139,7 @@ EOF
     echo "built: dist/${pkgname}-$version-1.*.rpm"
 else
     echo "NOTE: rpmbuild not installed — .rpm skipped. Install it with:" \
-         "sudo pacman -S rpm-org-tools   (then re-run ./scripts/dist.sh)" >&2
+         "sudo pacman -S rpm-tools   (then re-run ./scripts/dist.sh)" >&2
 fi
 
 echo
