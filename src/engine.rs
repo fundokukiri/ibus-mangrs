@@ -260,7 +260,7 @@ impl Engine {
             commit_interval_ms: 20,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
-            preedit_timeout_ms: 800,
+            preedit_timeout_ms: 0,
             last_key_at: Instant::now(),
             reset_check: None,
             unicode_channel: UnicodeChannel::Commit,
@@ -3061,6 +3061,8 @@ mod tests {
     #[test]
     fn idle_timeout_commits_pending_preedit_in_place() {
         let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        let c = Config { preedit_commit_timeout_ms: 800, ..Config::default() };
+        e.apply_config(&c);
         type_str(&mut e, "chaof");
         assert!(e.preedit_visible, "chào still pending in preedit");
         // Simulate the idle window elapsing.
@@ -3072,26 +3074,32 @@ mod tests {
     }
 
     #[test]
-    fn idle_timeout_does_not_fire_while_typing_or_when_disabled() {
+    fn idle_timeout_is_off_by_default_and_does_not_fire_while_typing() {
         let mut e = Engine::new(Method::Telex, Mode::Preedit);
         type_str(&mut e, "chaof");
-        // Still inside the window: nothing happens.
-        assert!(e.tick().is_empty());
+        // Off by default (mark-undo must keep working on an old pending word,
+        // like ibus-bamboo): an idle word stays pending forever.
+        e.last_key_at = Instant::now() - Duration::from_millis(100_000);
+        assert!(e.tick().is_empty(), "default must be off");
         assert!(e.preedit_visible);
-        // Owner turned the feature off (apply_config commits the pending
-        // word by design, so re-type after it).
-        let c = Config { preedit_commit_timeout_ms: 0, ..Config::default() };
+        // Enabled but still inside the window: nothing happens either.
+        let c = Config { preedit_commit_timeout_ms: 800, ..Config::default() };
         e.apply_config(&c);
         type_str(&mut e, "chaof");
-        e.last_key_at = Instant::now() - Duration::from_millis(100_000);
-        assert!(e.tick().is_empty(), "0 must disable the idle commit");
+        assert!(e.tick().is_empty());
         assert!(e.preedit_visible);
     }
 
     #[test]
     fn idle_timeout_applies_to_preedit_only() {
-        for mode in [Mode::NonPreedit, Mode::Surrounding] {
+        for (mc, mode) in [(ModeConfig::NonPreedit, Mode::NonPreedit), (ModeConfig::Surrounding, Mode::Surrounding)] {
             let mut e = Engine::new(Method::Telex, mode);
+            let c = Config {
+                preedit_commit_timeout_ms: 800,
+                mode: mc,
+                ..Config::default()
+            };
+            e.apply_config(&c);
             type_str(&mut e, "chaof");
             e.last_key_at = Instant::now() - Duration::from_millis(1000);
             assert!(e.tick().is_empty(), "{mode:?}: no idle commit outside preedit");

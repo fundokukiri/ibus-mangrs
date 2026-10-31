@@ -466,7 +466,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
     );
     typing.append(&card(vec![pref_row(
         "Thời gian tự nhả (ms)",
-        "Từ chưa xong tự commit sau khi nghỉ tay lâu hơn ngưỡng này (0 = tắt)",
+        "Mặc định tắt: từ treo để khôi phục dấu được vô hạn. Bật lên thì từ tự commit sau khi nghỉ tay lâu hơn ngưỡng (chống click dời chữ)",
         &ui.preedit_timeout,
     )]));
     section(
