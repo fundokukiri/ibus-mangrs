@@ -666,10 +666,17 @@ impl Engine {
         }
     }
 
-    /// Record the client's `SetSurroundingText(text, cursor_pos)` report.
+    /// Record the client's `SetSurroundingText(text, cursor, anchor)` report.
     pub fn set_surrounding(&mut self, text: String, cursor: u32) {
         let cursor = cursor as usize;
         let len = text.chars().count();
+        // Click-mid-preedit diagnosis: a report that moves the cursor away
+        // while a composition is pending is the only click trace that
+        // reaches the engine (#14). Cursor and length only — never the text.
+        debug_log::log(&format!(
+            "st report cursor={cursor} len={len} composing={}",
+            self.wrapper.has_composition()
+        ));
         let old = self.surrounding.replace((text.clone(), cursor as u32));
         // Inline autocomplete: the app appends suggestion text after the
         // caret without the caret moving past it. Only the transition from
@@ -1416,6 +1423,13 @@ impl Engine {
         let commit_preedit =
             self.preedit_visible || self.effective_mode() == Mode::Preedit;
         let pending = self.wrapper.output().to_string();
+        // Click-mid-preedit diagnosis (#14): whether a client Reset carries a
+        // pending composition, and which way the engine resolved it.
+        debug_log::log(&format!(
+            "reset: preedit_visible={} pending={} commit_preedit={commit_preedit}",
+            self.preedit_visible,
+            !pending.is_empty()
+        ));
         self.wrapper.reset();
         let mut actions = self.hide_if_visible();
         // In non-preedit modes the text is already in the application; only a

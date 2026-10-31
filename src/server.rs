@@ -286,6 +286,9 @@ impl EngineHandler {
                 msg.method_return()
             }
             "Reset" => {
+                // GTK fires Reset on a click in text fields (#14 diagnosis):
+                // this log marks whether and when a click reaches the engine.
+                debug_log::log("reset from client");
                 for text in engine.flush_deferred() {
                     out.push(
                         Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
