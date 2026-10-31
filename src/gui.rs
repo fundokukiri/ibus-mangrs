@@ -17,8 +17,6 @@ use gtk4::{
     Application, ApplicationWindow, DropDown, Entry, Orientation, StringList, Switch,
     TextView,
 };
-use serde::{Deserialize, Serialize};
-
 use crate::config::{
     BracketConfig, CharsetConfig, Config, MethodConfig, ModeConfig, W2uConfig,
 };
@@ -963,30 +961,21 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
 // --- backup / restore (Giai đoạn 11) ---
 
-#[derive(Serialize, Deserialize)]
-struct Backup {
-    version: u32,
-    config: Config,
-    macros: Vec<(String, String)>,
-    dictionary: Vec<String>,
-}
-
 fn export_json(path: Option<PathBuf>) -> Result<(), String> {
     let Some(path) = path else { return Err("no file chosen".into()) };
-    let backup = Backup {
-        version: 1,
-        config: Config::load(),
-        macros: Macros::load().entries().map(|(k, v)| (k.into(), v.into())).collect(),
-        dictionary: Dictionary::load().words().map(str::to_string).collect(),
-    };
-    let text = serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())?;
+    let text = crate::backup::to_json(
+        Config::load(),
+        Macros::load().entries().map(|(k, v)| (k.into(), v.into())).collect(),
+        Dictionary::load().words().map(str::to_string).collect(),
+    )?;
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
 fn import_json(path: Option<PathBuf>, ui: &Ui) -> Result<(), String> {
     let Some(path) = path else { return Err("no file chosen".into()) };
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let backup: Backup = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let backup = crate::backup::from_json(&text)?;
+    // Nothing is written before this line: a corrupt file changes nothing.
     backup.config.save().map_err(|e| e.to_string())?;
     let mut macros = Macros::load();
     macros.set_entries(backup.macros.into_iter());

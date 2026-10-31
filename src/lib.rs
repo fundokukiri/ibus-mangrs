@@ -9,6 +9,7 @@
 //! * [`ibus_text`] — `GVariant` encoding of `IBusText`.
 //! * [`config`] — TOML settings shared with the GTK4 GUI.
 
+pub mod backup;
 pub mod bamboo_wrapper;
 pub mod config;
 pub mod debug_log;
