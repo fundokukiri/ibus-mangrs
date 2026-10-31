@@ -958,6 +958,10 @@ impl Engine {
             && !self.wrapper.has_composition()
             && self.effective_mode() == Mode::Preedit
             && self.is_late_mark_key(c)
+            // The re-entry rewrites committed text (DeleteBefore + replay);
+            // without a delete transport the delete is dropped and the word
+            // would show twice. The late key starts fresh instead.
+            && self.deletes_allowed()
         {
             if let Some(raw) = self.idle_raw.clone() {
                 let n = self.idle_len;
@@ -1023,7 +1027,9 @@ impl Engine {
 
         // `--` -> `—`: the first `-` was already forwarded by the terminator
         // path, so this key replaces it.
-        if self.em_dash && c == '-' && self.last_char == Some('-') {
+        // The rewrite needs a delete transport; without one the second '-'
+        // stays literal instead of duplicating the replacement.
+        if self.em_dash && self.deletes_allowed() && c == '-' && self.last_char == Some('-') {
             let mut actions = vec![Action::DeleteBefore(1)];
             actions.push(Action::Commit("—".into()));
             self.tail = replace_tail(&self.tail, 1, "—");
@@ -1033,7 +1039,11 @@ impl Engine {
 
         // Double space -> ". ": drop the first space, insert the period, let
         // this space through.
-        if self.double_space_period && c == ' ' && self.last_char == Some(' ') {
+        if self.double_space_period
+            && self.deletes_allowed()
+            && c == ' '
+            && self.last_char == Some(' ')
+        {
             let mut actions = self.hide_if_visible();
             actions.push(Action::DeleteBefore(1));
             actions.push(Action::Commit(".".into()));
@@ -1117,7 +1127,13 @@ impl Engine {
     fn process_char_off(&mut self, c: char) -> Vec<Action> {
         match self.wrapper.process_char(c) {
             Outcome::Finish { raw, valid, .. } => {
-                if self.macro_enabled && self.macro_in_off_mode && !raw.is_empty() {
+                // Expansion rewrites committed text; without a delete
+                // transport the commit would duplicate the raw keys.
+                if self.macro_enabled
+                    && self.macro_in_off_mode
+                    && !raw.is_empty()
+                    && self.deletes_allowed()
+                {
                     if let Some(exp) = self.expand_macro(&raw, valid) {
                         let mut actions = Vec::new();
                         if !self.tail.is_empty() {
@@ -1280,9 +1296,16 @@ impl Engine {
         let mut actions = self.hide_if_visible();
         let inline = mode != Mode::Preedit;
 
-        // Macros win over auto-restore.
+        // Macros win over auto-restore. Inline expansion rewrites committed
+        // text; without a delete transport the commit would duplicate the
+        // raw keys the application already holds.
         if !raw.is_empty() {
-            if let Some(exp) = self.expand_macro(&raw, valid) {
+            let expansion = if inline && !self.deletes_allowed() {
+                None
+            } else {
+                self.expand_macro(&raw, valid)
+            };
+            if let Some(exp) = expansion {
                 if inline && !self.tail.is_empty() {
                     actions.push(Action::DeleteBefore(self.tail.chars().count() as u32));
                 }
@@ -1314,6 +1337,10 @@ impl Engine {
             && word != raw
             && !dict_hit
             && !self.wrapper.undo_in_word()
+            // Inline restore rewrites committed text; without a delete
+            // transport the raw keys are already on screen, so there is
+            // nothing to restore.
+            && (!inline || self.deletes_allowed())
         {
             if inline && !self.tail.is_empty() {
                 actions.push(Action::DeleteBefore(self.tail.chars().count() as u32));
@@ -1386,6 +1413,18 @@ impl Engine {
             }
             // Legacy encodings change the character count (VNI `â` -> `aâ`),
             // so bamboo-core's Unicode delta is unusable; rewrite the word.
+            _ if !self.deletes_allowed() => {
+                // Same gate as the Unicode arm: the rewrite delete cannot
+                // reach the application, and the paired commit would
+                // duplicate the word from the second keystroke on.
+                debug_log::log(&format!(
+                    "raw-forward (no delete transport, legacy) client={:?}",
+                    self.client
+                ));
+                self.wrapper.resync_output_to_raw();
+                self.tail = self.wrapper.raw().to_string();
+                vec![Action::Forward]
+            }
             _ => {
                 let actions = self.rewrite();
                 if let Some(c) = self.tail.chars().last() {
@@ -1568,6 +1607,16 @@ impl Engine {
             Mode::Off | Mode::DefaultTyping => None,
             Mode::Smooth | Mode::SuperSmooth | Mode::Select => None,
             Mode::NonPreedit | Mode::Surrounding => {
+                if !self.deletes_allowed() {
+                    // The delete cannot reach the application: forward the
+                    // Backspace so the app deletes the last character itself.
+                    // Without a transport the screen holds the raw keys (mark
+                    // keys are raw-forwarded, so no tone can move), which is
+                    // exactly what the wrapper's raw-key undo models.
+                    debug_log::log("backspace forwarded (no delete transport)");
+                    self.tail = replace_tail(&self.tail, 1, "");
+                    return Some(vec![Action::Forward]);
+                }
                 let actions = if self.charset == Charset::Unicode {
                     let mut actions = Vec::new();
                     if edit.delete_chars > 0 {
@@ -2012,6 +2061,14 @@ mod tests {
     /// actions contain `Forward` inserts the raw character, everything else
     /// applies the emitted commit/delete actions.
     fn type_replay(e: &mut Engine, s: &str) -> String {
+        type_replay_with_reports(e, s, true)
+    }
+
+    /// Same, with `reports = false` for the no-transport environment
+    /// (Sublime/JetBrains-style clients that never send
+    /// SetSurroundingText; uinput is unavailable in tests, so the engine
+    /// has no way to delete and must keep the raw text).
+    fn type_replay_with_reports(e: &mut Engine, s: &str, reports: bool) -> String {
         if e.client().is_none() {
             e.set_client(Some("gtk4-im:test".into()));
         }
@@ -2037,8 +2094,10 @@ mod tests {
                 buf.push(c);
             }
             // Real clients report surrounding text after every change.
-            let text: String = buf.iter().collect();
-            e.set_surrounding(text, buf.len() as u32);
+            if reports {
+                let text: String = buf.iter().collect();
+                e.set_surrounding(text, buf.len() as u32);
+            }
         }
         buf.into_iter().collect()
     }
@@ -2378,6 +2437,102 @@ mod tests {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
         e.set_client(Some("gtk4-im:test".into()));
         assert_eq!(type_replay(&mut e, "tieeng2"), "tiêng2");
+    }
+
+    #[test]
+    fn no_delete_transport_keeps_word_raw_at_word_end() {
+        // NonPreedit without a surrounding report and without uinput: mark
+        // keys are raw-forwarded, so the application already holds the raw
+        // keys. The auto-restore rewrite would duplicate them (delete
+        // dropped, commit appended).
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        assert_eq!(
+            type_replay_with_reports(&mut e, "tieengs ", false),
+            "tieengs "
+        );
+    }
+
+    #[test]
+    fn no_delete_transport_keeps_macros_raw() {
+        // A macro expansion rewrites committed text; without a delete
+        // transport the commit would duplicate the raw keys on screen.
+        let mut e = engine(
+            Mode::NonPreedit,
+            Config {
+                time_format: "%H".into(),
+                ..Config::default()
+            },
+        );
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        e.macros
+            .set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        assert_eq!(type_replay_with_reports(&mut e, "gs ", false), "gs ");
+    }
+
+    #[test]
+    fn no_delete_transport_backspace_forwards_to_the_app() {
+        // The delete cannot reach the application, so the Backspace key must
+        // be forwarded: the app deletes the last character itself, which is
+        // also what the wrapper's raw-key undo models.
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        assert_eq!(type_replay_with_reports(&mut e, "ab", false), "ab");
+        let actions = e.backspace().expect("backspace over a committed word");
+        assert!(
+            actions.contains(&Action::Forward),
+            "the app must delete the character itself: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn no_delete_transport_skips_the_late_tone_reentry() {
+        // Preedit without a surrounding report and without uinput: the
+        // re-entry's DeleteBefore cannot reach the application, so
+        // re-entering would show the committed word twice. The late key
+        // starts a fresh composition instead.
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT);
+        type_replay_with_reports(&mut e, "tung", false);
+        e.last_key_at = Instant::now() - Duration::from_millis(1000);
+        e.tick();
+        assert!(e.idle_committed);
+        let actions = e.process_char('f');
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+            "re-entry must be skipped without a delete transport: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn no_delete_transport_legacy_charset_stays_raw() {
+        // Legacy rewrite deletes the whole tail every key; without a delete
+        // transport that duplicates from the second keystroke on.
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        e.set_charset(Charset::Vni);
+        assert_eq!(type_replay_with_reports(&mut e, "viee", false), "viee");
+    }
+
+    #[test]
+    fn no_delete_transport_keeps_em_dash_and_double_space_literal() {
+        let mut e = engine(
+            Mode::NonPreedit,
+            Config {
+                em_dash: true,
+                double_space_period: true,
+                ..Config::default()
+            },
+        );
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        assert_eq!(type_replay_with_reports(&mut e, "a--", false), "a--");
+        assert_eq!(type_replay_with_reports(&mut e, "b  ", false), "b  ");
     }
 
     #[test]
