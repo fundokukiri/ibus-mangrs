@@ -34,7 +34,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // these arguments, so read them here and hand GTK an empty argv.
     let page = std::env::args().find_map(|a| a.strip_prefix("--page=").map(str::to_string));
     let app = Application::builder().application_id("org.freedesktop.IBus.mangrs").build();
-    app.connect_activate(move |app| build(app, page.as_deref()));
+    // GApplication is single-instance: a second launch activates the first
+    // one, which must present its existing window instead of building
+    // another (one control panel at a time).
+    app.connect_activate(move |app| {
+        if let Some(window) = app.windows().first() {
+            window.present();
+            return;
+        }
+        build(app, page.as_deref());
+    });
     app.run_with_args::<&str>(&[]);
     Ok(())
 }
@@ -455,7 +464,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         ),
         pref_row(
             "Phím tắt đổi chế độ",
-            "Ví dụ Control+Alt+v — để trống là chưa gán",
+            "Ví dụ Control+Alt+v — để trống là chưa gán. Mặc định: chưa gán",
             &ui.hotkey,
         ),
     ]));
@@ -468,8 +477,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
         pref_row("Kiểu gõ chính", "Telex, VNI, VIQR, Microsoft layout", &ui.method),
         pref_row("Bảng mã", "Unicode và 10 bảng mã cũ", &ui.charset),
         pref_row(
-            "Hiển thị",
-            "8 chế độ; uinput cần /dev/uinput, trên GNOME Wayland tự về Gạch chân",
+            "Chế độ gõ",
+            "8 chế độ: Gạch chân (mặc định), Không gạch chân, Surrounding, Smooth, Super Smooth, Select, OFF, Gõ mặc định",
             &ui.mode,
         ),
         pref_row(
@@ -479,7 +488,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         ),
         pref_row(
             "Thời gian tự nhả (ms)",
-            "Từ đang gõ tự commit sau khi nghỉ tay lâu hơn ngưỡng (0 = tắt) — chống mất chữ khi click. Bị bỏ qua khi Giữ từ khi click đang bật",
+            "Từ đang gõ tự commit sau khi nghỉ tay lâu hơn ngưỡng (0 = tắt) — chống mất chữ khi click. Bị bỏ qua khi hành vi click là Giữ từ. Mặc định: 800",
             &ui.preedit_timeout,
         ),
         pref_row(
@@ -496,17 +505,17 @@ fn build(app: &Application, initial_page: Option<&str>) {
     typing.append(&card(vec![
         pref_row(
             "Nhịp gõ chữ",
-            "Khoảng cách giữa hai lần gửi chữ (ms)",
+            "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20",
             &ui.commit_interval,
         ),
         pref_row(
             "Nhịp xoá lùi",
-            "Khoảng cách giữa hai lần Backspace (ms)",
+            "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5",
             &ui.backspace_interval,
         ),
         pref_row(
             "Độ trễ sau từ",
-            "Chờ sau khi viết lại từ trước khi gõ tiếp (ms)",
+            "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10",
             &ui.post_delay,
         ),
         pref_row(
@@ -681,7 +690,13 @@ fn build(app: &Application, initial_page: Option<&str>) {
             "https://github.com/fundokukiri/ibus-mangrs",
             Some(link_button("Mở", "https://github.com/fundokukiri/ibus-mangrs").upcast_ref()),
         ),
-        info_row("avatar-default-symbolic", "Tác giả", "fundoku"),
+        info_row("avatar-default-symbolic", "Tác giả", "Phùng Đức Tùng (Fundoku)"),
+        row_impl(
+            Some("web-browser-symbolic"),
+            "Trang chủ",
+            "https://mangrs.fundoku.io.vn",
+            Some(link_button("Mở", "https://mangrs.fundoku.io.vn").upcast_ref()),
+        ),
         info_row(
             "help-about-symbolic",
             "Giấy phép mã nguồn mở",
@@ -1158,6 +1173,8 @@ fn row_impl(
         w.set_valign(gtk4::Align::Center);
         h.append(w);
     }
+    // Hovering anywhere on the row explains the feature.
+    h.set_tooltip_text(Some(&format!("{title}: {subtitle}")));
     ROWS.with(|r| {
         r.borrow_mut()
             .push((format!("{title} {subtitle}").to_lowercase(), h.clone().upcast()))

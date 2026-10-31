@@ -59,18 +59,10 @@ pub const KEY_DOUBLE_SPACE: &str = "double_space";
 pub fn toggle_label(key: &str) -> Option<(&'static str, bool)> {
     Some(match key {
         KEY_ENABLED => ("Bật tiếng Việt", true),
-        KEY_SPELL_CHECK => ("Kiểm tra chính tả", true),
         KEY_MACROS => ("Gõ tắt", true),
-        KEY_MACRO_OFF => ("Gõ tắt khi tắt tiếng Việt", false),
         KEY_AUTO_CAPITALIZE => ("Tự động viết hoa sau . ! ?", false),
-        KEY_DICTIONARY => ("Dùng từ điển của tôi", false),
-        KEY_FREE_TONE => ("Bỏ dấu tự do (hoangf → hoàng)", true),
-        KEY_MODERN_TONE => ("Dấu thanh chuẩn (hòa thay vì hoà)", true),
-        KEY_HIDE_UNDERLINE => ("Ẩn gạch chân khi gõ", false),
         KEY_ABBREV => ("Giữ đ trong từ viết tắt (ddc → đc)", true),
         KEY_AUTO_RESTORE => ("Tự khôi phục từ tiếng Anh", true),
-        KEY_EM_DASH => ("Gõ -- thành —", false),
-        KEY_DOUBLE_SPACE => ("Hai dấu cách thành dấu chấm", false),
         _ => return None,
     })
 }
@@ -98,7 +90,9 @@ pub const METHODS: &[(&str, &str)] = &[
     ("microsoft", "Microsoft layout"),
 ];
 
-/// (menu key, label) for every display mode.
+/// (menu key, label) for every display mode. The menu popup only shows the
+/// four main entries (MAIN_MODES); the uinput and default-typing modes stay
+/// in the GUI — duplicated near-identical choices only widen the popup.
 pub const MODES: &[(&str, &str)] = &[
     ("nonpreedit", "Không gạch chân"),
     ("preedit", "Gạch chân (preedit)"),
@@ -109,6 +103,9 @@ pub const MODES: &[(&str, &str)] = &[
     ("off", "OFF"),
     ("defaulttyping", "Gõ mặc định"),
 ];
+
+/// The display modes shown in the menu popup; the rest are GUI-only.
+const MAIN_MODES: &[&str] = &["preedit", "nonpreedit", "surrounding", "off"];
 
 /// One item in the engine's property list.
 pub struct Prop {
@@ -206,45 +203,26 @@ pub fn properties(config: &Config) -> Vec<Prop> {
         .collect();
     let display_items = MODES
         .iter()
+        .filter(|(key, _)| MAIN_MODES.contains(key))
         .map(|(key, label)| {
             Prop::radio(&format!("{KEY_DISPLAY}:{key}"), label, config.mode.key() == *key)
         })
         .collect();
 
-    let spell_group = vec![
-        Prop::toggle(KEY_SPELL_CHECK, "Kiểm tra chính tả", config.auto_correct),
-        Prop::toggle(KEY_DICTIONARY, "Dùng từ điển của tôi", config.dictionary_enabled),
-    ];
     // GNOME sizes the popup to the widest label, so the quick settings stay
-    // short; the details live in the tooltips.
+    // short; the details live in the tooltips. Only the essentials stay in
+    // the popup — everything else is in the control panel (GUI).
     let mut quick = vec![
         Prop::toggle(KEY_MACROS, "Gõ tắt", config.macro_enabled),
         Prop::toggle(KEY_AUTO_CAPITALIZE, "Tự viết hoa", config.auto_capitalize),
-        Prop::toggle(KEY_MACRO_OFF, "Gõ tắt khi OFF", config.macro_in_off_mode),
         Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"),
-        Prop::separator(),
-        Prop::toggle(KEY_FREE_TONE, "Bỏ dấu tự do", config.free_tone_marking),
-        Prop::toggle(KEY_MODERN_TONE, "Dấu thanh chuẩn", config.modern_tone_style),
-        Prop::toggle(KEY_HIDE_UNDERLINE, "Ẩn gạch chân khi gõ", config.hide_underline),
         Prop::toggle(KEY_ABBREV, "Viết tắt", config.abbreviations),
-        // The #14 click actions, radio-style like the display group.
-        Prop::radio(&format!("{KEY_CLICK_ACTION}:bamboo"), "Click: Bamboo", config.click_action == crate::config::ClickActionConfig::Bamboo),
-        Prop::radio(&format!("{KEY_CLICK_ACTION}:keep"), "Click: Giữ từ", config.click_action == crate::config::ClickActionConfig::Keep),
-        Prop::radio(&format!("{KEY_CLICK_ACTION}:relocate"), "Click: Về chỗ cũ", config.click_action == crate::config::ClickActionConfig::Relocate),
-        Prop::toggle(KEY_AUTO_RESTORE, "Khôi phục T.Anh", config.auto_restore),
-        Prop::toggle(KEY_EM_DASH, "Gõ -- thành —", config.em_dash),
-        Prop::toggle(KEY_DOUBLE_SPACE, "Hai cách → chấm", config.double_space_period),
+        Prop::toggle(KEY_AUTO_RESTORE, "Khôi phục từ nước ngoài", config.auto_restore),
     ];
     let quick_hints = [
         (KEY_AUTO_CAPITALIZE, "Tự động viết hoa sau . ! ? và Enter"),
-        (KEY_MACRO_OFF, "Vẫn gõ tắt khi tiếng Việt đang tắt"),
-        (KEY_FREE_TONE, "Dấu đặt anywhere trong từ: hoangf → hoàng"),
-        (KEY_MODERN_TONE, "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)"),
-        (KEY_HIDE_UNDERLINE, "Gửi preedit không kèm thuộc tính gạch chân"),
         (KEY_ABBREV, "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk"),
         (KEY_AUTO_RESTORE, "Từ không phải âm tiết Việt trả về chuỗi phím gốc"),
-        (KEY_EM_DASH, "Hai dấu trừ liên tiếp thành dấu gạch dài"),
-        (KEY_DOUBLE_SPACE, "Thử nghiệm: hai dấu cách liên tiếp thành . "),
     ];
     for (key, hint) in quick_hints {
         if let Some(p) = quick.iter_mut().find(|p| p.key == key) {
@@ -261,8 +239,7 @@ pub fn properties(config: &Config) -> Vec<Prop> {
         Prop::toggle(KEY_ENABLED, "Bật tiếng Việt", config.enabled),
         Prop::menu(KEY_CHARSET, "Bảng mã", charset_items),
         Prop::menu(KEY_METHOD, "Kiểu gõ", method_items),
-        Prop::menu(KEY_DISPLAY, "Hiển thị", display_items),
-        Prop::menu(KEY_SPELL_CHECK, "Chính tả & từ điển", spell_group),
+        Prop::menu(KEY_DISPLAY, "Chế độ gõ", display_items),
         Prop::menu("quick", "Cấu hình nhanh", quick),
         Prop::normal(KEY_SHORTCUTS, "Cài đặt…"),
     ]
@@ -286,13 +263,12 @@ mod tests {
         assert_eq!(props[4].key, KEY_METHOD);
         assert_eq!(props[4].sub.len(), METHODS.len());
         assert_eq!(props[5].key, KEY_DISPLAY);
-        assert_eq!(props[5].sub.len(), MODES.len());
-        assert_eq!(props[6].key, KEY_SPELL_CHECK);
-        assert_eq!(props[6].kind, TYPE_MENU);
-        assert_eq!(props[7].key, "quick");
-        assert_eq!(props[7].sub.len(), 15);
-        assert_eq!(props[8].key, KEY_SHORTCUTS);
-        assert_eq!(props[8].kind, TYPE_NORMAL);
+        // Only the main modes are in the popup; the rest live in the GUI.
+        assert_eq!(props[5].sub.len(), MAIN_MODES.len());
+        assert_eq!(props[6].key, "quick");
+        assert_eq!(props[6].sub.len(), 5);
+        assert_eq!(props[7].key, KEY_SHORTCUTS);
+        assert_eq!(props[7].kind, TYPE_NORMAL);
     }
 
     #[test]
@@ -315,13 +291,10 @@ mod tests {
         assert_eq!(checked(&props[4].sub), vec!["method:viqr"]);
         assert_eq!(checked(&props[5].sub), vec!["display:preedit"]);
         assert_eq!(props[2].state, STATE_CHECKED);
-        // Spell group: spell check off, dictionary off.
-        assert_eq!(checked(&props[6].sub), Vec::<&str>::new());
-        // Quick group: free tone + modern tone + auto-restore on (defaults),
-        // the rest off.
+        // Quick group: macros, abbreviations and auto-restore on (defaults).
         assert_eq!(
-            checked(&props[7].sub),
-            vec!["macro", "free_tone", "modern_tone", "abbreviations", "click:bamboo", "auto_restore"]
+            checked(&props[6].sub),
+            vec!["macro", "abbreviations", "auto_restore"]
         );
     }
 
