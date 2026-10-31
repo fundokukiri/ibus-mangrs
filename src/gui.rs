@@ -77,6 +77,8 @@ struct Ui {
     auto_correct: Switch,
     auto_restore: Switch,
     abbrev: Switch,
+    keep_word: Switch,
+    preedit_timeout: Entry,
     bypass_url: Switch,
     w2u: DropDown,
     bracket: DropDown,
@@ -189,6 +191,9 @@ impl Ui {
         config.auto_correct = self.auto_correct.is_active();
         config.auto_restore = self.auto_restore.is_active();
         config.abbreviations = self.abbrev.is_active();
+        config.keep_word_on_click = self.keep_word.is_active();
+        config.preedit_commit_timeout_ms =
+            self.preedit_timeout.text().trim().parse().unwrap_or(800);
         config.bypass_url = self.bypass_url.is_active();
         config.w2u = match self.w2u.selected() {
             1 => W2uConfig::NonStart,
@@ -301,6 +306,9 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let auto_correct = Switch::builder().active(config.auto_correct).build();
     let auto_restore = Switch::builder().active(config.auto_restore).build();
     let abbrev = Switch::builder().active(config.abbreviations).build();
+    let keep_word = Switch::builder().active(config.keep_word_on_click).build();
+    let preedit_timeout =
+        Entry::builder().text(config.preedit_commit_timeout_ms.to_string()).width_chars(6).build();
     let bypass_url = Switch::builder().active(config.bypass_url).build();
     let w2u = drop_down(
         ON_OFF_MODES,
@@ -361,6 +369,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
         auto_correct,
         auto_restore,
         abbrev,
+        keep_word,
+        preedit_timeout,
         bypass_url,
         w2u,
         bracket,
@@ -460,6 +470,16 @@ fn build(app: &Application, initial_page: Option<&str>) {
             "Viết tắt",
             "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
             &ui.abbrev,
+        ),
+        pref_row(
+            "Thời gian tự nhả (ms)",
+            "Từ đang gõ tự commit sau khi nghỉ tay lâu hơn ngưỡng (0 = tắt) — chống mất chữ khi click. Bị bỏ qua khi Giữ từ khi click đang bật",
+            &ui.preedit_timeout,
+        ),
+        pref_row(
+            "Giữ từ khi click",
+            "Click không mất từ: click quay lại vị trí cũ là từ hiện ra nguyên vẹn. Khi bật, Thời gian tự nhả bị bỏ qua",
+            &ui.keep_word,
         ),
     ]));
     section(
@@ -866,6 +886,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         on_change!(ui.auto_correct);
         on_change!(ui.auto_restore);
         on_change!(ui.abbrev);
+        on_change!(ui.keep_word);
         on_change!(ui.bypass_url);
         on_change!(ui.em_dash);
         on_change!(ui.auto_capitalize);
@@ -907,6 +928,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
             &ui.commit_interval,
             &ui.backspace_interval,
             &ui.post_delay,
+            &ui.preedit_timeout,
         ] {
             let s = save.clone();
             entry.connect_activate(move |_| s());

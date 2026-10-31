@@ -56,6 +56,15 @@ pub struct Config {
     /// non-syllable compositions (`ddc`) to the raw keys; with this on the
     /// wrapper re-applies the dd→đ transform (`đc`, `đk`, `đt`, `đg`).
     pub abbreviations: bool,
+    /// Preedit idle timeout (ms): a word still pending after this many ms
+    /// without a keystroke commits in place — the wait measured in
+    /// ibus-bamboo, which keeps a later click from finding a pending word.
+    /// Only applies when `keep_word_on_click` is off. 0 = off.
+    pub preedit_commit_timeout_ms: u64,
+    /// Park mode: a click hides the pending word but keeps it — clicking
+    /// back restores it (mark-undo intact), typing elsewhere drops it.
+    /// When on, the idle timeout above never fires.
+    pub keep_word_on_click: bool,
     /// Hotkey cycling the display mode, e.g. `Control+Alt+v`. Empty = unassigned.
     pub cycle_mode_hotkey: String,
     /// Send preedit without the underline attribute (app support permitting).
@@ -396,6 +405,8 @@ impl Default for Config {
             date_format: "%d/%m/%Y".into(),
             dictionary_enabled: false,
             abbreviations: true,
+            preedit_commit_timeout_ms: 800,
+            keep_word_on_click: false,
             cycle_mode_hotkey: String::new(),
             hide_underline: false,
             commit_interval_ms: 20,
