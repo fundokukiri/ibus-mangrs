@@ -1042,3 +1042,95 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod fingerprint {
+    use super::*;
+
+    /// Engine action fingerprints for the two audit cases — the exact
+    /// command sequence each display mode emits, captured from the real
+    /// engine and pinned here as a regression contract (audit Bước 1.2):
+    /// (a) Telex `t i e e n g s` + Space -> "tiếng ";
+    /// (b) `a a s` + Space -> "ấ " (aa -> â, then the sac mark).
+    #[test]
+    fn modes_emit_the_documented_action_fingerprints() {
+        // (key, expected action names)
+        let word: &[(&str, &[&str])] = &[
+            ("t", &["Commit(t)"]),
+            ("i", &["Commit(i)"]),
+            ("e", &["Commit(e)"]),
+            ("e", &["DeleteBefore(1)", "Commit(ê)"]),
+            ("n", &["Commit(n)"]),
+            ("g", &["Commit(g)"]),
+            ("s", &["DeleteBefore(3)", "Commit(ếng)"]),
+            (" ", &["Forward"]),
+        ];
+        let mark: &[(&str, &[&str])] = &[
+            ("a", &["Commit(a)"]),
+            ("a", &["DeleteBefore(1)", "Commit(â)"]),
+            ("s", &["DeleteBefore(1)", "Commit(ấ)"]),
+            (" ", &["Forward"]),
+        ];
+        // NonPreedit and Surrounding share the per-key rewrite fingerprint; preedit
+        // holds the composition and has its own block below.
+        for mode in [Mode::NonPreedit, Mode::Surrounding] {
+            for (name, keys, want) in [("word", "tieengs ", word), ("mark", "aas ", mark)] {
+                let mut e = Engine::new(Method::Telex, mode);
+                let mut fc = FakeClient::new(Faults::default());
+                fc.focus_in(&mut e, "gtk4-im:fp");
+                let mut it = want.iter();
+                for c in keys.chars() {
+                    let actions = fc.key(&mut e, c);
+                    let Some((kc, expected)) = it.next() else {
+                        panic!("fingerprint table shorter than the keys");
+                    };
+                    assert_eq!(c.to_string(), *kc, "{mode:?} {name}");
+                    let names: Vec<String> = actions
+                        .iter()
+                        .map(|a| match a {
+                            Action::Commit(t) => format!("Commit({t})"),
+                            Action::DeleteBefore(n) => format!("DeleteBefore({n})"),
+                            Action::Forward => "Forward".into(),
+                            other => format!("{other:?}"),
+                        })
+                        .collect();
+                    assert_eq!(
+                        names,
+                        expected.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                        "{mode:?} {name} key {c}"
+                    );
+                }
+                assert_eq!(fc.text(), if name == "word" { "tiếng " } else { "ấ " });
+            }
+        }
+        // The preedit fingerprint differs by construction: every key is an
+        // UpdatePreedit of the composed text; the terminator commits once.
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        let mut fc = FakeClient::new(Faults::default());
+        fc.focus_in(&mut e, "gtk4-im:fp");
+        let mut shown = String::new();
+        for c in "tieengs ".chars() {
+            let actions = fc.key(&mut e, c);
+            let names: Vec<String> = actions
+                .iter()
+                .map(|a| match a {
+                    Action::UpdatePreedit { text, .. } => {
+                        shown = text.clone();
+                        format!("Preedit({text})")
+                    }
+                    Action::Commit(t) => format!("Commit({t})"),
+                    Action::HidePreedit => "HidePreedit".into(),
+                    Action::Forward => "Forward".into(),
+                    other => format!("{other:?}"),
+                })
+                .collect();
+            if c == ' ' {
+                assert_eq!(names, ["HidePreedit", "Commit(tiếng)", "Forward"]);
+            } else {
+                assert_eq!(names.len(), 1, "{names:?}");
+                assert!(names[0].starts_with("Preedit("), "{names:?}");
+            }
+        }
+        assert_eq!(shown, "tiếng");
+    }
+}
