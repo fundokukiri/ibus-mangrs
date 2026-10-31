@@ -75,7 +75,5 @@ All paths are relative to `src/`. Config file: `~/.config/ibus-mangrs/config.tom
    commit action is not paced (backspace interval and post delay are). Either
    wire it in or remove the field; leaving it misleads users.
 2. The bundled spell-check word list is loaded but idle (lookup-only by design,
-   `Engine::known_word()` is the future hook). README wording should not imply
-   it backs auto-correction — it does not.
-3. The OFF mode doc comment claims auto-capitalize runs in OFF; the
-   implementation runs macros only.
+   `Engine::known_word()` is the future hook). The README wording was fixed to
+   say so.

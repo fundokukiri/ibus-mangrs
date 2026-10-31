@@ -23,7 +23,7 @@ a custom dictionary and per-app rules.
   CP1258, BKHCM, Vietware X, Vietware Full.
 - **Eight display modes** (see below), selectable per application via App Rules.
 - **Typing options**: modern tone placement (`hòa` vs traditional `hoà`), free tone marking
-  (`hoangf` → `hoàng`), spell check backed by a bundled 38 350-word Vietnamese word list,
+  (`hoangf` → `hoàng`), word lookup against a bundled 38 350-word Vietnamese word list (advisory — auto-correction itself is the phonotactic check),
   auto-restore of non-Vietnamese words, raw-key bypass after URL/email/path characters
   (`/ : @ . _ ~ = # & % ?`), `w` → `ư`, `[`/`]` → `ơ`/`ư`, `--` → `—`, auto-capitalize,
   double space → period.
@@ -37,7 +37,7 @@ a custom dictionary and per-app rules.
 - **Custom dictionary**: words that must never be auto-restored.
 - **GTK4 settings window** (6 tabs, Vietnamese); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 164 unit tests including a 480-case keystroke→text golden table.
+- 197 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
 
 ## Display modes
 
@@ -200,7 +200,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 ## Testing
 
 ```sh
-cargo test                      # 164 unit tests, including the 480-case golden table
+cargo test                      # 197 unit tests, including the 678-case golden table
 cargo clippy --all-targets
 ```
 
@@ -223,7 +223,7 @@ verifies the result: see `test/README.md`.
 - `src/paste.rs` — clipboard Unicode channel for the uinput modes (debounced restore)
 - `src/spellcheck.rs` — bundled Vietnamese word list (advisory lookups)
 - `src/macros.rs` — macro table + custom dictionary
-- `src/golden.rs` — 480 keystroke→text golden cases
+- `src/golden.rs` — 678 keystroke→text golden cases
 - `src/ibus_prop.rs` — IBus property-menu encoding; `src/keymap.rs` — keysym decoding
 - `src/config.rs` — TOML settings shared by engine + GUI; `src/gui.rs` — GTK4 window (`gui` feature)
 

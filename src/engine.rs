@@ -46,7 +46,8 @@ pub enum Mode {
     /// Shift+Left selects the typed tail, Delete erases it, then the word is
     /// committed. Needs a surrounding-text report.
     Select,
-    /// Vietnamese processing off; macros and auto-capitalize still run.
+    /// Vietnamese processing off; macros still run, auto-capitalize does
+    /// not (the gap analysis documented this drift — keep the comment true).
     Off,
     /// The engine is inert: every key is forwarded untouched.
     DefaultTyping,
