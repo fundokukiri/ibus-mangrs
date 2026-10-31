@@ -108,8 +108,9 @@ def main():
     parser.add_argument("--interval", type=int, default=80)
     parser.add_argument("--label", default="unlabeled", help="app/mode note stored with the run")
     parser.add_argument("--results", default=os.path.join(HERE, "perf-results.jsonl"))
-    parser.add_argument("--modes", default=",".join(typing_tool.MODES),
-                        help="comma-separated display modes, one workload each")
+    parser.add_argument("--modes", default=",".join(typing_tool.DEFAULT_CYCLE),
+                        help="comma-separated display modes, one workload each "
+                             "(all: " + ",".join(typing_tool.MODES) + ")")
     parser.add_argument("--no-engine", action="store_true", help="skip debug-log matching")
     args = parser.parse_args()
     modes = [m.strip() for m in args.modes.split(",") if m.strip()]

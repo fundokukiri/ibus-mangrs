@@ -2,7 +2,7 @@
 # Build: makepkg -si
 
 pkgname=ibus-ibus-mangrs
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Vietnamese input engine for IBus, built on bamboo-core (Rust)"
 arch=("x86_64")
@@ -24,5 +24,9 @@ package() {
         "$pkgdir/usr/lib/ibus-mangrs/ibus-engine-ibus-mangrs"
     install -Dm644 data/ibus-mangrs.xml \
         "$pkgdir/usr/share/ibus/component/ibus-mangrs.xml"
+    install -Dm644 data/80-uinput.rules \
+        "$pkgdir/usr/lib/udev/rules.d/80-uinput.rules"
+    install -Dm644 data/vn-words.txt \
+        "$pkgdir/usr/share/ibus-mangrs/vn-words.txt"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
