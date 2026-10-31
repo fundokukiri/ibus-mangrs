@@ -120,6 +120,34 @@ after backspacing into a marked word corrupts it (`muowif`+BS+BS+`if` →
 "mừi" instead of "mười"). Regenerate the expected file after those get fixed
 and the check should then match naive editing.
 
+## click_tool.py — automated click-mid-preedit test (#14)
+
+Types a sentence plus one word left pending in preedit, then **clicks the
+mouse into the field by itself** — through a virtual absolute pointer on
+`/dev/uinput` (mutter maps ABS 0..32767 onto the full screen), aimed at the
+screen position of a character obtained from AT-SPI. After the click it
+reads the field back: the pending word must have landed at the position
+where it was typed — not at the click position, not lost, not corrupting
+the sentence. A settling space is typed last so the pending word commits
+and the final text is deterministic.
+
+```sh
+python3 test/click_tool.py --delay 10     # clicks start -> middle -> end
+python3 test/click_tool.py --at middle    # one position only
+```
+
+Workload: `xin chaof cac ban choaf` renders `xin chào các bạn ` with the
+last `chào` pending; expected tail after the settling space is
+`xin chào các bạn chào `. PASS means the relocation machinery (click
+surgery, or park-when-unreachable) delivered the word to its typed
+position; FAIL prints the actual tail — usually the word vanished (park
+fallback) or landed at the click position. Run per display mode with
+`--modes`; the bug is preedit-only, so the default is `preedit`.
+
+Requirements: writable `/dev/uinput` (keyboard + pointer), GNOME
+accessibility for the read-back and coordinates, GTK3 for the screen size
+(`--screen 1920x1080` when unavailable).
+
 ## Notes
 
 - **Engine log archiving.** Both tools archive the engine's debug log after
