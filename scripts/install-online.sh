@@ -10,8 +10,8 @@ set -eu
 REPO=fundokukiri/ibus-mangrs
 BRANCH=dev
 
-command -v curl >/dev/null || {
-    echo "missing curl — install the curl package of your distro first" >&2
+command -v git >/dev/null || {
+    echo "missing git — install the git package of your distro first" >&2
     exit 1
 }
 command -v cargo >/dev/null || {
@@ -27,8 +27,11 @@ command -v ibus-daemon >/dev/null || {
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 echo ">> downloading ibus-mangrs ($BRANCH)..."
-curl -fsSL "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" | tar -xz -C "$tmp"
-cd "$tmp/ibus-mangrs-$BRANCH"
+# A git clone, not a tarball: GitHub source archives do not contain the
+# bamboo-core submodule the build needs.
+git clone --depth 1 --branch "$BRANCH" --recurse-submodules --shallow-submodules \
+    "https://github.com/$REPO.git" "$tmp/ibus-mangrs"
+cd "$tmp/ibus-mangrs"
 
 echo ">> building (this takes a minute)..."
 cargo build --release --features gui
