@@ -270,7 +270,10 @@ fn variants(keys: &str, expected: &str) -> Vec<(String, String)> {
         .unwrap_or_else(|| expected.to_string());
     out.push((cap_keys, cap_expected));
     // UPPER: letters upper, tone keys keep their case-insensitive meaning.
-    let upper_keys: String = keys.chars().map(|c| c.to_uppercase().next().unwrap_or(c)).collect();
+    let upper_keys: String = keys
+        .chars()
+        .map(|c| c.to_uppercase().next().unwrap_or(c))
+        .collect();
     let upper_expected: String = expected.to_uppercase();
     out.push((upper_keys, upper_expected));
     out
@@ -296,15 +299,33 @@ mod tests {
 
     #[test]
     fn telex_golden() {
-        assert!(TELEX.len() * 3 >= 300, "need >=300 telex cases, have {}", TELEX.len() * 3);
+        assert!(
+            TELEX.len() * 3 >= 300,
+            "need >=300 telex cases, have {}",
+            TELEX.len() * 3
+        );
         let failures = run_table(Method::Telex, TELEX);
-        assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+        assert!(
+            failures.is_empty(),
+            "{} failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
     }
 
     #[test]
     fn vni_golden() {
-        assert!(VNI.len() * 3 >= 150, "need >=150 vni cases, have {}", VNI.len() * 3);
+        assert!(
+            VNI.len() * 3 >= 150,
+            "need >=150 vni cases, have {}",
+            VNI.len() * 3
+        );
         let failures = run_table(Method::Vni, VNI);
-        assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+        assert!(
+            failures.is_empty(),
+            "{} failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
     }
 }

@@ -70,7 +70,8 @@ impl Server {
             last_config_check: Instant::now(),
             last_config_mtime: None,
         };
-        handler.last_config_mtime = Config::path().and_then(|p| std::fs::metadata(&p).ok())
+        handler.last_config_mtime = Config::path()
+            .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
         conn.replace_message_callback(Some(Box::new(move |conn, msg| {
             if msg.msg_type() != MessageType::MethodCall {
@@ -135,7 +136,9 @@ fn ibus_address() -> Result<String, Box<dyn std::error::Error>> {
         .join("bus");
     for entry in std::fs::read_dir(&dir)? {
         let path = entry?.path();
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         for line in text.lines() {
             if let Some(addr) = line.strip_prefix("IBUS_ADDRESS=") {
                 return Ok(addr.trim().to_string());
@@ -166,7 +169,11 @@ impl EngineHandler {
                 // is only one engine implementation, so it is ignored.
                 // The return type is `o` (object path), not `s`: ibus-daemon
                 // fails to parse a string here and the engine never starts.
-                send(conn, msg.method_return().append1(dbus::Path::new(ENGINE_PATH).unwrap()));
+                send(
+                    conn,
+                    msg.method_return()
+                        .append1(dbus::Path::new(ENGINE_PATH).unwrap()),
+                );
             }
             (ENGINE_IFACE, m) => {
                 let mut out: Vec<Message> = Vec::new();
@@ -190,11 +197,15 @@ impl EngineHandler {
             ("org.freedesktop.DBus.Properties", "Get") => {
                 let reply = match msg.read2::<String, String>() {
                     Ok((_, prop)) => match prop.as_str() {
-                        "FocusId" => msg.method_return().append1(dbus::arg::Variant(Box::new(true))),
-                        "ActiveSurroundingText" => {
-                            msg.method_return().append1(dbus::arg::Variant(Box::new(false)))
-                        }
-                        _ => msg.method_return().append1(dbus::arg::Variant(Box::new(0u32))),
+                        "FocusId" => msg
+                            .method_return()
+                            .append1(dbus::arg::Variant(Box::new(true))),
+                        "ActiveSurroundingText" => msg
+                            .method_return()
+                            .append1(dbus::arg::Variant(Box::new(false))),
+                        _ => msg
+                            .method_return()
+                            .append1(dbus::arg::Variant(Box::new(0u32))),
                     },
                     Err(_) => msg.method_return(),
                 };
@@ -398,7 +409,8 @@ impl EngineHandler {
             engine.set_enabled(config.enabled);
             emit(&mut engine, &actions, out);
         }
-        self.last_config_mtime = Config::path().and_then(|p| std::fs::metadata(&p).ok())
+        self.last_config_mtime = Config::path()
+            .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
         register_properties(&config, out);
         true
@@ -410,7 +422,8 @@ impl EngineHandler {
             return;
         }
         self.last_config_check = Instant::now();
-        let mtime = Config::path().and_then(|p| std::fs::metadata(&p).ok())
+        let mtime = Config::path()
+            .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
         if mtime.is_some() && mtime != self.last_config_mtime {
             self.last_config_mtime = mtime;
@@ -438,8 +451,13 @@ fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
             "super" | "meta" => mods |= keymap::MOD4_MASK,
             "shift" => mods |= keymap::SHIFT_MASK,
             "space" => key = Some(0x20),
-            f if f.len() == 2 && f.starts_with('f') && f[1..].chars().all(|c| c.is_ascii_digit())
-                && f[1..].parse::<u8>().map(|n| (1..=12).contains(&n)).unwrap_or(false) =>
+            f if f.len() == 2
+                && f.starts_with('f')
+                && f[1..].chars().all(|c| c.is_ascii_digit())
+                && f[1..]
+                    .parse::<u8>()
+                    .map(|n| (1..=12).contains(&n))
+                    .unwrap_or(false) =>
             {
                 let n: u8 = f[1..].parse().unwrap();
                 key = Some(0xffbe + (n as u32 - 1));
@@ -447,7 +465,11 @@ fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
             s if s.chars().count() == 1 => {
                 let c = s.chars().next().unwrap();
                 let lower = c.to_ascii_lowercase();
-                key = Some(if lower.is_ascii_graphic() { lower as u32 } else { return None });
+                key = Some(if lower.is_ascii_graphic() {
+                    lower as u32
+                } else {
+                    return None;
+                });
             }
             _ => return None,
         }
@@ -583,7 +605,9 @@ fn push_update(prop: &Prop, out: &mut Vec<Message>) {
 
 /// The "Phím tắt" item opens the GTK4 settings window, same as `-gui`.
 fn open_settings(page: &str) {
-    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
     let _ = std::process::Command::new(exe)
         .arg("-gui")
         .arg(format!("--page={page}"))
@@ -726,13 +750,17 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         let injected = emit(engine, &actions, out);
         engine.add_injected(injected);
         if swallow {
-            debug_log::log("navigation key consumed: preedit commit must land before the caret moves");
+            debug_log::log(
+                "navigation key consumed: preedit commit must land before the caret moves",
+            );
             return true;
         }
         return false;
     }
 
-    let Some(c) = keymap::keysym_to_char(keyval) else { return false };
+    let Some(c) = keymap::keysym_to_char(keyval) else {
+        return false;
+    };
     let actions = engine.process_char(c);
     let consumed = !actions.contains(&Action::Forward);
     let injected = emit(engine, &actions, out);
@@ -882,7 +910,9 @@ fn emit_with(
                         "delete-surrounding protocol DROPPED (no report) offset={offset} n={n}"
                     ));
                 } else {
-                    debug_log::log(&format!("delete-surrounding protocol offset={offset} n={n}"));
+                    debug_log::log(&format!(
+                        "delete-surrounding protocol offset={offset} n={n}"
+                    ));
                     let mut m =
                         Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "DeleteSurroundingText")
                             .expect("valid signal");
@@ -913,7 +943,11 @@ fn emit_with(
             }
             Action::UpdatePreedit { text, cursor } => {
                 let len = text.chars().count() as u32;
-                let attrs: &[Attr] = if hide_underline { &[] } else { &[Attr::underline(0, len)] };
+                let attrs: &[Attr] = if hide_underline {
+                    &[]
+                } else {
+                    &[Attr::underline(0, len)]
+                };
                 out.push(
                     Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "UpdatePreeditText")
                         .expect("valid signal")
@@ -983,7 +1017,10 @@ fn emit_with(
             }
             Action::Paste(text) => {
                 if (t.paste)(text) {
-                    debug_log::log(&format!("paste channel: {:?}", crate::debug_log::brief(text)));
+                    debug_log::log(&format!(
+                        "paste channel: {:?}",
+                        crate::debug_log::brief(text)
+                    ));
                     // The Ctrl+V we injected comes back as a key event; forward it.
                     engine.add_injected_nav(&[keymap::V]);
                 } else {
@@ -1020,12 +1057,18 @@ fn presses(offset: i32) -> u32 {
 /// Record a seen client prgname in `~/.cache/ibus-mangrs/clients` so the GUI can
 /// offer it as an App Rules target. Best effort; keeps the newest 50.
 fn note_client(msg: &Message) {
-    let Ok((_, client)) = msg.read2::<String, String>() else { return };
-    let Some(prgname) = client.split_once(':').map(|(_, p)| p.to_string()) else { return };
+    let Ok((_, client)) = msg.read2::<String, String>() else {
+        return;
+    };
+    let Some(prgname) = client.split_once(':').map(|(_, p)| p.to_string()) else {
+        return;
+    };
     if prgname == "fake" || prgname.is_empty() {
         return;
     }
-    let Some(dir) = dirs::cache_dir().map(|d| d.join("ibus-mangrs")) else { return };
+    let Some(dir) = dirs::cache_dir().map(|d| d.join("ibus-mangrs")) else {
+        return;
+    };
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("clients");
     let mut names: Vec<String> = std::fs::read_to_string(&path)
@@ -1110,7 +1153,9 @@ mod tests {
         // the daemon received a variant instead of an IBusText struct.
         let msgs = emitted(&[Action::Commit("tiếng".into())]);
         assert_eq!(&*msgs[0].member().unwrap(), "CommitText");
-        let text = msgs[0].read1::<Variant<Box<dyn RefArg>>>().expect("IBusText variant");
+        let text = msgs[0]
+            .read1::<Variant<Box<dyn RefArg>>>()
+            .expect("IBusText variant");
         assert_eq!(text.0.signature().to_string(), "(sa{sv}sv)");
     }
 
@@ -1118,7 +1163,10 @@ mod tests {
     fn preedit_signal_is_vubu() {
         // Regression: the old helper produced (vvvv); ibus-daemon dropped it,
         // so preedit text only appeared when the word was committed.
-        let msgs = emitted(&[Action::UpdatePreedit { text: "tiếng".into(), cursor: 5 }]);
+        let msgs = emitted(&[Action::UpdatePreedit {
+            text: "tiếng".into(),
+            cursor: 5,
+        }]);
         assert_eq!(&*msgs[0].member().unwrap(), "UpdatePreeditText");
         let (text, cursor, visible, mode) = msgs[0]
             .read4::<Variant<Box<dyn RefArg>>, u32, bool, u32>()
@@ -1140,9 +1188,19 @@ mod tests {
     #[test]
     fn hide_underline_drops_the_underline_attribute() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { hide_underline: true, ..Config::default() });
+        e.apply_config(&Config {
+            hide_underline: true,
+            ..Config::default()
+        });
         let mut out = Vec::new();
-        emit(&mut e, &[Action::UpdatePreedit { text: "tiếng".into(), cursor: 5 }], &mut out);
+        emit(
+            &mut e,
+            &[Action::UpdatePreedit {
+                text: "tiếng".into(),
+                cursor: 5,
+            }],
+            &mut out,
+        );
         let (text, ..) = out[0]
             .read4::<Variant<Box<dyn RefArg>>, u32, bool, u32>()
             .expect("(vubu) arguments");
@@ -1171,16 +1229,23 @@ mod tests {
         let t = fake_transports(&bs);
         let injected = emit_with(
             &mut e,
-            &[Action::DeleteBefore(2), Action::DeleteSurrounding { offset: -3, n: 1 }],
+            &[
+                Action::DeleteBefore(2),
+                Action::DeleteSurrounding { offset: -3, n: 1 },
+            ],
             &mut out,
             &t,
         );
         assert_eq!(injected, 5, "2 + |offset| Backspaces");
         assert!(
-            out.iter()
-                .all(|m| m.member().map(|mem| mem != "DeleteSurroundingText").unwrap_or(true)),
+            out.iter().all(|m| m
+                .member()
+                .map(|mem| mem != "DeleteSurroundingText")
+                .unwrap_or(true)),
             "{:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1189,7 +1254,10 @@ mod tests {
         // Sublime Text / JetBrains XToolkit never send FocusInId. Their
         // injected keys do arrive, so a client-less context uses the same
         // Backspace transport instead of raw-forwarding the tone keys.
-        let mut e = Engine::new(crate::bamboo_wrapper::Method::Telex, crate::engine::Mode::NonPreedit);
+        let mut e = Engine::new(
+            crate::bamboo_wrapper::Method::Telex,
+            crate::engine::Mode::NonPreedit,
+        );
         e.set_capabilities(1);
         e.set_uinput_available(true);
         let mut out = Vec::new();
@@ -1198,10 +1266,14 @@ mod tests {
         let injected = emit_with(&mut e, &[Action::DeleteBefore(2)], &mut out, &t);
         assert_eq!(injected, 2);
         assert!(
-            out.iter()
-                .all(|m| m.member().map(|mem| mem != "DeleteSurroundingText").unwrap_or(true)),
+            out.iter().all(|m| m
+                .member()
+                .map(|mem| mem != "DeleteSurroundingText")
+                .unwrap_or(true)),
             "{:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1226,9 +1298,12 @@ mod tests {
         e.add_injected(injected);
         assert_eq!(injected, 1);
         assert!(
-            !out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            !out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
             "commit must be deferred, got {:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
         assert!(e.has_deferred());
         // The single Backspace echo is forwarded → the commit is ready.
@@ -1262,9 +1337,12 @@ mod tests {
             &t,
         );
         assert!(
-            !out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            !out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
             "commit must be deferred, got {:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
         assert!(e.has_deferred());
         assert!(e.pending_nav_echoes());
@@ -1290,9 +1368,12 @@ mod tests {
         let t = fake_transports(&bs);
         emit_with(&mut e, &[Action::Paste("việt".into())], &mut out, &t);
         assert!(
-            out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
             "{:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1322,11 +1403,17 @@ mod tests {
             process_key(&mut e, c as u32, 0, &mut Vec::new());
         }
         let mut out = Vec::new();
-        assert!(process_key(&mut e, 0xff51, 0, &mut out), "Left must be consumed");
         assert!(
-            out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            process_key(&mut e, 0xff51, 0, &mut out),
+            "Left must be consumed"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
             "the pending word must be committed: {:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
         // The composition is gone: the next arrow is forwarded normally.
         let mut out = Vec::new();
@@ -1349,9 +1436,12 @@ mod tests {
         let mut out = Vec::new();
         assert!(process_key(&mut e, 0xff51, keymap::SHIFT_MASK, &mut out));
         assert!(
-            out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
             "the visible preedit must be committed: {:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
     }
 

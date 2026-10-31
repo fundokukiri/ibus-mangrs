@@ -144,7 +144,11 @@ impl Prop {
     }
 
     pub fn radio(key: &str, label: &str, checked: bool) -> Self {
-        let state = if checked { STATE_CHECKED } else { STATE_UNCHECKED };
+        let state = if checked {
+            STATE_CHECKED
+        } else {
+            STATE_UNCHECKED
+        };
         Self::new(key, TYPE_RADIO, label, state)
     }
 
@@ -164,8 +168,8 @@ impl Prop {
             crate::ibus_text::plain_text(&self.label),
             String::new(), // icon: unused
             crate::ibus_text::plain_text(&self.tooltip),
-            true,  // sensitive
-            true,  // visible
+            true, // sensitive
+            true, // visible
             self.state,
             prop_list_variant(&self.sub),
             crate::ibus_text::plain_text(""), // symbol
@@ -198,14 +202,22 @@ pub fn properties(config: &Config) -> Vec<Prop> {
     let method_items = METHODS
         .iter()
         .map(|(key, label)| {
-            Prop::radio(&format!("{KEY_METHOD}:{key}"), label, config.method.key() == *key)
+            Prop::radio(
+                &format!("{KEY_METHOD}:{key}"),
+                label,
+                config.method.key() == *key,
+            )
         })
         .collect();
     let display_items = MODES
         .iter()
         .filter(|(key, _)| MAIN_MODES.contains(key))
         .map(|(key, label)| {
-            Prop::radio(&format!("{KEY_DISPLAY}:{key}"), label, config.mode.key() == *key)
+            Prop::radio(
+                &format!("{KEY_DISPLAY}:{key}"),
+                label,
+                config.mode.key() == *key,
+            )
         })
         .collect();
 
@@ -217,12 +229,19 @@ pub fn properties(config: &Config) -> Vec<Prop> {
         Prop::toggle(KEY_AUTO_CAPITALIZE, "Tự viết hoa", config.auto_capitalize),
         Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"),
         Prop::toggle(KEY_ABBREV, "Viết tắt", config.abbreviations),
-        Prop::toggle(KEY_AUTO_RESTORE, "Khôi phục từ nước ngoài", config.auto_restore),
+        Prop::toggle(
+            KEY_AUTO_RESTORE,
+            "Khôi phục từ nước ngoài",
+            config.auto_restore,
+        ),
     ];
     let quick_hints = [
         (KEY_AUTO_CAPITALIZE, "Tự động viết hoa sau . ! ? và Enter"),
         (KEY_ABBREV, "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk"),
-        (KEY_AUTO_RESTORE, "Từ không phải âm tiết Việt trả về chuỗi phím gốc"),
+        (
+            KEY_AUTO_RESTORE,
+            "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
+        ),
     ];
     for (key, hint) in quick_hints {
         if let Some(p) = quick.iter_mut().find(|p| p.key == key) {
@@ -254,7 +273,10 @@ mod tests {
     fn menu_has_the_expected_shape() {
         let props = properties(&Config::default());
         assert_eq!(props[0].kind, TYPE_NORMAL);
-        assert_eq!(props[0].label, format!("MăngRS {}", env!("CARGO_PKG_VERSION")));
+        assert_eq!(
+            props[0].label,
+            format!("MăngRS {}", env!("CARGO_PKG_VERSION"))
+        );
         assert_eq!(props[1].kind, TYPE_SEPARATOR);
         assert_eq!(props[2].key, KEY_ENABLED);
         assert_eq!(props[2].kind, TYPE_TOGGLE);
@@ -301,7 +323,13 @@ mod tests {
     #[test]
     fn serialized_types_match_ibus() {
         let props = properties(&Config::default());
-        assert_eq!(props[0].variant().0.signature().to_string(), "(sa{sv}suvsvbbuvv)");
-        assert_eq!(prop_list_variant(&props).0.signature().to_string(), "(sa{sv}av)");
+        assert_eq!(
+            props[0].variant().0.signature().to_string(),
+            "(sa{sv}suvsvbbuvv)"
+        );
+        assert_eq!(
+            prop_list_variant(&props).0.signature().to_string(),
+            "(sa{sv}av)"
+        );
     }
 }

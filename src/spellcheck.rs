@@ -27,7 +27,11 @@ impl WordList {
             paths.push(dir.join("ibus-mangrs").join("vn-words.txt"));
         }
         paths.push(PathBuf::from("/usr/share/ibus-mangrs/vn-words.txt"));
-        paths.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data").join("vn-words.txt"));
+        paths.push(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("data")
+                .join("vn-words.txt"),
+        );
         paths
     }
 

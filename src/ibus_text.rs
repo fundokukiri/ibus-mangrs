@@ -32,7 +32,12 @@ pub struct Attr {
 
 impl Attr {
     pub fn underline(start: u32, end: u32) -> Self {
-        Self { kind: 1, value: 1, start, end }
+        Self {
+            kind: 1,
+            value: 1,
+            start,
+            end,
+        }
     }
 }
 

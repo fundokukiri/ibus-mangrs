@@ -236,8 +236,9 @@ const CAP_SURROUNDING_TEXT: u32 = 1 << 5;
 /// `preedit-*`, so a `DeleteSurroundingText` sent there is dropped and the
 /// next commit appends: `tieengs` comes out as `tieêngs`. Electron inherits
 /// the same code.
-const FALLBACK_NO_DELETE_SURROUNDING: &[&str] =
-    &["chrome", "chromium", "electron", "code", "brave", "msedge", "vivaldi", "slack", "discord"];
+const FALLBACK_NO_DELETE_SURROUNDING: &[&str] = &[
+    "chrome", "chromium", "electron", "code", "brave", "msedge", "vivaldi", "slack", "discord",
+];
 
 /// A word typed directly after one of these characters is part of a URL,
 /// email address, file path or code (`example.com`, `a@site`, `/etc/hosts`,
@@ -342,9 +343,17 @@ impl Engine {
         self.time_format = config.time_format.clone();
         self.date_format = config.date_format.clone();
         self.macros = Macros::load();
-        self.dictionary = if config.dictionary_enabled { Some(Dictionary::load()) } else { None };
+        self.dictionary = if config.dictionary_enabled {
+            Some(Dictionary::load())
+        } else {
+            None
+        };
         self.wrapper.set_abbreviations(config.abbreviations);
-        self.spellcheck = if config.auto_correct { Some(spellcheck::WordList::load()) } else { None };
+        self.spellcheck = if config.auto_correct {
+            Some(spellcheck::WordList::load())
+        } else {
+            None
+        };
         self.hide_underline = config.hide_underline;
         self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;
@@ -535,7 +544,10 @@ impl Engine {
     /// A commit that must wait until `n` more injected nav-key echoes have
     /// been forwarded (same transport race as `defer_commit`).
     pub fn defer_nav_commit(&mut self, n: usize, text: String) {
-        debug_log::log(&format!("defer commit after {n} nav echoes: {:?}", brief(&text)));
+        debug_log::log(&format!(
+            "defer commit after {n} nav echoes: {:?}",
+            brief(&text)
+        ));
         self.nav_deferred.push((n, text));
     }
 
@@ -561,7 +573,10 @@ impl Engine {
     /// key events have no shared ordering — see field docs).
     pub fn defer_commit(&mut self, n: u32, text: String) {
         let threshold = self.echoes_forwarded + n;
-        debug_log::log(&format!("defer commit after {n} echoes: {:?}", brief(&text)));
+        debug_log::log(&format!(
+            "defer commit after {n} echoes: {:?}",
+            brief(&text)
+        ));
         self.deferred.push((threshold, text));
     }
 
@@ -590,12 +605,18 @@ impl Engine {
             .deferred
             .drain(..)
             .map(|(_, text)| {
-                debug_log::log(&format!("flush deferred commit (forced): {:?}", brief(&text)));
+                debug_log::log(&format!(
+                    "flush deferred commit (forced): {:?}",
+                    brief(&text)
+                ));
                 text
             })
             .collect();
         all.extend(self.nav_deferred.drain(..).map(|(_, text)| {
-            debug_log::log(&format!("flush deferred commit (nav, forced): {:?}", brief(&text)));
+            debug_log::log(&format!(
+                "flush deferred commit (nav, forced): {:?}",
+                brief(&text)
+            ));
             text
         }));
         all
@@ -620,7 +641,6 @@ impl Engine {
     pub fn uinput_available(&self) -> bool {
         self.uinput_available
     }
-
 
     /// Forget everything believed about the focused client's text buffer.
     ///
@@ -698,7 +718,9 @@ impl Engine {
     /// bundled Vietnamese word list. Never gates a commit — see
     /// `src/spellcheck.rs` for the owner decision.
     pub fn known_word(&self, word: &str) -> bool {
-        self.spellcheck.as_ref().is_some_and(|list| list.known_word(word))
+        self.spellcheck
+            .as_ref()
+            .is_some_and(|list| list.known_word(word))
     }
 
     /// Record the focused application (`gtk4-im:chrome`, ...) from `FocusInId`.
@@ -749,7 +771,10 @@ impl Engine {
                 debug_log::log("caret back at the parked word → restore the preedit");
                 let preedit_cursor = out.chars().count() as u32;
                 self.preedit_visible = true;
-                return vec![Action::UpdatePreedit { text: out, cursor: preedit_cursor }];
+                return vec![Action::UpdatePreedit {
+                    text: out,
+                    cursor: preedit_cursor,
+                }];
             }
             return Vec::new();
         }
@@ -797,7 +822,9 @@ impl Engine {
                     && text.starts_with(&old_text)
                 {
                     self.suggestions = true;
-                    debug_log::log("inline suggestion after the caret → preedit for following words");
+                    debug_log::log(
+                        "inline suggestion after the caret → preedit for following words",
+                    );
                 }
             }
         }
@@ -818,7 +845,10 @@ impl Engine {
     /// Mode forced by an `AppRule` matching the focused client, if any.
     fn client_rule_mode(&self) -> Option<Mode> {
         let client = self.client.as_deref()?;
-        let prgname = client.split_once(':').map_or(client, |(_, p)| p).to_lowercase();
+        let prgname = client
+            .split_once(':')
+            .map_or(client, |(_, p)| p)
+            .to_lowercase();
         for rule in &self.app_rules {
             if !rule.pattern.is_empty() && prgname.contains(&rule.pattern.to_lowercase()) {
                 return Some(rule.mode.into());
@@ -830,10 +860,14 @@ impl Engine {
     /// True when the focused app drops `DeleteSurroundingText`, so non-preedit
     /// rewriting would duplicate characters there.
     fn client_cannot_delete_surrounding(&self) -> bool {
-        let Some(client) = self.client.as_deref() else { return false };
+        let Some(client) = self.client.as_deref() else {
+            return false;
+        };
         // `gtk4-im:<prgname>`; the prefix only says which toolkit glued us in.
         let prgname = client.split_once(':').map_or(client, |(_, p)| p);
-        FALLBACK_NO_DELETE_SURROUNDING.iter().any(|p| prgname.contains(p))
+        FALLBACK_NO_DELETE_SURROUNDING
+            .iter()
+            .any(|p| prgname.contains(p))
     }
 
     /// Delete-based rewriting is only safe once the client has actually
@@ -845,8 +879,7 @@ impl Engine {
     /// lost. Also several clients silently drop the protocol delete, which
     /// used to duplicate words.
     fn deletes_allowed(&self) -> bool {
-        self.surrounding_data_ok()
-            || (self.uinput_available && !self.injection_forbidden())
+        self.surrounding_data_ok() || (self.uinput_available && !self.injection_forbidden())
     }
 
     /// Resolve the mode actually used for the focused client: hard fallbacks
@@ -885,8 +918,7 @@ impl Engine {
         }
         // Rewriting the tail is impossible for delete-dropping clients, so
         // show the word inline instead of letting the commits pile up.
-        if requested == Mode::NonPreedit && can_preedit && self.client_cannot_delete_surrounding()
-        {
+        if requested == Mode::NonPreedit && can_preedit && self.client_cannot_delete_surrounding() {
             return Mode::Preedit;
         }
         requested
@@ -957,8 +989,10 @@ impl Engine {
         // auto-capitalize. The context character is the previous word's
         // terminator, which `note_char` already recorded.
         if !self.url_word && !self.wrapper.has_composition() {
-            self.url_word =
-                self.bypass_url && self.last_char.is_some_and(|p| URL_CONTEXT_CHARS.contains(&p));
+            self.url_word = self.bypass_url
+                && self
+                    .last_char
+                    .is_some_and(|p| URL_CONTEXT_CHARS.contains(&p));
         }
         if self.url_word {
             let mut actions = Vec::new();
@@ -1028,7 +1062,11 @@ impl Engine {
             && c.is_alphabetic()
             && !self.wrapper.has_composition()
             && self.capitalize_next;
-        let c = if cap { c.to_uppercase().next().unwrap_or(c) } else { c };
+        let c = if cap {
+            c.to_uppercase().next().unwrap_or(c)
+        } else {
+            c
+        };
 
         match self.wrapper.process_char(c) {
             Outcome::PassThrough => {
@@ -1059,7 +1097,6 @@ impl Engine {
             }
         }
     }
-
 
     /// Clamp a delete count to what the client's last surrounding-text report
     /// says exists before the cursor. Defensive against app-side rewrites
@@ -1117,8 +1154,12 @@ impl Engine {
         if valid {
             return None;
         }
-        self.macros
-            .expand(raw, self.capitalize_macro, &self.time_format, &self.date_format)
+        self.macros.expand(
+            raw,
+            self.capitalize_macro,
+            &self.time_format,
+            &self.date_format,
+        )
     }
 
     /// The uinput modes (Smooth / SuperSmooth / Select): the application
@@ -1146,7 +1187,14 @@ impl Engine {
     /// deliver the Vietnamese word. When the word equals the raw keys
     /// (English text, auto-restored words) nothing is touched — the keys
     /// already sit in the application.
-    fn on_finish_smooth(&mut self, mode: Mode, word: String, raw: String, valid: bool, c: char) -> Vec<Action> {
+    fn on_finish_smooth(
+        &mut self,
+        mode: Mode,
+        word: String,
+        raw: String,
+        valid: bool,
+        c: char,
+    ) -> Vec<Action> {
         let _ = valid;
         self.release_word_mode();
         self.tail.clear();
@@ -1168,8 +1216,10 @@ impl Engine {
         // Vietnamese syllable (English typing). The raw keys already sit in
         // the application — keep them instead of rewriting the word into a
         // syllable the user never meant (same gate as the inline modes).
-        let dict_hit =
-            self.dictionary.as_ref().is_some_and(|d| d.contains(&word.to_lowercase()));
+        let dict_hit = self
+            .dictionary
+            .as_ref()
+            .is_some_and(|d| d.contains(&word.to_lowercase()));
         if self.auto_restore && !valid && !dict_hit && !self.wrapper.undo_in_word() {
             self.wrapper.reset();
             return vec![Action::Forward];
@@ -1253,8 +1303,10 @@ impl Engine {
         // purpose (`tê` + 'e' → `tee`, "teen" after "teee"), bamboo marks the
         // result invalid, and restoring the raw keys destroyed the word at
         // word end ("teen" flashed back to "teeen" on space).
-        let dict_hit =
-            self.dictionary.as_ref().is_some_and(|d| d.contains(&word.to_lowercase()));
+        let dict_hit = self
+            .dictionary
+            .as_ref()
+            .is_some_and(|d| d.contains(&word.to_lowercase()));
 
         if self.auto_restore
             && !word.is_empty()
@@ -1318,7 +1370,9 @@ impl Engine {
                 }
                 let mut actions = Vec::new();
                 if edit.delete_chars > 0 {
-                    actions.push(Action::DeleteBefore(self.clamp_delete(edit.delete_chars as u32)));
+                    actions.push(Action::DeleteBefore(
+                        self.clamp_delete(edit.delete_chars as u32),
+                    ));
                 }
                 let insert = edit.insert;
                 if !insert.is_empty() {
@@ -1364,7 +1418,9 @@ impl Engine {
         if mode == Mode::Preedit || self.tail.is_empty() {
             return Vec::new();
         }
-        let Some((text, cursor)) = &self.surrounding else { return Vec::new() };
+        let Some((text, cursor)) = &self.surrounding else {
+            return Vec::new();
+        };
         let actual: Vec<char> = text.chars().take(*cursor as usize).collect();
         let tail: Vec<char> = self.tail.chars().collect();
         if ends_with(&actual, &tail) {
@@ -1515,7 +1571,9 @@ impl Engine {
                 let actions = if self.charset == Charset::Unicode {
                     let mut actions = Vec::new();
                     if edit.delete_chars > 0 {
-                        actions.push(Action::DeleteBefore(self.clamp_delete(edit.delete_chars as u32)));
+                        actions.push(Action::DeleteBefore(
+                            self.clamp_delete(edit.delete_chars as u32),
+                        ));
                     }
                     if !edit.insert.is_empty() {
                         actions.push(Action::Commit(edit.insert.clone()));
@@ -1558,8 +1616,7 @@ impl Engine {
     pub fn reset(&mut self) -> Vec<Action> {
         // Decide before hiding: a visible preedit must be committed even when
         // a capability flip resolves the mode to non-preedit now.
-        let commit_preedit =
-            self.preedit_visible || self.effective_mode() == Mode::Preedit;
+        let commit_preedit = self.preedit_visible || self.effective_mode() == Mode::Preedit;
         let pending = self.wrapper.output().to_string();
         // Click-mid-preedit diagnosis (#14): whether a client Reset carries a
         // pending composition, and which way the engine resolved it.
@@ -1601,20 +1658,18 @@ impl Engine {
     /// geometry. Returns None when surgery is not safe — no usable report,
     /// a client that drops protocol deletes, or a text length that changed
     /// (the click may only move the caret) — the caller parks the word.
-    fn click_relocate_word(
-        &mut self,
-        p: u32,
-        t1: &str,
-        t2: &str,
-        c2: u32,
-    ) -> Option<Vec<Action>> {
+    fn click_relocate_word(&mut self, p: u32, t1: &str, t2: &str, c2: u32) -> Option<Vec<Action>> {
         if !self.surrounding_data_ok()
             || self.client_cannot_delete_surrounding()
             || self.delete_dropped
         {
             return None;
         }
-        let strip_zwsp = |s: &str| s.chars().filter(|&c| c != '\u{200b}').collect::<Vec<char>>();
+        let strip_zwsp = |s: &str| {
+            s.chars()
+                .filter(|&c| c != '\u{200b}')
+                .collect::<Vec<char>>()
+        };
         let real1 = strip_zwsp(t1);
         let real2 = strip_zwsp(t2);
         if real1.len() != real2.len() || p as usize > real2.len() || c2 as usize > real2.len() {
@@ -1622,9 +1677,17 @@ impl Engine {
         }
         let (p, c2) = (p as usize, c2 as usize);
         let (span, offset, n) = if c2 <= p {
-            (real2[c2..p].iter().collect::<String>(), 0i32, (p - c2) as u32)
+            (
+                real2[c2..p].iter().collect::<String>(),
+                0i32,
+                (p - c2) as u32,
+            )
         } else {
-            (real2[p..c2].iter().collect::<String>(), -((c2 - p) as i32), (c2 - p) as u32)
+            (
+                real2[p..c2].iter().collect::<String>(),
+                -((c2 - p) as i32),
+                (c2 - p) as u32,
+            )
         };
         // The word text follows the word-end rules: macros win, then
         // auto-restore, then the composed word (charset-encoded).
@@ -1634,8 +1697,10 @@ impl Engine {
         }
         let raw = self.wrapper.raw().to_string();
         let valid = self.wrapper.is_valid();
-        let dict_hit =
-            self.dictionary.as_ref().is_some_and(|d| d.contains(&word.to_lowercase()));
+        let dict_hit = self
+            .dictionary
+            .as_ref()
+            .is_some_and(|d| d.contains(&word.to_lowercase()));
         let (w, needs_encode) = if let Some(exp) = self.expand_macro(&raw, valid) {
             (exp, false)
         } else if self.auto_restore
@@ -1648,7 +1713,11 @@ impl Engine {
         } else {
             (word, true)
         };
-        let text = if needs_encode { encode(self.charset, &w) } else { w };
+        let text = if needs_encode {
+            encode(self.charset, &w)
+        } else {
+            w
+        };
         let insert = format!("{span}{text}");
         let mut actions = self.hide_if_visible();
         if n > 0 {
@@ -1672,7 +1741,10 @@ impl Engine {
     /// word is only lost when the user types somewhere else, which nothing
     /// can prevent — the protocol cannot write to the old position anymore.
     fn park_pending_word(&mut self, expected_cursor: u32, text_before: String) -> Vec<Action> {
-        self.parked_word = Some(ParkedWord { expected_cursor, text_before });
+        self.parked_word = Some(ParkedWord {
+            expected_cursor,
+            text_before,
+        });
         self.reset_check = None;
         let actions = self.hide_if_visible();
         self.repair_delete = None;
@@ -1702,7 +1774,9 @@ impl Engine {
         if self.wrapper.has_composition() && self.preedit_visible {
             if let Some((_, cursor)) = &self.surrounding {
                 self.reset_check = Some((*cursor, Instant::now()));
-                debug_log::log("client reset with pending preedit: deferring to the surrounding report");
+                debug_log::log(
+                    "client reset with pending preedit: deferring to the surrounding report",
+                );
                 return Vec::new();
             }
         }
@@ -1832,7 +1906,11 @@ fn suffix_gap(haystack: &[char], needle: &[char]) -> Option<usize> {
 }
 
 fn common_suffix_len(a: &[char], b: &[char]) -> usize {
-    a.iter().rev().zip(b.iter().rev()).take_while(|(x, y)| x == y).count()
+    a.iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count()
 }
 
 #[cfg(test)]
@@ -1881,8 +1959,13 @@ mod tests {
         // Each key is committed as it arrives; the tone key then rewrites the
         // unaccented tail in place.
         assert!(actions.contains(&Action::Commit("e".into())), "{actions:?}");
-        assert!(actions.iter().any(|a| matches!(a, Action::DeleteBefore(n) if *n > 0)));
-        assert!(actions.contains(&Action::Commit("ếng".into())), "{actions:?}");
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, Action::DeleteBefore(n) if *n > 0)));
+        assert!(
+            actions.contains(&Action::Commit("ếng".into())),
+            "{actions:?}"
+        );
         // Replaying the actions against a fake application buffer must
         // reproduce the typed word exactly.
         assert_eq!(replay(&actions), "tiếng");
@@ -1912,7 +1995,10 @@ mod tests {
     /// default (preedit), making a NonPreedit test exercise preedit.
     fn engine(mode: Mode, config: Config) -> Engine {
         let mut e = Engine::new(Method::Telex, mode);
-        e.apply_config(&Config { mode: mode.into(), ..config });
+        e.apply_config(&Config {
+            mode: mode.into(),
+            ..config
+        });
         e
     }
 
@@ -1961,7 +2047,10 @@ mod tests {
         let mut e = Engine::new(Method::Telex, Mode::Preedit);
         e.set_capabilities(CAP_PREEDIT_TEXT);
         let actions = type_str(&mut e, "tieeng");
-        assert!(!actions.iter().any(|a| matches!(a, Action::Commit(_))), "{actions:?}");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::Commit(_))),
+            "{actions:?}"
+        );
         assert!(actions
             .iter()
             .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "tiêng")));
@@ -1973,7 +2062,10 @@ mod tests {
         e.set_capabilities(CAP_PREEDIT_TEXT);
         type_str(&mut e, "vieejt");
         let actions = e.reset();
-        assert!(actions.contains(&Action::Commit("việt".into())), "{actions:?}");
+        assert!(
+            actions.contains(&Action::Commit("việt".into())),
+            "{actions:?}"
+        );
         assert!(actions.contains(&Action::HidePreedit));
     }
 
@@ -1983,7 +2075,9 @@ mod tests {
         // No CAP_PREEDIT_TEXT reported (raw loop — no simulated client).
         let actions: Vec<Action> = "as".chars().flat_map(|c| e.process_char(c)).collect();
         assert!(actions.iter().any(|a| matches!(a, Action::Commit(_))));
-        assert!(!actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })));
+        assert!(!actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })));
     }
 
     #[test]
@@ -2002,7 +2096,9 @@ mod tests {
         // STALE report from before that commit arrives, but no fresh one.
         let actions = e.process_char('e');
         assert!(
-            actions.iter().any(|a| matches!(a, Action::Commit(t) if t.contains('ê'))),
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::Commit(t) if t.contains('ê'))),
             "{actions:?}"
         );
         e.set_surrounding("tie".into(), 3); // stale
@@ -2029,7 +2125,10 @@ mod tests {
         // Raw loop: no capabilities, no SetSurroundingText ever.
         let actions: Vec<Action> = "tieengs".chars().flat_map(|c| e.process_char(c)).collect();
         assert!(
-            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_) | Action::DeleteSurrounding { .. })),
+            !actions.iter().any(|a| matches!(
+                a,
+                Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+            )),
             "{actions:?}"
         );
         assert!(actions.iter().any(|a| matches!(a, Action::Forward)));
@@ -2045,7 +2144,11 @@ mod tests {
         type_str(&mut e, "vieejt");
         assert_eq!(
             e.process_char(' '),
-            vec![Action::HidePreedit, Action::Commit("việt".into()), Action::Forward]
+            vec![
+                Action::HidePreedit,
+                Action::Commit("việt".into()),
+                Action::Forward
+            ]
         );
     }
 
@@ -2075,7 +2178,10 @@ mod tests {
         type_str(&mut e, "vieejt");
         let actions = e.process_char(' ');
         assert!(actions.contains(&Action::Forward));
-        assert!(!actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))), "{actions:?}");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+            "{actions:?}"
+        );
     }
 
     #[test]
@@ -2143,11 +2249,17 @@ mod tests {
         e.set_capabilities(CAP_PREEDIT_TEXT);
         e.set_client(Some("gtk4-im:chrome".into()));
         let actions = type_str(&mut e, "tieengs");
-        assert!(!actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))), "{actions:?}");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+            "{actions:?}"
+        );
         assert!(actions
             .iter()
             .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "tiếng")));
-        assert_eq!(e.reset(), vec![Action::HidePreedit, Action::Commit("tiếng".into())]);
+        assert_eq!(
+            e.reset(),
+            vec![Action::HidePreedit, Action::Commit("tiếng".into())]
+        );
     }
 
     #[test]
@@ -2181,7 +2293,10 @@ mod tests {
         type_str(&mut e, "tieng");
         assert!(e.surrounding_data_ok());
         e.set_client(Some("fake".into()));
-        assert!(!e.surrounding_data_ok(), "fake context must drop buffer data");
+        assert!(
+            !e.surrounding_data_ok(),
+            "fake context must drop buffer data"
+        );
         assert_eq!(e.client(), Some("gtk4-im:chrome"), "app-rule name kept");
     }
 
@@ -2195,7 +2310,10 @@ mod tests {
         assert!(e.pending_echoes());
         // Past the stale window: pending dropped, commit deliverable.
         assert!(e.take_stale_injection(Duration::ZERO));
-        assert!(!e.pending_echoes(), "real Backspaces must not be eaten as echoes");
+        assert!(
+            !e.pending_echoes(),
+            "real Backspaces must not be eaten as echoes"
+        );
         assert_eq!(e.flush_deferred(), vec!["word".to_string()]);
     }
 
@@ -2237,7 +2355,10 @@ mod tests {
         assert!(e.pending_echoes());
         assert!(e.take_stale_injection(Duration::ZERO));
         assert!(!e.pending_echoes());
-        assert!(!e.take_injected_echo(), "the real Backspace is no longer eaten");
+        assert!(
+            !e.take_injected_echo(),
+            "the real Backspace is no longer eaten"
+        );
     }
 
     #[test]
@@ -2308,8 +2429,10 @@ mod tests {
             all.extend(actions);
         }
         assert!(
-            !all.iter()
-                .any(|a| matches!(a, Action::DeleteBefore(_) | Action::DeleteSurrounding { .. })),
+            !all.iter().any(|a| matches!(
+                a,
+                Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+            )),
             "no delete transport: {all:?}"
         );
         let text: String = buf.into_iter().collect();
@@ -2342,7 +2465,10 @@ mod tests {
         let first = e.process_char('t');
         assert!(first.contains(&Action::Commit("t".into())), "{first:?}");
         // Mid-word: switch the configured mode to preedit.
-        e.apply_config(&Config { mode: ModeConfig::Preedit, ..Config::default() });
+        e.apply_config(&Config {
+            mode: ModeConfig::Preedit,
+            ..Config::default()
+        });
         let mid = e.process_char('u');
         assert!(
             mid.contains(&Action::Commit("u".into())) || mid.contains(&Action::Forward),
@@ -2352,7 +2478,8 @@ mod tests {
         let _ = e.process_char(' ');
         let next = e.process_char('c');
         assert!(
-            next.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            next.iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { .. })),
             "new word uses the new mode: {next:?}"
         );
     }
@@ -2384,7 +2511,9 @@ mod tests {
         e.set_surrounding("chanán".into(), 6);
         let actions = e.process_char('x');
         assert!(
-            !actions.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::DeleteSurrounding { .. })),
             "no REPAIR delete may reach a mutter-relayed client: {actions:?}"
         );
     }
@@ -2419,7 +2548,9 @@ mod tests {
         e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
         e.set_client(Some("gtk3-im:sublime_text".into()));
         let actions = type_str(&mut e, "tieengs");
-        assert!(!actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })));
+        assert!(!actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })));
         assert_eq!(replay(&actions), "tiếng");
     }
 
@@ -2438,7 +2569,9 @@ mod tests {
         });
         let actions = type_str(&mut e, "tieengs");
         assert_eq!(replay(&actions), "tiếng");
-        assert!(!actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })));
+        assert!(!actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })));
     }
 
     #[test]
@@ -2500,7 +2633,9 @@ mod tests {
         let mut actions = type_str(&mut e, "vieejt");
         let end = e.process_char(' ');
         assert!(end.contains(&Action::Forward));
-        assert!(!end.iter().any(|a| matches!(a, Action::DeleteBefore(_) | Action::Commit(_))));
+        assert!(!end
+            .iter()
+            .any(|a| matches!(a, Action::DeleteBefore(_) | Action::Commit(_))));
         actions.extend(end);
         assert_eq!(replay(&actions), encode(Charset::Tcvn3, "việt"));
     }
@@ -2511,10 +2646,13 @@ mod tests {
         e.set_capabilities(CAP_PREEDIT_TEXT);
         e.set_charset(Charset::Tcvn3);
         type_str(&mut e, "vieejt");
-        assert_eq!(e.reset(), vec![
-            Action::HidePreedit,
-            Action::Commit(encode(Charset::Tcvn3, "việt"))
-        ]);
+        assert_eq!(
+            e.reset(),
+            vec![
+                Action::HidePreedit,
+                Action::Commit(encode(Charset::Tcvn3, "việt"))
+            ]
+        );
     }
 
     // --- surrounding-text verification ---
@@ -2580,12 +2718,16 @@ mod tests {
         let second = e.process_char('n');
         assert!(e.delete_dropped(), "flag set after the second swallow");
         let injected = second.iter().find_map(|a| match a {
-            Action::RewriteByBackspace { backspaces, commit } => Some((*backspaces, commit.clone())),
+            Action::RewriteByBackspace { backspaces, commit } => {
+                Some((*backspaces, commit.clone()))
+            }
             _ => None,
         });
         assert_eq!(injected, Some((3, "ên".into())), "{second:?}");
         assert!(
-            !second.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+            !second
+                .iter()
+                .any(|a| matches!(a, Action::DeleteSurrounding { .. })),
             "no more protocol deletes: {second:?}"
         );
     }
@@ -2606,7 +2748,9 @@ mod tests {
         e.set_surrounding("tiên".into(), 4);
         let third = e.process_char('g');
         assert!(
-            !third.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+            !third
+                .iter()
+                .any(|a| matches!(a, Action::DeleteSurrounding { .. })),
             "all later deletes are injected, not signalled: {third:?}"
         );
         assert!(e.delete_dropped());
@@ -2622,8 +2766,13 @@ mod tests {
         type_str(&mut e, "o");
         e.set_surrounding("x o y".into(), 3); // app inserted text around "o"
         let actions = e.process_char('n');
-        assert!(!actions.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })));
-        assert!(!actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))), "{actions:?}");
+        assert!(!actions
+            .iter()
+            .any(|a| matches!(a, Action::DeleteSurrounding { .. })));
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+            "{actions:?}"
+        );
         // Composition rebuilt from the word before the cursor.
         assert_eq!(e.wrapper.output(), "on");
     }
@@ -2640,7 +2789,9 @@ mod tests {
         let _ = e.process_char('e'); // commit ê; client has not reported yet
         e.set_surrounding("tie".into(), 3); // stale
         let actions = e.process_char('n');
-        assert!(!actions.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })));
+        assert!(!actions
+            .iter()
+            .any(|a| matches!(a, Action::DeleteSurrounding { .. })));
         assert_eq!(e.wrapper.output(), "tiên");
     }
 
@@ -2651,8 +2802,12 @@ mod tests {
         type_str(&mut e, "tie");
         e.set_surrounding("garbage".into(), 3);
         let actions = e.process_char('e');
-        assert!(actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })));
-        assert!(!actions.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })));
+        assert!(!actions
+            .iter()
+            .any(|a| matches!(a, Action::DeleteSurrounding { .. })));
     }
 
     // --- typed-text features ---
@@ -2694,14 +2849,20 @@ mod tests {
     #[test]
     fn auto_capitalize_after_sentence_end() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { auto_capitalize: true, ..Config::default() });
+        e.apply_config(&Config {
+            auto_capitalize: true,
+            ..Config::default()
+        });
         assert_eq!(type_replay(&mut e, ". tieengs "), ". Tiếng ");
     }
 
     #[test]
     fn auto_capitalize_also_uppercases_transformed_letters() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { auto_capitalize: true, ..Config::default() });
+        e.apply_config(&Config {
+            auto_capitalize: true,
+            ..Config::default()
+        });
         assert_eq!(type_replay(&mut e, "? dd "), "? Đ ");
     }
 
@@ -2716,27 +2877,39 @@ mod tests {
     #[test]
     fn macro_expands_on_word_end() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { time_format: "%H".into(), ..Config::default() });
+        e.apply_config(&Config {
+            time_format: "%H".into(),
+            ..Config::default()
+        });
         // Inject a macro by writing through the same path apply_config reads.
         // (Macros::load reads the user file, so expand through a test hook:
         // use the public expand path with a fake table.)
-        e.macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        e.macros
+            .set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
         assert_eq!(type_replay(&mut e, "gs "), "giờ sáng ");
     }
 
     #[test]
     fn macro_can_be_disabled() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { macro_enabled: false, ..Config::default() });
-        e.macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        e.apply_config(&Config {
+            macro_enabled: false,
+            ..Config::default()
+        });
+        e.macros
+            .set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
         assert_eq!(type_replay(&mut e, "gs "), "gs ");
     }
 
     #[test]
     fn macro_in_off_mode() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { macro_in_off_mode: true, ..Config::default() });
-        e.macros.set_entries([("ddq".to_string(), "đại đội".to_string())].into_iter());
+        e.apply_config(&Config {
+            macro_in_off_mode: true,
+            ..Config::default()
+        });
+        e.macros
+            .set_entries([("ddq".to_string(), "đại đội".to_string())].into_iter());
         e.set_enabled(false);
         assert_eq!(type_replay(&mut e, "ddq "), "đại đội ");
         // English letters still pass through when not a macro.
@@ -2750,7 +2923,10 @@ mod tests {
         // With auto-correct off, a tone key on an English word bends it; the
         // restore puts the raw keystrokes back.
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { auto_correct: false, ..Config::default() });
+        e.apply_config(&Config {
+            auto_correct: false,
+            ..Config::default()
+        });
         // Whatever bamboo produced mid-word, at the word end the raw keys
         // "windowf" must be what the application ends up with.
         assert_eq!(type_replay(&mut e, "windowf "), "windowf ");
@@ -2759,7 +2935,10 @@ mod tests {
     #[test]
     fn auto_restore_keeps_vietnamese_words() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { auto_restore: true, ..Config::default() });
+        e.apply_config(&Config {
+            auto_restore: true,
+            ..Config::default()
+        });
         assert_eq!(type_replay(&mut e, "vieejt "), "việt ");
     }
 
@@ -2773,12 +2952,26 @@ mod tests {
         // "tool"). Check every display mode: preedit used to commit bamboo's
         // poisoned internal string instead of the visible one.
         for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
-            let mut config = Config { auto_restore: true, ..Config::default() };
+            let mut config = Config {
+                auto_restore: true,
+                ..Config::default()
+            };
             config.mode = mode.into();
-            assert_eq!(type_replay(&mut engine(mode, config), "teeen "), "teen ", "{mode:?}");
-            let mut config = Config { auto_restore: true, ..Config::default() };
+            assert_eq!(
+                type_replay(&mut engine(mode, config), "teeen "),
+                "teen ",
+                "{mode:?}"
+            );
+            let mut config = Config {
+                auto_restore: true,
+                ..Config::default()
+            };
             config.mode = mode.into();
-            assert_eq!(type_replay(&mut engine(mode, config), "toool "), "tool ", "{mode:?}");
+            assert_eq!(
+                type_replay(&mut engine(mode, config), "toool "),
+                "tool ",
+                "{mode:?}"
+            );
         }
     }
 
@@ -2787,7 +2980,10 @@ mod tests {
         // The undo exemption must not disable auto-restore altogether: a
         // plain invalid word still gets its raw keys back.
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { auto_correct: false, ..Config::default() });
+        e.apply_config(&Config {
+            auto_correct: false,
+            ..Config::default()
+        });
         assert_eq!(type_replay(&mut e, "windowf "), "windowf ");
     }
 
@@ -2851,10 +3047,17 @@ mod tests {
         e.set_surrounding("em tung tăng lăng xăng nhìn bầu trời".into(), 36);
         let actions = e.process_char('g');
         assert!(
-            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_) | Action::DeleteSurrounding { .. })),
+            !actions.iter().any(|a| matches!(
+                a,
+                Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+            )),
             "must not delete the real input: {actions:?}"
         );
-        assert_eq!(e.wrapper.output(), "tung", "composition stays on the typed word");
+        assert_eq!(
+            e.wrapper.output(),
+            "tung",
+            "composition stays on the typed word"
+        );
     }
 
     #[test]
@@ -2877,7 +3080,8 @@ mod tests {
         let _ = e.process_char(' ');
         let next = e.process_char('t');
         assert!(
-            next.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            next.iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { .. })),
             "the next word must use preedit: {next:?}"
         );
     }
@@ -2982,7 +3186,10 @@ mod tests {
         let mut config = Config::default();
         config.free_tone_marking = !config.free_tone_marking;
         let actions = e.apply_config(&config);
-        assert!(actions.contains(&Action::Commit("mùa".into())), "{actions:?}");
+        assert!(
+            actions.contains(&Action::Commit("mùa".into())),
+            "{actions:?}"
+        );
         // composition is gone afterwards, so a second apply must not re-commit
         assert!(e.apply_config(&Config::default()).is_empty());
     }
@@ -2997,16 +3204,25 @@ mod tests {
         for c in "muaf".chars() {
             e.process_char(c);
         }
-        let config = Config { mode: Mode::NonPreedit.into(), ..Config::default() };
+        let config = Config {
+            mode: Mode::NonPreedit.into(),
+            ..Config::default()
+        };
         let actions = e.apply_config(&config);
-        assert!(actions.contains(&Action::Commit("mùa".into())), "{actions:?}");
+        assert!(
+            actions.contains(&Action::Commit("mùa".into())),
+            "{actions:?}"
+        );
     }
-
 
     #[test]
     fn auto_restore_can_be_disabled() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { auto_restore: false, auto_correct: false, ..Config::default() });
+        e.apply_config(&Config {
+            auto_restore: false,
+            auto_correct: false,
+            ..Config::default()
+        });
         let actions = type_str(&mut e, "windowf ");
         let end = replay(&actions);
         // Whatever bamboo produced, it must NOT be rewritten back to raw keys
@@ -3024,15 +3240,20 @@ mod tests {
         // not be restored even when it is invalid and differs from the raw
         // keys. The restore condition with a dictionary hit must be false.
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { auto_correct: false, dictionary_enabled: true, ..Config::default() });
-        let mut dict = Dictionary { words: std::collections::HashSet::new() };
+        e.apply_config(&Config {
+            auto_correct: false,
+            dictionary_enabled: true,
+            ..Config::default()
+        });
+        let mut dict = Dictionary {
+            words: std::collections::HashSet::new(),
+        };
         dict.set_words(["wỉndow"].iter().map(|s| s.to_string()));
         e.dictionary = Some(dict);
         let (word, raw) = ("wỉndow".to_string(), "windowf".to_string());
         let dict_hit = e.dictionary.as_ref().is_some_and(|d| d.contains(&word));
         assert!(dict_hit, "dictionary lookup is case-insensitive");
-        let would_restore =
-            e.auto_restore && !word.is_empty() && true && word != raw && !dict_hit;
+        let would_restore = e.auto_restore && !word.is_empty() && true && word != raw && !dict_hit;
         assert!(!would_restore, "dictionary hit must suppress the restore");
     }
 
@@ -3066,7 +3287,8 @@ mod tests {
             mode: ModeConfig::Off,
             ..Config::default()
         });
-        e.macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        e.macros
+            .set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
         assert_eq!(type_replay(&mut e, "vieetj "), "vieetj ");
         assert_eq!(type_replay(&mut e, "gs "), "giờ sáng ");
     }
@@ -3086,7 +3308,8 @@ mod tests {
             mode: ModeConfig::DefaultTyping,
             ..Config::default()
         });
-        e.macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        e.macros
+            .set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
         assert_eq!(type_replay(&mut e, "vieetj gs "), "vieetj gs ");
     }
 
@@ -3104,7 +3327,9 @@ mod tests {
         e.set_capabilities(CAP_PREEDIT_TEXT);
         let actions = type_str(&mut e, "vieetj");
         assert!(
-            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { .. })),
             "no uinput -> must render as preedit: {actions:?}"
         );
     }
@@ -3122,11 +3347,15 @@ mod tests {
         e.set_capabilities(CAP_PREEDIT_TEXT);
         let actions = type_str(&mut e, "vieetj");
         assert!(
-            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { .. })),
             "relay context -> must render as preedit: {actions:?}"
         );
         assert!(
-            !actions.iter().any(|a| matches!(a, Action::InjectBackspaces(_))),
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::InjectBackspaces(_))),
             "no uinput rewrite may be emitted on a relay: {actions:?}"
         );
     }
@@ -3140,7 +3369,9 @@ mod tests {
         e.set_capabilities(CAP_PREEDIT_TEXT);
         let actions = type_str(&mut e, "vieetj");
         assert!(
-            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { .. })),
             "no text report -> must render as preedit: {actions:?}"
         );
     }
@@ -3162,7 +3393,10 @@ mod tests {
     fn url_context_keeps_words_raw() {
         // "tieeng" right after "." and "/" would normally become "tiêng".
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        assert_eq!(type_replay(&mut e, "x.example.tieeng "), "x.example.tieeng ");
+        assert_eq!(
+            type_replay(&mut e, "x.example.tieeng "),
+            "x.example.tieeng "
+        );
     }
 
     #[test]
@@ -3175,7 +3409,10 @@ mod tests {
     #[test]
     fn url_bypass_can_be_disabled() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { bypass_url: false, ..Config::default() });
+        e.apply_config(&Config {
+            bypass_url: false,
+            ..Config::default()
+        });
         assert_eq!(type_replay(&mut e, "x.example.tieeng "), "x.example.tiêng ");
     }
 
@@ -3190,19 +3427,25 @@ mod tests {
     #[test]
     fn macro_does_not_expand_valid_vietnamese_words() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.macros.set_entries([("cam".to_string(), "CLIP".to_string())].into_iter());
+        e.macros
+            .set_entries([("cam".to_string(), "CLIP".to_string())].into_iter());
         assert_eq!(type_replay(&mut e, "cam "), "cam ");
         // Raw Telex for a Vietnamese word is normal typing as well.
-        e.macros.set_entries([("vieetj".to_string(), "CLIP".to_string())].into_iter());
+        e.macros
+            .set_entries([("vieetj".to_string(), "CLIP".to_string())].into_iter());
         assert_eq!(type_replay(&mut e, "vieetj "), "việt ");
     }
 
     #[test]
     fn macro_still_expands_nonvietnamese_keys_in_off_mode() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { macro_in_off_mode: true, ..Config::default() });
+        e.apply_config(&Config {
+            macro_in_off_mode: true,
+            ..Config::default()
+        });
         e.set_enabled(false);
-        e.macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        e.macros
+            .set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
         assert_eq!(type_replay(&mut e, "gs "), "giờ sáng ");
     }
 
@@ -3212,17 +3455,28 @@ mod tests {
         e.set_uinput_available(true);
         let actions = type_str(&mut e, "vieetj ");
         // Mid-word: nothing but forwards — the app shows the raw keys.
-        let word_end = actions.iter().position(|a| matches!(a, Action::InjectBackspaces(_))).unwrap();
+        let word_end = actions
+            .iter()
+            .position(|a| matches!(a, Action::InjectBackspaces(_)))
+            .unwrap();
         assert!(
-            actions[..word_end].iter().all(|a| matches!(a, Action::Forward | Action::Consumed)),
+            actions[..word_end]
+                .iter()
+                .all(|a| matches!(a, Action::Forward | Action::Consumed)),
             "raw keys must be forwarded while typing: {:?}",
             &actions[..word_end]
         );
         // Word end: erase the 6 raw keys, commit the Vietnamese word.
-        assert!(actions.iter().any(|a| matches!(a, Action::InjectBackspaces(6))));
-        assert!(actions.iter().any(|a| matches!(a, Action::Commit(t) if t == "việt")));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(6))));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "việt")));
         assert!(actions.iter().any(|a| matches!(a, Action::PostDelay(_))));
-        assert!(!actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })));
+        assert!(!actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })));
     }
 
     #[test]
@@ -3231,7 +3485,9 @@ mod tests {
         e.set_uinput_available(true);
         let actions = type_str(&mut e, "hello ");
         assert!(
-            !actions.iter().any(|a| matches!(a, Action::InjectBackspaces(_) | Action::Commit(_))),
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::InjectBackspaces(_) | Action::Commit(_))),
             "word == raw: no rewrite, the keys already sit in the app: {actions:?}"
         );
     }
@@ -3245,7 +3501,9 @@ mod tests {
         let actions = type_str(&mut e, " ");
         // raw after the pop is "vieet" (5 keys), not "vieetj".
         assert!(
-            actions.iter().any(|a| matches!(a, Action::InjectBackspaces(5))),
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::InjectBackspaces(5))),
             "{actions:?}"
         );
     }
@@ -3262,9 +3520,13 @@ mod tests {
         let actions = type_str(&mut e, "vieetj ");
         assert!(actions.iter().any(|a| matches!(a, Action::SelectLeft(6))));
         assert!(actions.iter().any(|a| matches!(a, Action::PressDelete)));
-        assert!(actions.iter().any(|a| matches!(a, Action::Commit(t) if t == "việt")));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "việt")));
         assert!(
-            !actions.iter().any(|a| matches!(a, Action::InjectBackspaces(_))),
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::InjectBackspaces(_))),
             "Select must not press Backspaces: {actions:?}"
         );
     }
@@ -3278,8 +3540,12 @@ mod tests {
         e.set_client(Some("gtk4-im:test".into()));
         e.set_suggestions(true);
         let actions = type_str(&mut e, "vieetj ");
-        assert!(actions.iter().any(|a| matches!(a, Action::InjectBackspaces(6))));
-        assert!(actions.iter().any(|a| matches!(a, Action::Commit(t) if t == "việt")));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(6))));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "việt")));
     }
 
     #[test]
@@ -3290,7 +3556,9 @@ mod tests {
         e.set_suggestions(true);
         let actions = type_str(&mut e, "vieetj ");
         assert!(
-            !actions.iter().any(|a| matches!(a, Action::InjectBackspaces(_))),
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::InjectBackspaces(_))),
             "rewriting would eat the suggestion text: {actions:?}"
         );
     }
@@ -3305,7 +3573,9 @@ mod tests {
         let actions = e.on_client_reset();
         assert!(actions.contains(&Action::HidePreedit), "{actions:?}");
         assert!(
-            !actions.iter().any(|a| matches!(a, Action::Commit(_) | Action::DeleteSurrounding { .. })),
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::Commit(_) | Action::DeleteSurrounding { .. })),
             "a click must not commit, delete or relocate anything: {actions:?}"
         );
         assert!(!e.preedit_visible && !e.wrapper.has_composition());
@@ -3327,7 +3597,10 @@ mod tests {
         assert!(e.preedit_visible);
         e.last_key_at = Instant::now() - Duration::from_millis(1000);
         let ticked = e.tick();
-        assert!(ticked.contains(&Action::Commit("chào".into())), "{ticked:?}");
+        assert!(
+            ticked.contains(&Action::Commit("chào".into())),
+            "{ticked:?}"
+        );
         assert!(!e.preedit_visible && !e.wrapper.has_composition());
     }
 
@@ -3343,7 +3616,9 @@ mod tests {
         let actions = e.process_char('f');
         assert!(actions.contains(&Action::DeleteBefore(4)), "{actions:?}");
         assert!(
-            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "tùng")),
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "tùng")),
             "{actions:?}"
         );
         assert!(!e.idle_committed, "consumed");
@@ -3356,7 +3631,10 @@ mod tests {
         e.last_key_at = Instant::now() - Duration::from_millis(1000);
         e.tick();
         let actions = e.process_char('z');
-        assert!(!actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))), "{actions:?}");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+            "{actions:?}"
+        );
         assert!(!e.idle_committed);
     }
 
@@ -3386,13 +3664,17 @@ mod tests {
         // Click back: same cursor, same text before it → the word returns.
         let actions = e.set_surrounding(String::new(), 0);
         assert!(
-            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "chào")),
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "chào")),
             "{actions:?}"
         );
         // Mark-undo continues exactly where it stopped.
         let actions = e.backspace().unwrap_or_default();
         assert!(
-            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "chao")),
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "chao")),
             "{actions:?}"
         );
     }
@@ -3403,7 +3685,9 @@ mod tests {
         e.click_action = ClickActionConfig::Keep;
         type_str(&mut e, "chaof");
         assert!(e.on_client_reset().is_empty());
-        assert!(e.set_surrounding("word".into(), 4).contains(&Action::HidePreedit));
+        assert!(e
+            .set_surrounding("word".into(), 4)
+            .contains(&Action::HidePreedit));
         let actions = e.process_char('x');
         assert!(!actions.iter().any(|a| matches!(a, Action::Commit(_))));
         assert_eq!(e.wrapper.output(), "x", "fresh word at the new location");
@@ -3427,7 +3711,10 @@ mod tests {
             actions.contains(&Action::DeleteSurrounding { offset: 0, n: 5 }),
             "{actions:?}"
         );
-        assert!(actions.contains(&Action::Commit("chào chào".into())), "{actions:?}");
+        assert!(
+            actions.contains(&Action::Commit("chào chào".into())),
+            "{actions:?}"
+        );
         assert!(e.parked_word.is_none() && !e.wrapper.has_composition());
     }
 
@@ -3444,7 +3731,9 @@ mod tests {
         assert!(e.on_client_reset().is_empty());
         let actions = e.set_surrounding("xin chào ".into(), 4);
         assert!(
-            !actions.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::DeleteSurrounding { .. })),
             "chrome drops protocol deletes — no surgery: {actions:?}"
         );
         assert!(e.parked_word.is_some());
@@ -3479,7 +3768,10 @@ mod digit_probe2 {
         {
             let mut e4 = B::new(InputMethod::telex());
             for c in "loixf".chars() {
-                let rep = { let d = e4.process_key_edit(c, M::Vietnamese); (d.delete_chars, d.insert.chars().collect::<String>()) };
+                let rep = {
+                    let d = e4.process_key_edit(c, M::Vietnamese);
+                    (d.delete_chars, d.insert.chars().collect::<String>())
+                };
                 let out = e4.output_str().to_string();
                 println!("loixf {c:?}: del={} ins={:?} out={out:?}", rep.0, rep.1);
             }
@@ -3489,10 +3781,13 @@ mod digit_probe2 {
             let o = e3.process_str(s, M::Vietnamese);
             println!("process_str({s:?}) = {o:?}");
         }
-        for c in ['1','2','0','9','"','\''] {
+        for c in ['1', '2', '0', '9', '"', '\''] {
             let mut e2 = B::new(InputMethod::telex());
             e2.process_key('x', M::Vietnamese);
-            let rep = { let d = e2.process_key_edit(c, M::Vietnamese); (d.delete_chars, d.insert.chars().collect::<String>()) };
+            let rep = {
+                let d = e2.process_key_edit(c, M::Vietnamese);
+                (d.delete_chars, d.insert.chars().collect::<String>())
+            };
             let out = e2.output_str().to_string();
             println!("x+{c:?}: del={} ins={:?} out={out:?}", rep.0, rep.1);
         }
@@ -3530,13 +3825,13 @@ mod x_probe {
             // nothing else may re-insert the letter (no second commit, and
             // the preedit path must hide before committing)
             assert!(
-                all.windows(2).any(|w| matches!(w, [Action::HidePreedit, Action::Commit(t)] if t == "x"))
+                all.windows(2)
+                    .any(|w| matches!(w, [Action::HidePreedit, Action::Commit(t)] if t == "x"))
                     || matches!(mode, Mode::NonPreedit | Mode::Surrounding),
                 "{mode:?}: preedit must hide before committing the letter: {all:?}"
             );
         }
     }
-
 }
 
 #[cfg(test)]
@@ -3558,7 +3853,9 @@ mod keys_workload_probe {
             if c == '{' {
                 let mut name = String::new();
                 for nc in chars.by_ref() {
-                    if nc == '}' { break; }
+                    if nc == '}' {
+                        break;
+                    }
                     name.push(nc);
                 }
                 tokens.push(match name.as_str() {

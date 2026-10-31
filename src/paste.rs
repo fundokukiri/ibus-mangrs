@@ -50,18 +50,29 @@ fn read_clipboard() -> Option<String> {
     } else {
         Command::new("wl-paste")
     };
-    let output =
-        cmd.stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    let output = cmd
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn write_clipboard(text: &str) -> bool {
-    let Some((binary, is_x11)) = session_tool() else { return false };
+    let Some((binary, is_x11)) = session_tool() else {
+        return false;
+    };
     let mut command = Command::new(binary);
     if is_x11 {
         command.args(["-selection", "clipboard"]);
     }
-    command.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     let mut child = match command.spawn() {
         Ok(c) => c,
         Err(_) => return false,
@@ -74,7 +85,10 @@ fn write_clipboard(text: &str) -> bool {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 /// Put `text` on the clipboard (saving the user's content once per burst),
@@ -159,8 +173,16 @@ mod tests {
         if ok {
             assert!(pending_restore_ms() > 0, "restore must be scheduled");
         } else {
-            assert_eq!(pending_restore_ms(), 0, "failed paste must not schedule a restore");
-            assert_eq!(CALLS.load(Ordering::SeqCst), 0, "no ctrl+v without a clipboard");
+            assert_eq!(
+                pending_restore_ms(),
+                0,
+                "failed paste must not schedule a restore"
+            );
+            assert_eq!(
+                CALLS.load(Ordering::SeqCst),
+                0,
+                "no ctrl+v without a clipboard"
+            );
         }
         reset_for_tests();
     }

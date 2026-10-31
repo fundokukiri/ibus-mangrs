@@ -68,6 +68,9 @@ mod tests {
     #[test]
     fn brief_truncates_long_text() {
         assert_eq!(brief("tiếng"), "tiếng");
-        assert_eq!(brief("0123456789012345678901234567"), "012345678901234567890123…");
+        assert_eq!(
+            brief("0123456789012345678901234567"),
+            "012345678901234567890123…"
+        );
     }
 }

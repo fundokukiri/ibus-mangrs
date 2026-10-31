@@ -12,15 +12,14 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gtk4::prelude::*;
-use gtk4::{
-    Application, ApplicationWindow, DropDown, Entry, Orientation, StringList, Switch,
-    TextView,
-};
 use crate::config::{
     BracketConfig, CharsetConfig, ClickActionConfig, Config, MethodConfig, ModeConfig, W2uConfig,
 };
 use crate::macros::{Dictionary, Macros};
+use gtk4::prelude::*;
+use gtk4::{
+    Application, ApplicationWindow, DropDown, Entry, Orientation, StringList, Switch, TextView,
+};
 
 thread_local! {
     /// Every settings row (lowercase "title subtitle", widget) so the search
@@ -33,7 +32,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // page (menu "Mở bảng gõ tắt…"); GTK parses argv itself and rejects
     // these arguments, so read them here and hand GTK an empty argv.
     let page = std::env::args().find_map(|a| a.strip_prefix("--page=").map(str::to_string));
-    let app = Application::builder().application_id("org.freedesktop.IBus.mangrs").build();
+    let app = Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs")
+        .build();
     // GApplication is single-instance: a second launch activates the first
     // one, which must present its existing window instead of building
     // another (one control panel at a time).
@@ -223,8 +224,7 @@ impl Ui {
         config.date_format = self.date_format.text().trim().to_string();
         config.dictionary_enabled = self.dictionary_enabled.is_active();
         config.commit_interval_ms = self.commit_interval.text().trim().parse().unwrap_or(20);
-        config.backspace_interval_ms =
-            self.backspace_interval.text().trim().parse().unwrap_or(5);
+        config.backspace_interval_ms = self.backspace_interval.text().trim().parse().unwrap_or(5);
         config.post_delay_ms = self.post_delay.text().trim().parse().unwrap_or(10);
         config.unicode_channel = match self.unicode_channel.selected() {
             1 => crate::config::UnicodeChannel::Clipboard,
@@ -285,7 +285,11 @@ impl Ui {
 
 fn text_of(view: &TextView) -> String {
     view.buffer()
-        .text(&view.buffer().start_iter(), &view.buffer().end_iter(), false)
+        .text(
+            &view.buffer().start_iter(),
+            &view.buffer().end_iter(),
+            false,
+        )
         .to_string()
 }
 
@@ -315,15 +319,21 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let auto_restore = Switch::builder().active(config.auto_restore).build();
     let abbrev = Switch::builder().active(config.abbreviations).build();
     let click_action = drop_down(
-        &["Click: Bamboo (mặc định)", "Click: Giữ từ", "Click: Về chỗ cũ"],
+        &[
+            "Click: Bamboo (mặc định)",
+            "Click: Giữ từ",
+            "Click: Về chỗ cũ",
+        ],
         match config.click_action {
             ClickActionConfig::Bamboo => 0,
             ClickActionConfig::Keep => 1,
             ClickActionConfig::Relocate => 2,
         },
     );
-    let preedit_timeout =
-        Entry::builder().text(config.preedit_commit_timeout_ms.to_string()).width_chars(6).build();
+    let preedit_timeout = Entry::builder()
+        .text(config.preedit_commit_timeout_ms.to_string())
+        .width_chars(6)
+        .build();
     let bypass_url = Switch::builder().active(config.bypass_url).build();
     let w2u = drop_down(
         ON_OFF_MODES,
@@ -331,7 +341,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
     );
     let bracket = drop_down(
         ON_OFF_MODES,
-        on_off_index(&config.bracket, BracketConfig::Disabled, BracketConfig::NonStart),
+        on_off_index(
+            &config.bracket,
+            BracketConfig::Disabled,
+            BracketConfig::NonStart,
+        ),
     );
     let em_dash = Switch::builder().active(config.em_dash).build();
     let auto_capitalize = Switch::builder().active(config.auto_capitalize).build();
@@ -339,8 +353,14 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let macro_enabled = Switch::builder().active(config.macro_enabled).build();
     let capitalize_macro = Switch::builder().active(config.capitalize_macro).build();
     let macro_in_off_mode = Switch::builder().active(config.macro_in_off_mode).build();
-    let time_format = Entry::builder().text(&config.time_format).width_chars(14).build();
-    let date_format = Entry::builder().text(&config.date_format).width_chars(14).build();
+    let time_format = Entry::builder()
+        .text(&config.time_format)
+        .width_chars(14)
+        .build();
+    let date_format = Entry::builder()
+        .text(&config.date_format)
+        .width_chars(14)
+        .build();
     let macro_text = text_view(
         &macros
             .entries()
@@ -349,8 +369,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
             .join("\n"),
     );
     let dictionary_enabled = Switch::builder().active(config.dictionary_enabled).build();
-    let dictionary_text =
-        text_view(&dictionary.words().collect::<Vec<_>>().join("\n"));
+    let dictionary_text = text_view(&dictionary.words().collect::<Vec<_>>().join("\n"));
     let rules_text = text_view(
         &config
             .app_rules
@@ -360,11 +379,18 @@ fn build(app: &Application, initial_page: Option<&str>) {
             .join("\n"),
     );
     let debug_log = Switch::builder().active(config.debug_log).build();
-    let commit_interval =
-        Entry::builder().text(config.commit_interval_ms.to_string()).width_chars(6).build();
-    let backspace_interval =
-        Entry::builder().text(config.backspace_interval_ms.to_string()).width_chars(6).build();
-    let post_delay = Entry::builder().text(config.post_delay_ms.to_string()).width_chars(6).build();
+    let commit_interval = Entry::builder()
+        .text(config.commit_interval_ms.to_string())
+        .width_chars(6)
+        .build();
+    let backspace_interval = Entry::builder()
+        .text(config.backspace_interval_ms.to_string())
+        .width_chars(6)
+        .build();
+    let post_delay = Entry::builder()
+        .text(config.post_delay_ms.to_string())
+        .width_chars(6)
+        .build();
     let unicode_channel = drop_down(
         CHANNELS,
         match config.unicode_channel {
@@ -418,7 +444,10 @@ fn build(app: &Application, initial_page: Option<&str>) {
     }
     client_combo.set_active(Some(0));
     let rule_mode = drop_down(
-        &crate::ibus_prop::MODES.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
+        &crate::ibus_prop::MODES
+            .iter()
+            .map(|(k, _)| *k)
+            .collect::<Vec<_>>(),
         1,
     );
     let add_btn = gtk4::Button::with_label("Thêm luật");
@@ -433,7 +462,9 @@ fn build(app: &Application, initial_page: Option<&str>) {
     {
         let ui = ui.clone();
         add_btn.connect_clicked(move |_| {
-            let Some(name) = client_combo.active_text().map(|s| s.to_string()) else { return };
+            let Some(name) = client_combo.active_text().map(|s| s.to_string()) else {
+                return;
+            };
             let Some((key, _)) = crate::ibus_prop::MODES.get(rule_mode.selected() as usize) else {
                 return;
             };
@@ -455,7 +486,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
     // ===== Page 1: Kiểu gõ =====
     let typing = gtk4::Box::new(Orientation::Vertical, 6);
-    section(&typing, "Điều khiển", "Bật tiếng Việt và phím tắt đổi chế độ");
+    section(
+        &typing,
+        "Điều khiển",
+        "Bật tiếng Việt và phím tắt đổi chế độ",
+    );
     typing.append(&card(vec![
         pref_row(
             "Bật tiếng Việt",
@@ -472,7 +507,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
         &typing,
         "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → OFF → Gõ mặc định.",
     );
-    section(&typing, "Phương thức gõ", "Kiểu gõ, bảng mã và cách hiển thị");
+    section(
+        &typing,
+        "Phương thức gõ",
+        "Kiểu gõ, bảng mã và cách hiển thị",
+    );
     typing.append(&card(vec![
         pref_row("Kiểu gõ chính", "Telex, VNI, VIQR, Microsoft layout", &ui.method),
         pref_row("Bảng mã", "Unicode và 10 bảng mã cũ", &ui.charset),
@@ -524,7 +563,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
             &ui.unicode_channel,
         ),
     ]));
-    section(&typing, "Chẩn đoán", "Ghi lại quyết định của engine để gỡ lỗi");
+    section(
+        &typing,
+        "Chẩn đoán",
+        "Ghi lại quyết định của engine để gỡ lỗi",
+    );
     typing.append(&card(vec![pref_row(
         "Ghi log gỡ lỗi",
         "Ghi vào ~/.cache/ibus-mangrs/debug.log",
@@ -535,8 +578,16 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let tone = gtk4::Box::new(Orientation::Vertical, 6);
     section(&tone, "Dấu thanh", "Kiểu đặt dấu trên nguyên âm");
     tone.append(&card(vec![
-        pref_row("Dấu thanh chuẩn", "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)", &ui.modern),
-        pref_row("Bỏ dấu tự do", "Dấu đặt anywhere trong từ: hoangf → hoàng", &ui.free),
+        pref_row(
+            "Dấu thanh chuẩn",
+            "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)",
+            &ui.modern,
+        ),
+        pref_row(
+            "Bỏ dấu tự do",
+            "Dấu đặt anywhere trong từ: hoangf → hoàng",
+            &ui.free,
+        ),
     ]));
     section(&tone, "Chính tả", "Sửa lỗi và khôi phục từ");
     tone.append(&card(vec![
@@ -559,35 +610,63 @@ fn build(app: &Application, initial_page: Option<&str>) {
     section(&tone, "Tự động", "Viết hoa và dấu câu tự động");
     tone.append(&card(vec![
         pref_row("Tự viết hoa", "Sau . ! ? và Enter", &ui.auto_capitalize),
-        pref_row("Hai cách → chấm", "Thử nghiệm: hai dấu cách thành dấu chấm", &ui.double_space),
+        pref_row(
+            "Hai cách → chấm",
+            "Thử nghiệm: hai dấu cách thành dấu chấm",
+            &ui.double_space,
+        ),
     ]));
     section(&tone, "Ký tự đặc biệt", "Chuyển đổi phím tắt ký tự");
     tone.append(&card(vec![
         pref_row("W thành ư", "Tắt / trừ đầu từ / mọi vị trí", &ui.w2u),
-        pref_row("[ ] thành ơ ư", "Tắt / trừ đầu từ / mọi vị trí", &ui.bracket),
-        pref_row("Gõ -- thành —", "Hai dấu trừ liên tiếp thành gạch dài", &ui.em_dash),
+        pref_row(
+            "[ ] thành ơ ư",
+            "Tắt / trừ đầu từ / mọi vị trí",
+            &ui.bracket,
+        ),
+        pref_row(
+            "Gõ -- thành —",
+            "Hai dấu trừ liên tiếp thành gạch dài",
+            &ui.em_dash,
+        ),
     ]));
 
     // ===== Page 3: Gõ tắt =====
     let macro_box = gtk4::Box::new(Orientation::Vertical, 6);
     section(&macro_box, "Gõ tắt", "Mở rộng cụm tắt thành câu đầy đủ");
     macro_box.append(&card(vec![
-        pref_row("Bật gõ tắt", "Khóa gõ tắt mở rộng ở cuối từ", &ui.macro_enabled),
+        pref_row(
+            "Bật gõ tắt",
+            "Khóa gõ tắt mở rộng ở cuối từ",
+            &ui.macro_enabled,
+        ),
         pref_row(
             "Viết hoa gõ tắt",
             "Khóa viết hoa → nội dung viết hoa theo",
             &ui.capitalize_macro,
         ),
-        pref_row("Gõ tắt khi OFF", "Vẫn mở rộng khi tiếng Việt đang tắt", &ui.macro_in_off_mode),
+        pref_row(
+            "Gõ tắt khi OFF",
+            "Vẫn mở rộng khi tiếng Việt đang tắt",
+            &ui.macro_in_off_mode,
+        ),
         pref_row("Định dạng giờ ($TIME)", "Ví dụ %H:%M", &ui.time_format),
         pref_row("Định dạng ngày ($DATE)", "Ví dụ %d/%m/%Y", &ui.date_format),
     ]));
-    section(&macro_box, "Bảng gõ tắt", "Mỗi dòng: khóa=Nội dung ($TIME, $DATE)");
+    section(
+        &macro_box,
+        "Bảng gõ tắt",
+        "Mỗi dòng: khóa=Nội dung ($TIME, $DATE)",
+    );
     macro_box.append(&card_widget(&scrolled(&ui.macro_text, 160)));
 
     // ===== Page 4: Dữ liệu =====
     let data_box = gtk4::Box::new(Orientation::Vertical, 6);
-    section(&data_box, "Từ điển của tôi", "Từ trong từ điển không bị khôi phục về chuỗi phím");
+    section(
+        &data_box,
+        "Từ điển của tôi",
+        "Từ trong từ điển không bị khôi phục về chuỗi phím",
+    );
     data_box.append(&card(vec![pref_row(
         "Bật từ điển",
         "Đọc từ ~/.config/ibus-mangrs/dictionary.txt",
@@ -609,8 +688,16 @@ fn build(app: &Application, initial_page: Option<&str>) {
         "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng",
     );
     data_box.append(&card(vec![
-        pref_row("Xuất cấu hình ra JSON", "Lưu ra file để mang đi", &export_btn),
-        pref_row("Nhập cấu hình từ JSON", "Đọc lại từ file đã xuất", &import_btn),
+        pref_row(
+            "Xuất cấu hình ra JSON",
+            "Lưu ra file để mang đi",
+            &export_btn,
+        ),
+        pref_row(
+            "Nhập cấu hình từ JSON",
+            "Đọc lại từ file đã xuất",
+            &import_btn,
+        ),
     ]));
 
     // ===== Page 5: Giới thiệu =====
@@ -690,7 +777,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
             "https://github.com/fundokukiri/ibus-mangrs",
             Some(link_button("Mở", "https://github.com/fundokukiri/ibus-mangrs").upcast_ref()),
         ),
-        info_row("avatar-default-symbolic", "Tác giả", "Phùng Đức Tùng (Fundoku)"),
+        info_row(
+            "avatar-default-symbolic",
+            "Tác giả",
+            "Phùng Đức Tùng (Fundoku)",
+        ),
         row_impl(
             Some("web-browser-symbolic"),
             "Trang chủ",
@@ -849,10 +940,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         Some("dictionary") | Some("apps") | Some("backup") => "data",
         Some(other) => other,
     };
-    let (_, pill) = pills
-        .iter()
-        .find(|(n, _)| n == wanted)
-        .unwrap_or(&pills[0]);
+    let (_, pill) = pills.iter().find(|(n, _)| n == wanted).unwrap_or(&pills[0]);
     pill.set_active(true);
 
     // Grouped-card look, theme-agnostic (alpha over currentColor adapts to
@@ -1018,17 +1106,24 @@ fn build(app: &Application, initial_page: Option<&str>) {
 // --- backup / restore (Giai đoạn 11) ---
 
 fn export_json(path: Option<PathBuf>) -> Result<(), String> {
-    let Some(path) = path else { return Err("no file chosen".into()) };
+    let Some(path) = path else {
+        return Err("no file chosen".into());
+    };
     let text = crate::backup::to_json(
         Config::load(),
-        Macros::load().entries().map(|(k, v)| (k.into(), v.into())).collect(),
+        Macros::load()
+            .entries()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect(),
         Dictionary::load().words().map(str::to_string).collect(),
     )?;
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
 fn import_json(path: Option<PathBuf>, ui: &Ui) -> Result<(), String> {
-    let Some(path) = path else { return Err("no file chosen".into()) };
+    let Some(path) = path else {
+        return Err("no file chosen".into());
+    };
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let backup = crate::backup::from_json(&text)?;
     // Nothing is written before this line: a corrupt file changes nothing.
@@ -1045,12 +1140,27 @@ fn import_json(path: Option<PathBuf>, ui: &Ui) -> Result<(), String> {
     ui.method.set_selected(method_index(config.method));
     ui.mode.set_selected(mode_index(config.mode));
     ui.charset.set_selected(charset_index(config.charset));
-    set_text(&ui.macro_text,
-        &Macros::load().entries().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("\n"));
-    set_text(&ui.dictionary_text,
-        &Dictionary::load().words().collect::<Vec<_>>().join("\n"));
-    set_text(&ui.rules_text,
-        &config.app_rules.iter().map(|r| format!("{}={}", r.pattern, r.mode.key())).collect::<Vec<_>>().join("\n"));
+    set_text(
+        &ui.macro_text,
+        &Macros::load()
+            .entries()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    set_text(
+        &ui.dictionary_text,
+        &Dictionary::load().words().collect::<Vec<_>>().join("\n"),
+    );
+    set_text(
+        &ui.rules_text,
+        &config
+            .app_rules
+            .iter()
+            .map(|r| format!("{}={}", r.pattern, r.mode.key()))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
     Ok(())
 }
 
@@ -1088,7 +1198,10 @@ fn scrolled(view: &TextView, height: i32) -> gtk4::ScrolledWindow {
 
 /// A link that opens in the default browser.
 fn link_button(label_text: &str, uri: &str) -> gtk4::LinkButton {
-    gtk4::LinkButton::builder().label(label_text).uri(uri).build()
+    gtk4::LinkButton::builder()
+        .label(label_text)
+        .uri(uri)
+        .build()
 }
 
 /// Section header: bold title + dim subtitle (one size larger than rows).
@@ -1176,8 +1289,10 @@ fn row_impl(
     // Hovering anywhere on the row explains the feature.
     h.set_tooltip_text(Some(&format!("{title}: {subtitle}")));
     ROWS.with(|r| {
-        r.borrow_mut()
-            .push((format!("{title} {subtitle}").to_lowercase(), h.clone().upcast()))
+        r.borrow_mut().push((
+            format!("{title} {subtitle}").to_lowercase(),
+            h.clone().upcast(),
+        ))
     });
     h
 }

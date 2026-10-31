@@ -394,25 +394,41 @@ pub fn recent_clients() -> Vec<String> {
     dirs::cache_dir()
         .map(|d| d.join("ibus-mangrs").join("clients"))
         .and_then(|p| std::fs::read_to_string(p).ok())
-        .map(|t| t.lines().map(str::to_string).filter(|l| !l.is_empty()).collect())
+        .map(|t| {
+            t.lines()
+                .map(str::to_string)
+                .filter(|l| !l.is_empty())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 /// Built-in rules for clients known to drop `DeleteSurroundingText`.
 fn default_app_rules() -> Vec<AppRule> {
     let preedit = [
-        "chrome", "chromium", "brave", "msedge", "vivaldi", "electron", "code", "slack",
-        "discord", "kgx", "gnome-console",
+        "chrome",
+        "chromium",
+        "brave",
+        "msedge",
+        "vivaldi",
+        "electron",
+        "code",
+        "slack",
+        "discord",
+        "kgx",
+        "gnome-console",
     ];
     let surrounding = ["sublime_text"];
     preedit
         .into_iter()
-        .map(|pattern| AppRule { pattern: pattern.into(), mode: ModeConfig::Preedit })
-        .chain(
-            surrounding
-                .into_iter()
-                .map(|pattern| AppRule { pattern: pattern.into(), mode: ModeConfig::Surrounding }),
-        )
+        .map(|pattern| AppRule {
+            pattern: pattern.into(),
+            mode: ModeConfig::Preedit,
+        })
+        .chain(surrounding.into_iter().map(|pattern| AppRule {
+            pattern: pattern.into(),
+            mode: ModeConfig::Surrounding,
+        }))
         .collect()
 }
 
@@ -463,7 +479,9 @@ impl Config {
     /// file, once. The old file is left alone so a downgrade still finds
     /// its settings.
     fn migrate_old_config() {
-        let Some(dir) = dirs::config_dir() else { return };
+        let Some(dir) = dirs::config_dir() else {
+            return;
+        };
         let new = dir.join("ibus-mangrs").join("config.toml");
         if new.exists() {
             return;
@@ -483,14 +501,21 @@ impl Config {
     /// must never stop the engine from starting.
     pub fn load() -> Self {
         Self::migrate_old_config();
-        let Some(path) = Self::path() else { return Self::default() };
-        let Ok(text) = std::fs::read_to_string(&path) else { return Self::default() };
+        let Some(path) = Self::path() else {
+            return Self::default();
+        };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return Self::default();
+        };
         toml::from_str(&text).unwrap_or_default()
     }
 
     pub fn save(&self) -> std::io::Result<()> {
         let Some(path) = Self::path() else {
-            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no config dir"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no config dir",
+            ));
         };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -573,7 +598,10 @@ mod tests {
 
     #[test]
     fn save_keeps_keys_this_build_does_not_know() {
-        let config = Config { method: MethodConfig::Vni, ..Config::default() };
+        let config = Config {
+            method: MethodConfig::Vni,
+            ..Config::default()
+        };
         let text = merge("method = \"telex\"\nw2u_mode = \"disabled\"\n", &config).unwrap();
         let back: toml::Table = toml::from_str(&text).unwrap();
         assert_eq!(back["method"], toml::Value::String("vni".into()));
@@ -586,7 +614,10 @@ mod tests {
             method: MethodConfig::Vni,
             mode: ModeConfig::Preedit,
             modern_tone_style: false,
-            app_rules: vec![AppRule { pattern: "kate".into(), mode: ModeConfig::Preedit }],
+            app_rules: vec![AppRule {
+                pattern: "kate".into(),
+                mode: ModeConfig::Preedit,
+            }],
             ..Config::default()
         };
         let text = toml::to_string_pretty(&c).unwrap();

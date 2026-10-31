@@ -267,8 +267,11 @@ impl Uinput {
     /// Returns `None` when the device cannot be opened (no permission, no
     /// module) — callers then keep the protocol delete.
     pub fn open() -> Option<Self> {
-        let file =
-            OpenOptions::new().write(true).read(true).open("/dev/uinput").ok()?;
+        let file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .open("/dev/uinput")
+            .ok()?;
         let fd = file.as_raw_fd();
         unsafe {
             if libc::ioctl(fd, UI_SET_EVBIT, EV_KEY as libc::c_int) != 0 {
@@ -335,7 +338,12 @@ impl Uinput {
             code,
             value,
         };
-        let report = InputEvent { type_: EV_SYN, code: SYN_REPORT, value: 0, ..event };
+        let report = InputEvent {
+            type_: EV_SYN,
+            code: SYN_REPORT,
+            value: 0,
+            ..event
+        };
         unsafe {
             let _ = libc::write(
                 fd,
@@ -362,8 +370,18 @@ impl Uinput {
                 code: KEY_BACKSPACE,
                 value: 1,
             };
-            let release = InputEvent { type_: EV_KEY, code: KEY_BACKSPACE, value: 0, ..press };
-            let report = InputEvent { type_: EV_SYN, code: SYN_REPORT, value: 0, ..press };
+            let release = InputEvent {
+                type_: EV_KEY,
+                code: KEY_BACKSPACE,
+                value: 0,
+                ..press
+            };
+            let report = InputEvent {
+                type_: EV_SYN,
+                code: SYN_REPORT,
+                value: 0,
+                ..press
+            };
             unsafe {
                 let _ = libc::write(
                     fd,

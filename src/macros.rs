@@ -38,12 +38,18 @@ impl Macros {
 
     pub fn save(&self) -> std::io::Result<()> {
         let Some(path) = Self::path() else {
-            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no config dir"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no config dir",
+            ));
         };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(path, toml::to_string_pretty(&self.map).map_err(std::io::Error::other)?)
+        std::fs::write(
+            path,
+            toml::to_string_pretty(&self.map).map_err(std::io::Error::other)?,
+        )
     }
 
     /// Expand `raw` if it is a macro key. With `capitalize` the key is matched
@@ -128,12 +134,18 @@ impl Dictionary {
     }
 
     pub fn set_words(&mut self, words: impl Iterator<Item = String>) {
-        self.words = words.map(|w| w.trim().to_lowercase()).filter(|w| !w.is_empty()).collect();
+        self.words = words
+            .map(|w| w.trim().to_lowercase())
+            .filter(|w| !w.is_empty())
+            .collect();
     }
 
     pub fn save(&self) -> std::io::Result<()> {
         let Some(path) = Self::path() else {
-            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no config dir"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no config dir",
+            ));
         };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -163,20 +175,29 @@ mod tests {
     #[test]
     fn plain_macro_expands() {
         let m = macros(&[("ddq", "đại đội trưởng")]);
-        assert_eq!(m.expand("ddq", false, "%H:%M", "%d/%m/%Y").as_deref(), Some("đại đội trưởng"));
+        assert_eq!(
+            m.expand("ddq", false, "%H:%M", "%d/%m/%Y").as_deref(),
+            Some("đại đội trưởng")
+        );
     }
 
     #[test]
     fn capitalize_macro_uppercases_first_letter() {
         let m = macros(&[("dđ", "đại đội")]);
         // Mixed-case key: first letter of the expansion is capitalized.
-        assert_eq!(m.expand("Dđ", true, "%H:%M", "%d/%m/%Y").as_deref(), Some("Đại đội"));
+        assert_eq!(
+            m.expand("Dđ", true, "%H:%M", "%d/%m/%Y").as_deref(),
+            Some("Đại đội")
+        );
     }
 
     #[test]
     fn all_caps_macro_uppercases_everything() {
         let m = macros(&[("vn", "việt nam")]);
-        assert_eq!(m.expand("VN", true, "%H:%M", "%d/%m/%Y").as_deref(), Some("VIỆT NAM"));
+        assert_eq!(
+            m.expand("VN", true, "%H:%M", "%d/%m/%Y").as_deref(),
+            Some("VIỆT NAM")
+        );
     }
 
     #[test]
@@ -197,7 +218,9 @@ mod tests {
 
     #[test]
     fn dictionary_is_case_insensitive() {
-        let mut d = Dictionary { words: HashSet::new() };
+        let mut d = Dictionary {
+            words: HashSet::new(),
+        };
         d.set_words(["GitHub"].iter().map(|s| s.to_string()));
         assert!(d.contains("github"));
         assert!(d.contains("GitHub"));

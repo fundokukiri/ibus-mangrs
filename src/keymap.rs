@@ -74,14 +74,7 @@ pub fn is_editing_key(keyval: u32) -> bool {
 pub fn is_navigation_key(keyval: u32) -> bool {
     matches!(
         keyval,
-        XK_HOME
-            | XK_LEFT
-            | XK_UP
-            | XK_RIGHT
-            | XK_DOWN
-            | XK_PAGE_UP
-            | XK_PAGE_DOWN
-            | XK_END
+        XK_HOME | XK_LEFT | XK_UP | XK_RIGHT | XK_DOWN | XK_PAGE_UP | XK_PAGE_DOWN | XK_END
     )
 }
 
