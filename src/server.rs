@@ -69,10 +69,13 @@ impl Server {
             engine: Arc::clone(&engine),
             last_config_check: Instant::now(),
             last_config_mtime: None,
+            cycle_hotkey: None,
         };
         handler.last_config_mtime = Config::path()
             .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
+        let initial = Config::load();
+        handler.refresh_hotkey_cache(&initial);
         conn.replace_message_callback(Some(Box::new(move |conn, msg| {
             if msg.msg_type() != MessageType::MethodCall {
                 return false;
@@ -154,6 +157,10 @@ struct EngineHandler {
     /// events, so GUI/menu edits apply without a focus change or restart.
     last_config_check: Instant,
     last_config_mtime: Option<SystemTime>,
+    /// Parsed cycle-mode hotkey, refreshed wherever the config is already
+    /// loaded (startup, mtime reload, focus-in). Loading the config file on
+    /// every key event just to compare a hotkey put disk I/O on the key path.
+    cycle_hotkey: Option<(u32, u32)>,
 }
 
 impl EngineHandler {
@@ -278,6 +285,11 @@ impl EngineHandler {
                 // Pick up settings changed in the GUI since the last focus.
                 let config = Config::load();
                 debug_log::set_enabled(config.debug_log);
+                // Direct field assignment: the engine guard held by this
+                // branch borrows part of self, so the &mut self helper
+                // cannot be called here.
+                self.cycle_hotkey =
+                    parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
                 debug_log::log(&format!("focus-in client={:?}", engine.client()));
                 let actions = engine.apply_config(&config);
                 engine.set_enabled(config.enabled);
@@ -378,14 +390,10 @@ impl EngineHandler {
     /// with the configured modifiers matches `cycle_mode_hotkey`.
     /// Returns whether the key was consumed.
     fn try_cycle_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
-        let config = Config::load();
-        if config.cycle_mode_hotkey.is_empty() {
-            return false;
-        }
-        let Some((mods, expected)) = parse_hotkey(&config.cycle_mode_hotkey) else {
+        let Some((mods, expected)) = self.cycle_hotkey else {
             return false;
         };
-        if mods == 0 || keyval != expected || state & mods != mods {
+        if keyval != expected || state & mods != mods {
             return false;
         }
 
@@ -416,6 +424,11 @@ impl EngineHandler {
         true
     }
 
+    /// Re-parse the cycle hotkey from an already-loaded config.
+    fn refresh_hotkey_cache(&mut self, config: &Config) {
+        self.cycle_hotkey = parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
+    }
+
     /// Re-apply the config if the file changed since the last check.
     fn maybe_reload_config(&mut self, out: &mut Vec<Message>) {
         if self.last_config_check.elapsed() < Duration::from_secs(1) {
@@ -429,6 +442,7 @@ impl EngineHandler {
             self.last_config_mtime = mtime;
             let config = Config::load();
             debug_log::set_enabled(config.debug_log);
+            self.refresh_hotkey_cache(&config);
             let mut engine = self.engine.lock().unwrap();
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
