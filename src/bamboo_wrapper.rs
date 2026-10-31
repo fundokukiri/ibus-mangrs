@@ -133,6 +133,10 @@ pub struct BambooWrapper {
     /// it on the next few keys ("too" + 'l' → "toool"), so later
     /// implausible deltas in this word fall back to plain appends.
     undo_in_word: bool,
+    /// The current word is a Vietnamese abbreviation that bamboo's
+    /// auto_correct reverted and the wrapper re-fixed (`ddc` → `đc`): not a
+    /// valid syllable, so the word-end auto-restore must leave it alone.
+    abbrev_fixed: bool,
     /// True while a word is being composed (raw belongs to it).
     composing: bool,
     /// The composition output after the last operation (process, backspace,
@@ -154,6 +158,7 @@ impl BambooWrapper {
             raw: String::new(),
             output_override: None,
             undo_in_word: false,
+            abbrev_fixed: false,
             composing: false,
             last_output: String::new(),
         }
@@ -228,12 +233,14 @@ impl BambooWrapper {
             // and committing that would re-add the hidden character at the
             // word boundary ("tool" + space -> "toool").
             let word = self.output();
-            let valid = !word.is_empty() && self.engine.is_valid_word();
+            let valid =
+                !word.is_empty() && (self.abbrev_fixed || self.engine.is_valid_word());
             let raw = std::mem::take(&mut self.raw);
             self.composing = false;
             self.engine.reset();
             self.last_output.clear();
             self.output_override = None;
+            self.abbrev_fixed = false;
             return Outcome::Finish { word, raw, valid };
         }
 
@@ -243,6 +250,7 @@ impl BambooWrapper {
             self.raw.clear();
             self.composing = true;
             self.undo_in_word = false;
+            self.abbrev_fixed = false;
         }
         self.raw.push(c);
 
@@ -252,6 +260,20 @@ impl BambooWrapper {
 
         let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
         let mut new_output = self.engine.output_str().to_string();
+        // bamboo's auto_correct reverts a composition that is not a valid
+        // Vietnamese syllable back to the raw keys — and the common
+        // abbreviations are not syllables: typing `ddc` ("đc" for "được")
+        // had the dd→đ transform undone and came out as "ddc". Vietnamese
+        // abbreviations keep their đ: when the raw keys start with the `dd`
+        // rule and the composition was reverted to exactly those raw keys,
+        // re-apply the transform. Real words ("ddau" → "đau") never hit
+        // this — their compositions are valid and never reverted.
+        if new_output == self.raw && self.raw.starts_with("dd") && self.raw.len() > 2 {
+            debug_log::log("abbreviation reverted by auto_correct → keep the đ");
+            new_output = format!("đ{}", &self.raw[2..]);
+            self.output_override = Some(new_output.clone());
+            self.abbrev_fixed = true;
+        }
         // The composition output can never be longer than the raw keystrokes
         // (marks combine characters, they never add). When it is, bamboo's
         // internal state is poisoned by an undone mark — "too" (undone "tô")
@@ -301,7 +323,7 @@ impl BambooWrapper {
                 self.output_override = Some(app);
                 edit = Edit { delete_chars: 0, insert: c.to_string() };
             }
-        } else {
+        } else if !self.abbrev_fixed {
             self.output_override = None;
         }
         // Mark removed while the same base letter comes back unmarked = the

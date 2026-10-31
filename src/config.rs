@@ -62,13 +62,6 @@ pub struct Config {
     pub backspace_interval_ms: u64,
     /// Uinput pacing: idle time after a rewrite before more typing (ms).
     pub post_delay_ms: u64,
-    /// Preedit idle timeout: a word still pending after this many ms without
-    /// a keystroke commits in place, so a later mouse click cannot relocate
-    /// it (open question 14). Off by default: while the word is pending,
-    /// mark-undo and recompose keep working — committing it early would end
-    /// that (ibus-bamboo keeps the word pending indefinitely too; clicks are
-    /// handled by the Reset caret check instead). 0 = off.
-    pub preedit_commit_timeout_ms: u64,
     /// How the Vietnamese word reaches the app in the uinput modes:
     /// `commit` = IBus CommitText, `clipboard` = clipboard paste (Ctrl+V).
     pub unicode_channel: UnicodeChannel,
@@ -403,7 +396,6 @@ impl Default for Config {
             commit_interval_ms: 20,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
-            preedit_commit_timeout_ms: 0,
             unicode_channel: UnicodeChannel::Commit,
             debug_log: false,
             app_rules: default_app_rules(),

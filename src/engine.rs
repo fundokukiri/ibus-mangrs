@@ -183,33 +183,6 @@ pub struct Engine {
     /// inline autocomplete). Its rewrite delete is dropped and repairs crash
     /// mutter, so show the following words as preedit — no delete needed.
     suggestions: bool,
-    /// Preedit idle timeout (ms): a word still pending after this much time
-    /// without a keystroke commits in place, so a later mouse click cannot
-    /// relocate it (open question 14). 0 = off.
-    preedit_timeout_ms: u64,
-    /// When the last keystroke reached the engine — drives the idle timeout.
-    last_key_at: Instant,
-    /// A client `Reset` arrived while a preedit word was pending (GTK fires
-    /// Reset on a click, #14). Holds `(reported cursor, arrival time)`: the
-    /// next surrounding report decides — a moved cursor is a click, and the
-    /// word is dropped; an unchanged cursor commits as before. A report
-    /// within 100 ms is the observed pattern; later ones are too stale.
-    reset_check: Option<(u32, Instant)>,
-    /// A pending word whose composition caret has left (the click above):
-    /// the protocol can no longer write the word to its old position, so it
-    /// is hidden but kept composing. When a surrounding report shows the
-    /// caret back at the word's position (with the text before it unchanged)
-    /// the preedit is restored; typing elsewhere drops the word — nothing
-    /// can deliver it to a position the protocol cannot write to.
-    parked_word: Option<ParkedWord>,
-}
-
-/// Where a parked word waits to come back: the composition-start cursor and
-/// the text before it (so an edit that shifted positions invalidates the
-/// park instead of restoring the word into changed text).
-struct ParkedWord {
-    expected_cursor: u32,
-    text_before: String,
 }
 
 /// `IBUS_CAP_PREEDIT_TEXT` and `IBUS_CAP_SURROUNDING_TEXT` from ibustypes.h.
@@ -275,10 +248,6 @@ impl Engine {
             commit_interval_ms: 20,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
-            preedit_timeout_ms: 0,
-            last_key_at: Instant::now(),
-            reset_check: None,
-            parked_word: None,
             unicode_channel: UnicodeChannel::Commit,
         };
         engine.apply_config(&Config::default());
@@ -330,7 +299,6 @@ impl Engine {
         self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
-        self.preedit_timeout_ms = config.preedit_commit_timeout_ms;
         self.unicode_channel = config.unicode_channel;
         self.bypass_url = config.bypass_url;
         self.url_word = false;
@@ -613,8 +581,6 @@ impl Engine {
         self.repair_delete = None;
         self.delete_dropped = false;
         self.suggestions = false;
-        // A parked word's position belongs to the context that parked it.
-        self.parked_word = None;
     }
 
     /// Deletion through the IBus protocol is only safe when the client has
@@ -701,65 +667,10 @@ impl Engine {
     }
 
     /// Record the client's `SetSurroundingText(text, cursor, anchor)` report.
-    /// Returns actions when the report resolves a deferred client `Reset`
-    /// (the click-mid-preedit detection, see `on_client_reset`).
-    pub fn set_surrounding(&mut self, text: String, cursor: u32) -> Vec<Action> {
+    pub fn set_surrounding(&mut self, text: String, cursor: u32) {
         let cursor = cursor as usize;
         let len = text.chars().count();
-        let pre_click = self.surrounding.clone();
         let old = self.surrounding.replace((text.clone(), cursor as u32));
-        // A parked word (#14): the caret has left the pending composition.
-        // Back at the parked position with the text before it unchanged →
-        // restore the preedit; anywhere else → stay parked, report ignored.
-        if let Some(parked) = &self.parked_word {
-            let text_before: String = text.chars().take(cursor).collect();
-            if cursor == parked.expected_cursor as usize && text_before == parked.text_before {
-                self.parked_word = None;
-                let out = self.wrapper.output();
-                if out.is_empty() {
-                    return self.drop_pending_word();
-                }
-                debug_log::log("caret back at the parked word → restore the preedit");
-                let preedit_cursor = out.chars().count() as u32;
-                self.preedit_visible = true;
-                return vec![Action::UpdatePreedit { text: out, cursor: preedit_cursor }];
-            }
-            return Vec::new();
-        }
-        if let Some((reset_cursor, _)) = self.reset_check.take() {
-            // GTK sends a fresh report right after a click-Reset (measured
-            // ~8 ms later). An unchanged cursor means no click moved the
-            // caret — commit as before; a moved cursor means the pending
-            // word cannot be written to its old position anymore — park it
-            // for the caret's return instead of dropping it.
-            if cursor == reset_cursor as usize {
-                debug_log::log("caret unchanged after client reset → commit pending word");
-                return self.reset();
-            }
-            let (expected_cursor, text_before) = match &pre_click {
-                Some((t, c)) => (*c, t.chars().take(*c as usize).collect::<String>()),
-                None => (0, String::new()),
-            };
-            // A click only moves the caret, so the word's true position is
-            // still reachable: delete the app-text span between the new
-            // caret and that position, then commit the span with the word
-            // appended — the word lands exactly where it was typed. When the
-            // geometry does not check out, park instead.
-            let (t1, c1) = match &pre_click {
-                Some((t, c)) => (t.clone(), *c),
-                None => (String::new(), 0),
-            };
-            match self.click_relocate_word(c1, &t1, &text, cursor as u32) {
-                Some(actions) => {
-                    debug_log::log("click: relocated the pending word to its original position");
-                    return actions;
-                }
-                None => {
-                    debug_log::log("click relocation not possible → park the word");
-                    return self.park_pending_word(expected_cursor, text_before);
-                }
-            }
-        }
         // Inline autocomplete: the app appends suggestion text after the
         // caret without the caret moving past it. Only the transition from
         // "caret at the end" counts — text after the caret is normal when
@@ -775,7 +686,6 @@ impl Engine {
                 }
             }
         }
-        Vec::new()
     }
 
     /// Record a character the application received, updating the
@@ -886,13 +796,6 @@ impl Engine {
 
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
-        self.last_key_at = Instant::now();
-        if self.parked_word.take().is_some() {
-            // Typing somewhere else: the parked word belongs to a position
-            // the protocol can no longer write to — drop it (#14).
-            debug_log::log("typing away from the parked word → drop it");
-            self.drop_pending_word();
-        }
         if self.effective_mode() == Mode::DefaultTyping {
             // Fully inert: the key belongs to the application, nothing is
             // composed, nothing is remembered.
@@ -1429,11 +1332,6 @@ impl Engine {
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
-        self.last_key_at = Instant::now();
-        if self.parked_word.take().is_some() {
-            debug_log::log("backspace away from the parked word → drop it");
-            self.drop_pending_word();
-        }
         let mode = self.effective_mode();
         // Vietnamese processing is off; the app owns the Backspace.
         if mode == Mode::Off || mode == Mode::DefaultTyping {
@@ -1537,8 +1435,6 @@ impl Engine {
     /// Clear the composition and all word state WITHOUT committing anything.
     fn drop_pending_word(&mut self) -> Vec<Action> {
         self.wrapper.reset();
-        self.reset_check = None;
-        self.parked_word = None;
         let actions = self.hide_if_visible();
         self.tail.clear();
         self.repair_delete = None;
@@ -1547,164 +1443,14 @@ impl Engine {
         actions
     }
 
-    /// Click with a pending word: deliver the word to its true position `p`
-    /// (the pre-click cursor) even though the caret now sits at `c2`. The
-    /// app-text span between the caret and `p` is deleted over the protocol
-    /// and re-committed with the word appended, so the word lands exactly
-    /// where it was typed and nothing is lost. mutter's preedit placeholder
-    /// (ZWSP) sits at the caret in the reports and must not distort the
-    /// geometry. Returns None when surgery is not safe — no usable report,
-    /// a client that drops protocol deletes, or a text length that changed
-    /// (the click may only move the caret) — the caller parks the word.
-    fn click_relocate_word(
-        &mut self,
-        p: u32,
-        t1: &str,
-        t2: &str,
-        c2: u32,
-    ) -> Option<Vec<Action>> {
-        if !self.surrounding_data_ok()
-            || self.client_cannot_delete_surrounding()
-            || self.delete_dropped
-        {
-            return None;
-        }
-        let strip_zwsp = |s: &str| s.chars().filter(|&c| c != '\u{200b}').collect::<Vec<char>>();
-        let real1 = strip_zwsp(t1);
-        let real2 = strip_zwsp(t2);
-        if real1.len() != real2.len() || p as usize > real2.len() || c2 as usize > real2.len() {
-            return None;
-        }
-        let (p, c2) = (p as usize, c2 as usize);
-        let (span, offset, n) = if c2 <= p {
-            (real2[c2..p].iter().collect::<String>(), 0i32, (p - c2) as u32)
-        } else {
-            (real2[p..c2].iter().collect::<String>(), -((c2 - p) as i32), (c2 - p) as u32)
-        };
-        // The word text follows the word-end rules: macros win, then
-        // auto-restore, then the composed word (charset-encoded).
-        let word = self.wrapper.output();
-        if word.is_empty() {
-            return None;
-        }
-        let raw = self.wrapper.raw().to_string();
-        let valid = self.wrapper.is_valid();
-        let dict_hit =
-            self.dictionary.as_ref().is_some_and(|d| d.contains(&word.to_lowercase()));
-        let (w, needs_encode) = if let Some(exp) = self.expand_macro(&raw, valid) {
-            (exp, false)
-        } else if self.auto_restore
-            && !valid
-            && word != raw
-            && !dict_hit
-            && !self.wrapper.undo_in_word()
-        {
-            (raw, false)
-        } else {
-            (word, true)
-        };
-        let text = if needs_encode { encode(self.charset, &w) } else { w };
-        let insert = format!("{span}{text}");
-        let mut actions = self.hide_if_visible();
-        if n > 0 {
-            actions.push(Action::DeleteSurrounding { offset, n });
-        }
-        actions.push(Action::Commit(insert.clone()));
-        self.wrapper.reset();
-        self.tail = insert;
-        if let Some(ch) = self.tail.chars().last() {
-            self.note_char(ch);
-        }
-        self.release_word_mode();
-        self.url_word = false;
-        self.repair_delete = None;
-        Some(actions)
-    }
-
-    /// Hide the pending word but keep it composing, waiting for the caret to
-    /// come back to `expected_cursor` (with `text_before` unchanged). The
-    /// wrapper, tail and word-mode lock all stay alive for the restore; the
-    /// word is only lost when the user types somewhere else, which nothing
-    /// can prevent — the protocol cannot write to the old position anymore.
-    fn park_pending_word(&mut self, expected_cursor: u32, text_before: String) -> Vec<Action> {
-        self.parked_word = Some(ParkedWord { expected_cursor, text_before });
-        self.reset_check = None;
-        let actions = self.hide_if_visible();
-        self.repair_delete = None;
-        actions
-    }
-
-    /// The client `Reset` method. GTK fires it when the user clicks in a text
-    /// field, and by then the caret has usually already moved — a commit now
-    /// lands at the click position, gluing the word into whatever is there
-    /// ("xin chào bạn" + click + "trai" pending → "bạntrai", #14). When a
-    /// preedit word is pending, wait for the surrounding report that follows
-    /// the click: a moved cursor drops the word (`set_surrounding`), an
-    /// unchanged cursor commits as before. Everything else resets directly.
+    /// The client `Reset` method. GTK fires it when the user clicks in a
+    /// text field (#14): the caret has already moved and the protocol cannot
+    /// write the word to its old position, so the pending word is dropped —
+    /// exactly what ibus-bamboo, ibus-ngosen and TypeVN do. Internal resets
+    /// (focus loss, config apply, menu actions) keep committing via `reset()`.
     pub fn on_client_reset(&mut self) -> Vec<Action> {
-        if self.parked_word.is_some() {
-            // Already parked: the next surrounding report re-resolves the
-            // caret position; there is nothing to commit or drop yet.
-            debug_log::log("client reset while a word is parked");
-            return Vec::new();
-        }
-        if self.wrapper.has_composition() && self.preedit_visible {
-            if let Some((_, cursor)) = &self.surrounding {
-                self.reset_check = Some((*cursor, Instant::now()));
-                debug_log::log("client reset with pending preedit: deferring to the surrounding report");
-                return Vec::new();
-            }
-        }
-        self.reset()
-    }
-
-    /// Server-loop tick: resolve a stale reset check (no surrounding report
-    /// followed the client Reset — rare) and commit a preedit word that has
-    /// been idle past `preedit_timeout_ms`. The idle commit is the #14 fix:
-    /// a word pending in preedit is what a later click relocates, so it must
-    /// not stay pending. Mirrors the word-end path (macros, auto-restore).
-    pub fn tick(&mut self) -> Vec<Action> {
-        if let Some((_, at)) = self.reset_check {
-            if at.elapsed() < Duration::from_millis(100) {
-                return Vec::new();
-            }
-            debug_log::log("no surrounding report after client reset → commit pending word");
-            self.reset_check = None;
-            return self.reset();
-        }
-        if self.preedit_timeout_ms == 0
-            || !self.preedit_visible
-            || !self.wrapper.has_composition()
-            || self.effective_mode() != Mode::Preedit
-            || self.last_key_at.elapsed() < Duration::from_millis(self.preedit_timeout_ms)
-        {
-            return Vec::new();
-        }
-        let word = self.wrapper.output();
-        let raw = self.wrapper.raw().to_string();
-        let valid = self.wrapper.is_valid();
-        self.wrapper.reset();
-        debug_log::log("preedit idle past timeout → commit in place");
-        self.on_finish(Mode::Preedit, word, raw, valid)
-    }
-
-    /// Milliseconds the main loop should wait before the next `tick` — the
-    /// tightest pending deadline (reset-check fallback or idle commit), or
-    /// None when nothing is pending (loop falls back to its 1 s poll).
-    pub fn ms_until_tick(&self) -> Option<u64> {
-        if let Some((_, at)) = self.reset_check {
-            let left = 100u64.saturating_sub(at.elapsed().as_millis() as u64);
-            return Some(left.max(1));
-        }
-        if self.preedit_timeout_ms == 0
-            || !self.preedit_visible
-            || !self.wrapper.has_composition()
-            || self.effective_mode() != Mode::Preedit
-        {
-            return None;
-        }
-        let elapsed = self.last_key_at.elapsed().as_millis() as u64;
-        Some(self.preedit_timeout_ms.saturating_sub(elapsed).max(1))
+        debug_log::log("client reset → drop the pending word");
+        self.drop_pending_word()
     }
 
     fn hide_if_visible(&mut self) -> Vec<Action> {
@@ -3212,241 +2958,31 @@ mod tests {
         );
     }
 
-    // --- click-mid-preedit (#14): idle commit + click detection ---
+    // --- click-mid-preedit (#14): client Reset drops the pending word ---
 
     #[test]
-    fn idle_timeout_commits_pending_preedit_in_place() {
-        let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        let c = Config { preedit_commit_timeout_ms: 800, ..Config::default() };
-        e.apply_config(&c);
-        type_str(&mut e, "chaof");
-        assert!(e.preedit_visible, "chào still pending in preedit");
-        // Simulate the idle window elapsing.
-        e.last_key_at = Instant::now() - Duration::from_millis(1000);
-        let ticked = e.tick();
-        assert!(ticked.contains(&Action::Commit("chào".into())), "{ticked:?}");
-        assert!(!e.preedit_visible, "preedit must be gone after the idle commit");
-        assert!(!e.wrapper.has_composition());
-    }
-
-    #[test]
-    fn idle_timeout_is_off_by_default_and_does_not_fire_while_typing() {
+    fn client_reset_drops_the_pending_word_like_bamboo() {
         let mut e = Engine::new(Method::Telex, Mode::Preedit);
         type_str(&mut e, "chaof");
-        // Off by default (mark-undo must keep working on an old pending word,
-        // like ibus-bamboo): an idle word stays pending forever.
-        e.last_key_at = Instant::now() - Duration::from_millis(100_000);
-        assert!(e.tick().is_empty(), "default must be off");
         assert!(e.preedit_visible);
-        // Enabled but still inside the window: nothing happens either.
-        let c = Config { preedit_commit_timeout_ms: 800, ..Config::default() };
-        e.apply_config(&c);
-        type_str(&mut e, "chaof");
-        assert!(e.tick().is_empty());
-        assert!(e.preedit_visible);
-    }
-
-    #[test]
-    fn idle_timeout_applies_to_preedit_only() {
-        for (mc, mode) in [(ModeConfig::NonPreedit, Mode::NonPreedit), (ModeConfig::Surrounding, Mode::Surrounding)] {
-            let mut e = Engine::new(Method::Telex, mode);
-            let c = Config {
-                preedit_commit_timeout_ms: 800,
-                mode: mc,
-                ..Config::default()
-            };
-            e.apply_config(&c);
-            type_str(&mut e, "chaof");
-            e.last_key_at = Instant::now() - Duration::from_millis(1000);
-            assert!(e.tick().is_empty(), "{mode:?}: no idle commit outside preedit");
-        }
-    }
-
-    #[test]
-    fn click_parks_the_pending_word_instead_of_dropping_it() {
-        let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        type_str(&mut e, "chaof");
-        // The user clicked: GTK fires Reset; the engine defers the decision.
         let actions = e.on_client_reset();
-        assert!(actions.is_empty(), "defer, do not commit: {actions:?}");
-        // The app's caret report lands elsewhere (measured ~8 ms later).
-        let actions = e.set_surrounding("word".into(), 4);
         assert!(actions.contains(&Action::HidePreedit), "{actions:?}");
         assert!(
-            !actions.iter().any(|a| matches!(a, Action::Commit(_))),
-            "a click must never commit the word at the click position: {actions:?}"
+            !actions.iter().any(|a| matches!(a, Action::Commit(_) | Action::DeleteSurrounding { .. })),
+            "a click must not commit, delete or relocate anything: {actions:?}"
         );
-        assert!(!e.preedit_visible);
-        // The word stays parked, not dropped: the caret may come back.
-        assert!(e.parked_word.is_some(), "{actions:?}");
-        assert!(e.wrapper.has_composition());
+        assert!(!e.preedit_visible && !e.wrapper.has_composition());
     }
 
     #[test]
-    fn caret_back_at_the_parked_word_restores_the_preedit() {
+    fn client_reset_without_a_pending_word_is_clean() {
         let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        type_str(&mut e, "chaof");
-        assert!(e.on_client_reset().is_empty());
-        assert!(e.set_surrounding("word".into(), 4).contains(&Action::HidePreedit));
-        // The user clicks back: same cursor, same text before it.
-        let actions = e.set_surrounding(String::new(), 0);
-        assert!(
-            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "chào")),
-            "{actions:?}"
-        );
-        assert!(e.preedit_visible && e.parked_word.is_none());
-        // Composition continues exactly where it stopped: mark-undo works.
-        let actions = e.backspace().unwrap_or_default();
-        assert!(
-            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "chao")),
-            "{actions:?}"
-        );
-    }
-
-    #[test]
-    fn changed_text_before_the_parked_word_blocks_the_restore() {
-        let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        type_str(&mut e, "chaof");
-        assert!(e.on_client_reset().is_empty());
-        assert!(e.set_surrounding("word".into(), 4).contains(&Action::HidePreedit));
-        // The user edited the text while away: same cursor value, different
-        // prefix — restoring would put the word into changed text.
-        let actions = e.set_surrounding("woxd".into(), 4);
+        type_str(&mut e, "xin ");
+        let actions = e.on_client_reset();
         assert!(actions.is_empty(), "{actions:?}");
-        assert!(e.parked_word.is_some(), "stays parked");
-    }
-
-    #[test]
-    fn click_relocates_the_pending_word_to_its_original_position() {
-        let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        e.set_client(Some("gtk4-im:test".into()));
-        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-        for c in "chaof".chars() {
-            e.process_char(c);
-        }
-        // Pre-click report: app text "xin chào ", the word belongs at 9.
-        e.set_surrounding("xin chào ".into(), 9);
-        assert!(e.on_client_reset().is_empty());
-        // Click into the middle of the existing word: same text, caret at 4.
-        let actions = e.set_surrounding("xin chào ".into(), 4);
-        assert!(actions.contains(&Action::HidePreedit), "{actions:?}");
-        assert!(
-            actions.contains(&Action::DeleteSurrounding { offset: 0, n: 5 }),
-            "{actions:?}"
-        );
-        assert!(actions.contains(&Action::Commit("chào chào".into())), "{actions:?}");
-        assert!(
-            !actions.iter().any(|a| matches!(a, Action::UpdatePreedit { .. })),
-            "{actions:?}"
-        );
-        assert!(!e.preedit_visible && e.parked_word.is_none());
-        assert_eq!(e.tail(), "chào chào", "the engine knows what it delivered");
-    }
-
-    #[test]
-    fn click_after_the_word_uses_a_negative_delete_offset() {
-        let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        e.set_client(Some("gtk4-im:test".into()));
-        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-        for c in "chaof".chars() {
-            e.process_char(c);
-        }
-        // Word belongs at 9 (after "xin chào "); the click lands at 12.
-        e.set_surrounding("xin chào anh".into(), 9);
-        assert!(e.on_client_reset().is_empty());
-        let actions = e.set_surrounding("xin chào anh".into(), 12);
-        assert!(
-            actions.contains(&Action::DeleteSurrounding { offset: -3, n: 3 }),
-            "{actions:?}"
-        );
-        assert!(actions.contains(&Action::Commit("anhchào".into())), "{actions:?}");
-    }
-
-    #[test]
-    fn changed_text_between_the_reports_falls_back_to_parking() {
-        let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        e.set_client(Some("gtk4-im:test".into()));
-        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-        for c in "chaof".chars() {
-            e.process_char(c);
-        }
-        e.set_surrounding("xin chào ".into(), 9);
-        assert!(e.on_client_reset().is_empty());
-        // A click only moves the caret; a different text length means the
-        // app changed the text meanwhile — the geometry is unreliable.
-        let actions = e.set_surrounding("xin chào các".into(), 12);
-        assert!(actions.contains(&Action::HidePreedit), "{actions:?}");
-        assert!(
-            !actions.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })),
-            "{actions:?}"
-        );
-        assert!(e.parked_word.is_some(), "parked, not relocated");
-        assert!(e.wrapper.has_composition());
-    }
-
-    #[test]
-    fn delete_dropping_clients_park_instead_of_relocating() {
-        let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        e.set_client(Some("gtk4-im:chrome".into()));
-        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-        for c in "chaof".chars() {
-            e.process_char(c);
-        }
-        e.set_surrounding("xin chào ".into(), 9);
-        assert!(e.on_client_reset().is_empty());
-        let actions = e.set_surrounding("xin chào ".into(), 4);
-        assert!(
-            !actions.iter().any(|a| matches!(a, Action::DeleteSurrounding { .. })),
-            "chrome drops protocol deletes — surgery would duplicate the span: {actions:?}"
-        );
-        assert!(e.parked_word.is_some());
-    }
-
-    #[test]
-    fn typing_away_drops_the_parked_word() {
-        let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        type_str(&mut e, "chaof");
-        assert!(e.on_client_reset().is_empty());
-        assert!(e.set_surrounding("word".into(), 4).contains(&Action::HidePreedit));
-        // The user commits to the new location by typing there.
-        let actions = e.process_char('x');
-        assert!(
-            !actions.iter().any(|a| matches!(a, Action::Commit(_))),
-            "the parked word must not surface at the new location: {actions:?}"
-        );
-        assert!(e.parked_word.is_none());
-        assert_eq!(e.wrapper.output(), "x", "dropped before the new key");
-        assert!(
-            actions.iter().any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "x")),
-            "typing continues fresh at the new location: {actions:?}"
-        );
-    }
-
-    #[test]
-    fn reset_without_a_caret_move_commits_as_before() {
-        let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        type_str(&mut e, "chaof");
-        let actions = e.on_client_reset();
-        assert!(actions.is_empty());
-        // App reports the same cursor (no click): the word commits normally.
-        let actions = e.set_surrounding(String::new(), 0);
-        assert!(actions.contains(&Action::Commit("chào".into())), "{actions:?}");
         assert!(!e.preedit_visible);
-    }
-
-    #[test]
-    fn stale_reset_check_falls_back_to_commit() {
-        let mut e = Engine::new(Method::Telex, Mode::Preedit);
-        type_str(&mut e, "chaof");
-        assert!(e.on_client_reset().is_empty());
-        // No surrounding report followed within the decision window.
-        e.reset_check = Some((0, Instant::now() - Duration::from_millis(150)));
-        let actions = e.tick();
-        assert!(actions.contains(&Action::Commit("chào".into())), "{actions:?}");
-        assert!(e.reset_check.is_none());
     }
 }
-
 #[cfg(test)]
 mod digit_debug {
     use super::*;
