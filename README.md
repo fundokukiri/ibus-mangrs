@@ -27,6 +27,11 @@ a custom dictionary and per-app rules.
   auto-restore of non-Vietnamese words, raw-key bypass after URL/email/path characters
   (`/ : @ . _ ~ = # & % ?`), `w` → `ư`, `[`/`]` → `ơ`/`ư`, `--` → `—`, auto-capitalize,
   double space → period.
+- **Pending-word behavior on mouse clicks and idle** (three actions, selectable in the
+  panel): Bamboo (default — a word left idle for 800 ms commits in place and a late tone
+  key still applies the mark: `tung` + wait + `f` → `tùng`), Keep word (a click hides it,
+  clicking back restores it) and Relocate (the word is always delivered to the position
+  where it was typed). Vietnamese abbreviations stay intact (`ddc` → `đc`, `ddk` → `đk`).
 - **Macros** with `$TIME` / `$DATE` expansion and smart capitalization; shorthand keys that are
   valid Vietnamese words never expand while you are typing that word normally.
 - **Custom dictionary**: words that must never be auto-restored.
