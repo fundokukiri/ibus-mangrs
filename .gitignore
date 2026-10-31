@@ -47,6 +47,12 @@ __pycache__/
 
 # packaging build artifacts (local)
 /dist/
+
+# Internal audit reports — not pushed to public repo
+/audit/
+
+# Git submodule metadata — not pushed to public repo
+/.gitmodules
 /packaging/arch/src/
 /packaging/arch/pkg/
 /packaging/arch/*.tar.gz
