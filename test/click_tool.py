@@ -187,7 +187,7 @@ def main():
     print(
         "Click-mid-preedit test (#14): type a pending word, click into the field,\n"
         "verify the word lands where it was typed.\n"
-        f"  keys:    {tt.PREFIX_KEYS!r} + {tt.WORD_KEYS!r} (pending {tt.WORD!r})\n"
+        f"  keys:    {PREFIX_KEYS!r} + {WORD_KEYS!r} (pending {WORD!r})\n"
         "  click:   " + " -> ".join(positions) + "\n"
         "  expect:  word at its typed position after the click, sentence intact\n"
         "Focus the target input field NOW (Ctrl+C cancels)."
@@ -207,7 +207,7 @@ def main():
                 time.sleep(1.5)
                 for where in positions:
                     print(f"--- mode {mode}, click at {where}")
-                    type_keys(kfd, tt.PREFIX_KEYS + tt.WORD_KEYS, args.interval)
+                    type_keys(kfd, PREFIX_KEYS + WORD_KEYS, args.interval)
                     time.sleep(0.4)
                     obj = read_focused_object()
                     if obj is None:
@@ -222,12 +222,12 @@ def main():
                     click_at(pfd, x, y, *size)
                     time.sleep(1.2)  # engine resolves the click (~8 ms) + settle
                     after_click = iface.get_text(0, iface.get_character_count())
-                    word_there = after_click.endswith(tt.PREFIX_KEYS.replace("chaof", WORD) + tt.WORD)
+                    word_there = after_click.endswith(PREFIX_KEYS.replace("chaof", WORD) + WORD)
                     print(f"  after click: word at typed position: {'YES' if word_there else 'NO'}")
-                    type_keys(kfd, tt.SETTLING, args.interval)
+                    type_keys(kfd, SETTLING, args.interval)
                     time.sleep(0.5)
                     final = iface.get_text(0, iface.get_character_count())
-                    wanted = tt.PREFIX_KEYS.replace("chaof", WORD) + tt.WORD + tt.SETTLING
+                    wanted = PREFIX_KEYS.replace("chaof", WORD) + WORD + SETTLING
                     if final.endswith(wanted):
                         print("  verify: PASS (word delivered to its typed position)")
                     else:
