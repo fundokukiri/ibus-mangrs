@@ -50,18 +50,29 @@ fn read_clipboard() -> Option<String> {
     } else {
         Command::new("wl-paste")
     };
-    let output =
-        cmd.stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    let output = cmd
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn write_clipboard(text: &str) -> bool {
-    let Some((binary, is_x11)) = session_tool() else { return false };
+    let Some((binary, is_x11)) = session_tool() else {
+        return false;
+    };
     let mut command = Command::new(binary);
     if is_x11 {
         command.args(["-selection", "clipboard"]);
     }
-    command.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     let mut child = match command.spawn() {
         Ok(c) => c,
         Err(_) => return false,
@@ -74,28 +85,42 @@ fn write_clipboard(text: &str) -> bool {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// The burst snapshot, poison-tolerant: a panic elsewhere must not turn the
+/// next paste into an engine crash on the key path.
+fn burst_state() -> std::sync::MutexGuard<'static, Option<String>> {
+    ORIGINAL.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Put `text` on the clipboard (saving the user's content once per burst),
 /// then call `ctrl_v` to paste it. The clipboard is restored in the
-/// background after the debounce window. False when no clipboard tool exists
-/// or the write failed — the server then falls back to CommitText.
+/// background after the debounce window. False when the write failed — the
+/// server then falls back to CommitText.
 pub fn paste_and_restore(text: &str, ctrl_v: &dyn Fn() -> bool) -> bool {
-    if tool().is_none() {
-        return false;
-    }
+    paste_with(text, ctrl_v, &write_clipboard)
+}
+
+/// `write` is a seam for the tests: the real clipboard is the session's.
+fn paste_with(text: &str, ctrl_v: &dyn Fn() -> bool, write: &dyn Fn(&str) -> bool) -> bool {
     // Snapshot the user's clipboard once per burst (before our first write).
     {
-        let mut original = ORIGINAL.lock().unwrap();
+        let mut original = burst_state();
         if original.is_none() {
             *original = read_clipboard();
         }
     }
-    if !write_clipboard(text) {
+    if !write(text) {
         return false;
     }
     if !ctrl_v() {
+        // The word never reached the app, but the user's clipboard did get
+        // replaced: restore it anyway.
+        schedule_restore();
         return false;
     }
     schedule_restore();
@@ -120,7 +145,7 @@ fn schedule_restore() {
 }
 
 fn restore_now() {
-    let original = ORIGINAL.lock().unwrap().take();
+    let original = burst_state().take();
     if let Some(text) = original {
         write_clipboard(&text);
     }
@@ -129,7 +154,7 @@ fn restore_now() {
 /// For tests: pretend the app read the clipboard and reset the burst state.
 #[cfg(test)]
 pub fn reset_for_tests() {
-    ORIGINAL.lock().unwrap().take();
+    burst_state().take();
     RESTORE_AT.store(0, Ordering::SeqCst);
 }
 
@@ -145,6 +170,8 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
 
+    // One test: both scenarios share the process-wide burst state, so two
+    // tests running in parallel reset each other's pending deadline.
     #[test]
     fn paste_schedules_a_debounced_restore() {
         reset_for_tests();
@@ -159,9 +186,27 @@ mod tests {
         if ok {
             assert!(pending_restore_ms() > 0, "restore must be scheduled");
         } else {
-            assert_eq!(pending_restore_ms(), 0, "failed paste must not schedule a restore");
-            assert_eq!(CALLS.load(Ordering::SeqCst), 0, "no ctrl+v without a clipboard");
+            assert_eq!(
+                pending_restore_ms(),
+                0,
+                "failed paste must not schedule a restore"
+            );
+            assert_eq!(
+                CALLS.load(Ordering::SeqCst),
+                0,
+                "no ctrl+v without a clipboard"
+            );
         }
+        reset_for_tests();
+
+        // The write landed, so the user's clipboard is already replaced; the
+        // paste never happened, but the restore still has to run.
+        let ok = paste_with("việt", &|| false, &|_| true);
+        assert!(!ok, "a failed paste reports failure");
+        assert!(
+            pending_restore_ms() > 0,
+            "the user's clipboard must still be restored"
+        );
         reset_for_tests();
     }
 }

@@ -42,8 +42,18 @@ pub const FACTORY_IFACE: &str = "org.freedesktop.IBus.Factory";
 /// main thread reads it when the GUI changes settings.
 pub type SharedEngine = Arc<Mutex<Engine>>;
 
+/// Lock the engine, recovering a poisoned mutex instead of dying: a panic
+/// while holding the lock must degrade one keystroke, not kill typing
+/// desktop-wide until IBus restarts.
+fn lock_engine(engine: &SharedEngine) -> std::sync::MutexGuard<'_, Engine> {
+    engine
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 pub struct Server {
     conn: Connection,
+    engine: SharedEngine,
 }
 
 impl Server {
@@ -65,12 +75,16 @@ impl Server {
         // path with UnknownMethod before the filter returns, so the reply must
         // be sent and the message claimed (return `true`) inside the filter.
         let mut handler = EngineHandler {
-            engine,
+            engine: Arc::clone(&engine),
             last_config_check: Instant::now(),
             last_config_mtime: None,
+            cycle_hotkey: None,
         };
-        handler.last_config_mtime = Config::path().and_then(|p| std::fs::metadata(&p).ok())
+        handler.last_config_mtime = Config::path()
+            .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
+        let initial = Config::load();
+        handler.refresh_hotkey_cache(&initial);
         conn.replace_message_callback(Some(Box::new(move |conn, msg| {
             if msg.msg_type() != MessageType::MethodCall {
                 return false;
@@ -81,16 +95,37 @@ impl Server {
             }
         })));
 
-        Ok(Self { conn })
+        Ok(Self { conn, engine })
     }
 
     /// Run the main loop until the bus goes away.
     pub fn run(&self) {
-        // The filter callback does all the work; this only keeps libdbus
-        // reading from the socket.
-        for item in self.conn.iter(1000) {
-            if matches!(item, dbus::ffidisp::ConnectionItem::Nothing) {
-                continue;
+        loop {
+            // Wake at the next engine deadline (the preedit idle commit)
+            // instead of sleeping a fixed second past it.
+            let timeout = self
+                .engine
+                .lock()
+                .ok()
+                .and_then(|e| e.ms_until_tick())
+                .map_or(1000, |ms| ms.min(1000)) as i32;
+            for item in self.conn.iter(timeout) {
+                if matches!(item, dbus::ffidisp::ConnectionItem::Nothing) {
+                    break;
+                }
+            }
+            let out = match self.engine.lock() {
+                Ok(mut e) => {
+                    let actions = e.tick();
+                    let mut out = Vec::new();
+                    let injected = emit(&mut e, &actions, &mut out);
+                    e.add_injected(injected);
+                    out
+                }
+                Err(_) => Vec::new(),
+            };
+            for msg in out {
+                send(&self.conn, msg);
             }
         }
     }
@@ -111,16 +146,36 @@ fn ibus_address() -> Result<String, Box<dyn std::error::Error>> {
         .ok_or("no config dir")?
         .join("ibus")
         .join("bus");
-    for entry in std::fs::read_dir(&dir)? {
-        let path = entry?.path();
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        for line in text.lines() {
-            if let Some(addr) = line.strip_prefix("IBUS_ADDRESS=") {
-                return Ok(addr.trim().to_string());
-            }
+    address_from_dir(&dir).ok_or_else(|| {
+        "IBUS_ADDRESS not set and no registry file found; is ibus-daemon running?".into()
+    })
+}
+
+/// The address from the newest registry file. A machine with several (display
+/// change, X11 vs Wayland, a stale file from a previous session) must reach
+/// the running daemon, which rewrites its file on every start; `read_dir`
+/// order is arbitrary, so mtime is the only signal available.
+fn address_from_dir(dir: &std::path::Path) -> Option<String> {
+    let mut newest: Option<(SystemTime, String)> = None;
+    for entry in std::fs::read_dir(dir).ok()? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some(addr) = text.lines().find_map(|l| l.strip_prefix("IBUS_ADDRESS=")) else {
+            continue;
+        };
+        let at = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        if newest.as_ref().is_none_or(|(t, _)| at > *t) {
+            newest = Some((at, addr.trim().to_string()));
         }
     }
-    Err("IBUS_ADDRESS not set and no registry file found; is ibus-daemon running?".into())
+    newest.map(|(_, addr)| addr)
 }
 
 struct EngineHandler {
@@ -129,6 +184,10 @@ struct EngineHandler {
     /// events, so GUI/menu edits apply without a focus change or restart.
     last_config_check: Instant,
     last_config_mtime: Option<SystemTime>,
+    /// Parsed cycle-mode hotkey, refreshed wherever the config is already
+    /// loaded (startup, mtime reload, focus-in). Loading the config file on
+    /// every key event just to compare a hotkey put disk I/O on the key path.
+    cycle_hotkey: Option<(u32, u32)>,
 }
 
 impl EngineHandler {
@@ -144,7 +203,11 @@ impl EngineHandler {
                 // is only one engine implementation, so it is ignored.
                 // The return type is `o` (object path), not `s`: ibus-daemon
                 // fails to parse a string here and the engine never starts.
-                send(conn, msg.method_return().append1(dbus::Path::new(ENGINE_PATH).unwrap()));
+                send(
+                    conn,
+                    msg.method_return()
+                        .append1(dbus::Path::new(ENGINE_PATH).unwrap()),
+                );
             }
             (ENGINE_IFACE, m) => {
                 let mut out: Vec<Message> = Vec::new();
@@ -168,11 +231,15 @@ impl EngineHandler {
             ("org.freedesktop.DBus.Properties", "Get") => {
                 let reply = match msg.read2::<String, String>() {
                     Ok((_, prop)) => match prop.as_str() {
-                        "FocusId" => msg.method_return().append1(dbus::arg::Variant(Box::new(true))),
-                        "ActiveSurroundingText" => {
-                            msg.method_return().append1(dbus::arg::Variant(Box::new(false)))
-                        }
-                        _ => msg.method_return().append1(dbus::arg::Variant(Box::new(0u32))),
+                        "FocusId" => msg
+                            .method_return()
+                            .append1(dbus::arg::Variant(Box::new(true))),
+                        "ActiveSurroundingText" => msg
+                            .method_return()
+                            .append1(dbus::arg::Variant(Box::new(false))),
+                        _ => msg
+                            .method_return()
+                            .append1(dbus::arg::Variant(Box::new(0u32))),
                     },
                     Err(_) => msg.method_return(),
                 };
@@ -196,7 +263,7 @@ impl EngineHandler {
             return self.process_key_call(msg, out);
         }
 
-        let mut engine = self.engine.lock().unwrap();
+        let mut engine = lock_engine(&self.engine);
 
         match member {
             "PropertyActivate" => {
@@ -211,7 +278,7 @@ impl EngineHandler {
             // report of the text before the cursor, used by the surrounding
             // display mode to verify what was actually committed.
             "SetSurroundingText" => {
-                if let Ok((text, cursor, _anchor)) =
+                if let Ok((text, cursor, anchor)) =
                     msg.read3::<dbus::arg::Variant<Box<dyn dbus::arg::RefArg>>, u32, u32>()
                 {
                     if let Some(s) = text_from_variant(&text) {
@@ -220,7 +287,10 @@ impl EngineHandler {
                             brief(engine.tail()),
                             brief(&s),
                         ));
-                        engine.set_surrounding(s, cursor);
+                        // The report can resolve a deferred click-Reset
+                        // (park mode): the resulting HidePreedit must go out.
+                        let actions = engine.set_surrounding_with_anchor(s, cursor, anchor);
+                        emit(&mut engine, &actions, out);
                     }
                 }
                 msg.method_return()
@@ -242,6 +312,11 @@ impl EngineHandler {
                 // Pick up settings changed in the GUI since the last focus.
                 let config = Config::load();
                 debug_log::set_enabled(config.debug_log);
+                // Direct field assignment: the engine guard held by this
+                // branch borrows part of self, so the &mut self helper
+                // cannot be called here.
+                self.cycle_hotkey =
+                    parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
                 debug_log::log(&format!("focus-in client={:?}", engine.client()));
                 let actions = engine.apply_config(&config);
                 engine.set_enabled(config.enabled);
@@ -253,10 +328,7 @@ impl EngineHandler {
                 // Without this the GTK IM modules never send
                 // SetSurroundingText, so the surrounding display mode would
                 // run blind (this is how ibus-bamboo gets its data too).
-                out.push(
-                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "RequireSurroundingText")
-                        .expect("valid signal"),
-                );
+                out.push(signal("RequireSurroundingText"));
                 msg.method_return()
             }
             "FocusOut" | "Disable" | "FocusOutId" => {
@@ -264,13 +336,13 @@ impl EngineHandler {
                 // not follow a focus change, so deliver them now (late but not
                 // never).
                 for text in engine.flush_deferred() {
-                    out.push(
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                            .expect("valid signal")
-                            .append1(plain_text(&text)),
-                    );
+                    out.push(signal("CommitText").append1(plain_text(&text)));
                 }
-                let actions = engine.reset();
+                // The preedit carries IBUS_ENGINE_PREEDIT_COMMIT, so GTK has
+                // already committed the pending word on the way out;
+                // committing it again here would duplicate it — only the
+                // internal composition is discarded.
+                let actions = engine.drop_pending_word();
                 emit(&mut engine, &actions, out);
                 engine.set_enabled(false);
                 engine.set_client(None);
@@ -286,14 +358,15 @@ impl EngineHandler {
                 msg.method_return()
             }
             "Reset" => {
+                // The preedit is sent with IBUS_ENGINE_PREEDIT_COMMIT, so the
+                // client has already committed the word by the time this
+                // arrives (GTK sends it on a mouse click, a focus change and a
+                // button press).
+                debug_log::log("reset from client");
                 for text in engine.flush_deferred() {
-                    out.push(
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                            .expect("valid signal")
-                            .append1(plain_text(&text)),
-                    );
+                    out.push(signal("CommitText").append1(plain_text(&text)));
                 }
-                let actions = engine.reset();
+                let actions = engine.on_client_reset();
                 let injected = emit(&mut engine, &actions, out);
                 engine.add_injected(injected);
                 msg.method_return()
@@ -330,7 +403,7 @@ impl EngineHandler {
             return msg.method_return().append1(true);
         }
 
-        let mut engine = self.engine.lock().unwrap();
+        let mut engine = lock_engine(&self.engine);
         let consumed = process_key(&mut engine, keyval, state, out);
         msg.method_return().append1(consumed)
     }
@@ -339,14 +412,10 @@ impl EngineHandler {
     /// with the configured modifiers matches `cycle_mode_hotkey`.
     /// Returns whether the key was consumed.
     fn try_cycle_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
-        let config = Config::load();
-        if config.cycle_mode_hotkey.is_empty() {
-            return false;
-        }
-        let Some((mods, expected)) = parse_hotkey(&config.cycle_mode_hotkey) else {
+        let Some((mods, expected)) = self.cycle_hotkey else {
             return false;
         };
-        if mods == 0 || keyval != expected || state & mods != mods {
+        if keyval != expected || state & mods != mods {
             return false;
         }
 
@@ -365,15 +434,21 @@ impl EngineHandler {
             return true; // consumed anyway; do not type with a hotkey press
         }
         {
-            let mut engine = self.engine.lock().unwrap();
+            let mut engine = lock_engine(&self.engine);
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
             emit(&mut engine, &actions, out);
         }
-        self.last_config_mtime = Config::path().and_then(|p| std::fs::metadata(&p).ok())
+        self.last_config_mtime = Config::path()
+            .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
         register_properties(&config, out);
         true
+    }
+
+    /// Re-parse the cycle hotkey from an already-loaded config.
+    fn refresh_hotkey_cache(&mut self, config: &Config) {
+        self.cycle_hotkey = parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
     }
 
     /// Re-apply the config if the file changed since the last check.
@@ -382,13 +457,15 @@ impl EngineHandler {
             return;
         }
         self.last_config_check = Instant::now();
-        let mtime = Config::path().and_then(|p| std::fs::metadata(&p).ok())
+        let mtime = Config::path()
+            .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
         if mtime.is_some() && mtime != self.last_config_mtime {
             self.last_config_mtime = mtime;
             let config = Config::load();
             debug_log::set_enabled(config.debug_log);
-            let mut engine = self.engine.lock().unwrap();
+            self.refresh_hotkey_cache(&config);
+            let mut engine = lock_engine(&self.engine);
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
             emit(&mut engine, &actions, out);
@@ -410,8 +487,13 @@ fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
             "super" | "meta" => mods |= keymap::MOD4_MASK,
             "shift" => mods |= keymap::SHIFT_MASK,
             "space" => key = Some(0x20),
-            f if f.len() == 2 && f.starts_with('f') && f[1..].chars().all(|c| c.is_ascii_digit())
-                && f[1..].parse::<u8>().map(|n| (1..=12).contains(&n)).unwrap_or(false) =>
+            f if f.len() == 2
+                && f.starts_with('f')
+                && f[1..].chars().all(|c| c.is_ascii_digit())
+                && f[1..]
+                    .parse::<u8>()
+                    .map(|n| (1..=12).contains(&n))
+                    .unwrap_or(false) =>
             {
                 let n: u8 = f[1..].parse().unwrap();
                 key = Some(0xffbe + (n as u32 - 1));
@@ -419,7 +501,11 @@ fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
             s if s.chars().count() == 1 => {
                 let c = s.chars().next().unwrap();
                 let lower = c.to_ascii_lowercase();
-                key = Some(if lower.is_ascii_graphic() { lower as u32 } else { return None });
+                key = Some(if lower.is_ascii_graphic() {
+                    lower as u32
+                } else {
+                    return None;
+                });
             }
             _ => return None,
         }
@@ -437,11 +523,7 @@ fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
 /// panel (GNOME Shell's input-source popup).
 fn register_properties(config: &Config, out: &mut Vec<Message>) {
     let props = ibus_prop::properties(config);
-    out.push(
-        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "RegisterProperties")
-            .expect("valid signal")
-            .append1(ibus_prop::prop_list_variant(&props)),
-    );
+    out.push(signal("RegisterProperties").append1(ibus_prop::prop_list_variant(&props)));
 }
 
 /// Handle a panel click. The daemon sends `PropertyActivate(s name, u state)`.
@@ -497,19 +579,14 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
     // Toggles carry their new state directly.
     let checked = state == ibus_prop::STATE_CHECKED;
     let mut config = Config::load();
+    // Only the toggles the panel actually shows: the popup is deliberately
+    // kept short (see `ibus_prop::properties`), the rest live in the GUI.
     match name {
-        ibus_prop::KEY_SPELL_CHECK => config.auto_correct = checked,
         ibus_prop::KEY_ENABLED => config.enabled = checked,
         ibus_prop::KEY_MACROS => config.macro_enabled = checked,
-        ibus_prop::KEY_MACRO_OFF => config.macro_in_off_mode = checked,
         ibus_prop::KEY_AUTO_CAPITALIZE => config.auto_capitalize = checked,
-        ibus_prop::KEY_DICTIONARY => config.dictionary_enabled = checked,
-        ibus_prop::KEY_FREE_TONE => config.free_tone_marking = checked,
-        ibus_prop::KEY_MODERN_TONE => config.modern_tone_style = checked,
-        ibus_prop::KEY_HIDE_UNDERLINE => config.hide_underline = checked,
+        ibus_prop::KEY_ABBREV => config.abbreviations = checked,
         ibus_prop::KEY_AUTO_RESTORE => config.auto_restore = checked,
-        ibus_prop::KEY_EM_DASH => config.em_dash = checked,
-        ibus_prop::KEY_DOUBLE_SPACE => config.double_space_period = checked,
         ibus_prop::KEY_MACRO_EDITOR => {
             open_settings("macros");
             return;
@@ -541,16 +618,14 @@ fn update_group(props: &[Prop], group: &str, out: &mut Vec<Message>) {
 }
 
 fn push_update(prop: &Prop, out: &mut Vec<Message>) {
-    out.push(
-        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "UpdateProperty")
-            .expect("valid signal")
-            .append1(prop.variant()),
-    );
+    out.push(signal("UpdateProperty").append1(prop.variant()));
 }
 
 /// The "Phím tắt" item opens the GTK4 settings window, same as `-gui`.
 fn open_settings(page: &str) {
-    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
     let _ = std::process::Command::new(exe)
         .arg("-gui")
         .arg(format!("--page={page}"))
@@ -585,21 +660,13 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         // it is our own injection and must reach the application untouched.
         if let Some(commits) = engine.take_nav_echo(keymap::V) {
             for text in commits {
-                out.push(
-                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                        .expect("valid signal")
-                        .append1(plain_text(&text)),
-                );
+                out.push(signal("CommitText").append1(plain_text(&text)));
             }
             return false;
         }
-        if engine.take_stale_injection(Duration::from_millis(150)) || !engine.pending_echoes() {
+        if engine.take_stale_injection(Engine::ECHO_STALE) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
-                out.push(
-                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                        .expect("valid signal")
-                        .append1(plain_text(&text)),
-                );
+                out.push(signal("CommitText").append1(plain_text(&text)));
             }
         }
         let actions = engine.reset();
@@ -611,13 +678,9 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     if keyval == keymap::BACKSPACE {
         // Echoes that never came back (injection lost) must not eat this real
         // Backspace.
-        if engine.take_stale_injection(Duration::from_millis(150)) {
+        if engine.take_stale_injection(Engine::ECHO_STALE) {
             for text in engine.flush_deferred() {
-                out.push(
-                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                        .expect("valid signal")
-                        .append1(plain_text(&text)),
-                );
+                out.push(signal("CommitText").append1(plain_text(&text)));
             }
         }
         // An echo of a Backspace we injected ourselves: pass it to the
@@ -625,11 +688,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         // last echo of a rewrite is forwarded, its deferred commit can go.
         if engine.take_injected_echo() {
             for text in engine.note_echo_forwarded() {
-                out.push(
-                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                        .expect("valid signal")
-                        .append1(plain_text(&text)),
-                );
+                out.push(signal("CommitText").append1(plain_text(&text)));
             }
             return false;
         }
@@ -647,13 +706,9 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     // echoes are all in, or whose echoes have gone stale (apps that receive
     // injected keys without routing them through ibus would otherwise eat
     // every later Backspace and never see the commit).
-    if engine.take_stale_injection(Duration::from_millis(150)) || !engine.pending_echoes() {
+    if engine.take_stale_injection(Engine::ECHO_STALE) || !engine.pending_echoes() {
         for text in engine.flush_deferred() {
-            out.push(
-                Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                    .expect("valid signal")
-                    .append1(plain_text(&text)),
-            );
+            out.push(signal("CommitText").append1(plain_text(&text)));
         }
     }
 
@@ -663,21 +718,13 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         // Delete): forward them so the selection/erase actually happens.
         if let Some(commits) = engine.take_nav_echo(keyval) {
             for text in commits {
-                out.push(
-                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                        .expect("valid signal")
-                        .append1(plain_text(&text)),
-                );
+                out.push(signal("CommitText").append1(plain_text(&text)));
             }
             return false;
         }
-        if engine.take_stale_injection(Duration::from_millis(150)) || !engine.pending_echoes() {
+        if engine.take_stale_injection(Engine::ECHO_STALE) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
-                out.push(
-                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                        .expect("valid signal")
-                        .append1(plain_text(&text)),
-                );
+                out.push(signal("CommitText").append1(plain_text(&text)));
             }
         }
         // A preedit commit and the forwarded navigation key travel different
@@ -693,13 +740,17 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         let injected = emit(engine, &actions, out);
         engine.add_injected(injected);
         if swallow {
-            debug_log::log("navigation key consumed: preedit commit must land before the caret moves");
+            debug_log::log(
+                "navigation key consumed: preedit commit must land before the caret moves",
+            );
             return true;
         }
         return false;
     }
 
-    let Some(c) = keymap::keysym_to_char(keyval) else { return false };
+    let Some(c) = keymap::keysym_to_char(keyval) else {
+        return false;
+    };
     let actions = engine.process_char(c);
     let consumed = !actions.contains(&Action::Forward);
     let injected = emit(engine, &actions, out);
@@ -759,33 +810,20 @@ fn emit_with(
     let mut injected_since_commit = 0u32;
     let mut injected_total = 0u32;
     let mut nav_since_commit = 0usize;
+    // Set when a rewrite delete could not be delivered to a client proven
+    // to swallow deletes: the paired commit must be suppressed too, or the
+    // replacement lands on top of the raw keys and duplicates the word.
+    let mut delete_failed = false;
     for action in actions {
         match action {
-            Action::Commit(text) => {
-                if nav_since_commit > 0 {
-                    // The same transport race as the Backspace deferral below:
-                    // a commit right after injected selection keys can land
-                    // before the app erased the selection.
-                    engine.defer_nav_commit(nav_since_commit, text.clone());
-                    nav_since_commit = 0;
-                } else if injected_since_commit > 0 {
-                    // The injected Backspaces travel through the compositor
-                    // while this commit would go straight over D-Bus — a
-                    // synchronous commit here can land BEFORE the deletions
-                    // and the echoing Backspace then deletes the freshly
-                    // committed word ("the accent flashes and reverts").
-                    // Defer: the server flushes the commit once the last
-                    // Backspace echo has been forwarded to the client.
-                    engine.defer_commit(injected_since_commit, text.clone());
-                    injected_since_commit = 0;
-                } else {
-                    out.push(
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                            .expect("valid signal")
-                            .append1(plain_text(text)),
-                    );
-                }
-            }
+            Action::Commit(text) => push_commit(
+                engine,
+                out,
+                text.clone(),
+                &mut delete_failed,
+                &mut nav_since_commit,
+                &mut injected_since_commit,
+            ),
             Action::DeleteBefore(n) if inject => {
                 // No usable protocol delete here; press real Backspace keys
                 // at the cursor instead. If the device cannot be opened
@@ -796,11 +834,21 @@ fn emit_with(
                     debug_log::log(&format!("delete-before inject={n}"));
                     injected_since_commit += *n;
                     injected_total += *n;
+                } else if engine.delete_dropped() {
+                    // The device is gone for the session (the handle is
+                    // opened once) and the client swallows the protocol
+                    // delete: neither transport works. Keep the raw text,
+                    // suppress the paired commit, and let the engine know —
+                    // its mode resolution moves the following words to
+                    // preedit, which needs no delete.
+                    debug_log::log(
+                        "delete-before inject FAILED on a delete-dropping client → keep raw",
+                    );
+                    engine.set_uinput_available(false);
+                    delete_failed = true;
                 } else {
                     debug_log::log(&format!("delete-before inject FAILED → protocol=-{n}"));
-                    let mut m =
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "DeleteSurroundingText")
-                            .expect("valid signal");
+                    let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*n as i32)).append1(*n);
                     out.push(m);
                 }
@@ -813,9 +861,7 @@ fn emit_with(
                 } else {
                     debug_log::log(&format!("delete-before protocol=-{n}"));
                     // Signature is (iu): a plain signed offset, not a variant.
-                    let mut m =
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "DeleteSurroundingText")
-                            .expect("valid signal");
+                    let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*n as i32)).append1(*n);
                     out.push(m);
                 }
@@ -836,9 +882,7 @@ fn emit_with(
                     debug_log::log(&format!(
                         "delete-surrounding inject FAILED → protocol offset={offset} n={n}"
                     ));
-                    let mut m =
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "DeleteSurroundingText")
-                            .expect("valid signal");
+                    let mut m = signal("DeleteSurroundingText");
                     m = m.append1(*offset).append1(*n);
                     out.push(m);
                 }
@@ -849,10 +893,10 @@ fn emit_with(
                         "delete-surrounding protocol DROPPED (no report) offset={offset} n={n}"
                     ));
                 } else {
-                    debug_log::log(&format!("delete-surrounding protocol offset={offset} n={n}"));
-                    let mut m =
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "DeleteSurroundingText")
-                            .expect("valid signal");
+                    debug_log::log(&format!(
+                        "delete-surrounding protocol offset={offset} n={n}"
+                    ));
+                    let mut m = signal("DeleteSurroundingText");
                     m = m.append1(*offset).append1(*n);
                     out.push(m);
                 }
@@ -862,38 +906,48 @@ fn emit_with(
                     debug_log::log(&format!("rewrite-by-backspace n={backspaces}"));
                     injected_since_commit += *backspaces;
                     injected_total += *backspaces;
+                } else if engine.delete_dropped() {
+                    // Device gone on a delete-swallowing client: the
+                    // protocol fallback pair would land nowhere and
+                    // duplicate. Keep the raw text (the commit rides inside
+                    // this action, so skipping the branch skips both).
+                    debug_log::log(
+                        "rewrite-by-backspace inject FAILED on a delete-dropping client → keep raw",
+                    );
+                    engine.set_uinput_available(false);
                 } else {
                     debug_log::log(&format!(
                         "rewrite-by-backspace inject FAILED → protocol delete={backspaces}"
                     ));
-                    let mut m =
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "DeleteSurroundingText")
-                            .expect("valid signal");
+                    let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*backspaces as i32)).append1(*backspaces);
                     out.push(m);
-                    out.push(
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                            .expect("valid signal")
-                            .append1(plain_text(commit)),
-                    );
+                    out.push(signal("CommitText").append1(plain_text(commit)));
                 }
             }
             Action::UpdatePreedit { text, cursor } => {
                 let len = text.chars().count() as u32;
-                let attrs: &[Attr] = if hide_underline { &[] } else { &[Attr::underline(0, len)] };
+                let attrs: &[Attr] = if hide_underline {
+                    &[]
+                } else {
+                    &[Attr::underline(0, len)]
+                };
                 out.push(
-                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "UpdatePreeditText")
-                        .expect("valid signal")
+                    signal("UpdatePreeditText")
                         .append1(text_variant(text, attrs))
                         .append1(*cursor)
                         .append1(true)
-                        .append1(0u32), // IBUS_ENGINE_PREEDIT_CLEAR
+                        // IBUS_ENGINE_PREEDIT_COMMIT: when the client resets
+                        // the input context (a mouse click, a focus change) it
+                        // commits this preedit itself instead of clearing it,
+                        // so a pending word is never lost. ibus-bamboo sends
+                        // this same mode.
+                        .append1(1u32),
                 );
             }
             Action::HidePreedit => {
                 out.push(
-                    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "UpdatePreeditText")
-                        .expect("valid signal")
+                    signal("UpdatePreeditText")
                         .append1(plain_text(""))
                         .append1(0u32)
                         .append1(false) // not visible = hide
@@ -909,9 +963,7 @@ fn emit_with(
                 } else if engine.surrounding_data_ok() {
                     // Device lost mid-session: protocol delete as fallback.
                     debug_log::log(&format!("smooth rewrite inject FAILED → protocol -{n}"));
-                    let mut m =
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "DeleteSurroundingText")
-                            .expect("valid signal");
+                    let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*n as i32)).append1(*n);
                     out.push(m);
                 } else {
@@ -928,9 +980,7 @@ fn emit_with(
                     nav_since_commit += *n as usize;
                 } else if engine.surrounding_data_ok() {
                     debug_log::log(&format!("select-left inject FAILED → protocol -{n}"));
-                    let mut m =
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "DeleteSurroundingText")
-                            .expect("valid signal");
+                    let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*n as i32)).append1(*n);
                     out.push(m);
                 } else {
@@ -944,21 +994,37 @@ fn emit_with(
                     debug_log::log("select rewrite: delete");
                     engine.add_injected_nav(&[keymap::DELETE]);
                     nav_since_commit += 1;
+                } else if (t.backspaces)(1, bs_gap) {
+                    // Every toolkit deletes the current selection on
+                    // Backspace, which is exactly what the Delete was for.
+                    // The paired commit still has to wait for this key.
+                    debug_log::log("press-delete FAILED → backspace over the selection");
+                    injected_since_commit += 1;
+                    injected_total += 1;
                 } else {
                     debug_log::log("press-delete FAILED: selection stays selected");
                 }
             }
             Action::Paste(text) => {
                 if (t.paste)(text) {
-                    debug_log::log(&format!("paste channel: {:?}", crate::debug_log::brief(text)));
+                    debug_log::log(&format!(
+                        "paste channel: {:?}",
+                        crate::debug_log::brief(text)
+                    ));
                     // The Ctrl+V we injected comes back as a key event; forward it.
                     engine.add_injected_nav(&[keymap::V]);
                 } else {
                     debug_log::log("paste channel FAILED → CommitText fallback");
-                    out.push(
-                        Message::new_signal(ENGINE_PATH, ENGINE_IFACE, "CommitText")
-                            .expect("valid signal")
-                            .append1(plain_text(text)),
+                    // Same deferrals as a plain commit: this fallback usually
+                    // follows injected Backspaces, and overtaking them makes
+                    // the accent flash and revert.
+                    push_commit(
+                        engine,
+                        out,
+                        text.clone(),
+                        &mut delete_failed,
+                        &mut nav_since_commit,
+                        &mut injected_since_commit,
                     );
                 }
             }
@@ -971,6 +1037,44 @@ fn emit_with(
         }
     }
     injected_total
+}
+
+/// A signal on the static engine path and interface: `new_signal` cannot
+/// fail on those, so the `expect` is unreachable by construction.
+fn signal(member: &str) -> Message {
+    Message::new_signal(ENGINE_PATH, ENGINE_IFACE, member)
+        .expect("static path and interface are valid")
+}
+
+/// Emit a commit, honouring the transport deferrals: a commit that would
+/// overtake injected keys is parked until their echoes come back ("the
+/// accent flashes and reverts"), and one whose rewrite delete never landed
+/// is dropped.
+fn push_commit(
+    engine: &mut Engine,
+    out: &mut Vec<Message>,
+    text: String,
+    delete_failed: &mut bool,
+    nav_since_commit: &mut usize,
+    injected_since_commit: &mut u32,
+) {
+    if std::mem::take(delete_failed) {
+        debug_log::log("commit suppressed: its rewrite delete was not deliverable");
+    } else if *nav_since_commit > 0 {
+        // A commit right after injected selection keys can land before the
+        // app erased the selection.
+        engine.defer_nav_commit(*nav_since_commit, text);
+        *nav_since_commit = 0;
+    } else if *injected_since_commit > 0 {
+        // The injected Backspaces travel through the compositor while this
+        // commit would go straight over D-Bus — a synchronous commit here
+        // can land BEFORE the deletions and the echoing Backspace then
+        // deletes the freshly committed word.
+        engine.defer_commit(*injected_since_commit, text);
+        *injected_since_commit = 0;
+    } else {
+        out.push(signal("CommitText").append1(plain_text(&text)));
+    }
 }
 
 /// Send a reply or signal. A failed send means the peer is gone; there is
@@ -987,12 +1091,18 @@ fn presses(offset: i32) -> u32 {
 /// Record a seen client prgname in `~/.cache/ibus-mangrs/clients` so the GUI can
 /// offer it as an App Rules target. Best effort; keeps the newest 50.
 fn note_client(msg: &Message) {
-    let Ok((_, client)) = msg.read2::<String, String>() else { return };
-    let Some(prgname) = client.split_once(':').map(|(_, p)| p.to_string()) else { return };
+    let Ok((_, client)) = msg.read2::<String, String>() else {
+        return;
+    };
+    let Some(prgname) = client.split_once(':').map(|(_, p)| p.to_string()) else {
+        return;
+    };
     if prgname == "fake" || prgname.is_empty() {
         return;
     }
-    let Some(dir) = dirs::cache_dir().map(|d| d.join("ibus-mangrs")) else { return };
+    let Some(dir) = dirs::cache_dir().map(|d| d.join("ibus-mangrs")) else {
+        return;
+    };
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("clients");
     let mut names: Vec<String> = std::fs::read_to_string(&path)
@@ -1057,6 +1167,20 @@ mod tests {
         assert_eq!(parse_hotkey("NotAModifier+q"), None);
     }
 
+    #[test]
+    fn poisoned_engine_mutex_still_locks() {
+        // A panic while holding the engine mutex poisons it; unwrapping
+        // would then panic on every later key event (typing dead until IBus
+        // restarts). lock_engine must recover instead.
+        let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = lock_engine(&engine);
+            panic!("poison the mutex");
+        }));
+        let mut engine = lock_engine(&engine);
+        engine.set_capabilities(1); // any mutation proves the guard works
+    }
+
     fn emitted(actions: &[Action]) -> Vec<Message> {
         // An engine with surrounding data + capability uses the protocol
         // delete; anything else falls back to key injection (no D-Bus signal).
@@ -1077,7 +1201,9 @@ mod tests {
         // the daemon received a variant instead of an IBusText struct.
         let msgs = emitted(&[Action::Commit("tiếng".into())]);
         assert_eq!(&*msgs[0].member().unwrap(), "CommitText");
-        let text = msgs[0].read1::<Variant<Box<dyn RefArg>>>().expect("IBusText variant");
+        let text = msgs[0]
+            .read1::<Variant<Box<dyn RefArg>>>()
+            .expect("IBusText variant");
         assert_eq!(text.0.signature().to_string(), "(sa{sv}sv)");
     }
 
@@ -1085,31 +1211,48 @@ mod tests {
     fn preedit_signal_is_vubu() {
         // Regression: the old helper produced (vvvv); ibus-daemon dropped it,
         // so preedit text only appeared when the word was committed.
-        let msgs = emitted(&[Action::UpdatePreedit { text: "tiếng".into(), cursor: 5 }]);
+        let msgs = emitted(&[Action::UpdatePreedit {
+            text: "tiếng".into(),
+            cursor: 5,
+        }]);
         assert_eq!(&*msgs[0].member().unwrap(), "UpdatePreeditText");
         let (text, cursor, visible, mode) = msgs[0]
             .read4::<Variant<Box<dyn RefArg>>, u32, bool, u32>()
             .expect("(vubu) arguments");
         assert_eq!(text.0.signature().to_string(), "(sa{sv}sv)");
-        assert_eq!((cursor, visible, mode), (5, true, 0));
+        // 1 = IBUS_ENGINE_PREEDIT_COMMIT: when the client resets the input
+        // context (mouse click, focus change) it commits this preedit itself
+        // instead of clearing it, so a pending word is never lost.
+        assert_eq!((cursor, visible, mode), (5, true, 1));
     }
 
     #[test]
     fn hide_preedit_reuses_the_preedit_signal() {
         let msgs = emitted(&[Action::HidePreedit]);
         assert_eq!(&*msgs[0].member().unwrap(), "UpdatePreeditText");
-        let (_, cursor, visible, _) = msgs[0]
+        let (_, cursor, visible, mode) = msgs[0]
             .read4::<Variant<Box<dyn RefArg>>, u32, bool, u32>()
             .expect("(vubu) arguments");
-        assert_eq!((cursor, visible), (0, false));
+        // 0 = IBUS_ENGINE_PREEDIT_CLEAR: hiding must never commit the word.
+        assert_eq!((cursor, visible, mode), (0, false, 0));
     }
 
     #[test]
     fn hide_underline_drops_the_underline_attribute() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.apply_config(&Config { hide_underline: true, ..Config::default() });
+        e.apply_config(&Config {
+            hide_underline: true,
+            ..Config::default()
+        });
         let mut out = Vec::new();
-        emit(&mut e, &[Action::UpdatePreedit { text: "tiếng".into(), cursor: 5 }], &mut out);
+        emit(
+            &mut e,
+            &[Action::UpdatePreedit {
+                text: "tiếng".into(),
+                cursor: 5,
+            }],
+            &mut out,
+        );
         let (text, ..) = out[0]
             .read4::<Variant<Box<dyn RefArg>>, u32, bool, u32>()
             .expect("(vubu) arguments");
@@ -1138,16 +1281,23 @@ mod tests {
         let t = fake_transports(&bs);
         let injected = emit_with(
             &mut e,
-            &[Action::DeleteBefore(2), Action::DeleteSurrounding { offset: -3, n: 1 }],
+            &[
+                Action::DeleteBefore(2),
+                Action::DeleteSurrounding { offset: -3, n: 1 },
+            ],
             &mut out,
             &t,
         );
         assert_eq!(injected, 5, "2 + |offset| Backspaces");
         assert!(
-            out.iter()
-                .all(|m| m.member().map(|mem| mem != "DeleteSurroundingText").unwrap_or(true)),
+            out.iter().all(|m| m
+                .member()
+                .map(|mem| mem != "DeleteSurroundingText")
+                .unwrap_or(true)),
             "{:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1156,7 +1306,10 @@ mod tests {
         // Sublime Text / JetBrains XToolkit never send FocusInId. Their
         // injected keys do arrive, so a client-less context uses the same
         // Backspace transport instead of raw-forwarding the tone keys.
-        let mut e = Engine::new(crate::bamboo_wrapper::Method::Telex, crate::engine::Mode::NonPreedit);
+        let mut e = Engine::new(
+            crate::bamboo_wrapper::Method::Telex,
+            crate::engine::Mode::NonPreedit,
+        );
         e.set_capabilities(1);
         e.set_uinput_available(true);
         let mut out = Vec::new();
@@ -1165,10 +1318,14 @@ mod tests {
         let injected = emit_with(&mut e, &[Action::DeleteBefore(2)], &mut out, &t);
         assert_eq!(injected, 2);
         assert!(
-            out.iter()
-                .all(|m| m.member().map(|mem| mem != "DeleteSurroundingText").unwrap_or(true)),
+            out.iter().all(|m| m
+                .member()
+                .map(|mem| mem != "DeleteSurroundingText")
+                .unwrap_or(true)),
             "{:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1193,9 +1350,12 @@ mod tests {
         e.add_injected(injected);
         assert_eq!(injected, 1);
         assert!(
-            !out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            !out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
             "commit must be deferred, got {:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
         assert!(e.has_deferred());
         // The single Backspace echo is forwarded → the commit is ready.
@@ -1229,9 +1389,12 @@ mod tests {
             &t,
         );
         assert!(
-            !out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            !out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
             "commit must be deferred, got {:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
         assert!(e.has_deferred());
         assert!(e.pending_nav_echoes());
@@ -1246,6 +1409,67 @@ mod tests {
     }
 
     #[test]
+    fn registry_uses_the_newest_file() {
+        // Several registry files (display change, a stale one) must not send
+        // the engine to a dead socket: the daemon rewrites its file on start.
+        // Checked in both directions so directory order cannot make it pass.
+        let dir = std::env::temp_dir().join(format!(
+            "ibus-mangrs-registry-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a");
+        let b = dir.join("b");
+        std::fs::write(&a, "IBUS_ADDRESS=unix:path=a\n").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&b, "IBUS_ADDRESS=unix:path=b\n").unwrap();
+        // Newest, but it carries no address: must be skipped.
+        std::fs::write(dir.join("junk"), "no address here\n").unwrap();
+        assert_eq!(address_from_dir(&dir).as_deref(), Some("unix:path=b"));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        // Rewriting a makes it the newest, the other way round.
+        std::fs::write(&a, "IBUS_ADDRESS=unix:path=a\n").unwrap();
+        assert_eq!(address_from_dir(&dir).as_deref(), Some("unix:path=a"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_press_delete_falls_back_to_backspace() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static PRESSES: AtomicUsize = AtomicUsize::new(0);
+        PRESSES.store(0, Ordering::SeqCst);
+        let mut e = Engine::new(Method::Telex, Mode::Select);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_uinput_available(true);
+        let mut out = Vec::new();
+        let t = Transports {
+            backspaces: &|n, _| {
+                PRESSES.fetch_add(n as usize, Ordering::SeqCst);
+                true
+            },
+            keys: &|_, _| false,
+            select_left: &|_, _| true,
+            paste: &|_| false,
+        };
+        // No SelectLeft: the only pending injection is the fallback key.
+        emit_with(
+            &mut e,
+            &[Action::PressDelete, Action::Commit("việt".into())],
+            &mut out,
+            &t,
+        );
+        assert_eq!(PRESSES.load(Ordering::SeqCst), 1, "one backspace");
+        assert!(
+            e.has_deferred(),
+            "the commit must wait for the fallback key"
+        );
+    }
+
+    #[test]
     fn paste_failure_falls_back_to_commit() {
         // Without a clipboard tool the Paste transport fails; the word must
         // still reach the application (CommitText fallback).
@@ -1257,10 +1481,38 @@ mod tests {
         let t = fake_transports(&bs);
         emit_with(&mut e, &[Action::Paste("việt".into())], &mut out, &t);
         assert!(
-            out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
             "{:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn paste_fallback_after_injected_backspaces_is_deferred() {
+        // The smooth rewrite erases the raw keys with injected Backspaces,
+        // then the paste fails. The fallback commit must not overtake the
+        // echoes, or the app deletes the freshly committed word.
+        let mut e = Engine::new(Method::Telex, Mode::Smooth);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_uinput_available(true);
+        let mut out = Vec::new();
+        let bs = |_: u32, _: u64| true;
+        let t = fake_transports(&bs);
+        emit_with(
+            &mut e,
+            &[Action::InjectBackspaces(6), Action::Paste("việt".into())],
+            &mut out,
+            &t,
+        );
+        assert!(
+            !out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            "the fallback commit must wait for the Backspace echoes"
+        );
+        assert!(e.has_deferred());
     }
 
     #[test]
@@ -1273,6 +1525,97 @@ mod tests {
         assert!(e.has_deferred(), "threshold not reached yet");
         assert_eq!(e.flush_deferred(), vec!["word".to_string()]);
         assert!(!e.has_deferred());
+    }
+
+    /// An engine proven (report proof) to talk to a delete-swallowing client.
+    #[cfg(test)]
+    fn delete_dropped_engine() -> Engine {
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(32); // CAP_SURROUNDING_TEXT
+        e.set_uinput_available(true);
+        e.set_surrounding("a".into(), 1);
+        let _ = e.process_char('a'); // buffer "a"
+                                     // The second `a` is a rewrite: delete 1 + commit "â" — this arms
+                                     // the delete-delivery proof.
+        let _ = e.process_char('a');
+        e.set_surrounding("aâ".into(), 2); // swallowed shape → delete_dropped
+        assert!(e.delete_dropped());
+        e
+    }
+
+    #[test]
+    fn dead_device_on_delete_dropping_client_keeps_raw() {
+        // The uinput device died mid-session on a client already proven to
+        // swallow protocol deletes: the protocol fallback lands nowhere and
+        // the paired commit would duplicate the raw keys ("aê"). Both are
+        // suppressed, and the engine is told the device is gone so the
+        // following words resolve to preedit.
+        let mut e = delete_dropped_engine();
+        let fail = |_: u32, _: u64| false;
+        let t = fake_transports(&fail);
+        let mut out = Vec::new();
+        emit_with(
+            &mut e,
+            &[Action::DeleteBefore(1), Action::Commit("ê".into())],
+            &mut out,
+            &t,
+        );
+        assert!(
+            out.is_empty(),
+            "no protocol delete, no paired commit: {:?}",
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
+        );
+        assert!(!e.uinput_available(), "device death must reach the engine");
+    }
+
+    #[test]
+    fn dead_device_suppresses_rewrite_by_backspace_on_swallowers() {
+        // Same as above for RewriteByBackspace: its commit rides inside the
+        // action, so a failed injection must not fall back to the protocol
+        // delete + commit pair the client drops anyway.
+        let mut e = delete_dropped_engine();
+        let fail = |_: u32, _: u64| false;
+        let t = fake_transports(&fail);
+        let mut out = Vec::new();
+        emit_with(
+            &mut e,
+            &[Action::RewriteByBackspace {
+                backspaces: 2,
+                commit: "ê".into(),
+            }],
+            &mut out,
+            &t,
+        );
+        assert!(out.is_empty(), "no protocol fallback pair: {out:?}");
+    }
+
+    #[test]
+    fn inject_failure_keeps_the_protocol_fallback_for_healthy_clients() {
+        // A client that has never swallowed a delete honors the protocol:
+        // when injection fails, the protocol delete is the correct fallback.
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(32);
+        e.set_uinput_available(true);
+        e.set_surrounding("abc".into(), 3);
+        let fail = |_: u32, _: u64| false;
+        let t = fake_transports(&fail);
+        let mut out = Vec::new();
+        emit_with(&mut e, &[Action::DeleteBefore(1)], &mut out, &t);
+        assert!(
+            out.iter().any(|m| m
+                .member()
+                .map(|m| m == "DeleteSurroundingText")
+                .unwrap_or(false)),
+            "protocol fallback must stay for healthy clients"
+        );
+        assert!(
+            e.uinput_available(),
+            "healthy clients keep injection marked"
+        );
     }
 
     #[test]
@@ -1289,11 +1632,17 @@ mod tests {
             process_key(&mut e, c as u32, 0, &mut Vec::new());
         }
         let mut out = Vec::new();
-        assert!(process_key(&mut e, 0xff51, 0, &mut out), "Left must be consumed");
         assert!(
-            out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            process_key(&mut e, 0xff51, 0, &mut out),
+            "Left must be consumed"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
             "the pending word must be committed: {:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
         // The composition is gone: the next arrow is forwarded normally.
         let mut out = Vec::new();
@@ -1316,9 +1665,12 @@ mod tests {
         let mut out = Vec::new();
         assert!(process_key(&mut e, 0xff51, keymap::SHIFT_MASK, &mut out));
         assert!(
-            out.iter().any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+            out.iter()
+                .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
             "the visible preedit must be committed: {:?}",
-            out.iter().map(|m| m.member().map(|m| m.to_string())).collect::<Vec<_>>()
+            out.iter()
+                .map(|m| m.member().map(|m| m.to_string()))
+                .collect::<Vec<_>>()
         );
     }
 

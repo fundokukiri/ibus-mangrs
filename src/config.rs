@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::bamboo_wrapper::{Bracket, Charset, Method, W2u};
 use crate::engine::Mode;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Whether Vietnamese processing is on. The GUI's on/off toggle writes here.
@@ -52,6 +52,10 @@ pub struct Config {
     pub date_format: String,
     /// Words from `dictionary.txt` are never auto-restored.
     pub dictionary_enabled: bool,
+    /// Vietnamese abbreviations keep their đ: bamboo's auto_correct reverts
+    /// non-syllable compositions (`ddc`) to the raw keys; with this on the
+    /// wrapper re-applies the dd→đ transform (`đc`, `đk`, `đt`, `đg`).
+    pub abbreviations: bool,
     /// Hotkey cycling the display mode, e.g. `Control+Alt+v`. Empty = unassigned.
     pub cycle_mode_hotkey: String,
     /// Send preedit without the underline attribute (app support permitting).
@@ -346,25 +350,41 @@ pub fn recent_clients() -> Vec<String> {
     dirs::cache_dir()
         .map(|d| d.join("ibus-mangrs").join("clients"))
         .and_then(|p| std::fs::read_to_string(p).ok())
-        .map(|t| t.lines().map(str::to_string).filter(|l| !l.is_empty()).collect())
+        .map(|t| {
+            t.lines()
+                .map(str::to_string)
+                .filter(|l| !l.is_empty())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 /// Built-in rules for clients known to drop `DeleteSurroundingText`.
 fn default_app_rules() -> Vec<AppRule> {
     let preedit = [
-        "chrome", "chromium", "brave", "msedge", "vivaldi", "electron", "code", "slack",
-        "discord", "kgx", "gnome-console",
+        "chrome",
+        "chromium",
+        "brave",
+        "msedge",
+        "vivaldi",
+        "electron",
+        "code",
+        "slack",
+        "discord",
+        "kgx",
+        "gnome-console",
     ];
     let surrounding = ["sublime_text"];
     preedit
         .into_iter()
-        .map(|pattern| AppRule { pattern: pattern.into(), mode: ModeConfig::Preedit })
-        .chain(
-            surrounding
-                .into_iter()
-                .map(|pattern| AppRule { pattern: pattern.into(), mode: ModeConfig::Surrounding }),
-        )
+        .map(|pattern| AppRule {
+            pattern: pattern.into(),
+            mode: ModeConfig::Preedit,
+        })
+        .chain(surrounding.into_iter().map(|pattern| AppRule {
+            pattern: pattern.into(),
+            mode: ModeConfig::Surrounding,
+        }))
         .collect()
 }
 
@@ -391,6 +411,7 @@ impl Default for Config {
             time_format: "%H:%M".into(),
             date_format: "%d/%m/%Y".into(),
             dictionary_enabled: false,
+            abbreviations: true,
             cycle_mode_hotkey: String::new(),
             hide_underline: false,
             commit_interval_ms: 20,
@@ -412,7 +433,9 @@ impl Config {
     /// file, once. The old file is left alone so a downgrade still finds
     /// its settings.
     fn migrate_old_config() {
-        let Some(dir) = dirs::config_dir() else { return };
+        let Some(dir) = dirs::config_dir() else {
+            return;
+        };
         let new = dir.join("ibus-mangrs").join("config.toml");
         if new.exists() {
             return;
@@ -432,14 +455,46 @@ impl Config {
     /// must never stop the engine from starting.
     pub fn load() -> Self {
         Self::migrate_old_config();
-        let Some(path) = Self::path() else { return Self::default() };
-        let Ok(text) = std::fs::read_to_string(&path) else { return Self::default() };
-        toml::from_str(&text).unwrap_or_default()
+        let Some(path) = Self::path() else {
+            return Self::default();
+        };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return Self::default();
+        };
+        Self::from_toml(&text)
+    }
+
+    /// Parse the file. One bad value (a typo in `w2u`, say) must not discard
+    /// every other setting — the GUI reads through here and would write the
+    /// defaults back over the user's file.
+    fn from_toml(text: &str) -> Self {
+        if let Ok(config) = toml::from_str(text) {
+            return config;
+        }
+        // Slow path, only for a broken file: keep the keys that parse.
+        let Ok(table) = text.parse::<toml::Table>() else {
+            crate::debug_log::log("config: unparsable TOML, using defaults");
+            return Self::default();
+        };
+        let mut kept = toml::Table::new();
+        for (key, value) in table {
+            let one = toml::Value::Table([(key.clone(), value.clone())].into_iter().collect());
+            match one.try_into::<Config>() {
+                Ok(_) => {
+                    kept.insert(key, value);
+                }
+                Err(e) => crate::debug_log::log(&format!("config: ignoring `{key}`: {e}")),
+            }
+        }
+        toml::Value::Table(kept).try_into().unwrap_or_default()
     }
 
     pub fn save(&self) -> std::io::Result<()> {
         let Some(path) = Self::path() else {
-            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no config dir"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no config dir",
+            ));
         };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -522,11 +577,24 @@ mod tests {
 
     #[test]
     fn save_keeps_keys_this_build_does_not_know() {
-        let config = Config { method: MethodConfig::Vni, ..Config::default() };
+        let config = Config {
+            method: MethodConfig::Vni,
+            ..Config::default()
+        };
         let text = merge("method = \"telex\"\nw2u_mode = \"disabled\"\n", &config).unwrap();
         let back: toml::Table = toml::from_str(&text).unwrap();
         assert_eq!(back["method"], toml::Value::String("vni".into()));
         assert_eq!(back["w2u_mode"], toml::Value::String("disabled".into()));
+    }
+
+    #[test]
+    fn one_bad_value_does_not_discard_the_rest() {
+        let c =
+            Config::from_toml("w2u = \"everywhre\"\nmode = \"preedit\"\nauto_restore = false\n");
+        assert_eq!(c.mode, ModeConfig::Preedit, "the good keys must survive");
+        assert!(!c.auto_restore);
+        assert_eq!(c.w2u, W2uConfig::Disabled, "the bad key falls back");
+        assert!(c.enabled, "missing keys take defaults");
     }
 
     #[test]
@@ -535,7 +603,10 @@ mod tests {
             method: MethodConfig::Vni,
             mode: ModeConfig::Preedit,
             modern_tone_style: false,
-            app_rules: vec![AppRule { pattern: "kate".into(), mode: ModeConfig::Preedit }],
+            app_rules: vec![AppRule {
+                pattern: "kate".into(),
+                mode: ModeConfig::Preedit,
+            }],
             ..Config::default()
         };
         let text = toml::to_string_pretty(&c).unwrap();

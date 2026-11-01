@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="data/logo-no-bg.png" alt="MăngRS logo" width="360">
+  <img src="data/logo.png" alt="MăngRS logo" width="360">
 </p>
 
 # MăngRS
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
-[`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts,
-three classic display modes plus three real-key (uinput) modes, a GTK4 settings window, macros,
+[`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts, eight display modes (Preedit, NonPreedit, Surrounding, three
+uinput modes, OFF, Default Typing), a GTK4 settings window, macros,
 a custom dictionary and per-app rules.
 
 > **Platform status:** developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland;
@@ -23,16 +23,21 @@ a custom dictionary and per-app rules.
   CP1258, BKHCM, Vietware X, Vietware Full.
 - **Eight display modes** (see below), selectable per application via App Rules.
 - **Typing options**: modern tone placement (`hòa` vs traditional `hoà`), free tone marking
-  (`hoangf` → `hoàng`), spell check backed by a bundled 38 350-word Vietnamese word list,
+  (`hoangf` → `hoàng`), auto-correction of invalid syllables (the phonotactic check),
   auto-restore of non-Vietnamese words, raw-key bypass after URL/email/path characters
   (`/ : @ . _ ~ = # & % ?`), `w` → `ư`, `[`/`]` → `ơ`/`ư`, `--` → `—`, auto-capitalize,
   double space → period.
+- **Pending-word behavior on mouse clicks and idle** (three actions, selectable in the
+  panel): Bamboo (default — a word left idle for 800 ms commits in place and a late tone
+  key still applies the mark: `tung` + wait + `f` → `tùng`), Keep word (a click hides it,
+  clicking back restores it) and Relocate (the word is always delivered to the position
+  where it was typed). Vietnamese abbreviations stay intact (`ddc` → `đc`, `ddk` → `đk`).
 - **Macros** with `$TIME` / `$DATE` expansion and smart capitalization; shorthand keys that are
   valid Vietnamese words never expand while you are typing that word normally.
 - **Custom dictionary**: words that must never be auto-restored.
-- **GTK4 settings window** (6 tabs, Vietnamese); every change hot-reloads within ~1 second.
+- **GTK4 settings window** (5 pages, Vietnamese); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 164 unit tests including a 480-case keystroke→text golden table.
+- 209 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
 
 ## Display modes
 
@@ -70,26 +75,10 @@ only the Arch line is tested. IBus must be your active input-method framework (o
 cargo build --release --features gui
 ```
 
-The engine core comes from the `bamboo-core` crate on crates.io. The `bamboo-core/` directory in
-this repository is a **git submodule** pinned to the same `v0.5.3` tag — kept for source browsing
-and audits, not used by the build; pull it in with `git submodule update --init` if you want it.
+The engine core comes from the `bamboo-core` crate on crates.io. Source browsing of the pinned
+`v0.5.3` is available via `git submodule update --init` (optional; the build uses crates.io).
 
 ## Install
-
-### Binary packages (from the GitHub release)
-
-Download the package for your distro and the `SHA256SUMS` file from
-[releases](https://github.com/fundokukiri/ibus-mangrs/releases), verify, then install with your
-package manager:
-
-```sh
-sha256sum -c SHA256SUMS
-sudo pacman -U ibus-ibus-mangrs-*.pkg.tar.zst        # Arch
-sudo apt install ./ibus-mangrs_*_amd64.deb           # Debian / Ubuntu
-sudo dnf install ./ibus-mangrs-*.x86_64.rpm          # Fedora / openSUSE
-```
-
-After installing, run `ibus restart` once.
 
 ### One-line install (online)
 
@@ -166,8 +155,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | Change charset | menu → *Charset* (11 charsets), or GUI |
 | Change display mode | menu → *Display* (8 modes), or GUI, or the cycle hotkey |
 | Display mode cycle hotkey | GUI General tab → *Cycle Mode Hotkey* (e.g. `Control+Alt+v`) |
-| Quick settings | menu → *Quick Settings* (macros, auto-capitalize, free tone marks, hide underline, …) |
-| Spell check & dictionary | menu → *Spell Check & Dictionary* |
+| Quick settings | menu → *Quick Settings* (macros, auto-capitalize, abbreviations, foreign-word restore) |
 | Type English / code | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw |
 | Per-app display mode | GUI Applications tab → `process-name=mode`, or the dropdown of seen apps |
 
@@ -177,7 +165,6 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 ~/.config/ibus-mangrs/config.toml     # all settings, hot-reloaded within ~1 s
 ~/.config/ibus-mangrs/macros.toml     # one key=expansion per line, $TIME / $DATE
 ~/.config/ibus-mangrs/dictionary.txt  # words never auto-restored
-~/.config/ibus-mangrs/vn-words.txt    # optional override of the bundled spell-check word list
 ```
 
 ## Troubleshooting
@@ -195,7 +182,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 ## Testing
 
 ```sh
-cargo test                      # 164 unit tests, including the 480-case golden table
+cargo test                      # 209 unit tests, including the 678-case golden table
 cargo clippy --all-targets
 ```
 
@@ -206,9 +193,6 @@ IBUS_COMPONENT_PATH=$PWD/data:/usr/share/ibus/component ibus-daemon -rx -t refre
 ibus engine ibus-mangrs
 ```
 
-Automated typing/latency tooling that types through the kernel into any focused field and
-verifies the result: see `test/README.md`.
-
 ## Architecture
 
 - `src/server.rs` — D-Bus, message filter, property menu, hotkey, config watch, key transports
@@ -216,30 +200,15 @@ verifies the result: see `test/README.md`.
 - `src/bamboo_wrapper.rs` — the only code touching `bamboo-core`; computes its own output delta
 - `src/uinput.rs` — virtual keyboard: paced Backspaces, selection, Ctrl+V (US-QWERTY key table)
 - `src/paste.rs` — clipboard Unicode channel for the uinput modes (debounced restore)
-- `src/spellcheck.rs` — bundled Vietnamese word list (advisory lookups)
 - `src/macros.rs` — macro table + custom dictionary
-- `src/golden.rs` — 480 keystroke→text golden cases
+- `src/golden.rs` — 678 keystroke→text golden cases
 - `src/ibus_prop.rs` — IBus property-menu encoding; `src/keymap.rs` — keysym decoding
 - `src/config.rs` — TOML settings shared by engine + GUI; `src/gui.rs` — GTK4 window (`gui` feature)
 
-More detail: `ARCHITECTURE.md` (protocol facts, engine invariants, delete-transport safety rules).
-
-## Documentation
-
-| Guide | Content |
-|---|---|
-| [docs/installation.md](docs/installation.md) | prerequisites per distro, one-line and manual install, `/dev/uinput` permissions, upgrade |
-| [docs/usage.md](docs/usage.md) | all eight display modes, input methods, typing behavior, macros, dictionary, App Rules, config files |
-| [docs/faq.md](docs/faq.md) | common problems and how to report a bug with a debug log |
-| [docs/development.md](docs/development.md) | code layout, build/test/lint, test tooling, packaging |
 
 ## License
 
-MăngRS is **MIT** — see `LICENSE`. Third-party attributions: `NOTICE.md` and `data/README.md`.
+MăngRS is **GPL-3.0** (GNU General Public License v3) — see `LICENSE`.
 
 - [`bamboo-core`](https://crates.io/crates/bamboo-core) (MIT) — the Vietnamese input algorithm,
-  a Rust extraction of ibus-bamboo's logic.
-- `data/vn-words.txt` — the spell-check word list comes from Ho Ngoc Duc's *Free Vietnamese
-  Dictionary Project* and is distributed as a separate data file under the **GPL**; the source
-  and the rationale are documented in `data/README.md`. Deleting the file only disables the
-  dictionary check.
+  a Rust extraction of ibus-bamboo's logic. Licensed separately under its own MIT license.
