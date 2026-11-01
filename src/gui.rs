@@ -12,17 +12,12 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use crate::config::{BracketConfig, CharsetConfig, Config, MethodConfig, ModeConfig, W2uConfig};
+use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, DropDown, Entry, Orientation, StringList, Switch,
-    TextView,
+    Application, ApplicationWindow, DropDown, Entry, Orientation, StringList, Switch, TextView,
 };
-use serde::{Deserialize, Serialize};
-
-use crate::config::{
-    BracketConfig, CharsetConfig, Config, MethodConfig, ModeConfig, W2uConfig,
-};
-use crate::macros::{Dictionary, Macros};
 
 thread_local! {
     /// Every settings row (lowercase "title subtitle", widget) so the search
@@ -35,8 +30,19 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // page (menu "Mở bảng gõ tắt…"); GTK parses argv itself and rejects
     // these arguments, so read them here and hand GTK an empty argv.
     let page = std::env::args().find_map(|a| a.strip_prefix("--page=").map(str::to_string));
-    let app = Application::builder().application_id("org.freedesktop.IBus.mangrs").build();
-    app.connect_activate(move |app| build(app, page.as_deref()));
+    let app = Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs")
+        .build();
+    // GApplication is single-instance: a second launch activates the first
+    // one, which must present its existing window instead of building
+    // another (one control panel at a time).
+    app.connect_activate(move |app| {
+        if let Some(window) = app.windows().first() {
+            window.present();
+            return;
+        }
+        build(app, page.as_deref());
+    });
     app.run_with_args::<&str>(&[]);
     Ok(())
 }
@@ -78,6 +84,7 @@ struct Ui {
     free: Switch,
     auto_correct: Switch,
     auto_restore: Switch,
+    abbrev: Switch,
     bypass_url: Switch,
     w2u: DropDown,
     bracket: DropDown,
@@ -149,6 +156,80 @@ fn on_off_index<T: PartialEq>(value: &T, disabled: T, nonstart: T) -> u32 {
 }
 
 impl Ui {
+    /// Push a config (plus the two text lists) into every widget. This is the
+    /// only config → widget mapping: the initial build and the import both go
+    /// through it, so an import cannot leave a stale widget that the next
+    /// save would write back over the imported file.
+    fn refresh(&self, config: &Config, macros: &Macros, dictionary: &Dictionary) {
+        self.enabled.set_active(config.enabled);
+        self.method.set_selected(method_index(config.method));
+        self.mode.set_selected(mode_index(config.mode));
+        self.charset.set_selected(charset_index(config.charset));
+        self.hotkey.set_text(&config.cycle_mode_hotkey);
+        self.modern.set_active(config.modern_tone_style);
+        self.free.set_active(config.free_tone_marking);
+        self.auto_correct.set_active(config.auto_correct);
+        self.auto_restore.set_active(config.auto_restore);
+        self.abbrev.set_active(config.abbreviations);
+        self.bypass_url.set_active(config.bypass_url);
+        self.w2u.set_selected(on_off_index(
+            &config.w2u,
+            W2uConfig::Disabled,
+            W2uConfig::NonStart,
+        ));
+        self.bracket.set_selected(on_off_index(
+            &config.bracket,
+            BracketConfig::Disabled,
+            BracketConfig::NonStart,
+        ));
+        self.em_dash.set_active(config.em_dash);
+        self.auto_capitalize.set_active(config.auto_capitalize);
+        self.double_space.set_active(config.double_space_period);
+        self.macro_enabled.set_active(config.macro_enabled);
+        self.capitalize_macro.set_active(config.capitalize_macro);
+        self.macro_in_off_mode.set_active(config.macro_in_off_mode);
+        self.time_format.set_text(&config.time_format);
+        self.date_format.set_text(&config.date_format);
+        self.dictionary_enabled
+            .set_active(config.dictionary_enabled);
+        self.debug_log.set_active(config.debug_log);
+        self.commit_interval
+            .set_text(&config.commit_interval_ms.to_string());
+        self.backspace_interval
+            .set_text(&config.backspace_interval_ms.to_string());
+        self.post_delay.set_text(&config.post_delay_ms.to_string());
+        self.unicode_channel
+            .set_selected(match config.unicode_channel {
+                crate::config::UnicodeChannel::Clipboard => 1,
+                crate::config::UnicodeChannel::Commit => 0,
+            });
+        set_text(
+            &self.macro_text,
+            &macros
+                .entries()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        set_text(
+            &self.dictionary_text,
+            &dictionary.words().collect::<Vec<_>>().join("\n"),
+        );
+        set_text(
+            &self.rules_text,
+            &config
+                .app_rules
+                .iter()
+                .map(|r| format!("{}={}", r.pattern, r.mode.key()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        // A field added to Config and Ui but forgotten here would leave a
+        // stale widget that the next save writes back (the import bug).
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(&self.read(), config, "refresh missed a widget");
+    }
+
     fn read(&self) -> Config {
         // Start from the file so options this window does not show are not
         // overwritten.
@@ -189,6 +270,7 @@ impl Ui {
         config.free_tone_marking = self.free.is_active();
         config.auto_correct = self.auto_correct.is_active();
         config.auto_restore = self.auto_restore.is_active();
+        config.abbreviations = self.abbrev.is_active();
         config.bypass_url = self.bypass_url.is_active();
         config.w2u = match self.w2u.selected() {
             1 => W2uConfig::NonStart,
@@ -210,13 +292,20 @@ impl Ui {
         config.date_format = self.date_format.text().trim().to_string();
         config.dictionary_enabled = self.dictionary_enabled.is_active();
         config.commit_interval_ms = self.commit_interval.text().trim().parse().unwrap_or(20);
-        config.backspace_interval_ms =
-            self.backspace_interval.text().trim().parse().unwrap_or(5);
+        config.backspace_interval_ms = self.backspace_interval.text().trim().parse().unwrap_or(5);
         config.post_delay_ms = self.post_delay.text().trim().parse().unwrap_or(10);
         config.unicode_channel = match self.unicode_channel.selected() {
             1 => crate::config::UnicodeChannel::Clipboard,
             _ => crate::config::UnicodeChannel::Commit,
         };
+        // Read here, not in `save_all`: `refresh` asserts that `read` returns
+        // everything it just pushed into the widgets, and the rules text view
+        // is one of those widgets.
+        config.app_rules = self
+            .read_rules()
+            .into_iter()
+            .map(|(pattern, mode)| crate::config::AppRule { pattern, mode })
+            .collect();
         config
     }
 
@@ -251,12 +340,7 @@ impl Ui {
     }
 
     fn save_all(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut config = self.read();
-        config.app_rules = self
-            .read_rules()
-            .into_iter()
-            .map(|(pattern, mode)| crate::config::AppRule { pattern, mode })
-            .collect();
+        let config = self.read();
         config.save()?;
 
         let mut macros = Macros::load();
@@ -272,7 +356,11 @@ impl Ui {
 
 fn text_of(view: &TextView) -> String {
     view.buffer()
-        .text(&view.buffer().start_iter(), &view.buffer().end_iter(), false)
+        .text(
+            &view.buffer().start_iter(),
+            &view.buffer().end_iter(),
+            false,
+        )
         .to_string()
 }
 
@@ -280,76 +368,44 @@ fn set_text(view: &TextView, text: &str) {
     view.buffer().set_text(text);
 }
 
-fn build(app: &Application, initial_page: Option<&str>) {
-    ROWS.with(|r| r.borrow_mut().clear());
-
-    let config = Config::load();
-    let macros = Macros::load();
-    let dictionary = Dictionary::load();
-
-    let enabled = Switch::builder().active(config.enabled).build();
-    let method = drop_down(METHODS, method_index(config.method));
-    let mode = drop_down(MODES, mode_index(config.mode));
-    let charset = drop_down(CHARSETS, charset_index(config.charset));
+/// The widgets on their own, so a test can drive `refresh`/`read` without a
+/// window; `build` composes them into pages and presents them.
+fn widgets() -> Rc<Ui> {
+    let enabled = Switch::new();
+    let method = drop_down(METHODS, 0);
+    let mode = drop_down(MODES, 0);
+    let charset = drop_down(CHARSETS, 0);
     let hotkey = Entry::builder()
-        .text(&config.cycle_mode_hotkey)
         .placeholder_text("vd. Control+Alt+v")
         .width_chars(18)
         .build();
-    let modern = Switch::builder().active(config.modern_tone_style).build();
-    let free = Switch::builder().active(config.free_tone_marking).build();
-    let auto_correct = Switch::builder().active(config.auto_correct).build();
-    let auto_restore = Switch::builder().active(config.auto_restore).build();
-    let bypass_url = Switch::builder().active(config.bypass_url).build();
-    let w2u = drop_down(
-        ON_OFF_MODES,
-        on_off_index(&config.w2u, W2uConfig::Disabled, W2uConfig::NonStart),
-    );
-    let bracket = drop_down(
-        ON_OFF_MODES,
-        on_off_index(&config.bracket, BracketConfig::Disabled, BracketConfig::NonStart),
-    );
-    let em_dash = Switch::builder().active(config.em_dash).build();
-    let auto_capitalize = Switch::builder().active(config.auto_capitalize).build();
-    let double_space = Switch::builder().active(config.double_space_period).build();
-    let macro_enabled = Switch::builder().active(config.macro_enabled).build();
-    let capitalize_macro = Switch::builder().active(config.capitalize_macro).build();
-    let macro_in_off_mode = Switch::builder().active(config.macro_in_off_mode).build();
-    let time_format = Entry::builder().text(&config.time_format).width_chars(14).build();
-    let date_format = Entry::builder().text(&config.date_format).width_chars(14).build();
-    let macro_text = text_view(
-        &macros
-            .entries()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    let dictionary_enabled = Switch::builder().active(config.dictionary_enabled).build();
-    let dictionary_text =
-        text_view(&dictionary.words().collect::<Vec<_>>().join("\n"));
-    let rules_text = text_view(
-        &config
-            .app_rules
-            .iter()
-            .map(|r| format!("{}={}", r.pattern, r.mode.key()))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    let debug_log = Switch::builder().active(config.debug_log).build();
-    let commit_interval =
-        Entry::builder().text(config.commit_interval_ms.to_string()).width_chars(6).build();
-    let backspace_interval =
-        Entry::builder().text(config.backspace_interval_ms.to_string()).width_chars(6).build();
-    let post_delay = Entry::builder().text(config.post_delay_ms.to_string()).width_chars(6).build();
-    let unicode_channel = drop_down(
-        CHANNELS,
-        match config.unicode_channel {
-            crate::config::UnicodeChannel::Clipboard => 1,
-            crate::config::UnicodeChannel::Commit => 0,
-        },
-    );
+    let modern = Switch::new();
+    let free = Switch::new();
+    let auto_correct = Switch::new();
+    let auto_restore = Switch::new();
+    let abbrev = Switch::new();
+    let bypass_url = Switch::new();
+    let w2u = drop_down(ON_OFF_MODES, 0);
+    let bracket = drop_down(ON_OFF_MODES, 0);
+    let em_dash = Switch::new();
+    let auto_capitalize = Switch::new();
+    let double_space = Switch::new();
+    let macro_enabled = Switch::new();
+    let capitalize_macro = Switch::new();
+    let macro_in_off_mode = Switch::new();
+    let time_format = Entry::builder().width_chars(14).build();
+    let date_format = Entry::builder().width_chars(14).build();
+    let macro_text = text_view("");
+    let dictionary_enabled = Switch::new();
+    let dictionary_text = text_view("");
+    let rules_text = text_view("");
+    let debug_log = Switch::new();
+    let commit_interval = Entry::builder().width_chars(6).build();
+    let backspace_interval = Entry::builder().width_chars(6).build();
+    let post_delay = Entry::builder().width_chars(6).build();
+    let unicode_channel = drop_down(CHANNELS, 0);
 
-    let ui = Rc::new(Ui {
+    Rc::new(Ui {
         enabled,
         method,
         mode,
@@ -359,6 +415,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         free,
         auto_correct,
         auto_restore,
+        abbrev,
         bypass_url,
         w2u,
         bracket,
@@ -379,7 +436,18 @@ fn build(app: &Application, initial_page: Option<&str>) {
         backspace_interval,
         post_delay,
         unicode_channel,
-    });
+    })
+}
+
+fn build(app: &Application, initial_page: Option<&str>) {
+    ROWS.with(|r| r.borrow_mut().clear());
+
+    let config = Config::load();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+
+    let ui = widgets();
+    ui.refresh(&config, &macros, &dictionary);
 
     // --- pages: grouped-card settings style (section header + cards) ---
 
@@ -391,7 +459,10 @@ fn build(app: &Application, initial_page: Option<&str>) {
     }
     client_combo.set_active(Some(0));
     let rule_mode = drop_down(
-        &crate::ibus_prop::MODES.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
+        &crate::ibus_prop::MODES
+            .iter()
+            .map(|(k, _)| *k)
+            .collect::<Vec<_>>(),
         1,
     );
     let add_btn = gtk4::Button::with_label("Thêm luật");
@@ -406,7 +477,9 @@ fn build(app: &Application, initial_page: Option<&str>) {
     {
         let ui = ui.clone();
         add_btn.connect_clicked(move |_| {
-            let Some(name) = client_combo.active_text().map(|s| s.to_string()) else { return };
+            let Some(name) = client_combo.active_text().map(|s| s.to_string()) else {
+                return;
+            };
             let Some((key, _)) = crate::ibus_prop::MODES.get(rule_mode.selected() as usize) else {
                 return;
             };
@@ -428,7 +501,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
     // ===== Page 1: Kiểu gõ =====
     let typing = gtk4::Box::new(Orientation::Vertical, 6);
-    section(&typing, "Điều khiển", "Bật tiếng Việt và phím tắt đổi chế độ");
+    section(
+        &typing,
+        "Điều khiển",
+        "Bật tiếng Việt và phím tắt đổi chế độ",
+    );
     typing.append(&card(vec![
         pref_row(
             "Bật tiếng Việt",
@@ -437,7 +514,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         ),
         pref_row(
             "Phím tắt đổi chế độ",
-            "Ví dụ Control+Alt+v — để trống là chưa gán",
+            "Ví dụ Control+Alt+v — để trống là chưa gán. Mặc định: chưa gán",
             &ui.hotkey,
         ),
     ]));
@@ -445,14 +522,23 @@ fn build(app: &Application, initial_page: Option<&str>) {
         &typing,
         "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → OFF → Gõ mặc định.",
     );
-    section(&typing, "Phương thức gõ", "Kiểu gõ, bảng mã và cách hiển thị");
+    section(
+        &typing,
+        "Phương thức gõ",
+        "Kiểu gõ, bảng mã và cách hiển thị",
+    );
     typing.append(&card(vec![
         pref_row("Kiểu gõ chính", "Telex, VNI, VIQR, Microsoft layout", &ui.method),
         pref_row("Bảng mã", "Unicode và 10 bảng mã cũ", &ui.charset),
         pref_row(
-            "Hiển thị",
-            "8 chế độ; uinput cần /dev/uinput, trên GNOME Wayland tự về Gạch chân",
+            "Chế độ gõ",
+            "8 chế độ: Gạch chân (mặc định), Không gạch chân, Surrounding, Smooth, Super Smooth, Select, OFF, Gõ mặc định",
             &ui.mode,
+        ),
+        pref_row(
+            "Viết tắt",
+            "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
+            &ui.abbrev,
         ),
     ]));
     section(
@@ -463,17 +549,17 @@ fn build(app: &Application, initial_page: Option<&str>) {
     typing.append(&card(vec![
         pref_row(
             "Nhịp gõ chữ",
-            "Khoảng cách giữa hai lần gửi chữ (ms)",
+            "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20",
             &ui.commit_interval,
         ),
         pref_row(
             "Nhịp xoá lùi",
-            "Khoảng cách giữa hai lần Backspace (ms)",
+            "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5",
             &ui.backspace_interval,
         ),
         pref_row(
             "Độ trễ sau từ",
-            "Chờ sau khi viết lại từ trước khi gõ tiếp (ms)",
+            "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10",
             &ui.post_delay,
         ),
         pref_row(
@@ -482,7 +568,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
             &ui.unicode_channel,
         ),
     ]));
-    section(&typing, "Chẩn đoán", "Ghi lại quyết định của engine để gỡ lỗi");
+    section(
+        &typing,
+        "Chẩn đoán",
+        "Ghi lại quyết định của engine để gỡ lỗi",
+    );
     typing.append(&card(vec![pref_row(
         "Ghi log gỡ lỗi",
         "Ghi vào ~/.cache/ibus-mangrs/debug.log",
@@ -493,8 +583,16 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let tone = gtk4::Box::new(Orientation::Vertical, 6);
     section(&tone, "Dấu thanh", "Kiểu đặt dấu trên nguyên âm");
     tone.append(&card(vec![
-        pref_row("Dấu thanh chuẩn", "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)", &ui.modern),
-        pref_row("Bỏ dấu tự do", "Dấu đặt anywhere trong từ: hoangf → hoàng", &ui.free),
+        pref_row(
+            "Dấu thanh chuẩn",
+            "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)",
+            &ui.modern,
+        ),
+        pref_row(
+            "Bỏ dấu tự do",
+            "Dấu đặt anywhere trong từ: hoangf → hoàng",
+            &ui.free,
+        ),
     ]));
     section(&tone, "Chính tả", "Sửa lỗi và khôi phục từ");
     tone.append(&card(vec![
@@ -517,35 +615,63 @@ fn build(app: &Application, initial_page: Option<&str>) {
     section(&tone, "Tự động", "Viết hoa và dấu câu tự động");
     tone.append(&card(vec![
         pref_row("Tự viết hoa", "Sau . ! ? và Enter", &ui.auto_capitalize),
-        pref_row("Hai cách → chấm", "Thử nghiệm: hai dấu cách thành dấu chấm", &ui.double_space),
+        pref_row(
+            "Hai cách → chấm",
+            "Thử nghiệm: hai dấu cách thành dấu chấm",
+            &ui.double_space,
+        ),
     ]));
     section(&tone, "Ký tự đặc biệt", "Chuyển đổi phím tắt ký tự");
     tone.append(&card(vec![
         pref_row("W thành ư", "Tắt / trừ đầu từ / mọi vị trí", &ui.w2u),
-        pref_row("[ ] thành ơ ư", "Tắt / trừ đầu từ / mọi vị trí", &ui.bracket),
-        pref_row("Gõ -- thành —", "Hai dấu trừ liên tiếp thành gạch dài", &ui.em_dash),
+        pref_row(
+            "[ ] thành ơ ư",
+            "Tắt / trừ đầu từ / mọi vị trí",
+            &ui.bracket,
+        ),
+        pref_row(
+            "Gõ -- thành —",
+            "Hai dấu trừ liên tiếp thành gạch dài",
+            &ui.em_dash,
+        ),
     ]));
 
     // ===== Page 3: Gõ tắt =====
     let macro_box = gtk4::Box::new(Orientation::Vertical, 6);
     section(&macro_box, "Gõ tắt", "Mở rộng cụm tắt thành câu đầy đủ");
     macro_box.append(&card(vec![
-        pref_row("Bật gõ tắt", "Khóa gõ tắt mở rộng ở cuối từ", &ui.macro_enabled),
+        pref_row(
+            "Bật gõ tắt",
+            "Khóa gõ tắt mở rộng ở cuối từ",
+            &ui.macro_enabled,
+        ),
         pref_row(
             "Viết hoa gõ tắt",
             "Khóa viết hoa → nội dung viết hoa theo",
             &ui.capitalize_macro,
         ),
-        pref_row("Gõ tắt khi OFF", "Vẫn mở rộng khi tiếng Việt đang tắt", &ui.macro_in_off_mode),
+        pref_row(
+            "Gõ tắt khi OFF",
+            "Vẫn mở rộng khi tiếng Việt đang tắt",
+            &ui.macro_in_off_mode,
+        ),
         pref_row("Định dạng giờ ($TIME)", "Ví dụ %H:%M", &ui.time_format),
         pref_row("Định dạng ngày ($DATE)", "Ví dụ %d/%m/%Y", &ui.date_format),
     ]));
-    section(&macro_box, "Bảng gõ tắt", "Mỗi dòng: khóa=Nội dung ($TIME, $DATE)");
+    section(
+        &macro_box,
+        "Bảng gõ tắt",
+        "Mỗi dòng: khóa=Nội dung ($TIME, $DATE)",
+    );
     macro_box.append(&card_widget(&scrolled(&ui.macro_text, 160)));
 
     // ===== Page 4: Dữ liệu =====
     let data_box = gtk4::Box::new(Orientation::Vertical, 6);
-    section(&data_box, "Từ điển của tôi", "Từ trong từ điển không bị khôi phục về chuỗi phím");
+    section(
+        &data_box,
+        "Từ điển của tôi",
+        "Từ trong từ điển không bị khôi phục về chuỗi phím",
+    );
     data_box.append(&card(vec![pref_row(
         "Bật từ điển",
         "Đọc từ ~/.config/ibus-mangrs/dictionary.txt",
@@ -567,15 +693,23 @@ fn build(app: &Application, initial_page: Option<&str>) {
         "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng",
     );
     data_box.append(&card(vec![
-        pref_row("Xuất cấu hình ra JSON", "Lưu ra file để mang đi", &export_btn),
-        pref_row("Nhập cấu hình từ JSON", "Đọc lại từ file đã xuất", &import_btn),
+        pref_row(
+            "Xuất cấu hình ra JSON",
+            "Lưu ra file để mang đi",
+            &export_btn,
+        ),
+        pref_row(
+            "Nhập cấu hình từ JSON",
+            "Đọc lại từ file đã xuất",
+            &import_btn,
+        ),
     ]));
 
     // ===== Page 5: Giới thiệu =====
     let about = gtk4::Box::new(Orientation::Vertical, 6);
 
     // Logo is embedded at compile time: the GUI has no installed asset dir.
-    const LOGO: &[u8] = include_bytes!("../data/logo-no-bg.png");
+    const LOGO: &[u8] = include_bytes!("../data/logo.png");
     let logo = gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(LOGO)).ok();
     let hero = gtk4::Box::new(Orientation::Vertical, 4);
     hero.set_halign(gtk4::Align::Center);
@@ -625,8 +759,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
         ),
         info_row(
             "network-workgroup-symbolic",
-            "URL & từ điển thông minh",
-            "Từ sau / : @ . giữ nguyên; kiểm tra chính tả với 38 350 từ",
+            "URL thông minh",
+            "Từ ngay sau / : @ . _ ~ = # & % ? giữ nguyên, không thêm dấu",
         ),
         info_row(
             "applications-system-symbolic",
@@ -648,16 +782,26 @@ fn build(app: &Application, initial_page: Option<&str>) {
             "https://github.com/fundokukiri/ibus-mangrs",
             Some(link_button("Mở", "https://github.com/fundokukiri/ibus-mangrs").upcast_ref()),
         ),
-        info_row("avatar-default-symbolic", "Tác giả", "fundoku"),
+        info_row(
+            "avatar-default-symbolic",
+            "Tác giả",
+            "Phùng Đức Tùng (Fundoku)",
+        ),
+        row_impl(
+            Some("web-browser-symbolic"),
+            "Trang chủ",
+            "https://mangrs.fundoku.io.vn",
+            Some(link_button("Mở", "https://mangrs.fundoku.io.vn").upcast_ref()),
+        ),
         info_row(
             "help-about-symbolic",
             "Giấy phép mã nguồn mở",
-            "MIT — mã nguồn mở, chi tiết trong LICENSE và NOTICE.md",
+            "GPL — phiên bản 3, chi tiết trong LICENSE",
         ),
         info_row(
             "emblem-favorite-symbolic",
             "Credits",
-            "Lõi gõ bamboo-core (MIT); từ điển Free Vietnamese Dictionary Project (dữ liệu GPL)",
+            "Lõi gõ bamboo-core (MIT, bên thứ 3)",
         ),
     ]));
 
@@ -801,10 +945,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         Some("dictionary") | Some("apps") | Some("backup") => "data",
         Some(other) => other,
     };
-    let (_, pill) = pills
-        .iter()
-        .find(|(n, _)| n == wanted)
-        .unwrap_or(&pills[0]);
+    let (_, pill) = pills.iter().find(|(n, _)| n == wanted).unwrap_or(&pills[0]);
     pill.set_active(true);
 
     // Grouped-card look, theme-agnostic (alpha over currentColor adapts to
@@ -858,6 +999,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         on_change!(ui.free);
         on_change!(ui.auto_correct);
         on_change!(ui.auto_restore);
+        on_change!(ui.abbrev);
         on_change!(ui.bypass_url);
         on_change!(ui.em_dash);
         on_change!(ui.auto_capitalize);
@@ -963,30 +1105,28 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
 // --- backup / restore (Giai đoạn 11) ---
 
-#[derive(Serialize, Deserialize)]
-struct Backup {
-    version: u32,
-    config: Config,
-    macros: Vec<(String, String)>,
-    dictionary: Vec<String>,
-}
-
 fn export_json(path: Option<PathBuf>) -> Result<(), String> {
-    let Some(path) = path else { return Err("no file chosen".into()) };
-    let backup = Backup {
-        version: 1,
-        config: Config::load(),
-        macros: Macros::load().entries().map(|(k, v)| (k.into(), v.into())).collect(),
-        dictionary: Dictionary::load().words().map(str::to_string).collect(),
+    let Some(path) = path else {
+        return Err("no file chosen".into());
     };
-    let text = serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())?;
+    let text = crate::backup::to_json(
+        Config::load(),
+        Macros::load()
+            .entries()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect(),
+        Dictionary::load().words().map(str::to_string).collect(),
+    )?;
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
 fn import_json(path: Option<PathBuf>, ui: &Ui) -> Result<(), String> {
-    let Some(path) = path else { return Err("no file chosen".into()) };
+    let Some(path) = path else {
+        return Err("no file chosen".into());
+    };
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let backup: Backup = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let backup = crate::backup::from_json(&text)?;
+    // Nothing is written before this line: a corrupt file changes nothing.
     backup.config.save().map_err(|e| e.to_string())?;
     let mut macros = Macros::load();
     macros.set_entries(backup.macros.into_iter());
@@ -994,18 +1134,10 @@ fn import_json(path: Option<PathBuf>, ui: &Ui) -> Result<(), String> {
     let mut dict = Dictionary::load();
     dict.set_words(backup.dictionary.into_iter());
     dict.save().map_err(|e| e.to_string())?;
-    // Refresh the widgets to the imported values.
+    // Every widget, not just the visible ones: a stale switch is written
+    // back over the imported file by the next save.
     let config = Config::load();
-    ui.enabled.set_active(config.enabled);
-    ui.method.set_selected(method_index(config.method));
-    ui.mode.set_selected(mode_index(config.mode));
-    ui.charset.set_selected(charset_index(config.charset));
-    set_text(&ui.macro_text,
-        &Macros::load().entries().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("\n"));
-    set_text(&ui.dictionary_text,
-        &Dictionary::load().words().collect::<Vec<_>>().join("\n"));
-    set_text(&ui.rules_text,
-        &config.app_rules.iter().map(|r| format!("{}={}", r.pattern, r.mode.key())).collect::<Vec<_>>().join("\n"));
+    ui.refresh(&config, &macros, &dict);
     Ok(())
 }
 
@@ -1043,7 +1175,10 @@ fn scrolled(view: &TextView, height: i32) -> gtk4::ScrolledWindow {
 
 /// A link that opens in the default browser.
 fn link_button(label_text: &str, uri: &str) -> gtk4::LinkButton {
-    gtk4::LinkButton::builder().label(label_text).uri(uri).build()
+    gtk4::LinkButton::builder()
+        .label(label_text)
+        .uri(uri)
+        .build()
 }
 
 /// Section header: bold title + dim subtitle (one size larger than rows).
@@ -1128,9 +1263,13 @@ fn row_impl(
         w.set_valign(gtk4::Align::Center);
         h.append(w);
     }
+    // Hovering anywhere on the row explains the feature.
+    h.set_tooltip_text(Some(&format!("{title}: {subtitle}")));
     ROWS.with(|r| {
-        r.borrow_mut()
-            .push((format!("{title} {subtitle}").to_lowercase(), h.clone().upcast()))
+        r.borrow_mut().push((
+            format!("{title} {subtitle}").to_lowercase(),
+            h.clone().upcast(),
+        ))
     });
     h
 }
@@ -1160,4 +1299,79 @@ fn hint(box_: &gtk4::Box, text: &str) {
     l.add_css_class("dim-label");
     l.set_margin_start(4);
     box_.append(&l);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// B3 regression: the import path pushes a config into every widget through
+    /// `refresh`, so a widget `refresh` forgets keeps its old value and the next
+    /// save writes that stale value back over the imported settings. Needs a
+    /// display; skips where GTK cannot start.
+    #[test]
+    fn refresh_round_trips_every_widget() {
+        if gtk4::init().is_err() {
+            eprintln!("gui: SKIP (no display)");
+            return;
+        }
+        let ui = widgets();
+        let mut macros = Macros::load();
+        macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
+        let mut dictionary = Dictionary::load();
+        dictionary.set_words(["asl".to_string(), "tr".to_string()].into_iter());
+
+        // `read()` starts from the file, which is where the one option without
+        // a widget (`hide_underline`) comes from.
+        let baseline = ui.read();
+        let config = Config {
+            enabled: false,
+            method: MethodConfig::Vni,
+            mode: ModeConfig::Select,
+            charset: CharsetConfig::Tcvn3,
+            modern_tone_style: false,
+            free_tone_marking: true,
+            auto_correct: false,
+            auto_restore: false,
+            bypass_url: false,
+            w2u: W2uConfig::NonStart,
+            bracket: BracketConfig::Everywhere,
+            em_dash: true,
+            auto_capitalize: true,
+            double_space_period: true,
+            macro_enabled: false,
+            capitalize_macro: false,
+            macro_in_off_mode: true,
+            time_format: "%H".into(),
+            date_format: "%Y".into(),
+            dictionary_enabled: false,
+            abbreviations: false,
+            cycle_mode_hotkey: "Control+Alt+v".into(),
+            hide_underline: baseline.hide_underline,
+            commit_interval_ms: 33,
+            backspace_interval_ms: 7,
+            post_delay_ms: 12,
+            unicode_channel: crate::config::UnicodeChannel::Clipboard,
+            debug_log: true,
+            app_rules: vec![crate::config::AppRule {
+                pattern: "kate".into(),
+                mode: ModeConfig::Preedit,
+            }],
+        };
+        ui.refresh(&config, &macros, &dictionary);
+
+        assert_eq!(ui.read(), config);
+        assert_eq!(
+            ui.read_rules(),
+            vec![("kate".to_string(), ModeConfig::Preedit)]
+        );
+        assert_eq!(
+            ui.read_macros(),
+            vec![("gs".to_string(), "giờ sáng".to_string())]
+        );
+        // A set: the order it hands the text view back in is not the input order.
+        let mut words = ui.read_dictionary();
+        words.sort();
+        assert_eq!(words, vec!["asl".to_string(), "tr".to_string()]);
+    }
 }
