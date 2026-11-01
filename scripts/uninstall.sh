@@ -5,8 +5,9 @@ PREFIX=${PREFIX:-/usr}
 
 rm -f "$PREFIX/lib/ibus-mangrs/ibus-engine-ibus-mangrs" \
       "$PREFIX/share/ibus/component/ibus-mangrs.xml" \
-      "$PREFIX/share/ibus-mangrs/vn-words.txt" \
       /etc/udev/rules.d/80-uinput.rules
+# Path used by 0.1.3 and earlier, which shipped a word list the engine never read.
+rm -f "$PREFIX/share/ibus-mangrs/vn-words.txt"
 rmdir "$PREFIX/share/ibus-mangrs" 2>/dev/null || true
 rmdir "$PREFIX/lib/ibus-mangrs" 2>/dev/null || true
 ibus write-cache --system 2>/dev/null || true
