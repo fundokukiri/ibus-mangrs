@@ -20,7 +20,6 @@ bin="$here/target/release/ibus-engine-ibus-mangrs"
 # world-readable and executable.
 install -Dm755 "$bin" "$LIBDIR/ibus-engine-ibus-mangrs"
 install -Dm644 "$here/data/ibus-mangrs.xml" "$COMPONENT_DIR/ibus-mangrs.xml"
-install -Dm644 "$here/data/vn-words.txt" "$PREFIX/share/ibus-mangrs/vn-words.txt"
 
 # Rebuild the registry cache; without -t refresh the daemon serves the old list.
 ibus write-cache --system 2>/dev/null || true

@@ -115,7 +115,11 @@ pub enum Outcome {
     /// result is a valid Vietnamese syllable, so a caller that has not
     /// committed it yet (preedit mode) still can; the composition itself is
     /// already cleared.
-    Finish { word: String, raw: String, valid: bool },
+    Finish {
+        word: String,
+        raw: String,
+        valid: bool,
+    },
 }
 
 pub struct BambooWrapper {
@@ -133,6 +137,13 @@ pub struct BambooWrapper {
     /// it on the next few keys ("too" + 'l' → "toool"), so later
     /// implausible deltas in this word fall back to plain appends.
     undo_in_word: bool,
+    /// The current word is a Vietnamese abbreviation that bamboo's
+    /// auto_correct reverted and the wrapper re-fixed (`ddc` → `đc`): not a
+    /// valid syllable, so the word-end auto-restore must leave it alone.
+    abbrev_fixed: bool,
+    /// `abbreviations` config: whether reverted non-syllable compositions
+    /// get the dd→đ transform re-applied (đc, đk, đt, đg).
+    abbrev: bool,
     /// True while a word is being composed (raw belongs to it).
     composing: bool,
     /// The composition output after the last operation (process, backspace,
@@ -154,6 +165,8 @@ impl BambooWrapper {
             raw: String::new(),
             output_override: None,
             undo_in_word: false,
+            abbrev_fixed: false,
+            abbrev: true,
             composing: false,
             last_output: String::new(),
         }
@@ -207,6 +220,35 @@ impl BambooWrapper {
         self.enabled
     }
 
+    /// The active input method, for method-specific decisions upstream.
+    pub fn method(&self) -> Method {
+        self.method
+    }
+
+    /// Load raw keystrokes back into the composition (the idle-commit
+    /// re-entry): the engine replays them so tone keys can still transform
+    /// the word — `rebuild_from_text` cannot, it builds marks without
+    /// keystrokes and a following tone key starts a fresh word.
+    pub fn replay_raw(&mut self, raw: &str) {
+        self.engine.reset();
+        self.raw = raw.to_string();
+        self.composing = !raw.is_empty();
+        self.undo_in_word = false;
+        self.abbrev_fixed = false;
+        self.output_override = None;
+        self.last_output.clear();
+        for r in raw.chars() {
+            let _ = self.engine.process_key_edit(r, Mode::Vietnamese);
+        }
+        self.last_output = self.engine.output_str().to_string();
+    }
+
+    /// `abbreviations` config: keep the đ in reverted non-syllable
+    /// compositions (`ddc` → `đc`). See the reversion fix in `process_char`.
+    pub fn set_abbreviations(&mut self, on: bool) {
+        self.abbrev = on;
+    }
+
     /// Feed one character. The returned `Edit` describes how to rewrite the
     /// text already committed to the application.
     pub fn process_char(&mut self, c: char) -> Outcome {
@@ -220,20 +262,31 @@ impl BambooWrapper {
         // (bamboo-core clears its whole composition on a digit in Telex —
         // feeding it there deleted the word in the application.) The same
         // holds for `_`, which no method uses as a mark.
-        let digit_key =
-            c.is_ascii_digit() && matches!(self.method, Method::Telex | Method::Viqr);
-        if (is_word_terminator(c) || digit_key) && !bracket_key {
+        let digit_key = c.is_ascii_digit() && matches!(self.method, Method::Telex | Method::Viqr);
+        // VIQR marks are punctuation keys: they must reach bamboo-core
+        // instead of ending the word (unikey convention). `0` is VIQR's
+        // remove-tone key — the only digit the method uses as a mark, so it
+        // is exempt from the digit terminator too.
+        let viqr_mark_key = self.method == Method::Viqr
+            && (matches!(c, '\'' | '`' | '?' | '~' | '.' | '^' | '+' | '*' | '(') || c == '0');
+        // The Microsoft layout types ư/ơ only through the bracket keys, so
+        // they must reach bamboo-core for this method regardless of the
+        // bracket option.
+        let ms_bracket_key = self.method == Method::MsLayout && matches!(c, '[' | ']' | '{' | '}');
+        if (is_word_terminator(c) || digit_key) && !bracket_key && !viqr_mark_key && !ms_bracket_key
+        {
             // The visible composition, not bamboo's internal string: after an
             // undone mark its state is poisoned ("tool" is "toool" inside)
             // and committing that would re-add the hidden character at the
             // word boundary ("tool" + space -> "toool").
             let word = self.output();
-            let valid = !word.is_empty() && self.engine.is_valid_word();
+            let valid = !word.is_empty() && (self.abbrev_fixed || self.engine.is_valid_word());
             let raw = std::mem::take(&mut self.raw);
             self.composing = false;
             self.engine.reset();
             self.last_output.clear();
             self.output_override = None;
+            self.abbrev_fixed = false;
             return Outcome::Finish { word, raw, valid };
         }
 
@@ -243,6 +296,7 @@ impl BambooWrapper {
             self.raw.clear();
             self.composing = true;
             self.undo_in_word = false;
+            self.abbrev_fixed = false;
         }
         self.raw.push(c);
 
@@ -252,6 +306,21 @@ impl BambooWrapper {
 
         let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
         let mut new_output = self.engine.output_str().to_string();
+        // bamboo's auto_correct reverts a composition that is not a valid
+        // Vietnamese syllable back to the raw keys — and the common
+        // abbreviations are not syllables: typing `ddc` ("đc" for "được")
+        // had the dd→đ transform undone and came out as "ddc". Vietnamese
+        // abbreviations keep their đ: when the raw keys start with the `dd`
+        // rule and the composition was reverted to exactly those raw keys,
+        // re-apply the transform. Real words ("ddau" → "đau") never hit
+        // this — their compositions are valid and never reverted.
+        if self.abbrev && new_output == self.raw && self.raw.starts_with("dd") && self.raw.len() > 2
+        {
+            debug_log::log("abbreviation reverted by auto_correct → keep the đ");
+            new_output = format!("đ{}", &self.raw[2..]);
+            self.output_override = Some(new_output.clone());
+            self.abbrev_fixed = true;
+        }
         // The composition output can never be longer than the raw keystrokes
         // (marks combine characters, they never add). When it is, bamboo's
         // internal state is poisoned by an undone mark — "too" (undone "tô")
@@ -276,9 +345,7 @@ impl BambooWrapper {
         // "toool"). Try a clean rebuild from the raw keys; if that is
         // poisoned too, fall back to a plain append of the raw key, which is
         // exactly what the user sees on screen.
-        if self.undo_in_word
-            && edit.insert.chars().count() as i64 - edit.delete_chars as i64 > 1
-        {
+        if self.undo_in_word && edit.insert.chars().count() as i64 - edit.delete_chars as i64 > 1 {
             debug_log::log(&format!(
                 "bamboo delta grows {} chars net → rebuild",
                 edit.insert.chars().count() as i64 - edit.delete_chars as i64
@@ -299,9 +366,12 @@ impl BambooWrapper {
                 app.push(c);
                 self.last_output = app.clone();
                 self.output_override = Some(app);
-                edit = Edit { delete_chars: 0, insert: c.to_string() };
+                edit = Edit {
+                    delete_chars: 0,
+                    insert: c.to_string(),
+                };
             }
-        } else {
+        } else if !self.abbrev_fixed {
             self.output_override = None;
         }
         // Mark removed while the same base letter comes back unmarked = the
@@ -327,7 +397,6 @@ impl BambooWrapper {
             }
         }
 
-
         if edit.is_empty() {
             // The key is forwarded: the application appends the raw
             // character. Bamboo's own output can lag the raw keys (an undone
@@ -343,8 +412,7 @@ impl BambooWrapper {
             // an undone mark the fallback appended the raw key to `app_text`
             // ("toolb"), while bamboo still reports "tooolb". Trusting the
             // latter made the next key grow the preedit to "tooolb".
-            self.last_output =
-                self.output_override.clone().unwrap_or(new_output);
+            self.last_output = self.output_override.clone().unwrap_or(new_output);
             Outcome::Edit(edit)
         }
     }
@@ -381,9 +449,15 @@ impl BambooWrapper {
         let old_len = old.chars().count();
         let new_len = new.chars().count();
         if old.starts_with(&new) {
-            Some(Edit { delete_chars: old_len - new_len, insert: String::new() })
+            Some(Edit {
+                delete_chars: old_len - new_len,
+                insert: String::new(),
+            })
         } else {
-            Some(Edit { delete_chars: old_len, insert: new })
+            Some(Edit {
+                delete_chars: old_len,
+                insert: new,
+            })
         }
     }
 
@@ -412,6 +486,13 @@ impl BambooWrapper {
             Some(o) => o.clone(),
             None => self.engine.output_str().to_string(),
         }
+    }
+
+    /// Whether the current composition is a valid Vietnamese syllable — the
+    /// same verdict `Outcome::Finish` carries, for word ends the engine
+    /// decides itself (the idle timeout) where `process_char` is not involved.
+    pub fn is_valid(&self) -> bool {
+        !self.output().is_empty() && self.engine.is_valid_word()
     }
 
     pub fn has_composition(&self) -> bool {
@@ -469,11 +550,13 @@ impl BambooWrapper {
 fn base_letter(c: char) -> char {
     let l = c.to_lowercase().next().unwrap_or(c);
     match l {
-        'á' | 'à' | 'ả' | 'ã' | 'ạ' | 'ă' | 'â' | 'ấ' | 'ầ' | 'ẩ' | 'ẫ' | 'ậ' => 'a',
+        'á' | 'à' | 'ả' | 'ã' | 'ạ' | 'ă' | 'â' | 'ấ' | 'ầ' | 'ẩ' | 'ẫ' | 'ậ' => {
+            'a'
+        }
         'é' | 'è' | 'ẻ' | 'ẽ' | 'ẹ' | 'ê' | 'ế' | 'ề' | 'ể' | 'ễ' | 'ệ' => 'e',
         'í' | 'ì' | 'ỉ' | 'ĩ' | 'ị' => 'i',
-        'ó' | 'ò' | 'ỏ' | 'õ' | 'ọ' | 'ô' | 'ố' | 'ồ' | 'ổ' | 'ỗ' | 'ộ' | 'ơ' | 'ớ' | 'ờ'
-        | 'ở' | 'ỡ' | 'ợ' => 'o',
+        'ó' | 'ò' | 'ỏ' | 'õ' | 'ọ' | 'ô' | 'ố' | 'ồ' | 'ổ' | 'ỗ' | 'ộ' | 'ơ' | 'ớ' | 'ờ' | 'ở'
+        | 'ỡ' | 'ợ' => 'o',
         'ú' | 'ù' | 'ủ' | 'ũ' | 'ụ' | 'ư' | 'ứ' | 'ừ' | 'ử' | 'ữ' | 'ự' => 'u',
         'ý' | 'ỳ' | 'ỷ' | 'ỹ' | 'ỵ' => 'y',
         other => other,
@@ -488,9 +571,41 @@ fn is_marked(c: char) -> bool {
 pub fn is_word_terminator(c: char) -> bool {
     matches!(
         c,
-        ' ' | '\t' | '\n' | '\r' | '.' | ',' | ';' | ':' | '!' | '?' | '"' | '\'' | '(' | ')'
-            | '[' | ']' | '{' | '}' | '<' | '>' | '/' | '\\' | '|' | '@' | '#' | '$' | '%'
-            | '^' | '&' | '*' | '-' | '+' | '=' | '~' | '`' | '_'
+        ' ' | '\t'
+            | '\n'
+            | '\r'
+            | '.'
+            | ','
+            | ';'
+            | ':'
+            | '!'
+            | '?'
+            | '"'
+            | '\''
+            | '('
+            | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+            | '<'
+            | '>'
+            | '/'
+            | '\\'
+            | '|'
+            | '@'
+            | '#'
+            | '$'
+            | '%'
+            | '^'
+            | '&'
+            | '*'
+            | '-'
+            | '+'
+            | '='
+            | '~'
+            | '`'
+            | '_'
     )
 }
 
@@ -521,11 +636,51 @@ mod tests {
     }
 
     #[test]
+    fn abbreviation_keeps_the_dd_transform() {
+        let mut w = wrapper(Method::Telex);
+        type_str(&mut w, "ddc");
+        assert_eq!(w.output(), "đc");
+        // The word-end auto-restore must not undo the abbreviation: the
+        // finished word is "đc", not the raw keys.
+        if let Outcome::Finish { word, raw, valid } = w.process_char(' ') {
+            assert_eq!(word, "đc");
+            assert_eq!(raw, "ddc");
+            assert!(valid, "abbrev_fixed must skip auto-restore");
+        } else {
+            panic!("space must finish the word");
+        }
+    }
+
+    #[test]
+    fn abbreviation_fix_is_togglable() {
+        let mut w = wrapper(Method::Telex);
+        w.set_abbreviations(false);
+        type_str(&mut w, "ddc");
+        assert_eq!(w.output(), "ddc", "off: bamboo's raw reversion stands");
+        let mut w = wrapper(Method::Telex);
+        w.set_abbreviations(true);
+        type_str(&mut w, "ddk");
+        assert_eq!(w.output(), "đk");
+    }
+
+    #[test]
+    fn real_dd_words_are_untouched_by_the_abbrev_fix() {
+        let mut w = wrapper(Method::Telex);
+        type_str(&mut w, "ddau");
+        assert_eq!(w.output(), "đau");
+        let mut w = wrapper(Method::Telex);
+        type_str(&mut w, "ddung");
+        assert_eq!(w.output(), "đung");
+    }
+
+    #[test]
     fn edits_describe_rewrites() {
         let mut w = wrapper(Method::Telex);
         type_str(&mut w, "tieeng");
         // Typing the tone key rewrites the tail rather than appending.
-        let Outcome::Edit(e) = w.process_char('s') else { panic!("expected edit") };
+        let Outcome::Edit(e) = w.process_char('s') else {
+            panic!("expected edit")
+        };
         assert!(e.delete_chars > 0, "tone key should delete: {e:?}");
         assert_eq!(w.output(), "tiếng");
     }
@@ -536,7 +691,11 @@ mod tests {
         type_str(&mut w, "vieejt");
         assert_eq!(
             w.process_char(' '),
-            Outcome::Finish { word: "việt".into(), raw: "vieejt".into(), valid: true }
+            Outcome::Finish {
+                word: "việt".into(),
+                raw: "vieejt".into(),
+                valid: true
+            }
         );
         assert_eq!(w.output(), "", "composition must be cleared");
     }
@@ -550,7 +709,11 @@ mod tests {
         type_str(&mut w, "tung");
         assert_eq!(
             w.process_char('_'),
-            Outcome::Finish { word: "tung".into(), raw: "tung".into(), valid: true }
+            Outcome::Finish {
+                word: "tung".into(),
+                raw: "tung".into(),
+                valid: true
+            }
         );
     }
 
@@ -593,12 +756,27 @@ mod tests {
         assert_eq!(w.output(), "hoàng");
         assert_eq!(
             w.backspace(),
-            Some(Edit { delete_chars: 5, insert: "hoang".into() })
+            Some(Edit {
+                delete_chars: 5,
+                insert: "hoang".into()
+            })
         );
         assert_eq!(w.output(), "hoang");
-        assert_eq!(w.backspace(), Some(Edit { delete_chars: 1, insert: String::new() }));
+        assert_eq!(
+            w.backspace(),
+            Some(Edit {
+                delete_chars: 1,
+                insert: String::new()
+            })
+        );
         assert_eq!(w.output(), "hoan");
-        assert_eq!(w.backspace(), Some(Edit { delete_chars: 1, insert: String::new() }));
+        assert_eq!(
+            w.backspace(),
+            Some(Edit {
+                delete_chars: 1,
+                insert: String::new()
+            })
+        );
         assert_eq!(w.output(), "hoa");
     }
 
@@ -622,7 +800,9 @@ mod tests {
                 if c == '{' {
                     let mut name = String::new();
                     for nc in keys.by_ref() {
-                        if nc == '}' { break; }
+                        if nc == '}' {
+                            break;
+                        }
                         name.push(nc);
                     }
                     assert_eq!(name, "b");
@@ -672,9 +852,7 @@ mod tests {
 
     #[test]
     fn w2u_modes_affect_plain_w() {
-        for (config_w2u, expected) in
-            [(W2uMode::NonStart, "như"), (W2uMode::Everywhere, "như")]
-        {
+        for (config_w2u, expected) in [(W2uMode::NonStart, "như"), (W2uMode::Everywhere, "như")] {
             let config = Config::builder().w2u_mode(config_w2u).build();
             let mut w = BambooWrapper::new(Method::Telex, config);
             type_str(&mut w, "nhw");
@@ -688,13 +866,20 @@ mod tests {
 
     #[test]
     fn bracket_modes_type_vowels() {
-        let config = Config::builder().bracket_mode(BracketMode::NonStart).build();
+        let config = Config::builder()
+            .bracket_mode(BracketMode::NonStart)
+            .build();
         let mut w = BambooWrapper::new(Method::Telex, config);
         // Not at the start of a word: `t[` -> `tơ`.
         type_str(&mut w, "t[");
         assert_eq!(w.output(), "tơ");
         // At the start of a word the bracket stays a bracket (NonStart).
-        let mut w = BambooWrapper::new(Method::Telex, Config::builder().bracket_mode(BracketMode::NonStart).build());
+        let mut w = BambooWrapper::new(
+            Method::Telex,
+            Config::builder()
+                .bracket_mode(BracketMode::NonStart)
+                .build(),
+        );
         type_str(&mut w, "[");
         assert_eq!(w.output(), "");
     }
