@@ -283,10 +283,11 @@ impl BambooWrapper {
             // word boundary ("tool" + space -> "toool").
             let word = self.output();
             // Both verdicts are read here: `engine.reset()` below clears the
-            // composition, so a caller can no longer ask.
-            let valid = !word.is_empty() && (self.abbrev_fixed || self.engine.is_valid_word());
-            let valid_prefix =
-                !word.is_empty() && (self.abbrev_fixed || self.engine.is_valid_prefix());
+            // composition, so a caller can no longer ask. `abbrev_fixed` counts
+            // as valid, exactly like a real syllable — an abbreviation must not
+            // be auto-restored to its raw keys.
+            let valid = self.is_valid();
+            let valid_prefix = self.is_valid_prefix();
             let raw = std::mem::take(&mut self.raw);
             self.composing = false;
             self.engine.reset();
@@ -502,16 +503,19 @@ impl BambooWrapper {
     /// Whether the current composition is a valid Vietnamese syllable — the
     /// same verdict `Outcome::Finish` carries, for word ends the engine
     /// decides itself (the idle timeout) where `process_char` is not involved.
+    /// An abbreviation (`ddc` → `đc`) counts as valid: its đ must survive.
     pub fn is_valid(&self) -> bool {
-        !self.output().is_empty() && self.engine.is_valid_word()
+        !self.output().is_empty() && (self.abbrev_fixed || self.engine.is_valid_word())
     }
 
     /// Valid, possibly incomplete syllable prefix — bamboo-core's
     /// `is_valid_prefix` (`IsValid(false)`), the verdict ibus-bamboo uses
-    /// while typing; `is_valid` is the complete-syllable one. Only meaningful
-    /// while a composition is live.
+    /// while typing; `is_valid` is the complete-syllable one. An abbreviation
+    /// (`ddc` → `đc`) counts as a valid prefix, or the preedit would flash the
+    /// raw keys and a click would commit them. Only meaningful while a
+    /// composition is live.
     pub fn is_valid_prefix(&self) -> bool {
-        !self.output().is_empty() && self.engine.is_valid_prefix()
+        !self.output().is_empty() && (self.abbrev_fixed || self.engine.is_valid_prefix())
     }
 
     pub fn has_composition(&self) -> bool {
