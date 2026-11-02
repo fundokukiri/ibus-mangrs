@@ -338,13 +338,25 @@ impl EngineHandler {
                 for text in engine.flush_deferred() {
                     out.push(signal("CommitText").append1(plain_text(&text)));
                 }
-                // The preedit carries IBUS_ENGINE_PREEDIT_COMMIT, so GTK has
-                // already committed the pending word on the way out;
+                // The preedit carries IBUS_ENGINE_PREEDIT_COMMIT, so the client
+                // has already committed the pending word on the way out;
                 // committing it again here would duplicate it — only the
-                // internal composition is discarded.
-                let actions = engine.drop_pending_word();
+                // internal composition is discarded. No HidePreedit either:
+                // the client clears its own preedit display, and in clients
+                // that handle FocusOut before committing, our HidePreedit would
+                // arrive first and wipe the word (same as ibus-bamboo's no-op
+                // FocusOut).
+                let actions = engine.focus_out();
                 emit(&mut engine, &actions, out);
-                engine.set_enabled(false);
+                // Only `Disable` (the panel toggle) switches the wrapper off.
+                // FocusOut must not: focus events get coalesced (a quick
+                // unfocus/refocus of one context never re-sends them — see the
+                // SetCapabilities note below), so a FocusOut whose FocusIn
+                // never arrives would leave every later key PassThrough:
+                // raw Latin typing until the engine is toggled or restarted.
+                if member == "Disable" {
+                    engine.set_enabled(false);
+                }
                 engine.set_client(None);
                 // Drop the context's buffer data: the next focus may be a
                 // context whose buffer mutter never saw. Caps are KEPT — the
@@ -354,7 +366,11 @@ impl EngineHandler {
                 // them here made every later rewrite take the broken
                 // injection path ("xin chaà" session).
                 engine.clear_buffer_state();
-                debug_log::log("focus-out");
+                debug_log::log(if member == "Disable" {
+                    "disable"
+                } else {
+                    "focus-out"
+                });
                 msg.method_return()
             }
             "Reset" => {
@@ -1165,6 +1181,80 @@ mod tests {
         assert_eq!(parse_hotkey("Shift+v"), None);
         assert_eq!(parse_hotkey(""), None);
         assert_eq!(parse_hotkey("NotAModifier+q"), None);
+    }
+
+    /// Build an `org.freedesktop.IBus.Engine` method-call message for `member`.
+    fn engine_msg(member: &str) -> Message {
+        // Test-only unwraps: these names are constants from this file.
+        use dbus::strings::{BusName, Interface, Member, Path};
+        // libdbus asserts on method_return() of a serial-less message.
+        let mut msg = Message::method_call(
+            &BusName::new(BUS_NAME).unwrap(),
+            &Path::new(ENGINE_PATH).unwrap(),
+            &Interface::new(ENGINE_IFACE).unwrap(),
+            &Member::new(member).unwrap(),
+        );
+        msg.set_serial(1);
+        msg
+    }
+
+    #[test]
+    fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
+        // Regression: FocusOut used to call set_enabled(false), and focus
+        // events get coalesced (a FocusOut whose FocusIn never arrives) —
+        // every later key then came back PassThrough: raw Latin typing until
+        // the engine was toggled or restarted. Only `Disable` (the panel
+        // toggle) may switch the wrapper off.
+        let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+        // The daemon sends SetCapabilities before any key; without
+        // CAP_PREEDIT_TEXT the engine resolves Preedit down to NonPreedit.
+        lock_engine(&engine).set_capabilities(1);
+        let mut handler = EngineHandler {
+            engine: Arc::clone(&engine),
+            // Fresh clock: maybe_reload_config stays inside its 1s gate, so
+            // the test never touches the real config file.
+            last_config_check: Instant::now(),
+            last_config_mtime: None,
+            cycle_hotkey: None,
+        };
+        let press = |handler: &mut EngineHandler, keyval: u32| {
+            let msg = engine_msg("ProcessKeyEvent").append3(keyval, 0u32, 0u32);
+            let mut out = Vec::new();
+            let reply = handler.process_key_call(&msg, &mut out);
+            let consumed = reply.read1::<bool>().expect("bool reply");
+            (consumed, out)
+        };
+
+        let (consumed, out) = press(&mut handler, 116); // 't'
+        assert!(
+            consumed
+                && out
+                    .iter()
+                    .any(|m| &*m.member().unwrap() == "UpdatePreeditText")
+        );
+
+        // The context loses focus and no FocusIn ever comes back.
+        let mut out = Vec::new();
+        handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+        assert!(
+            lock_engine(&engine).is_enabled(),
+            "FocusOut must not disable the wrapper"
+        );
+        let (consumed, out) = press(&mut handler, 117); // 'u'
+        assert!(
+            consumed
+                && out
+                    .iter()
+                    .any(|m| &*m.member().unwrap() == "UpdatePreeditText"),
+            "keys after a FocusOut without FocusIn must still compose"
+        );
+
+        // The panel toggle still disables, and keys then pass through.
+        let mut out = Vec::new();
+        handler.engine_call(&engine_msg("Disable"), "Disable", &mut out);
+        assert!(!lock_engine(&engine).is_enabled());
+        let (consumed, _) = press(&mut handler, 110); // 'n'
+        assert!(!consumed, "a disabled engine forwards keys to the app");
     }
 
     #[test]
