@@ -84,8 +84,18 @@ pub fn brief(s: &str) -> std::borrow::Cow<'_, str> {
 mod tests {
     use super::*;
 
+    /// The tests below share process-wide state (`ENABLED`, `LOG_FILE`,
+    /// `PATH_OVERRIDE`); running them in parallel made the log assertions
+    /// flake. Serialize them.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+        TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     #[test]
     fn disabled_by_default_and_never_panics() {
+        let _guard = test_guard();
         set_enabled(false);
         log("no-op");
         assert!(!ENABLED.load(Ordering::Relaxed));
@@ -93,6 +103,7 @@ mod tests {
 
     #[test]
     fn enabled_log_appends_to_one_handle() {
+        let _guard = test_guard();
         let dir = std::env::temp_dir().join(format!("ibus-mangrs-log-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("debug.log");
