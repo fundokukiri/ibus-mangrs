@@ -4,6 +4,85 @@ All notable, user-visible changes to ibus-mangrs (MăngRS) are documented here, 
 The project versions independently of `bamboo-core`; each release gets a tag `ibus-mangrs-<version>`.
 Detailed round-by-round debugging history lives in `DEVLOG.md` (internal).
 
+## [0.1.4] — 02/11/2026
+
+In Preedit mode (the default), typing a Vietnamese word and then clicking somewhere else or
+switching to another window no longer loses the word: the app now commits it, instead of clearing
+it, because the preedit tells the app to commit it on a reset — the same thing ibus-bamboo does.
+The extra "click behavior" and "auto-release time" settings are gone, since they existed only to
+work around that loss. Core: `bamboo-core 0.5.3`.
+
+### Changed
+
+- Removed the "Thời gian tự nhả" and "Hành vi khi click" settings (the `preedit_commit_timeout_ms`
+  and `click_action` keys). They were workarounds for the word loss fixed below and are no longer
+  needed; the keys are ignored if they remain in `config.toml`.
+- While typing in Preedit mode, a macro key now shows its expansion before the word ends: typing
+  `gs` shows `giờ sáng` underlined. The app commits what the preedit shows, so without this a
+  click would have committed the raw `gs`.
+- A half-typed word whose syllable is still incomplete (`đuo`, `đuoc`) now stays composed instead
+  of briefly reverting to the raw keys at each keystroke. This is what ibus-bamboo does; the
+  revert is kept for words that are not Vietnamese at all (`windowf`).
+
+### Fixed
+
+- Preedit mode: typing a Vietnamese word without space or Enter, then clicking elsewhere (or
+  switching window) before it committed, made the typed word disappear. The preedit is now sent
+  with `IBUS_ENGINE_PREEDIT_COMMIT`, so the client commits the word itself when it resets the
+  input context, exactly like ibus-bamboo. Verified over D-Bus (the preedit carries the commit
+  mode, and a Reset/FocusOut no longer makes the engine commit, so nothing is duplicated); a real
+  mouse click in a real application has not been tested yet.
+- Typing `được` (Telex `dduocwj`) flickered through `dduo` and `dduoc` before the finished word
+  appeared. A word that is still a valid Vietnamese prefix no longer reverts to its raw keys
+  mid-word, so `đuo` stays `đuo`; non-Vietnamese words like `windowf` are still restored.
+  Verified over D-Bus, not yet in a real application.
+
+## [0.1.3] — 01/11/2026
+
+Fixes across every typing mode: a macro word no longer breaks when typing continues after a
+pause, auto-capitalize works in the three uinput modes, one bad line in `config.toml` no longer
+resets all settings, and the clipboard channel gives your clipboard back even when the paste
+fails. Core: `bamboo-core 0.5.3`. Download:
+https://github.com/fundokukiri/ibus-mangrs/releases/tag/v0.1.3
+
+### Changed
+
+- The spell-check word list is gone from the settings window ("Giới thiệu" page) and from the
+  installers. It never changed what you type — spelling correction is the engine's syllable
+  check — so typing is unaffected. If you created `~/.config/ibus-mangrs/vn-words.txt` to extend
+  that list, the file now has no effect.
+
+### Fixed
+
+- Typing a macro key, pausing, then typing another key corrupted the word: with
+  `gs = "giờ sáng"`, typing `gs`, waiting for the commit, then `s` left `giờ sá` on screen and
+  ate the following character. The late key now starts a new word instead of rewriting the
+  expansion from the raw keys.
+- "Tự viết hoa" did nothing in the Smooth, Super Smooth and Select modes: `xin chao. tieengs`
+  produced `tiếng` instead of `Tiếng`.
+- One typo in `config.toml` (for example `w2u = "everywhre"`) silently reset every setting to
+  its default, and the settings window then wrote those defaults over the file. Only the
+  offending line is ignored now, and it is reported in `~/.cache/ibus-mangrs/debug.log`.
+- The "Không gạch chân" mode could delete text around the caret when the application reported
+  surrounding text that did not match, although only "Surrounding text" is meant to repair. It
+  no longer does.
+- With `unicode_channel = "clipboard"`, a failed Ctrl+V left your clipboard holding the
+  Vietnamese word instead of what you had copied. The original content is restored now.
+- With the same setting, the Vietnamese word could appear and then be deleted again when the
+  paste fell back to a plain commit ("the accent flashes and reverts"). The commit now waits for
+  the injected Backspace keys.
+- Losing focus, or changing a setting, in the middle of a macro word committed the raw keys
+  (`gs` instead of `giờ sáng`). Verified over D-Bus with a synthetic client, not yet in a real
+  application.
+- In the "Select" mode, a failed Delete key press left the typed tail selected and the next word
+  replaced it. The tail is now deleted with a Backspace in that case.
+- On a machine with more than one registry file in `~/.config/ibus/bus/`, the engine could
+  connect to a daemon that is no longer running and stop receiving keys. It now uses the newest
+  file.
+- Importing a settings backup (JSON) in the settings window left the switches at their old
+  values, so the next save wrote those back over the imported settings. The widget mapping now
+  has a test; the import itself has not been clicked through by hand yet.
+
 ## [0.1.1] — 31/10/2026
 
 Three uinput display modes (Smooth, Super Smooth, Select) that press real keys instead of
