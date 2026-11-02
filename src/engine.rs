@@ -294,7 +294,9 @@ impl Engine {
             // exactly as on a terminator. No key is forwarded here.
             let raw = self.wrapper.raw().to_string();
             let valid = self.wrapper.is_valid();
-            let mut finished = self.on_finish(Mode::Preedit, pending.clone(), raw, valid);
+            let valid_prefix = self.wrapper.is_valid_prefix();
+            let mut finished =
+                self.on_finish(Mode::Preedit, pending.clone(), raw, valid, valid_prefix);
             finished.retain(|a| !matches!(a, Action::Forward));
             actions.extend(finished);
             self.wrapper.reset();
@@ -1024,8 +1026,13 @@ impl Engine {
                     actions
                 }
             }
-            Outcome::Finish { word, raw, valid } => {
-                actions.extend(self.on_finish(mode, word, raw, valid));
+            Outcome::Finish {
+                word,
+                raw,
+                valid,
+                valid_prefix,
+            } => {
+                actions.extend(self.on_finish(mode, word, raw, valid, valid_prefix));
                 // The terminator itself reaches the application last.
                 self.note_char(c);
                 actions
@@ -1150,20 +1157,28 @@ impl Engine {
         if let Some(exp) = self.expand_macro(raw, valid) {
             return exp;
         }
+        if self.should_auto_restore(&word, raw, self.wrapper.is_valid_prefix()) {
+            return raw.to_string();
+        }
+        word
+    }
+
+    /// Auto Non-VN restore decision: the composed word differs from the raw
+    /// keys and is not a Vietnamese syllable, so the raw keys go back. The
+    /// check is the prefix one — what ibus-bamboo uses while typing — so a
+    /// still-extendable state like `đuo` stays composed instead of flickering
+    /// back to `dduo`. A word with an undone mark (`tê` + 'e' → `tee`), or one
+    /// in the dictionary, is never restored. Shared by the preedit display and
+    /// the word end so the client commits the same string a word break would.
+    fn should_auto_restore(&self, word: &str, raw: &str, valid_prefix: bool) -> bool {
+        if !self.auto_restore || word.is_empty() || word == raw || valid_prefix {
+            return false;
+        }
         let dict_hit = self
             .dictionary
             .as_ref()
             .is_some_and(|d| d.contains(&word.to_lowercase()));
-        if self.auto_restore
-            && !word.is_empty()
-            && !valid
-            && word != raw
-            && !dict_hit
-            && !self.wrapper.undo_in_word()
-        {
-            return raw.to_string();
-        }
-        word
+        !dict_hit && !self.wrapper.undo_in_word()
     }
 
     /// The uinput modes (Smooth / SuperSmooth / Select): the application
@@ -1188,9 +1203,9 @@ impl Engine {
                 // shows the raw key until the word ends.
                 vec![Action::Forward]
             }
-            Outcome::Finish { word, raw, valid } => {
-                self.on_finish_smooth(mode, word, raw, valid, c)
-            }
+            Outcome::Finish {
+                word, raw, valid, ..
+            } => self.on_finish_smooth(mode, word, raw, valid, c),
         }
     }
 
@@ -1300,7 +1315,14 @@ impl Engine {
 
     /// Word end: macros and auto-restore replace the committed word, preedit
     /// commits the word it still holds, and everything moves on.
-    fn on_finish(&mut self, mode: Mode, word: String, raw: String, valid: bool) -> Vec<Action> {
+    fn on_finish(
+        &mut self,
+        mode: Mode,
+        word: String,
+        raw: String,
+        valid: bool,
+        valid_prefix: bool,
+    ) -> Vec<Action> {
         let mut actions = self.hide_if_visible();
         let inline = mode != Mode::Preedit;
 
@@ -1331,22 +1353,9 @@ impl Engine {
         }
 
         // Auto Non-VN restore: the composed word is not a Vietnamese syllable
-        // and differs from the raw keys -> put the raw keys back. Never for a
-        // word with an undone mark: there the user removed the mark on
-        // purpose (`tê` + 'e' → `tee`, "teen" after "teee"), bamboo marks the
-        // result invalid, and restoring the raw keys destroyed the word at
-        // word end ("teen" flashed back to "teeen" on space).
-        let dict_hit = self
-            .dictionary
-            .as_ref()
-            .is_some_and(|d| d.contains(&word.to_lowercase()));
-
-        if self.auto_restore
-            && !word.is_empty()
-            && !valid
-            && word != raw
-            && !dict_hit
-            && !self.wrapper.undo_in_word()
+        // and differs from the raw keys -> put the raw keys back (see
+        // `should_auto_restore`; the prefix verdict keeps `đuo` composed).
+        if self.should_auto_restore(&word, &raw, valid_prefix)
             // Inline restore rewrites committed text; without a delete
             // transport the raw keys are already on screen, so there is
             // nothing to restore.
@@ -1714,7 +1723,9 @@ impl Engine {
         if commit_preedit && !pending.is_empty() {
             let raw = self.wrapper.raw().to_string();
             let valid = self.wrapper.is_valid();
-            let mut finished = self.on_finish(Mode::Preedit, pending.clone(), raw, valid);
+            let valid_prefix = self.wrapper.is_valid_prefix();
+            let mut finished =
+                self.on_finish(Mode::Preedit, pending.clone(), raw, valid, valid_prefix);
             finished.retain(|a| !matches!(a, Action::Forward));
             actions.extend(finished);
         }
@@ -3136,6 +3147,49 @@ mod tests {
             ..Config::default()
         });
         assert_eq!(type_replay(&mut e, "vieejt "), "việt ");
+    }
+
+    #[test]
+    fn a_valid_prefix_is_kept_in_every_display_mode() {
+        // `đuo` is not a complete syllable but is still a valid prefix, so it
+        // must not be reverted to the raw keys at the word end. ibus-bamboo
+        // keeps it (its preedit fallback uses the prefix check).
+        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+            let mut config = Config {
+                auto_restore: true,
+                ..Config::default()
+            };
+            config.mode = mode.into();
+            assert_eq!(
+                type_replay(&mut engine(mode, config), "dduo "),
+                "đuo ",
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn preedit_shows_a_valid_prefix_without_flicker() {
+        // The preedit must not flash the raw keys while a valid prefix grows
+        // (`đuo`, `đuoc` stay composed). The client commits what it shows, so
+        // a click there commits `đuoc`, not `dduoc`.
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        let actions = type_str(&mut e, "dduoc");
+        let shown: Vec<&str> = actions
+            .iter()
+            .filter_map(|a| match a {
+                Action::UpdatePreedit { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            shown.contains(&"đuo") && shown.contains(&"đuoc"),
+            "{shown:?}"
+        );
+        assert!(
+            !shown.iter().any(|t| t.starts_with("dd")),
+            "no raw flicker: {shown:?}"
+        );
     }
 
     #[test]

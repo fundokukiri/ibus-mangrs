@@ -1,7 +1,7 @@
 # PKGBUILD for MăngRS (Arch Linux)
 # Build: makepkg -si
 
-pkgname=ibus-ibus-mangrs
+pkgname=ibus-mangrs
 pkgver=0.1.3
 pkgrel=1
 pkgdesc="Vietnamese input engine for IBus, built on bamboo-core (Rust)"
