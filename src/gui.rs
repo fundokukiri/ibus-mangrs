@@ -684,7 +684,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
     data_box.append(&card_widget(&scrolled(&ui.rules_text, 160)));
     hint(
         &data_box,
-        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine. App Wayland hiện là gnome-shell, app X11/khác là none. Danh sách là các app engine đã từng thấy, không phải mọi app đang chạy.",
+        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để engine nhận tên app Wayland-native: Chrome, Firefox, … Danh sách là các app engine đã từng thấy, không phải mọi app đang chạy.",
     );
 
     section(
