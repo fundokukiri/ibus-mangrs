@@ -1729,16 +1729,27 @@ impl Engine {
             finished.retain(|a| !matches!(a, Action::Forward));
             actions.extend(finished);
         }
-        actions.extend(self.drop_pending_word());
+        actions.extend(self.drop_pending_word(true));
         actions
     }
 
     /// Clear the composition and all word state WITHOUT committing anything.
     /// Used on a client `Reset` and a focus change, where the client has
     /// already committed the preedit itself (`IBUS_ENGINE_PREEDIT_COMMIT`).
-    pub fn drop_pending_word(&mut self) -> Vec<Action> {
+    ///
+    /// `hide_preedit` is false on a focus change: the client owns the preedit
+    /// display there and clears it itself, and our own `HidePreedit` can arrive
+    /// before the client's commit in clients that handle `FocusOut` first —
+    /// it would wipe the very word they are about to commit. ibus-bamboo's
+    /// `FocusOut` is a no-op for the same reason.
+    pub fn drop_pending_word(&mut self, hide_preedit: bool) -> Vec<Action> {
         self.wrapper.reset();
-        let actions = self.hide_if_visible();
+        let actions = if hide_preedit {
+            self.hide_if_visible()
+        } else {
+            let _ = std::mem::take(&mut self.preedit_visible);
+            Vec::new()
+        };
         self.tail.clear();
         self.repair_delete = None;
         self.release_word_mode();
@@ -1754,7 +1765,19 @@ impl Engine {
     /// exactly like ibus-bamboo's `Reset`.
     pub fn on_client_reset(&mut self) -> Vec<Action> {
         debug_log::log("client reset → drop the pending word");
-        self.drop_pending_word()
+        self.drop_pending_word(true)
+    }
+
+    /// The client `FocusOut`/`Disable`/`FocusOutId`. The preedit is sent with
+    /// `IBUS_ENGINE_PREEDIT_COMMIT`, so the client commits the pending word
+    /// itself on the way out and clears its own preedit display; the engine
+    /// only discards its internal composition — no commit, and no HidePreedit,
+    /// which in clients that handle `FocusOut` before committing could arrive
+    /// first and wipe the very word they are about to commit (ibus-bamboo's
+    /// `FocusOut` is a no-op for the same reason).
+    pub fn focus_out(&mut self) -> Vec<Action> {
+        debug_log::log("focus-out → drop the pending word, no signals");
+        self.drop_pending_word(false)
     }
 
     /// Server-loop tick: flush deferred commits whose injected-key echoes
@@ -3885,6 +3908,59 @@ mod tests {
             "{actions:?}"
         );
         assert!(!e.preedit_visible && !e.wrapper.has_composition());
+    }
+
+    #[test]
+    fn focus_out_drops_the_word_without_touching_the_preedit_signal() {
+        // FocusOut/Disable: the client commits the preedit itself
+        // (PREEDIT_COMMIT) and clears its own display; our HidePreedit could
+        // arrive before that commit in clients that handle FocusOut first and
+        // would wipe the word they are about to commit.
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        type_str(&mut e, "tung");
+        assert!(e.preedit_visible);
+        let actions = e.focus_out();
+        assert!(actions.is_empty(), "{actions:?}");
+        assert!(!e.preedit_visible && !e.wrapper.has_composition());
+        // A client Reset still hides the preedit (the client cleared its own
+        // display before sending Reset).
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        type_str(&mut e, "tung");
+        assert!(e.on_client_reset().contains(&Action::HidePreedit));
+    }
+
+    #[test]
+    fn abbreviation_keeps_its_d_in_the_preedit_and_on_caret_move() {
+        // `ddc` ("đc") is reverted by bamboo's auto_correct and the wrapper
+        // re-applies dd→đ. The preedit must show `đc` — a click commits the
+        // preedit — and a caret move (`Engine::reset`) must commit `đc`, not
+        // the raw `ddc`: both live validity queries used to ignore
+        // `abbrev_fixed` and auto-restored the abbreviation to its raw keys.
+        let mut e = Engine::new(Method::Telex, Mode::Preedit);
+        let actions = type_str(&mut e, "ddc");
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "đc")),
+            "{actions:?}"
+        );
+        let actions = e.reset();
+        assert!(
+            actions.contains(&Action::Commit("đc".into())),
+            "{actions:?}"
+        );
+
+        for mode in [Mode::NonPreedit, Mode::Surrounding] {
+            let config = Config {
+                mode: mode.into(),
+                ..Config::default()
+            };
+            assert_eq!(
+                type_replay(&mut engine(mode, config), "ddc "),
+                "đc ",
+                "{mode:?}"
+            );
+        }
     }
 
     #[test]
