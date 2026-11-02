@@ -107,6 +107,9 @@ Consequences the engine must honour:
 - The client commits whatever the preedit **displays**, so the preedit shows the **macro
   expansion** when the raw keys are a macro key (`Engine::preedit_text`); otherwise a click would
   commit the raw `gs` instead of `giờ sáng` (bamboo shows the expansion for the same reason).
+- For the same reason the preedit also shows the **auto-restore to the raw keys** of a
+  non-Vietnamese word (`windowf`). That restore uses the prefix verdict (see the wrapper
+  paragraph), so a still-valid prefix like `đuo` stays composed instead of flashing `dduo`.
 - Hiding the preedit (`Action::HidePreedit`) keeps `mode = 0` (`CLEAR`), so hiding at a word end
   never commits the old word.
 
@@ -157,8 +160,11 @@ already-committed word; bracket keys stop being terminators while bracket mode i
 transforms the adjacent vowel (u→ư, o→ơ, a→ă, `aa/ee/oo` → â/ê/ô, `aw` → ă), no auto `uo`→`ươ`.
 VNI digits go right after the vowel they transform (6=â/ê/ô, 7=ơ/ư, 8=ă, 9=đ, tones 1..5).
 Microsoft layout is append-style (`ti3ng8` → `tiếng`) and cannot type `đ` from `d`.
-`auto_correct` (on by default) reverts invalid intermediate syllables; `is_valid_word()` on the
-composition drives auto-restore of non-Vietnamese words.
+`auto_correct` (on by default) reverts invalid intermediate syllables. Two bamboo-core verdicts
+drive the wrapper: `is_valid_word()` (a complete syllable) gates macro expansion, and
+`is_valid_prefix()` (also accepts a still-extendable state like `đuo`) drives auto-restore of
+non-Vietnamese words — the prefix check is what ibus-bamboo uses while typing, while the
+complete-word one restored every half-typed word to its raw keys (`đuo` → `dduo`).
 
 **Charsets.** 11 charsets from `bamboo-core::encode_charset` (Unicode default, NFD, TCVN3, VNI,
 VIQR, VISCII, VPS, CP1258, BKHCM, Vietware X/Full). Encoding happens only on text sent to the app

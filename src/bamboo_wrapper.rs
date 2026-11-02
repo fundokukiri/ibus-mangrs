@@ -111,14 +111,16 @@ pub enum Outcome {
     /// The key was not Vietnamese input; pass it to the application unchanged.
     PassThrough,
     /// The key ended the composition (space, punctuation). Carries the word
-    /// that was being composed, the raw keys that produced it, and whether the
-    /// result is a valid Vietnamese syllable, so a caller that has not
-    /// committed it yet (preedit mode) still can; the composition itself is
-    /// already cleared.
+    /// that was being composed, the raw keys that produced it, and how the
+    /// result scores: `valid` is a complete Vietnamese syllable, `valid_prefix`
+    /// also accepts a still-extendable one (`đuo`). Both are captured before
+    /// the composition is cleared, so a caller that has not committed the word
+    /// yet (preedit mode) can still decide.
     Finish {
         word: String,
         raw: String,
         valid: bool,
+        valid_prefix: bool,
     },
 }
 
@@ -280,14 +282,23 @@ impl BambooWrapper {
             // and committing that would re-add the hidden character at the
             // word boundary ("tool" + space -> "toool").
             let word = self.output();
+            // Both verdicts are read here: `engine.reset()` below clears the
+            // composition, so a caller can no longer ask.
             let valid = !word.is_empty() && (self.abbrev_fixed || self.engine.is_valid_word());
+            let valid_prefix =
+                !word.is_empty() && (self.abbrev_fixed || self.engine.is_valid_prefix());
             let raw = std::mem::take(&mut self.raw);
             self.composing = false;
             self.engine.reset();
             self.last_output.clear();
             self.output_override = None;
             self.abbrev_fixed = false;
-            return Outcome::Finish { word, raw, valid };
+            return Outcome::Finish {
+                word,
+                raw,
+                valid,
+                valid_prefix,
+            };
         }
 
         // First key of the next word clears the leftover raw keys — and the
@@ -495,6 +506,14 @@ impl BambooWrapper {
         !self.output().is_empty() && self.engine.is_valid_word()
     }
 
+    /// Valid, possibly incomplete syllable prefix — bamboo-core's
+    /// `is_valid_prefix` (`IsValid(false)`), the verdict ibus-bamboo uses
+    /// while typing; `is_valid` is the complete-syllable one. Only meaningful
+    /// while a composition is live.
+    pub fn is_valid_prefix(&self) -> bool {
+        !self.output().is_empty() && self.engine.is_valid_prefix()
+    }
+
     pub fn has_composition(&self) -> bool {
         !self.engine.output_str().is_empty()
     }
@@ -642,7 +661,10 @@ mod tests {
         assert_eq!(w.output(), "đc");
         // The word-end auto-restore must not undo the abbreviation: the
         // finished word is "đc", not the raw keys.
-        if let Outcome::Finish { word, raw, valid } = w.process_char(' ') {
+        if let Outcome::Finish {
+            word, raw, valid, ..
+        } = w.process_char(' ')
+        {
             assert_eq!(word, "đc");
             assert_eq!(raw, "ddc");
             assert!(valid, "abbrev_fixed must skip auto-restore");
@@ -694,7 +716,8 @@ mod tests {
             Outcome::Finish {
                 word: "việt".into(),
                 raw: "vieejt".into(),
-                valid: true
+                valid: true,
+                valid_prefix: true
             }
         );
         assert_eq!(w.output(), "", "composition must be cleared");
@@ -712,7 +735,8 @@ mod tests {
             Outcome::Finish {
                 word: "tung".into(),
                 raw: "tung".into(),
-                valid: true
+                valid: true,
+                valid_prefix: true
             }
         );
     }
