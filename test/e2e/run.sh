@@ -28,10 +28,12 @@ fi
 cd "$REPO"
 # --ignored: the suites are #[ignore]d so plain `cargo test` never fires
 # engines; MANGRS_E2E=1 is the second gate against the real session bus.
+# DISPLAY is dropped so the xprop name fallback is deterministic inside the
+# tests (it must never name the user's actual focused window).
 if [ -n "$FEATURE" ]; then
-    exec dbus-run-session -- env MANGRS_E2E=1 MANGRS_E2E_BIN="$BIN" \
+    exec dbus-run-session -- env -u DISPLAY MANGRS_E2E=1 MANGRS_E2E_BIN="$BIN" \
         cargo test --release --test "e2e_$FEATURE" -- --ignored --test-threads=1 --nocapture
 fi
 # The positional name filter selects every e2e_* test across the targets.
-exec dbus-run-session -- env MANGRS_E2E=1 MANGRS_E2E_BIN="$BIN" \
+exec dbus-run-session -- env -u DISPLAY MANGRS_E2E=1 MANGRS_E2E_BIN="$BIN" \
     cargo test --release e2e_ -- --ignored --test-threads=1 --nocapture

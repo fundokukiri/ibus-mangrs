@@ -1,0 +1,7 @@
+{
+    "uuid": "mangrs-focus@fundokukiri",
+    "name": "MăngRS Focus",
+    "description": "Names the focused window over D-Bus so the MăngRS IBus engine can apply per-app rules to Wayland-native apps (Chrome, Firefox, Sublime Text, ...), which IBus reports only as an anonymous mutter relay and GNOME cannot name by any other means. GetFocusedWindow() returns the focused window's WM_CLASS and title.",
+    "url": "https://github.com/fundokukiri/ibus-mangrs",
+    "shell-version": ["46", "47", "48", "49", "50", "51"]
+}
