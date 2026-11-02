@@ -795,14 +795,26 @@ impl Engine {
     }
 
     /// Mode forced by an `AppRule` matching the focused client, if any.
+    /// The special pattern `none` matches clients that never reported a name
+    /// (X11/XIM apps and anything else the daemon sends unnamed) — the only
+    /// way to target them, since there is no name to substring-match.
     fn client_rule_mode(&self) -> Option<Mode> {
-        let client = self.client.as_deref()?;
-        let prgname = client
-            .split_once(':')
-            .map_or(client, |(_, p)| p)
-            .to_lowercase();
         for rule in &self.app_rules {
-            if !rule.pattern.is_empty() && prgname.contains(&rule.pattern.to_lowercase()) {
+            let pattern = rule.pattern.to_lowercase();
+            if pattern == "none" {
+                if self.client.is_none() {
+                    return Some(rule.mode.into());
+                }
+                continue;
+            }
+            let Some(client) = self.client.as_deref() else {
+                continue;
+            };
+            let prgname = client
+                .split_once(':')
+                .map_or(client, |(_, p)| p)
+                .to_lowercase();
+            if !pattern.is_empty() && prgname.contains(&pattern) {
                 return Some(rule.mode.into());
             }
         }
@@ -2752,6 +2764,33 @@ mod tests {
         assert!(!actions
             .iter()
             .any(|a| matches!(a, Action::UpdatePreedit { .. })));
+    }
+
+    #[test]
+    fn none_rule_targets_unnamed_clients_in_every_display_mode() {
+        // The special `none` pattern targets clients that never reported a
+        // name (X11/XIM apps): with no name there is nothing to substring-
+        // match, so the rule used to be silently skipped for them.
+        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+            let mut e = Engine::new(Method::Telex, Mode::Off);
+            e.set_capabilities(CAP_PREEDIT_TEXT);
+            e.set_client(None);
+            e.apply_config(&Config {
+                // The base mode must be explicit: apply_config resets the
+                // mode to the config's, which defaults to preedit.
+                mode: crate::config::ModeConfig::Off,
+                app_rules: vec![crate::config::AppRule {
+                    pattern: "none".into(),
+                    mode: mode.into(),
+                }],
+                ..Config::default()
+            });
+            assert_eq!(e.effective_mode(), mode, "unnamed client: {mode:?}");
+            // A named client must not match the none rule: the configured
+            // base mode (Off) stands for it.
+            e.set_client(Some("gtk4-im:firefox".into()));
+            assert_ne!(e.effective_mode(), mode, "named client: {mode:?}");
+        }
     }
 
     #[test]
