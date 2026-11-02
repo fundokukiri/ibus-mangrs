@@ -4,6 +4,8 @@
 
 # MăngRS
 
+**English** | [Tiếng Việt](vi/README.md)
+
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
 [`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts, eight display modes (Preedit, NonPreedit, Surrounding, three
 uinput modes, OFF, Default Typing), a GTK4 settings window, macros,
@@ -37,7 +39,7 @@ a custom dictionary and per-app rules.
 - **Custom dictionary**: words that must never be auto-restored.
 - **GTK4 settings window** (5 pages, Vietnamese); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 209 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
+- 211 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
 
 ## Display modes
 
@@ -182,7 +184,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 ## Testing
 
 ```sh
-cargo test                      # 209 unit tests, including the 678-case golden table
+cargo test                      # 211 unit tests, including the 678-case golden table
 cargo clippy --all-targets
 ```
 
@@ -201,14 +203,16 @@ ibus engine ibus-mangrs
 - `src/uinput.rs` — virtual keyboard: paced Backspaces, selection, Ctrl+V (US-QWERTY key table)
 - `src/paste.rs` — clipboard Unicode channel for the uinput modes (debounced restore)
 - `src/macros.rs` — macro table + custom dictionary
+- `src/backup.rs` — one-file JSON backup/restore of settings, macros and the dictionary
 - `src/golden.rs` — 678 keystroke→text golden cases
 - `src/ibus_prop.rs` — IBus property-menu encoding; `src/keymap.rs` — keysym decoding
+- `src/debug_log.rs` — opt-in debug log at `~/.cache/ibus-mangrs/debug.log`
 - `src/config.rs` — TOML settings shared by engine + GUI; `src/gui.rs` — GTK4 window (`gui` feature)
 
 
 ## License
 
-MăngRS is **GPL-3.0** (GNU General Public License v3) — see `LICENSE`.
-
-- [`bamboo-core`](https://crates.io/crates/bamboo-core) (MIT) — the Vietnamese input algorithm,
-  a Rust extraction of ibus-bamboo's logic. Licensed separately under its own MIT license.
+- **MăngRS** is licensed under the [GPL-3.0 License](LICENSE).
+- **bamboo-core (Rust)**: [Crates](https://crates.io/crates/bamboo-core) | [GitHub](https://github.com/bamboo-vi/bamboo-core) (MIT) — Vietnamese input algorithm library written in Rust. Licensed separately under its own MIT license.
+- **bamboo-core (Go)**: [GitHub](https://github.com/BambooEngine/bamboo-core) (MIT) — Copyright (C) 2018 Luong Thanh Lam. Core Vietnamese text processing library.
+- **IBus Bamboo**: [GitHub](https://github.com/BambooEngine/ibus-bamboo) (GPL-3.0) — Copyright (C) 2018 Luong Thanh Lam. Vietnamese input method for Linux.
