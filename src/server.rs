@@ -733,10 +733,12 @@ fn open_repo_page() {
         .spawn();
 }
 
-/// XKB keycode of Backspace (X keycodes start at 8; ibus-bamboo forwards the
-/// same value). The keyval is authoritative for toolkit clients, the keycode
-/// for XIM/XToolkit ones.
-const BACKSPACE_KEYCODE: u32 = 22;
+/// Backspace scancode as it goes on the wire. Every ibus client adds 8 to get
+/// its own keycode (`ibusimcontext.c`, Qt's input context and the X11/XIM
+/// client all do `keycode += 8`), so this must be the evdev code, NOT the X
+/// keycode: sending the X keycode 22 made clients use 30, i.e. evdev KEY_U,
+/// and every forwarded Backspace typed a `u` ("tùng" came out "tunguuuùng").
+const BACKSPACE_KEYCODE: u32 = 14;
 
 /// Handle one key event, pushing resulting signals into `out`.
 /// Returns whether the engine consumed the key.
@@ -1769,6 +1771,39 @@ mod tests {
             "the fallback commit must wait for the Backspace echoes"
         );
         assert!(e.has_deferred());
+    }
+
+    #[test]
+    fn forward_key_event_emits_backspace_press_and_release() {
+        // The wire contract every ibus client expects: clients add 8 to the
+        // keycode themselves, so it must be the evdev scancode 14 — sending
+        // the X keycode 22 made them use evdev KEY_U and type a `u` per
+        // forwarded Backspace.
+        let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+        e.set_client(Some("gnome-shell".into()));
+        let mut out = Vec::new();
+        emit_with(
+            &mut e,
+            &[Action::ForwardBackspaces(2)],
+            &mut out,
+            &fake_transports(&|_, _| true),
+        );
+        let keys: Vec<(u32, u32, u32)> = out
+            .iter()
+            .filter(|m| m.member().map(|x| x == "ForwardKeyEvent").unwrap_or(false))
+            .filter_map(|m| m.read3::<u32, u32, u32>().ok())
+            .collect();
+        assert_eq!(keys.len(), 4, "press and release per Backspace: {keys:?}");
+        assert_eq!(
+            keys.iter().filter(|(_, _, state)| *state == 0).count(),
+            2,
+            "two presses: {keys:?}"
+        );
+        assert!(
+            keys.iter()
+                .all(|(keyval, keycode, _)| *keyval == 0xff08 && *keycode == 14),
+            "Backspace keyval with the evdev scancode: {keys:?}"
+        );
     }
 
     #[test]
