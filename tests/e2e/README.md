@@ -6,7 +6,7 @@ ibus-daemon and a focused client would: calling `org.freedesktop.IBus.Engine`
 methods and asserting on the engine's signal stream — the same contract real
 applications see.
 
-They complement `cargo test` (215 unit/golden tests, no D-Bus) with the
+They complement `cargo test` (227 unit/golden tests, no D-Bus) with the
 protocol level: wire encodings, method dispatch, signal ordering, and the
 config/property plumbing that only exists across D-Bus.
 

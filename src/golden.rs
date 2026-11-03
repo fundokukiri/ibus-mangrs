@@ -396,6 +396,9 @@ struct FakeClient {
     protocol_deletes: u32,
     /// Deletes the client swallowed (drop_delete).
     deletes_swallowed: u32,
+    /// Characters selected from the caret to the right (Shift+Left); the next
+    /// commit replaces them, which is how the Select rewrites delete.
+    selection: usize,
 }
 
 impl FakeClient {
@@ -407,6 +410,7 @@ impl FakeClient {
             last_report: None,
             protocol_deletes: 0,
             deletes_swallowed: 0,
+            selection: 0,
         }
     }
 
@@ -420,6 +424,14 @@ impl FakeClient {
         for a in actions {
             match a {
                 Action::Commit(t) => {
+                    // A commit replaces the selection a Shift+Left rewrite
+                    // made; without this the selected tail survives and the
+                    // word is duplicated.
+                    if self.selection > 0 {
+                        let end = (self.caret + self.selection).min(self.buf.len());
+                        self.buf.drain(self.caret..end);
+                        self.selection = 0;
+                    }
                     let n = t.chars().count();
                     self.buf
                         .splice(self.caret..self.caret, t.chars().collect::<Vec<char>>());
@@ -474,8 +486,19 @@ impl FakeClient {
                     self.buf.drain(start..self.caret);
                     self.caret = start;
                 }
-                Action::SelectLeft(n) => {
+                // ForwardKeyEvent mode: Backspace key events handled by the
+                // client's own IM context — real deletions, never protocol
+                // ones, so the drop_delete fault does not apply.
+                Action::ForwardBackspaces(n) => {
+                    let start = self.caret.saturating_sub(*n as usize);
+                    self.buf.drain(start..self.caret);
+                    self.caret = start;
+                }
+                Action::SelectLeft(n) | Action::ForwardSelectLeft(n) => {
+                    // Shift+Left in the application: the caret moves left over
+                    // the tail and leaves it selected for the next commit.
                     self.caret = self.caret.saturating_sub(*n as usize);
+                    self.selection += *n as usize;
                 }
                 Action::PressDelete => {
                     self.buf.drain(self.caret..self.caret);
@@ -585,7 +608,9 @@ impl FakeClient {
 /// deferred commits after a focus change.
 #[cfg(test)]
 fn check_safety_invariants(e: &Engine, actions: &[Action], where_: &str) {
-    let no_transport = !e.surrounding_data_ok() && !e.uinput_available();
+    // The engine answers this itself: a report, the uinput device, or the
+    // opt-in that lets a direct client take the protocol delete blind.
+    let no_transport = !e.protocol_delete_ok() && !e.uinput_available();
     for a in actions {
         match a {
             Action::DeleteBefore(_) => {
@@ -691,9 +716,14 @@ mod matrix {
 
     #[test]
     fn ideal_clients_reproduce_the_golden_text_in_every_mode() {
-        // The core invariant: with a perfect client, all three main display
-        // modes leave exactly the same text for the same keystrokes.
-        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        // The core invariant: with a perfect client, every inline display
+        // mode leaves exactly the same text for the same keystrokes.
+        for mode in [
+            Mode::NonPreedit,
+            Mode::Preedit,
+            Mode::Surrounding,
+            Mode::ForwardKeyEvent,
+        ] {
             for (method, keys, _) in SEQUENCES {
                 let method = method_of(method);
                 let mut e = Engine::new(method, mode);
@@ -785,7 +815,12 @@ mod matrix {
                 },
             ),
         ];
-        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        for mode in [
+            Mode::NonPreedit,
+            Mode::Preedit,
+            Mode::Surrounding,
+            Mode::ForwardKeyEvent,
+        ] {
             for (name, faults) in fault_rows {
                 for (method, keys, _) in SEQUENCES {
                     let method = method_of(method);
@@ -849,6 +884,27 @@ mod matrix {
                  {mode:?} final {got:?}"
             );
         }
+    }
+
+    #[test]
+    fn forward_key_event_mode_types_correctly_when_deletes_are_swallowed() {
+        // The point of the mode: a Chrome-style client that drops the
+        // protocol delete still gets exact text, because the rewrite uses
+        // Backspace key events forwarded through IBus, not the protocol.
+        let got = run_session(
+            Method::Telex,
+            Mode::ForwardKeyEvent,
+            Faults {
+                drop_delete: true,
+                ..Faults::default()
+            },
+            "gtk4-im:matrix",
+            "aa tieengs ",
+        );
+        assert_eq!(
+            got, "â tiếng ",
+            "ForwardKeyEvent must not rely on the protocol delete"
+        );
     }
 
     /// Deterministic xorshift64* — no new dependency (the audit forbids
