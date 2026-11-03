@@ -607,7 +607,7 @@ impl EngineHandler {
 /// Parse a hotkey spec like `Control+Alt+v` into (modifier mask, keysym).
 /// Returns `None` for specs it does not understand. The key may be a single
 /// letter/digit, `space`, or `f1`..`f12`.
-fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
+pub(crate) fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
     let mut mods = 0u32;
     let mut key = None;
     for part in spec.split('+') {
