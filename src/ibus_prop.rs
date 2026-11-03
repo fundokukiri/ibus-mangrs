@@ -193,84 +193,84 @@ pub const QUICK_TOGGLES: &[QuickToggle] = &[
     QuickToggle {
         key: KEY_MACROS,
         label: "Gõ tắt",
-        tooltip: "Mở rộng cụm tắt thành câu đầy đủ",
+        tooltip: "Khóa gõ tắt mở rộng thành cụm khi hết từ",
         get: |c| c.macro_enabled,
         set: |c, on| c.macro_enabled = on,
     },
     QuickToggle {
         key: KEY_AUTO_CAPITALIZE,
         label: "Tự viết hoa",
-        tooltip: "Tự động viết hoa sau . ! ? và Enter",
+        tooltip: "Viết hoa chữ đầu sau . ! ? và Enter",
         get: |c| c.auto_capitalize,
         set: |c, on| c.auto_capitalize = on,
     },
     QuickToggle {
         key: KEY_ABBREV,
         label: "Viết tắt",
-        tooltip: "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk",
+        tooltip: "Giữ đ trong từ viết tắt: ddc → đc, đk, đt",
         get: |c| c.abbreviations,
         set: |c, on| c.abbreviations = on,
     },
     QuickToggle {
         key: KEY_AUTO_RESTORE,
         label: "Khôi phục từ nước ngoài",
-        tooltip: "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
+        tooltip: "Từ không phải tiếng Việt trả về chuỗi phím gốc",
         get: |c| c.auto_restore,
         set: |c, on| c.auto_restore = on,
     },
     QuickToggle {
         key: KEY_AUTO_CORRECT,
-        label: "Sửa từ sai",
-        tooltip: "Từ không hợp lệ trả về chuỗi phím gốc",
+        label: "Từ sai trả phím gốc",
+        tooltip: "Âm tiết không hợp lệ trả về đúng phím đã bấm",
         get: |c| c.auto_correct,
         set: |c, on| c.auto_correct = on,
     },
     QuickToggle {
         key: KEY_BYPASS_URL,
-        label: "Không gõ URL",
-        tooltip: "Từ ngay sau / : @ . _ ~ = # & % ? giữ nguyên, không thêm dấu",
+        label: "Không dấu sau URL",
+        tooltip: "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
         get: |c| c.bypass_url,
         set: |c, on| c.bypass_url = on,
     },
     QuickToggle {
         key: KEY_DICTIONARY,
         label: "Từ điển của tôi",
-        tooltip: "Từ trong từ điển không bị khôi phục về chuỗi phím",
+        tooltip: "Từ trong từ điển không bị trả về phím gốc",
         get: |c| c.dictionary_enabled,
         set: |c, on| c.dictionary_enabled = on,
     },
     QuickToggle {
         key: KEY_DOUBLE_SPACE,
         label: "2 dấu cách = chấm",
-        tooltip: "Hai dấu cách chèn '. ' (thử nghiệm)",
+        tooltip: "(Thử nghiệm) Hai dấu cách chèn '. '",
         get: |c| c.double_space_period,
         set: |c, on| c.double_space_period = on,
     },
     QuickToggle {
         key: KEY_EM_DASH,
         label: "Gạch ngang dài",
-        tooltip: "-- thành —",
+        tooltip: "Gõ hai dấu trừ -- thành —",
         get: |c| c.em_dash,
         set: |c, on| c.em_dash = on,
     },
     QuickToggle {
         key: KEY_FREE_TONE,
         label: "Dấu tự do",
-        tooltip: "Cho phép dấu gõ sai vị trí trong từ: hoangf → hoàng",
+        tooltip: "Dấu gõ sai vị trí vẫn nhận: hoangf → hoàng",
         get: |c| c.free_tone_marking,
         set: |c, on| c.free_tone_marking = on,
     },
     QuickToggle {
         key: KEY_MODERN_TONE,
         label: "Kiểu dấu mới",
-        tooltip: "hòa (chuẩn mới) thay vì hoà (truyền thống)",
+        tooltip: "hòa (chuẩn mới) thay vì hoà (cũ)",
         get: |c| c.modern_tone_style,
         set: |c, on| c.modern_tone_style = on,
     },
     QuickToggle {
         key: KEY_HIDE_UNDERLINE,
         label: "Ẩn gạch chân",
-        tooltip: "Preedit không có gạch chân (tùy app có nhận không)",
+        tooltip: "Chữ đang gõ không có gạch chân (tùy app)",
         get: |c| c.hide_underline,
         set: |c, on| c.hide_underline = on,
     },
@@ -355,7 +355,11 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                 }
                 MenuNode::Action { key } => match key.as_str() {
                     "macro_editor" => Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"),
-                    "settings" => Prop::normal(KEY_SHORTCUTS, "Cài đặt…"),
+                    "settings" => {
+                        let mut p = Prop::normal(KEY_SHORTCUTS, "Cấu hình");
+                        p.tooltip = "Mở cửa sổ cấu hình MăngRS".into();
+                        p
+                    }
                     "about" => {
                         let mut p = Prop::normal(
                             KEY_ABOUT,

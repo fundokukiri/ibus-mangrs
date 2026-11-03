@@ -1,4 +1,4 @@
-//! GTK4 settings window, opened from the property menu ("Phím tắt") or with
+//! GTK4 settings window, opened from the popup ("Cấu hình") or with
 //! `-gui`.
 //!
 //! Every control writes straight to `config.toml` (and `macros.toml` /
@@ -100,7 +100,7 @@ fn menu_radios_label(group: &str) -> String {
 fn menu_action_label(key: &str) -> String {
     match key {
         "macro_editor" => "Mở bảng gõ tắt…".into(),
-        "settings" => "Cài đặt…".into(),
+        "settings" => "Cấu hình".into(),
         "about" => "Giới thiệu (About)".into(),
         other => other.into(),
     }
@@ -712,7 +712,7 @@ impl Ui {
                     .append(Some("radios:display"), "Chế độ gõ (nhóm chọn)");
                 self.menu_kind
                     .append(Some("action:macro_editor"), "Mở bảng gõ tắt…");
-                self.menu_kind.append(Some("action:settings"), "Cài đặt…");
+                self.menu_kind.append(Some("action:settings"), "Cấu hình");
                 self.menu_kind
                     .append(Some("action:about"), "Giới thiệu (About)");
                 self.menu_kind.append(Some("sep:"), "Gạch ngang phân cách");
@@ -1099,12 +1099,12 @@ fn build(app: &Application, initial_page: Option<&str>) {
     typing.append(&card(vec![
         pref_row(
             "Bật tiếng Việt",
-            "Khi tắt, phím gõ thẳng; gõ tắt vẫn chạy nếu bật ở tab Gõ tắt",
+            "Tắt để gõ thẳng mọi phím (gõ tắt vẫn chạy nếu bật ở tab Gõ tắt)",
             &ui.enabled,
         ),
         pref_row(
             "Phím tắt đổi chế độ",
-            "Ví dụ Control+Alt+v — để trống là chưa gán. Mặc định: chưa gán",
+            "Ví dụ: Control+Alt+v. Để trống là chưa gán",
             &ui.hotkey,
         ),
     ]));
@@ -1114,18 +1114,18 @@ fn build(app: &Application, initial_page: Option<&str>) {
     );
     section(&typing, "Cách gõ", "Kiểu gõ, bảng mã và chế độ gõ");
     typing.append(&card(vec![
-        pref_row("Kiểu gõ chính", "Telex, VNI, VIQR, Microsoft layout", &ui.method),
+        pref_row("Kiểu gõ", "Telex, VNI, VIQR, Microsoft layout", &ui.method),
         pref_row("Bảng mã", "Unicode và 10 bảng mã cũ", &ui.charset),
         pref_row(
             "Chế độ gõ",
-            "10 chế độ: Gạch chân (mặc định), Không gạch chân, Surrounding, Smooth, Super Smooth, Select, ForwardKeyEvent, ForwardKeyEvent II, OFF, Gõ mặc định",
+            "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
             &ui.mode,
         ),
     ]));
     section(&typing, "Hiển thị", "Hình thức của chữ đang gõ");
     typing.append(&card(vec![pref_row(
         "Ẩn gạch chân",
-        "Preedit không có gạch chân (tùy app có nhận không)",
+        "Chữ đang gõ không có gạch chân (tùy app)",
         &ui.hide_underline,
     )]));
 
@@ -1150,8 +1150,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
     section(&tone, "Chính tả", "Sửa lỗi và khôi phục từ");
     tone.append(&card(vec![
         pref_row(
-            "Sửa từ sai",
-            "Âm tiết sai được chuyển thành âm hợp lệ gần nhất",
+            "Từ sai trả phím gốc",
+            "Âm tiết không hợp lệ trả về đúng phím đã bấm",
             &ui.auto_correct,
         ),
         pref_row(
@@ -1160,7 +1160,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
             &ui.auto_restore,
         ),
         pref_row(
-            "Không gõ URL",
+            "Không dấu sau URL",
             "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
             &ui.bypass_url,
         ),
@@ -1199,8 +1199,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
     section(&macro_box, "Gõ tắt", "Mở rộng cụm tắt thành câu đầy đủ");
     macro_box.append(&card(vec![
         pref_row(
-            "Bật gõ tắt",
-            "Khóa gõ tắt mở rộng ở cuối từ",
+            "Gõ tắt",
+            "Khóa gõ tắt mở rộng thành cụm khi hết từ",
             &ui.macro_enabled,
         ),
         pref_row(
@@ -1353,13 +1353,13 @@ fn build(app: &Application, initial_page: Option<&str>) {
     );
     advanced.append(&card(vec![
         pref_row(
-            "Xoá không cần báo cáo surrounding",
-            "App X11 trực tiếp (Sublime Text...) xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
+            "Xoá đuôi từ ở app X11",
+            "App X11 trực tiếp xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
             &ui.x11_delete,
         ),
         pref_row(
             "Preedit cho app XIM",
-            "Giữ gạch chân cho app dùng XIM: chữ đang gõ hiện trong cửa sổ riêng của ibus rồi commit khi hết từ. Tắt thì JetBrains chỉ gõ được ở các chế độ ForwardKeyEvent.",
+            "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ.",
             &ui.preedit_xim,
         ),
     ]));
