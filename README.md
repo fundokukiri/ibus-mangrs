@@ -43,7 +43,7 @@ a custom dictionary and per-app rules.
 - **Custom dictionary**: words that must never be auto-restored.
 - **GTK4 settings window** (5 pages, Vietnamese); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 224 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
+- 227 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
 
 ## Display modes
 
@@ -222,6 +222,17 @@ Chromium, Brave, Edge, Vivaldi, Electron apps (VS Code, Slack, Discord) and
 GNOME Console → `preedit`; Sublime Text → `surrounding`. Those clients drop
 `DeleteSurroundingText`, so rewriting there duplicates text.
 
+## X11/XIM options
+
+Two compatibility switches in the settings window (*Kiểu gõ* tab →
+*Tương thích X11/XIM*). Both are **off by default**, and both are needed only
+for apps that reach the engine in unusual ways:
+
+| Switch | `config.toml` | What it does |
+|---|---|---|
+| Xoá không cần báo cáo surrounding | `x11_delete_without_report` | Lets a direct X11 client (Sublime Text, other GTK3 X11 apps) delete the rewritten tail over IBus even though it never reported its text — what ibus-bamboo does. Without it those clients keep the raw keystrokes when real-key injection is unavailable (`tungf`). Risk: without a report the delete count is unclamped, so a caret moved behind the engine's back can lose a few characters. |
+| Preedit cho app XIM | `preedit_for_xim` | Keeps the underlined mode for XIM clients (JetBrains and other Java apps, which all report the fixed name `xim`). XIM servers draw the composing text in their own window and commit it at the word end. Without it those apps cannot use the default mode at all and need a `forwardkeyevent` rule. Risk: an app that negotiated `XIMPreeditNothing` shows nothing until the word ends. |
+
 ## Configuration files
 
 ```
@@ -250,7 +261,7 @@ GNOME Console → `preedit`; Sublime Text → `surrounding`. Those clients drop
 ## Testing
 
 ```sh
-cargo test                      # 224 unit tests, including the 678-case golden table
+cargo test                      # 227 unit tests, including the 678-case golden table
 cargo clippy --all-targets
 ```
 

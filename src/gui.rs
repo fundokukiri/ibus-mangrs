@@ -103,6 +103,8 @@ struct Ui {
     dictionary_text: TextView,
     rules_text: TextView,
     debug_log: Switch,
+    x11_delete: Switch,
+    preedit_xim: Switch,
     commit_interval: Entry,
     backspace_interval: Entry,
     post_delay: Entry,
@@ -197,6 +199,8 @@ impl Ui {
         self.dictionary_enabled
             .set_active(config.dictionary_enabled);
         self.debug_log.set_active(config.debug_log);
+        self.x11_delete.set_active(config.x11_delete_without_report);
+        self.preedit_xim.set_active(config.preedit_for_xim);
         self.commit_interval
             .set_text(&config.commit_interval_ms.to_string());
         self.backspace_interval
@@ -272,6 +276,8 @@ impl Ui {
         };
         config.cycle_mode_hotkey = self.hotkey.text().trim().to_string();
         config.debug_log = self.debug_log.is_active();
+        config.x11_delete_without_report = self.x11_delete.is_active();
+        config.preedit_for_xim = self.preedit_xim.is_active();
         config.modern_tone_style = self.modern.is_active();
         config.free_tone_marking = self.free.is_active();
         config.auto_correct = self.auto_correct.is_active();
@@ -406,6 +412,8 @@ fn widgets() -> Rc<Ui> {
     let dictionary_text = text_view("");
     let rules_text = text_view("");
     let debug_log = Switch::new();
+    let x11_delete = Switch::new();
+    let preedit_xim = Switch::new();
     let commit_interval = Entry::builder().width_chars(6).build();
     let backspace_interval = Entry::builder().width_chars(6).build();
     let post_delay = Entry::builder().width_chars(6).build();
@@ -438,6 +446,8 @@ fn widgets() -> Rc<Ui> {
         dictionary_text,
         rules_text,
         debug_log,
+        x11_delete,
+        preedit_xim,
         commit_interval,
         backspace_interval,
         post_delay,
@@ -568,6 +578,23 @@ fn build(app: &Application, initial_page: Option<&str>) {
             "Kênh gửi từ tiếng Việt",
             "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
             &ui.unicode_channel,
+        ),
+    ]));
+    section(
+        &typing,
+        "Tương thích X11/XIM",
+        "Cho app X11 trực tiếp và app XIM (Java/JetBrains)",
+    );
+    typing.append(&card(vec![
+        pref_row(
+            "Xoá không cần báo cáo surrounding",
+            "App X11 trực tiếp (Sublime Text...) xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
+            &ui.x11_delete,
+        ),
+        pref_row(
+            "Preedit cho app XIM",
+            "Giữ gạch chân cho app dùng XIM: chữ đang gõ hiện trong cửa sổ riêng của ibus rồi commit khi hết từ. Tắt thì JetBrains chỉ gõ được ở các chế độ ForwardKeyEvent.",
+            &ui.preedit_xim,
         ),
     ]));
     section(
@@ -1043,6 +1070,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
         on_change!(ui.macro_in_off_mode);
         on_change!(ui.dictionary_enabled);
         on_change!(ui.debug_log);
+        on_change!(ui.x11_delete);
+        on_change!(ui.preedit_xim);
         {
             let s = save.clone();
             ui.method.connect_selected_notify(move |_| s());

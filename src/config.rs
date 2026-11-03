@@ -72,6 +72,21 @@ pub struct Config {
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
+    /// Allow the protocol delete for a DIRECT client (never through a mutter
+    /// relay) that advertises surrounding-text support but never reported its
+    /// text: X11 clients such as Sublime Text apply the delete inside their
+    /// own process, where the mutter crash this engine guards against cannot
+    /// happen. ibus-bamboo deletes this way for every client. Off by default:
+    /// without a report the delete count is unclamped, so a caret the engine
+    /// did not see move can lose real text.
+    pub x11_delete_without_report: bool,
+    /// Keep Preedit for XIM clients (the fixed `xim` id: Java apps such as
+    /// JetBrains) instead of falling back to NonPreedit. They report no
+    /// preedit capability because the XIM server draws the preedit itself, so
+    /// the fallback turned accents into raw keystrokes (`tungf`). Off by
+    /// default: an app that negotiated `XIMPreeditNothing` shows nothing
+    /// while the word is being typed.
+    pub preedit_for_xim: bool,
     /// Per-application display mode overrides (phase 9).
     pub app_rules: Vec<AppRule>,
 }
@@ -442,6 +457,8 @@ impl Default for Config {
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,
             debug_log: false,
+            x11_delete_without_report: false,
+            preedit_for_xim: false,
             app_rules: default_app_rules(),
         }
     }
@@ -608,6 +625,18 @@ mod tests {
             Some(ModeConfig::ForwardKeyEvent),
             "the short alias must keep working"
         );
+        // Both compatibility switches ship off: an old config keeps today's
+        // behaviour, and only the settings window turns them on.
+        let c = Config::default();
+        assert!(!c.x11_delete_without_report);
+        assert!(!c.preedit_for_xim);
+        let c: Config =
+            toml::from_str("x11_delete_without_report = true\npreedit_for_xim = true\n").unwrap();
+        assert!(c.x11_delete_without_report);
+        assert!(c.preedit_for_xim);
+        let c = Config::from_toml("mode = \"preedit\"\n");
+        assert!(!c.x11_delete_without_report && !c.preedit_for_xim);
+
         let c: Config = toml::from_str("mode = \"forwardselect\"").unwrap();
         assert_eq!(c.mode, ModeConfig::ForwardSelect);
         assert_eq!(c.mode.key(), "forwardselect");

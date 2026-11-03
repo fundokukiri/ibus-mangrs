@@ -608,7 +608,9 @@ impl FakeClient {
 /// deferred commits after a focus change.
 #[cfg(test)]
 fn check_safety_invariants(e: &Engine, actions: &[Action], where_: &str) {
-    let no_transport = !e.surrounding_data_ok() && !e.uinput_available();
+    // The engine answers this itself: a report, the uinput device, or the
+    // opt-in that lets a direct client take the protocol delete blind.
+    let no_transport = !e.protocol_delete_ok() && !e.uinput_available();
     for a in actions {
         match a {
             Action::DeleteBefore(_) => {
