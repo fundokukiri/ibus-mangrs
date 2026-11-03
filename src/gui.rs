@@ -55,6 +55,7 @@ const MODES: &[&str] = &[
     "Smooth (uinput)",
     "Super Smooth (uinput)",
     "Select (uinput)",
+    "ForwardKeyEvent (Backspace)",
     "OFF",
     "Gõ mặc định",
 ];
@@ -124,8 +125,9 @@ fn mode_index(m: ModeConfig) -> u32 {
         ModeConfig::Smooth => 3,
         ModeConfig::SuperSmooth => 4,
         ModeConfig::Select => 5,
-        ModeConfig::Off => 6,
-        ModeConfig::DefaultTyping => 7,
+        ModeConfig::ForwardKeyEvent => 6,
+        ModeConfig::Off => 7,
+        ModeConfig::DefaultTyping => 8,
     }
 }
 
@@ -247,8 +249,9 @@ impl Ui {
             3 => ModeConfig::Smooth,
             4 => ModeConfig::SuperSmooth,
             5 => ModeConfig::Select,
-            6 => ModeConfig::Off,
-            7 => ModeConfig::DefaultTyping,
+            6 => ModeConfig::ForwardKeyEvent,
+            7 => ModeConfig::Off,
+            8 => ModeConfig::DefaultTyping,
             _ => ModeConfig::NonPreedit,
         };
         config.charset = match self.charset.selected() {

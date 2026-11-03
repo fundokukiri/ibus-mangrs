@@ -1,8 +1,11 @@
-//! End-to-end cases for the two non-protocol modes: OFF and Default Typing.
+//! End-to-end cases for the non-protocol modes: OFF, Default Typing and
+//! ForwardKeyEvent (whose deletes travel as forwarded key events).
 
 mod common;
 
-use common::{commits, deletes, preedits, run_suite, Case, CAPS_BOTH};
+use common::{commits, deletes, preedits, run_suite, Case, Sig, CAPS_BOTH};
+
+const BACKSPACE_KEYVAL: u32 = 0xff08;
 
 const CASES: &[Case] = &[
     Case {
@@ -29,6 +32,14 @@ const CASES: &[Case] = &[
         dict: "",
         f: default_typing,
     },
+    Case {
+        name: "forwardkeyevent deletes with forwarded Backspace keys",
+        cfg: &[("mode", "\"forwardkeyevent\"")],
+        macros: &[],
+        raw: "",
+        dict: "",
+        f: forward_keyevent,
+    },
 ];
 
 fn off_forwards(s: &mut common::Sess) {
@@ -46,6 +57,41 @@ fn off_macro(s: &mut common::Sess) {
     let (buf, sigs) = s.type_reported("gs ");
     assert_eq!(buf, "giờ sáng ", "the expansion must replace the raw keys");
     assert_eq!(commits(&sigs), ["giờ sáng"], "{sigs:?}");
+}
+
+fn forward_keyevent(s: &mut common::Sess) {
+    // A mutter-relayed client: no /dev/uinput path and (here) no surrounding
+    // report, so the protocol delete is unreachable — the mode must delete
+    // with Backspace key events forwarded through IBus.
+    s.focus(CAPS_BOTH, "gnome-shell");
+    s.drain();
+    let (buf, sigs) = s.type_buffered("tieengs ");
+    assert_eq!(
+        buf, "tiếng ",
+        "forwarded backspaces must clear the raw tail"
+    );
+    assert!(
+        deletes(&sigs).is_empty(),
+        "no DeleteSurroundingText in ForwardKeyEvent mode: {sigs:?}"
+    );
+    assert!(preedits(&sigs).is_empty(), "no preedit: {sigs:?}");
+    let presses: Vec<u32> = sigs
+        .iter()
+        .filter_map(|sig| match sig {
+            Sig::ForwardKeyEvent {
+                keyval, state: 0, ..
+            } => Some(*keyval),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !presses.is_empty(),
+        "the tone rewrite must forward Backspace presses: {sigs:?}"
+    );
+    assert!(
+        presses.iter().all(|k| *k == BACKSPACE_KEYVAL),
+        "only Backspace may be forwarded: {presses:x?}"
+    );
 }
 
 fn default_typing(s: &mut common::Sess) {

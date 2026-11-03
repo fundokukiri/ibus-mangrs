@@ -79,6 +79,7 @@ pub const MODES: &[(&str, &str)] = &[
     ("smooth", "Smooth (uinput)"),
     ("supersmooth", "Super Smooth (uinput)"),
     ("select", "Select (uinput)"),
+    ("forwardkeyevent", "ForwardKeyEvent (Backspace)"),
     ("off", "OFF"),
     ("defaulttyping", "Gõ mặc định"),
 ];

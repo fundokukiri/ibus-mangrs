@@ -171,6 +171,11 @@ pub enum ModeConfig {
     /// Select (uinput): Shift+Left selects the typed tail, Delete erases it,
     /// then the Vietnamese word is committed. Needs a surrounding-text report.
     Select,
+    /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
+    /// events through IBus instead of `DeleteSurroundingText` — works in
+    /// clients that drop the protocol delete and where `/dev/uinput` cannot
+    /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent mode.
+    ForwardKeyEvent,
     /// Vietnamese processing off, but macros and auto-capitalize still run.
     Off,
     /// The engine is inert: every key is forwarded, no processing at all.
@@ -235,6 +240,7 @@ impl From<ModeConfig> for Mode {
             ModeConfig::Smooth => Mode::Smooth,
             ModeConfig::SuperSmooth => Mode::SuperSmooth,
             ModeConfig::Select => Mode::Select,
+            ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
             ModeConfig::Off => Mode::Off,
             ModeConfig::DefaultTyping => Mode::DefaultTyping,
         }
@@ -250,6 +256,7 @@ impl From<Mode> for ModeConfig {
             Mode::Smooth => ModeConfig::Smooth,
             Mode::SuperSmooth => ModeConfig::SuperSmooth,
             Mode::Select => ModeConfig::Select,
+            Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
             Mode::Off => ModeConfig::Off,
             Mode::DefaultTyping => ModeConfig::DefaultTyping,
         }
@@ -323,6 +330,7 @@ impl ModeConfig {
             ModeConfig::Smooth => "smooth",
             ModeConfig::SuperSmooth => "supersmooth",
             ModeConfig::Select => "select",
+            ModeConfig::ForwardKeyEvent => "forwardkeyevent",
             ModeConfig::Off => "off",
             ModeConfig::DefaultTyping => "defaulttyping",
         }
@@ -336,6 +344,9 @@ impl ModeConfig {
             "smooth" => ModeConfig::Smooth,
             "supersmooth" | "super-smooth" | "super_smooth" => ModeConfig::SuperSmooth,
             "select" => ModeConfig::Select,
+            "forwardkeyevent" | "forwardkey" | "forward-key-event" | "forward_key_event" => {
+                ModeConfig::ForwardKeyEvent
+            }
             "off" => ModeConfig::Off,
             "defaulttyping" | "default-typing" | "default_typing" => ModeConfig::DefaultTyping,
             _ => return None,
@@ -573,6 +584,18 @@ mod tests {
         assert_eq!(c.charset, CharsetConfig::Nfd);
         let c: Config = toml::from_str("charset = \"cp1258\"").unwrap();
         assert_eq!(c.charset, CharsetConfig::Cp1258);
+    }
+
+    #[test]
+    fn forward_key_event_mode_key_round_trips() {
+        let c: Config = toml::from_str("mode = \"forwardkeyevent\"").unwrap();
+        assert_eq!(c.mode, ModeConfig::ForwardKeyEvent);
+        assert_eq!(c.mode.key(), "forwardkeyevent");
+        assert_eq!(
+            ModeConfig::from_key("forwardkey"),
+            Some(ModeConfig::ForwardKeyEvent),
+            "the short alias must keep working"
+        );
     }
 
     #[test]

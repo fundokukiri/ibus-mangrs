@@ -65,6 +65,13 @@ pub enum Sig {
         offset: i32,
         n: u32,
     },
+    /// A key event the engine forwarded through IBus (the ForwardKeyEvent
+    /// mode's Backspace transport).
+    ForwardKeyEvent {
+        keyval: u32,
+        keycode: u32,
+        state: u32,
+    },
     RegisterProperties(String),
     UpdateProperty,
     RequireSurroundingText,
@@ -156,6 +163,12 @@ impl Buffer {
         match sig {
             Sig::Commit(t) => self.insert(t),
             Sig::Delete { offset, n } => self.delete_surrounding(*offset, *n),
+            // ForwardKeyEvent mode: the client's IM context applies the
+            // forwarded Backspace like a real key press.
+            Sig::ForwardKeyEvent { state: 0, .. } if self.caret > 0 => {
+                self.caret -= 1;
+                self.chars.remove(self.caret);
+            }
             // Preedit text never sits in the application buffer.
             _ => {}
         }
@@ -402,6 +415,14 @@ impl Sess {
                 .read2::<i32, u32>()
                 .ok()
                 .map(|(offset, n)| Sig::Delete { offset, n }),
+            "ForwardKeyEvent" => m
+                .read3::<u32, u32, u32>()
+                .ok()
+                .map(|(keyval, keycode, state)| Sig::ForwardKeyEvent {
+                    keyval,
+                    keycode,
+                    state,
+                }),
             "RegisterProperties" => Some(Sig::RegisterProperties(format!("{m:?}"))),
             "UpdateProperty" => Some(Sig::UpdateProperty),
             "RequireSurroundingText" => Some(Sig::RequireSurroundingText),
