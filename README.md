@@ -272,6 +272,6 @@ ibus engine ibus-mangrs
 ## License
 
 - **MăngRS** is licensed under the [GPL-3.0 License](LICENSE).
-- **bamboo-core (Rust)**: [Crates](https://crates.io/crates/bamboo-core) | [GitHub](https://github.com/bamboo-vi/bamboo-core) (MIT) — Vietnamese input algorithm library written in Rust. Licensed separately under its own MIT license.
-- **bamboo-core (Go)**: [GitHub](https://github.com/BambooEngine/bamboo-core) (MIT) — Copyright (C) 2018 Luong Thanh Lam. Core Vietnamese text processing library.
-- **IBus Bamboo**: [GitHub](https://github.com/BambooEngine/ibus-bamboo) (GPL-3.0) — Copyright (C) 2018 Luong Thanh Lam. Vietnamese input method for Linux.
+- **bamboo-core (Rust)**: [Crates](https://crates.io/crates/bamboo-core) | [GitHub](https://github.com/bamboo-vi/bamboo-core) (MIT) — Vietnamese input algorithm library written in Rust
+- **bamboo-core (Go)**: [GitHub](https://github.com/BambooEngine/bamboo-core) (MIT) — Copyright (C) 2018 Luong Thanh Lam
+- **IBus Bamboo**: [GitHub](https://github.com/BambooEngine/ibus-bamboo) (GPL-3.0) — Copyright (C) 2018 Luong Thanh Lam
