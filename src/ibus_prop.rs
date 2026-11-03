@@ -39,12 +39,21 @@ pub const KEY_CHARSET: &str = "charset";
 pub const KEY_METHOD: &str = "method";
 pub const KEY_DISPLAY: &str = "display";
 
-// Quick-settings group keys (toggles). Only the toggles the popup shows have
-// a key: the panel is deliberately short, everything else is in the GUI.
+// Quick-settings group keys (toggles). The popup shows the user's own
+// selection from `QUICK_TOGGLES` (`config.quick_menu`); the panel is
+// deliberately short, everything else is in the GUI.
 pub const KEY_MACROS: &str = "macro";
 pub const KEY_MACRO_EDITOR: &str = "macro_editor";
 pub const KEY_AUTO_CAPITALIZE: &str = "auto_capitalize";
 pub const KEY_AUTO_RESTORE: &str = "auto_restore";
+pub const KEY_AUTO_CORRECT: &str = "auto_correct";
+pub const KEY_BYPASS_URL: &str = "bypass_url";
+pub const KEY_DICTIONARY: &str = "dictionary";
+pub const KEY_DOUBLE_SPACE: &str = "double_space";
+pub const KEY_EM_DASH: &str = "em_dash";
+pub const KEY_FREE_TONE: &str = "free_tone";
+pub const KEY_MODERN_TONE: &str = "modern_tone";
+pub const KEY_HIDE_UNDERLINE: &str = "hide_underline";
 
 /// (menu key, label) for every output charset.
 pub const CHARSETS: &[(&str, &str)] = &[
@@ -167,6 +176,113 @@ pub fn prop_list_variant(props: &[Prop]) -> Variant<Box<dyn RefArg>> {
     )) as Box<dyn RefArg>)
 }
 
+/// One toggle the panel popup can show. The user picks the set (`config
+/// .quick_menu`); every entry here is wired to exactly one config field, so
+/// the panel and the GUI always edit the same value.
+pub struct QuickToggle {
+    pub key: &'static str,
+    /// Short label: GNOME sizes the popup to the widest one.
+    pub label: &'static str,
+    pub tooltip: &'static str,
+    pub get: fn(&Config) -> bool,
+    pub set: fn(&mut Config, bool),
+}
+
+/// Every toggle the popup CAN show, in GUI presentation order. Adding a
+/// candidate means one entry here plus the field it edits — the panel menu,
+/// its click handling and the GUI section all read this table.
+pub const QUICK_TOGGLES: &[QuickToggle] = &[
+    QuickToggle {
+        key: KEY_MACROS,
+        label: "Gõ tắt",
+        tooltip: "Mở rộng cụm tắt thành câu đầy đủ",
+        get: |c| c.macro_enabled,
+        set: |c, on| c.macro_enabled = on,
+    },
+    QuickToggle {
+        key: KEY_AUTO_CAPITALIZE,
+        label: "Tự viết hoa",
+        tooltip: "Tự động viết hoa sau . ! ? và Enter",
+        get: |c| c.auto_capitalize,
+        set: |c, on| c.auto_capitalize = on,
+    },
+    QuickToggle {
+        key: KEY_ABBREV,
+        label: "Viết tắt",
+        tooltip: "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk",
+        get: |c| c.abbreviations,
+        set: |c, on| c.abbreviations = on,
+    },
+    QuickToggle {
+        key: KEY_AUTO_RESTORE,
+        label: "Khôi phục từ nước ngoài",
+        tooltip: "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
+        get: |c| c.auto_restore,
+        set: |c, on| c.auto_restore = on,
+    },
+    QuickToggle {
+        key: KEY_AUTO_CORRECT,
+        label: "Sửa từ sai",
+        tooltip: "Từ không hợp lệ trả về chuỗi phím gốc",
+        get: |c| c.auto_correct,
+        set: |c, on| c.auto_correct = on,
+    },
+    QuickToggle {
+        key: KEY_BYPASS_URL,
+        label: "Không gõ URL",
+        tooltip: "Từ ngay sau / : @ . _ ~ = # & % ? giữ nguyên, không thêm dấu",
+        get: |c| c.bypass_url,
+        set: |c, on| c.bypass_url = on,
+    },
+    QuickToggle {
+        key: KEY_DICTIONARY,
+        label: "Từ điển của tôi",
+        tooltip: "Từ trong từ điển không bị khôi phục về chuỗi phím",
+        get: |c| c.dictionary_enabled,
+        set: |c, on| c.dictionary_enabled = on,
+    },
+    QuickToggle {
+        key: KEY_DOUBLE_SPACE,
+        label: "2 dấu cách = chấm",
+        tooltip: "Hai dấu cách chèn '. ' (thử nghiệm)",
+        get: |c| c.double_space_period,
+        set: |c, on| c.double_space_period = on,
+    },
+    QuickToggle {
+        key: KEY_EM_DASH,
+        label: "Gạch ngang dài",
+        tooltip: "-- thành —",
+        get: |c| c.em_dash,
+        set: |c, on| c.em_dash = on,
+    },
+    QuickToggle {
+        key: KEY_FREE_TONE,
+        label: "Dấu tự do",
+        tooltip: "Cho phép dấu gõ sai vị trí trong từ: hoangf → hoàng",
+        get: |c| c.free_tone_marking,
+        set: |c, on| c.free_tone_marking = on,
+    },
+    QuickToggle {
+        key: KEY_MODERN_TONE,
+        label: "Kiểu dấu mới",
+        tooltip: "hòa (chuẩn mới) thay vì hoà (truyền thống)",
+        get: |c| c.modern_tone_style,
+        set: |c, on| c.modern_tone_style = on,
+    },
+    QuickToggle {
+        key: KEY_HIDE_UNDERLINE,
+        label: "Ẩn gạch chân",
+        tooltip: "Preedit không có gạch chân (tùy app có nhận không)",
+        get: |c| c.hide_underline,
+        set: |c, on| c.hide_underline = on,
+    },
+];
+
+/// The registered toggle with this menu key, if any.
+pub fn quick_toggle(key: &str) -> Option<&'static QuickToggle> {
+    QUICK_TOGGLES.iter().find(|t| t.key == key)
+}
+
 /// The whole menu for the current settings. Called on `Enable` and on every
 /// `FocusIn`, so the check marks always match the saved config.
 pub fn properties(config: &Config) -> Vec<Prop> {
@@ -201,33 +317,18 @@ pub fn properties(config: &Config) -> Vec<Prop> {
             )
         })
         .collect();
-    // GNOME sizes the popup to the widest label, so the quick settings stay
-    // short; the details live in the tooltips. Only the essentials stay in
-    // the popup — everything else is in the control panel (GUI).
-    let mut quick = vec![
-        Prop::toggle(KEY_MACROS, "Gõ tắt", config.macro_enabled),
-        Prop::toggle(KEY_AUTO_CAPITALIZE, "Tự viết hoa", config.auto_capitalize),
-        Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"),
-        Prop::toggle(KEY_ABBREV, "Viết tắt", config.abbreviations),
-        Prop::toggle(
-            KEY_AUTO_RESTORE,
-            "Khôi phục từ nước ngoài",
-            config.auto_restore,
-        ),
-    ];
-    let quick_hints = [
-        (KEY_AUTO_CAPITALIZE, "Tự động viết hoa sau . ! ? và Enter"),
-        (KEY_ABBREV, "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk"),
-        (
-            KEY_AUTO_RESTORE,
-            "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
-        ),
-    ];
-    for (key, hint) in quick_hints {
-        if let Some(p) = quick.iter_mut().find(|p| p.key == key) {
-            p.tooltip = hint.into();
-        }
-    }
+    // The quick group is the user's own selection (`config.quick_menu`,
+    // edited in the GUI): each key that names a registered toggle shows up in
+    // list order, unknown keys are skipped. The editor action stays fixed —
+    // it is not a toggle, so it is not selectable.
+    let quick = std::iter::once(Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"))
+        .chain(config.quick_menu.iter().filter_map(|key| {
+            let t = quick_toggle(key)?;
+            let mut p = Prop::toggle(t.key, t.label, (t.get)(config));
+            p.tooltip = t.tooltip.into();
+            Some(p)
+        }))
+        .collect();
 
     let mut about = Prop::normal(KEY_ABOUT, format!("MăngRS {}", env!("CARGO_PKG_VERSION")));
     about.tooltip = "Mở trang GitHub của MăngRS".into();
@@ -298,6 +399,49 @@ mod tests {
             checked(&props[6].sub),
             vec!["macro", "abbreviations", "auto_restore"]
         );
+    }
+
+    #[test]
+    fn quick_menu_is_user_defined() {
+        let config = Config {
+            quick_menu: vec![
+                "bypass_url".into(),
+                "macro".into(),
+                "not_a_toggle".into(),
+                "em_dash".into(),
+            ],
+            bypass_url: false,
+            em_dash: true,
+            ..Config::default()
+        };
+        let props = properties(&config);
+        let quick = &props[6];
+        // Unknown keys vanish; the listed order is the menu order; the fixed
+        // editor action stays first.
+        assert_eq!(
+            quick.sub.iter().map(|p| p.key.as_str()).collect::<Vec<_>>(),
+            vec!["macro_editor", "bypass_url", "macro", "em_dash"]
+        );
+        // Check marks come from the config through the registry.
+        let on: Vec<&str> = quick
+            .sub
+            .iter()
+            .filter(|p| p.state == STATE_CHECKED)
+            .map(|p| p.key.as_str())
+            .collect();
+        assert_eq!(on, vec!["macro", "em_dash"]);
+    }
+
+    #[test]
+    fn empty_quick_menu_leaves_only_the_fixed_action() {
+        let config = Config {
+            quick_menu: Vec::new(),
+            ..Config::default()
+        };
+        let props = properties(&config);
+        let quick = &props[6];
+        assert_eq!(quick.sub.len(), 1);
+        assert_eq!(quick.sub[0].key, KEY_MACRO_EDITOR);
     }
 
     #[test]

@@ -669,22 +669,21 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
         return;
     }
 
-    // Toggles carry their new state directly.
+    // Toggles carry their new state directly. The popup shows the user's
+    // `quick_menu` selection, so every registered toggle must work here —
+    // the registry is the single source of both (see `ibus_prop::QUICK_TOGGLES`).
     let checked = state == ibus_prop::STATE_CHECKED;
     let mut config = Config::load();
-    // Only the toggles the panel actually shows: the popup is deliberately
-    // kept short (see `ibus_prop::properties`), the rest live in the GUI.
     match name {
         ibus_prop::KEY_ENABLED => config.enabled = checked,
-        ibus_prop::KEY_MACROS => config.macro_enabled = checked,
-        ibus_prop::KEY_AUTO_CAPITALIZE => config.auto_capitalize = checked,
-        ibus_prop::KEY_ABBREV => config.abbreviations = checked,
-        ibus_prop::KEY_AUTO_RESTORE => config.auto_restore = checked,
         ibus_prop::KEY_MACRO_EDITOR => {
             open_settings("macros");
             return;
         }
-        _ => return,
+        _ => match ibus_prop::quick_toggle(name) {
+            Some(t) => (t.set)(&mut config, checked),
+            None => return,
+        },
     }
     if config.save().is_err() {
         return;
