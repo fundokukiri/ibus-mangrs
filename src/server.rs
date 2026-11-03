@@ -715,12 +715,17 @@ fn push_update(prop: &Prop, out: &mut Vec<Message>) {
 
 /// The "Phím tắt" item opens the GTK4 settings window, same as `-gui`.
 fn open_settings(page: &str) {
+    use std::os::unix::process::CommandExt;
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
+    // Own process group: ibus-daemon's restart kills the engine process
+    // group, and the settings window — this same binary — must survive it
+    // (the window has a restart button of its own).
     let _ = std::process::Command::new(exe)
         .arg("-gui")
         .arg(format!("--page={page}"))
+        .process_group(0)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
