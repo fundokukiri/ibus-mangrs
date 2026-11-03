@@ -985,12 +985,35 @@ fn build(app: &Application, initial_page: Option<&str>) {
     content.append(&search_bar);
     content.append(&stack);
 
+    // The floating restart button. It stays hidden until a change is saved:
+    // every control already writes straight to config.toml, so the only
+    // thing left for the user to do is restart IBus (a new engine binary or
+    // component XML needs it; plain settings changes apply within a second).
+    let restart_btn = gtk4::Button::new();
+    {
+        let b = gtk4::Box::new(Orientation::Horizontal, 8);
+        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
+        b.append(&gtk4::Label::new(Some("Khởi động lại IBus")));
+        restart_btn.set_child(Some(&b));
+    }
+    restart_btn.add_css_class("suggested-action");
+    restart_btn.add_css_class("pill");
+    restart_btn.set_halign(gtk4::Align::Center);
+    restart_btn.set_valign(gtk4::Align::End);
+    restart_btn.set_margin_bottom(18);
+    restart_btn.set_visible(false);
+
+    // The overlay floats the restart button over the page, bottom center.
+    let overlay = gtk4::Overlay::new();
+    overlay.set_child(Some(&content));
+    overlay.add_overlay(&restart_btn);
+
     let window = ApplicationWindow::builder()
         .application(app)
         .title("MăngRS")
         .default_width(780)
         .default_height(700)
-        .child(&content)
+        .child(&overlay)
         .build();
 
     // Header: [search] ... [pill tabs] ... [close]. Window controls are
@@ -1095,9 +1118,14 @@ fn build(app: &Application, initial_page: Option<&str>) {
     {
         let window_for_save = window.clone();
         let ui_for_save = ui.clone();
+        let restart_for_save = restart_btn.clone();
         let save = move || {
-            if let Err(e) = ui_for_save.save_all() {
-                alert(&window_for_save, &e.to_string());
+            match ui_for_save.save_all() {
+                // Every saved change floats the restart button up: the
+                // settings are already on disk, the button is only there so
+                // a restart is one click away.
+                Ok(()) => restart_for_save.set_visible(true),
+                Err(e) => alert(&window_for_save, &e.to_string()),
             }
         };
         // The quick-add row appends the rule line, then saves through the
@@ -1237,6 +1265,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
     {
         let ui = ui.clone();
         let window = window.clone();
+        let restart_for_import = restart_btn.clone();
         import_btn.connect_clicked(move |_| {
             let dialog = gtk4::FileDialog::builder()
                 .title("Nhập cấu hình")
@@ -1244,18 +1273,34 @@ fn build(app: &Application, initial_page: Option<&str>) {
                 .build();
             let ui = ui.clone();
             let callback_window = window.clone();
+            let restart_for_import = restart_for_import.clone();
             dialog.open(
                 Some(&window),
                 gtk4::gio::Cancellable::NONE,
                 // A dismissed dialog is also an Err: nothing to import.
                 move |result| {
                     if let Ok(file) = result {
-                        if let Err(e) = import_json(file.path(), &ui) {
-                            alert(&callback_window, &e);
+                        match import_json(file.path(), &ui) {
+                            // An import rewrites config.toml wholesale — the
+                            // restart button applies to it like any save.
+                            Ok(()) => restart_for_import.set_visible(true),
+                            Err(e) => alert(&callback_window, &e),
                         }
                     }
                 },
             );
+        });
+    }
+
+    {
+        let window = window.clone();
+        let btn = restart_btn.clone();
+        restart_btn.connect_clicked(move |_| {
+            // User-initiated only — the engine never restarts IBus itself.
+            match std::process::Command::new("ibus").arg("restart").spawn() {
+                Ok(_) => btn.set_visible(false),
+                Err(e) => alert(&window, &format!("Không khởi động lại được IBus: {e}")),
+            }
         });
     }
 
