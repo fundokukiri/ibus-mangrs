@@ -12,12 +12,19 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use crate::config::{BracketConfig, CharsetConfig, Config, MethodConfig, ModeConfig, W2uConfig};
+use crate::config::{
+    BracketConfig, CharsetConfig, Config, MenuNode, MethodConfig, ModeConfig, W2uConfig,
+};
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
+// TreeView/TreeStore/ComboBoxText are deprecated since GTK 4.10 in favor of
+// ListView/DropDown, but they are the pragmatic editor widgets here: a tree
+// editor on ListView+TreeListModel would triple the code for no user gain.
+#[allow(deprecated)]
 use gtk4::{
-    Application, ApplicationWindow, CheckButton, DropDown, Entry, Orientation, Revealer,
-    StringList, Switch, TextView,
+    Application, ApplicationWindow, CellRendererText, CheckButton, ComboBoxText, DropDown, Entry,
+    Orientation, Revealer, StringList, Switch, TextView, TreeIter, TreeStore, TreeView,
+    TreeViewColumn,
 };
 
 thread_local! {
@@ -29,6 +36,85 @@ thread_local! {
     /// section could never be found) and closes them again afterwards.
     static COLLAPSIBLES: RefCell<Vec<(Revealer, gtk4::Label)>> =
         const { RefCell::new(Vec::new()) };
+}
+
+// Panel-menu editor store columns.
+const MENU_COL_KIND: u32 = 0;
+const MENU_COL_KEY: u32 = 1;
+const MENU_COL_LABEL: u32 = 2;
+const MENU_COL_KIND_LABEL: u32 = 3;
+
+/// (kind id, key, display label, Vietnamese kind label) for one node.
+fn menu_row(node: &MenuNode) -> (String, String, String, String) {
+    match node {
+        MenuNode::Toggle { key } => (
+            "toggle".into(),
+            key.clone(),
+            menu_toggle_label(key),
+            "Bật/tắt".into(),
+        ),
+        MenuNode::Radios { group } => (
+            "radios".into(),
+            group.clone(),
+            menu_radios_label(group),
+            "Nhóm chọn".into(),
+        ),
+        MenuNode::Action { key } => (
+            "action".into(),
+            key.clone(),
+            menu_action_label(key),
+            "Chức năng".into(),
+        ),
+        MenuNode::Separator => (
+            "sep".into(),
+            String::new(),
+            "— phân cách —".into(),
+            "Gạch ngang".into(),
+        ),
+        MenuNode::Folder { label, .. } => (
+            "folder".into(),
+            String::new(),
+            label.clone(),
+            "Thư mục".into(),
+        ),
+    }
+}
+
+fn menu_toggle_label(key: &str) -> String {
+    if key == "enabled" {
+        return "Bật tiếng Việt".into();
+    }
+    crate::ibus_prop::quick_toggle(key)
+        .map(|t| t.label.to_string())
+        .unwrap_or_else(|| key.to_string())
+}
+
+fn menu_radios_label(group: &str) -> String {
+    match group {
+        "charset" => "Bảng mã".into(),
+        "method" => "Kiểu gõ".into(),
+        "display" => "Chế độ gõ".into(),
+        other => other.into(),
+    }
+}
+
+fn menu_action_label(key: &str) -> String {
+    match key {
+        "macro_editor" => "Mở bảng gõ tắt…".into(),
+        "settings" => "Cài đặt…".into(),
+        "about" => "Giới thiệu (About)".into(),
+        other => other.into(),
+    }
+}
+
+/// (display label, kind label) for a picker id "kind:key".
+fn menu_item_label(kind: &str, key: &str) -> (String, String) {
+    match kind {
+        "toggle" => (menu_toggle_label(key), "Bật/tắt".into()),
+        "radios" => (menu_radios_label(key), "Nhóm chọn".into()),
+        "action" => (menu_action_label(key), "Chức năng".into()),
+        _ => ("— phân cách —".into(), "Gạch ngang".into()),
+    }
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -82,6 +168,7 @@ const CHARSETS: &[&str] = &[
 const ON_OFF_MODES: &[&str] = &["Tắt", "Trừ đầu từ", "Mọi vị trí"];
 const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
 
+#[allow(deprecated)] // TreeStore/TreeView/ComboBoxText, see the import above
 struct Ui {
     enabled: Switch,
     method: DropDown,
@@ -116,11 +203,15 @@ struct Ui {
     backspace_interval: Entry,
     post_delay: Entry,
     unicode_channel: DropDown,
-    /// One checkbox per registered quick toggle (`ibus_prop::QUICK_TOGGLES`);
-    /// the checked ones are the panel popup's contents (`config.quick_menu`).
-    quick_menu_checks: Vec<(&'static str, CheckButton)>,
+    /// The panel-menu editor: a 4-column store (kind id, key, label, kind
+    /// label), its view, the "add" type picker and the folder-name entry.
+    /// Folders nest one level at most, matching `config::MenuNode`.
+    menu_store: TreeStore,
+    menu_view: TreeView,
+    menu_kind: ComboBoxText,
+    menu_name: Entry,
     /// One checkbox per display mode (`ibus_prop::MODES`); the checked ones
-    /// are the panel popup's "Chế độ gõ" radio group (`config.menu_modes`).
+    /// are the contents of the "Chế độ gõ" radio group (`config.menu_modes`).
     menu_mode_checks: Vec<(&'static str, CheckButton)>,
 }
 
@@ -174,12 +265,20 @@ fn on_off_index<T: PartialEq>(value: &T, disabled: T, nonstart: T) -> u32 {
     }
 }
 
+#[allow(deprecated)]
 impl Ui {
     /// Push a config (plus the two text lists) into every widget. This is the
     /// only config → widget mapping: the initial build and the import both go
     /// through it, so an import cannot leave a stale widget that the next
     /// save would write back over the imported file.
     fn refresh(&self, config: &Config, macros: &Macros, dictionary: &Dictionary) {
+        // Normalize the menu design first: an absent or empty design edits
+        // the shipped shape. The round-trip assert at the end compares
+        // `read()` — which always produces a design — against this copy.
+        let mut config = config.clone();
+        if config.menu.as_ref().is_none_or(|m| m.is_empty()) {
+            config.menu = Some(config.default_menu());
+        }
         self.enabled.set_active(config.enabled);
         self.method.set_selected(method_index(config.method));
         self.mode.set_selected(mode_index(config.mode));
@@ -224,12 +323,10 @@ impl Ui {
                 crate::config::UnicodeChannel::Clipboard => 1,
                 crate::config::UnicodeChannel::Commit => 0,
             });
-        for (key, check) in &self.quick_menu_checks {
-            check.set_active(config.quick_menu.iter().any(|k| k == key));
-        }
         for (key, check) in &self.menu_mode_checks {
             check.set_active(config.menu_modes.iter().any(|k| k == key));
         }
+        self.fill_menu_store(config.menu.as_deref().unwrap_or(&config.default_menu()));
         set_text(
             &self.macro_text,
             &macros
@@ -255,7 +352,7 @@ impl Ui {
         // A field added to Config and Ui but forgotten here would leave a
         // stale widget that the next save writes back (the import bug).
         #[cfg(debug_assertions)]
-        debug_assert_eq!(&self.read(), config, "refresh missed a widget");
+        debug_assert_eq!(&self.read(), &config, "refresh missed a widget");
     }
 
     fn read(&self) -> Config {
@@ -331,20 +428,17 @@ impl Ui {
             1 => crate::config::UnicodeChannel::Clipboard,
             _ => crate::config::UnicodeChannel::Commit,
         };
-        // Registry order is the menu order; unchecking removes the toggle.
-        config.quick_menu = self
-            .quick_menu_checks
-            .iter()
-            .filter(|(_, check)| check.is_active())
-            .map(|(key, _)| (*key).to_string())
-            .collect();
-        // Same for the panel's display-mode radio group.
+        // The panel's display-mode radio group keeps its own list; the menu
+        // structure itself comes from the editor below.
         config.menu_modes = self
             .menu_mode_checks
             .iter()
             .filter(|(_, check)| check.is_active())
             .map(|(key, _)| (*key).to_string())
             .collect();
+        // The designed menu tree; never empty (the editor refuses to remove
+        // the last entry), so a save always pins the design down.
+        config.menu = Some(self.read_menu());
         // Read here, not in `save_all`: `refresh` asserts that `read` returns
         // everything it just pushed into the widgets, and the rules text view
         // is one of those widgets.
@@ -363,6 +457,240 @@ impl Ui {
             .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
             .filter(|(k, v)| !k.is_empty() && !v.is_empty())
             .collect()
+    }
+
+    // --- panel-menu editor (store columns: kind id, key, label, kind label) ---
+
+    fn menu_value(&self, iter: &TreeIter, col: u32) -> String {
+        self.menu_store
+            .get_value(iter, col as i32)
+            .get::<String>()
+            .unwrap_or_default()
+    }
+
+    fn menu_selected(&self) -> Option<(TreeIter, usize)> {
+        let (_, iter) = self.menu_view.selection().selected()?;
+        Some((iter, self.menu_store.iter_depth(&iter) as usize))
+    }
+
+    fn fill_menu_store(&self, nodes: &[MenuNode]) {
+        self.menu_store.clear();
+        for node in nodes {
+            self.append_menu_node(None, node);
+        }
+    }
+
+    fn append_menu_node(&self, parent: Option<&TreeIter>, node: &MenuNode) {
+        let (kind, key, label, kind_label) = menu_row(node);
+        let iter = self.menu_store.insert_with_values(
+            parent,
+            None,
+            &[
+                (MENU_COL_KIND, &kind),
+                (MENU_COL_KEY, &key),
+                (MENU_COL_LABEL, &label),
+                (MENU_COL_KIND_LABEL, &kind_label),
+            ],
+        );
+        if let MenuNode::Folder { children, .. } = node {
+            for child in children {
+                self.append_menu_node(Some(&iter), child);
+            }
+        }
+    }
+
+    fn read_menu(&self) -> Vec<MenuNode> {
+        let mut out = Vec::new();
+        if let Some(iter) = self.menu_store.iter_first() {
+            loop {
+                out.push(self.menu_node_from(&iter, 0));
+                if !self.menu_store.iter_next(&iter) {
+                    break;
+                }
+            }
+        }
+        out
+    }
+
+    fn menu_node_from(&self, iter: &TreeIter, depth: usize) -> MenuNode {
+        let kind = self.menu_value(iter, MENU_COL_KIND);
+        let key = self.menu_value(iter, MENU_COL_KEY);
+        let label = self.menu_value(iter, MENU_COL_LABEL);
+        match kind.as_str() {
+            "toggle" => MenuNode::Toggle { key },
+            "radios" => MenuNode::Radios { group: key },
+            "action" => MenuNode::Action { key },
+            "sep" => MenuNode::Separator,
+            // Folders only exist at the root; deeper ones cannot be created
+            // by this editor, so they are not read back either.
+            _ => MenuNode::Folder {
+                label,
+                children: if depth == 0 {
+                    self.menu_children(iter, depth + 1)
+                } else {
+                    Vec::new()
+                },
+            },
+        }
+    }
+
+    fn menu_children(&self, parent: &TreeIter, depth: usize) -> Vec<MenuNode> {
+        let mut out = Vec::new();
+        if let Some(iter) = self.menu_store.iter_children(Some(parent)) {
+            loop {
+                out.push(self.menu_node_from(&iter, depth));
+                if !self.menu_store.iter_next(&iter) {
+                    break;
+                }
+            }
+        }
+        out
+    }
+
+    /// Insert the picked item into the selected folder, or at the root.
+    fn menu_insert(&self, kind: &str, key: &str) {
+        let parent = self
+            .menu_selected()
+            .filter(|(_, depth)| *depth == 0)
+            .and_then(|(iter, _)| {
+                (self.menu_value(&iter, MENU_COL_KIND) == "folder").then_some(iter)
+            });
+        let (label, kind_label) = menu_item_label(kind, key);
+        self.menu_store.insert_with_values(
+            parent.as_ref(),
+            None,
+            &[
+                (MENU_COL_KIND, &kind.to_string()),
+                (MENU_COL_KEY, &key.to_string()),
+                (MENU_COL_LABEL, &label),
+                (MENU_COL_KIND_LABEL, &kind_label),
+            ],
+        );
+    }
+
+    /// Folders live at the root only — the popup nests one level.
+    fn menu_add_folder(&self, label: &str) {
+        let label = label.trim();
+        let label = if label.is_empty() {
+            "Thư mục mới"
+        } else {
+            label
+        };
+        self.menu_store.insert_with_values(
+            None,
+            None,
+            &[
+                (MENU_COL_KIND, &"folder".to_string()),
+                (MENU_COL_KEY, &String::new()),
+                (MENU_COL_LABEL, &label.to_string()),
+                (MENU_COL_KIND_LABEL, &"Thư mục".to_string()),
+            ],
+        );
+    }
+
+    fn menu_rename(&self, label: &str) {
+        let Some((iter, 0)) = self.menu_selected() else {
+            return;
+        };
+        if self.menu_value(&iter, MENU_COL_KIND) != "folder" {
+            return;
+        }
+        let label = label.trim();
+        if label.is_empty() {
+            return;
+        }
+        self.menu_store
+            .set_value(&iter, MENU_COL_LABEL, &label.to_value());
+    }
+
+    fn menu_delete(&self) {
+        let Some((iter, depth)) = self.menu_selected() else {
+            return;
+        };
+        // The popup must never end up empty: refuse to remove the last
+        // top-level entry.
+        if depth == 0 && self.menu_root_len() <= 1 {
+            return;
+        }
+        let parent = self.menu_store.iter_parent(&iter);
+        self.menu_store.remove(&iter);
+        // An emptied folder goes away with its last child.
+        if let Some(p) = parent {
+            if self.menu_store.iter_children(Some(&p)).is_none() {
+                self.menu_store.remove(&p);
+            }
+        }
+    }
+
+    fn menu_root_len(&self) -> usize {
+        self.menu_siblings(None).len()
+    }
+
+    fn menu_siblings(&self, parent: Option<&TreeIter>) -> Vec<TreeIter> {
+        let mut out = Vec::new();
+        let first = match parent {
+            Some(p) => self.menu_store.iter_children(Some(p)),
+            None => self.menu_store.iter_first(),
+        };
+        if let Some(iter) = first {
+            loop {
+                out.push(iter);
+                if !self.menu_store.iter_next(&iter) {
+                    break;
+                }
+            }
+        }
+        out
+    }
+
+    fn menu_move(&self, delta: isize) {
+        let Some((iter, _)) = self.menu_selected() else {
+            return;
+        };
+        let parent = self.menu_store.iter_parent(&iter);
+        let sibs = self.menu_siblings(parent.as_ref());
+        let sel_path = self.menu_store.path(&iter);
+        let Some(pos) = sibs
+            .iter()
+            .position(|i| self.menu_store.path(i) == sel_path)
+        else {
+            return;
+        };
+        let target = if delta < 0 {
+            pos.checked_sub(1)
+        } else {
+            Some(pos + 1).filter(|&p| p < sibs.len())
+        };
+        let Some(target) = target else {
+            return;
+        };
+        self.menu_store.swap(&sibs[pos], &sibs[target]);
+    }
+
+    /// Move the selected folder child up to the root (after the folder).
+    fn menu_out(&self) {
+        let Some((iter, 1)) = self.menu_selected() else {
+            return;
+        };
+        let kind = self.menu_value(&iter, MENU_COL_KIND);
+        let key = self.menu_value(&iter, MENU_COL_KEY);
+        let label = self.menu_value(&iter, MENU_COL_LABEL);
+        let kind_label = self.menu_value(&iter, MENU_COL_KIND_LABEL);
+        self.menu_store.insert_with_values(
+            None,
+            None,
+            &[
+                (MENU_COL_KIND, &kind),
+                (MENU_COL_KEY, &key),
+                (MENU_COL_LABEL, &label),
+                (MENU_COL_KIND_LABEL, &kind_label),
+            ],
+        );
+        self.menu_store.remove(&iter);
+    }
+
+    fn menu_reset(&self) {
+        self.fill_menu_store(&Config::load().default_menu());
     }
 
     fn read_dictionary(&self) -> Vec<String> {
@@ -417,6 +745,7 @@ fn set_text(view: &TextView, text: &str) {
 
 /// The widgets on their own, so a test can drive `refresh`/`read` without a
 /// window; `build` composes them into pages and presents them.
+#[allow(deprecated)]
 fn widgets() -> Rc<Ui> {
     let enabled = Switch::new();
     let method = drop_down(METHODS, 0);
@@ -454,10 +783,39 @@ fn widgets() -> Rc<Ui> {
     let backspace_interval = Entry::builder().width_chars(6).build();
     let post_delay = Entry::builder().width_chars(6).build();
     let unicode_channel = drop_down(CHANNELS, 0);
-    let quick_menu_checks = crate::ibus_prop::QUICK_TOGGLES
-        .iter()
-        .map(|t| (t.key, CheckButton::new()))
-        .collect();
+
+    // Panel-menu editor: kind id, key, label, Vietnamese kind label.
+    let menu_store = TreeStore::new(&[
+        gtk4::glib::Type::STRING,
+        gtk4::glib::Type::STRING,
+        gtk4::glib::Type::STRING,
+        gtk4::glib::Type::STRING,
+    ]);
+    let menu_view = TreeView::with_model(&menu_store);
+    menu_view.set_headers_visible(true);
+    menu_view.set_enable_tree_lines(true);
+    for (title, col) in [("Loại", MENU_COL_KIND_LABEL), ("Tên", MENU_COL_LABEL)] {
+        let column = TreeViewColumn::new();
+        column.set_title(title);
+        let cell = CellRendererText::new();
+        column.pack_start(&cell, true);
+        column.add_attribute(&cell, "text", col as i32);
+        menu_view.append_column(&column);
+    }
+    let menu_kind = ComboBoxText::new();
+    menu_kind.append(Some("toggle:enabled"), "Bật tiếng Việt");
+    for t in crate::ibus_prop::QUICK_TOGGLES {
+        menu_kind.append(Some(&format!("toggle:{}", t.key)), t.label);
+    }
+    menu_kind.append(Some("radios:charset"), "Bảng mã (nhóm chọn)");
+    menu_kind.append(Some("radios:method"), "Kiểu gõ (nhóm chọn)");
+    menu_kind.append(Some("radios:display"), "Chế độ gõ (nhóm chọn)");
+    menu_kind.append(Some("action:macro_editor"), "Mở bảng gõ tắt…");
+    menu_kind.append(Some("action:settings"), "Cài đặt…");
+    menu_kind.append(Some("action:about"), "Giới thiệu (About)");
+    menu_kind.append(Some("sep:"), "Gạch ngang phân cách");
+    menu_kind.set_active(Some(0));
+    let menu_name = Entry::builder().placeholder_text("Tên thư mục").build();
     let menu_mode_checks = crate::ibus_prop::MODES
         .iter()
         .map(|(key, _)| (*key, CheckButton::new()))
@@ -497,11 +855,15 @@ fn widgets() -> Rc<Ui> {
         backspace_interval,
         post_delay,
         unicode_channel,
-        quick_menu_checks,
+        menu_store,
+        menu_view,
+        menu_kind,
+        menu_name,
         menu_mode_checks,
     })
 }
 
+#[allow(deprecated)]
 fn build(app: &Application, initial_page: Option<&str>) {
     ROWS.with(|r| r.borrow_mut().clear());
     COLLAPSIBLES.with(|c| c.borrow_mut().clear());
@@ -741,25 +1103,61 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
     // ===== Page 5: Tinh chỉnh =====
     // Everything touched once (or only when debugging) lives here so the
-    // everyday tabs stay short: the panel-menu customization lists, the
-    // uinput pacing, the app-specific X11/XIM workarounds, the log switch.
+    // everyday tabs stay short: the panel-menu editor, the uinput pacing,
+    // the app-specific X11/XIM workarounds, the log switch.
     let advanced = gtk4::Box::new(Orientation::Vertical, 6);
+
+    // The panel popup is the user's own design: folders (one level deep),
+    // toggles, radio groups, actions and separators, freely ordered. The
+    // editor rows below get their handlers once `save` exists.
+    let menu_add_btn = gtk4::Button::with_label("Thêm");
+    let menu_folder_btn = gtk4::Button::with_label("Thêm thư mục");
+    let menu_rename_btn = gtk4::Button::with_label("Đổi tên");
+    let menu_up_btn = gtk4::Button::with_label("Lên");
+    let menu_down_btn = gtk4::Button::with_label("Xuống");
+    let menu_out_btn = gtk4::Button::with_label("Ra ngoài");
+    let menu_del_btn = gtk4::Button::with_label("Xoá");
+    let menu_reset_btn = gtk4::Button::with_label("Đặt lại mặc định");
+    let menu_row1 = gtk4::Box::new(Orientation::Horizontal, 8);
+    menu_row1.set_margin_start(10);
+    menu_row1.set_margin_end(10);
+    menu_row1.set_margin_top(8);
+    menu_row1.set_margin_bottom(4);
+    menu_row1.append(&ui.menu_kind);
+    menu_row1.append(&menu_add_btn);
+    menu_row1.append(&ui.menu_name);
+    menu_row1.append(&menu_folder_btn);
+    menu_row1.append(&menu_rename_btn);
+    let menu_row2 = gtk4::Box::new(Orientation::Horizontal, 8);
+    menu_row2.set_margin_start(10);
+    menu_row2.set_margin_end(10);
+    menu_row2.set_margin_top(4);
+    menu_row2.set_margin_bottom(8);
+    menu_row2.append(&menu_up_btn);
+    menu_row2.append(&menu_down_btn);
+    menu_row2.append(&menu_out_btn);
+    menu_row2.append(&menu_del_btn);
+    menu_row2.append(&menu_reset_btn);
+    let menu_view_row = gtk4::Box::new(Orientation::Vertical, 0);
+    menu_view_row.set_margin_start(10);
+    menu_view_row.set_margin_end(10);
+    menu_view_row.set_margin_top(0);
+    menu_view_row.set_margin_bottom(8);
+    let menu_scroll = gtk4::ScrolledWindow::new();
+    menu_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    menu_scroll.set_min_content_height(220);
+    menu_scroll.set_child(Some(&ui.menu_view));
+    menu_view_row.append(&menu_scroll);
     collapsible_section(
         &advanced,
-        "Menu nhanh trên panel",
-        "Tính năng hiện trong menu popup của biểu tượng MăngRS trên thanh trên",
-        ui.quick_menu_checks
-            .iter()
-            .filter_map(|(key, check)| {
-                let t = crate::ibus_prop::quick_toggle(key)?;
-                Some(pref_row(t.label, t.tooltip, check))
-            })
-            .collect(),
+        "Menu trên panel",
+        "Tự thiết kế menu popup: thêm thư mục, thêm chức năng, bỏ vào thư mục, sắp xếp thứ tự",
+        vec![menu_row1, menu_row2, menu_view_row],
     );
     collapsible_section(
         &advanced,
         "Chế độ gõ trên menu panel",
-        "Chế độ gõ hiện trong submenu \"Chế độ gõ\" của menu popup — bỏ tích để ẩn khỏi menu",
+        "Chế độ gõ hiện trong submenu \"Chế độ gõ\" — bỏ tích để ẩn khỏi menu",
         ui.menu_mode_checks
             .iter()
             .filter_map(|(key, check)| {
@@ -1171,19 +1569,89 @@ fn build(app: &Application, initial_page: Option<&str>) {
                 save();
             });
         }
+        // The panel-menu editor buttons mutate the tree, then save through
+        // the shared funnel — the design is on disk (and the panel, after a
+        // reload) before the window loses focus.
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_add_btn.connect_clicked(move |_| {
+                let Some(id) = ui.menu_kind.active_id() else {
+                    return;
+                };
+                let Some((kind, key)) = id.split_once(':') else {
+                    return;
+                };
+                ui.menu_insert(kind, key);
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_folder_btn.connect_clicked(move |_| {
+                let name = ui.menu_name.text().to_string();
+                ui.menu_add_folder(&name);
+                ui.menu_name.set_text("");
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_rename_btn.connect_clicked(move |_| {
+                let name = ui.menu_name.text().to_string();
+                ui.menu_rename(&name);
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_up_btn.connect_clicked(move |_| {
+                ui.menu_move(-1);
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_down_btn.connect_clicked(move |_| {
+                ui.menu_move(1);
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_out_btn.connect_clicked(move |_| {
+                ui.menu_out();
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_del_btn.connect_clicked(move |_| {
+                ui.menu_delete();
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_reset_btn.connect_clicked(move |_| {
+                ui.menu_reset();
+                save();
+            });
+        }
         macro_rules! on_change {
             ($w:expr) => {{
                 let s = save.clone();
                 $w.connect_active_notify(move |_| s());
             }};
         }
-        // The quick-menu checkboxes save like any switch, so a checkmark is
-        // in config.toml (and on the panel) before the window loses focus.
-        for (_, check) in ui
-            .quick_menu_checks
-            .iter()
-            .chain(ui.menu_mode_checks.iter())
-        {
+        for (_, check) in ui.menu_mode_checks.iter() {
             on_change!(check);
         }
         on_change!(ui.enabled);
@@ -1598,6 +2066,11 @@ mod tests {
         let mut dictionary = Dictionary::load();
         dictionary.set_words(["asl".to_string(), "tr".to_string()].into_iter());
 
+        // `read()` starts from the file, and two fields pass through it
+        // untouched now: `quick_menu` (its checkbox list was replaced by the
+        // menu editor; the list is only the design default) and anything
+        // else without a widget.
+        let baseline = ui.read();
         let config = Config {
             enabled: false,
             method: MethodConfig::Vni,
@@ -1633,11 +2106,32 @@ mod tests {
                 pattern: "kate".into(),
                 mode: ModeConfig::Preedit,
             }],
-            // Registry order: the checkboxes are presented in it, so a save
-            // normalizes the list to it (a hand-edited order survives until
-            // the next save).
-            quick_menu: vec!["macro".into(), "bypass_url".into(), "em_dash".into()],
+            // Passes through read() untouched (see baseline above).
+            quick_menu: baseline.quick_menu,
             menu_modes: vec!["preedit".into(), "smooth".into(), "off".into()],
+            // The editor always produces a design, and refresh normalizes an
+            // absent/empty one to the shipped shape; here a small tree that
+            // must survive the store round-trip unchanged.
+            menu: Some(vec![
+                MenuNode::Toggle {
+                    key: "enabled".into(),
+                },
+                MenuNode::Folder {
+                    label: "Cá nhân".into(),
+                    children: vec![
+                        MenuNode::Toggle {
+                            key: "em_dash".into(),
+                        },
+                        MenuNode::Separator,
+                        MenuNode::Action {
+                            key: "settings".into(),
+                        },
+                    ],
+                },
+                MenuNode::Radios {
+                    group: "display".into(),
+                },
+            ]),
         };
         ui.refresh(&config, &macros, &dictionary);
 
