@@ -4,7 +4,7 @@
 
 # MăngRS
 
-**English** | [Tiếng Việt](vi/README.md)
+**English** | [Tiếng Việt](vi/README-vi.md)
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
 [`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts, ten display modes (Preedit, NonPreedit, Surrounding, two
