@@ -47,18 +47,18 @@ a custom dictionary and per-app rules.
 
 ## Display modes
 
-| Mode | How it works | Best for |
-|---|---|---|
-| Preedit (default) | word shows inline with underline, commits at word end | widest compatibility |
-| Non-preedit | every key commits immediately, tail rewritten on marks | Firefox, GTK apps |
-| Surrounding text | non-preedit + verifies against the app's own text report | Sublime Text |
-| Smooth (uinput) | raw keys forwarded while typing, latin tail erased with real Backspaces at word end | terminals, quirky apps (X11) |
-| Super Smooth (uinput) | same, without the safety check before rewriting | fast typing (X11) |
-| Select (uinput) | Shift+← selects the tail, Delete erases it, word commits | apps where Backspaces misbehave (X11) |
-| ForwardKeyEvent | non-preedit whose tail rewrite deletes with Backspace key events forwarded through IBus | apps that ignore the delete signal: Chrome, Electron, GNOME Console, Sublime Text |
-| ForwardKeyEvent II | the same, but the tail is selected with forwarded Shift+← and the commit replaces it | apps where a forwarded Backspace is mishandled, X11/XIM apps (JetBrains) |
-| OFF | Vietnamese off, macros still work | mixed Vietnamese/English sessions |
-| Default Typing | engine fully inert, every key forwarded | apps that resent any processing |
+| Mode                  | How it works                                                                            | Best for                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Preedit (default)     | word shows inline with underline, commits at word end                                   | widest compatibility                                                              |
+| Non-preedit           | every key commits immediately, tail rewritten on marks                                  | Firefox, GTK apps                                                                 |
+| Surrounding text      | non-preedit + verifies against the app's own text report                                | Sublime Text                                                                      |
+| Smooth (uinput)       | raw keys forwarded while typing, latin tail erased with real Backspaces at word end     | terminals, quirky apps (X11)                                                      |
+| Super Smooth (uinput) | same, without the safety check before rewriting                                         | fast typing (X11)                                                                 |
+| Select (uinput)       | Shift+← selects the tail, Delete erases it, word commits                                | apps where Backspaces misbehave (X11)                                             |
+| ForwardKeyEvent       | non-preedit whose tail rewrite deletes with Backspace key events forwarded through IBus | apps that ignore the delete signal: Chrome, Electron, GNOME Console, Sublime Text |
+| ForwardKeyEvent II    | the same, but the tail is selected with forwarded Shift+← and the commit replaces it    | apps where a forwarded Backspace is mishandled, X11/XIM apps (JetBrains)          |
+| OFF                   | Vietnamese off, macros still work                                                       | mixed Vietnamese/English sessions                                                 |
+| Default Typing        | engine fully inert, every key forwarded                                                 | apps that resent any processing                                                   |
 
 Switch modes from the input-source menu, the settings window, an assignable cycle hotkey, or per
 app with **App Rules**. The uinput modes need `/dev/uinput` and fall back to preedit wherever
@@ -67,12 +67,12 @@ are intended for X11 sessions).
 
 ## Requirements
 
-| Distro | Packages |
-|---|---|
-| Arch | `ibus` `gtk4` (build: `rust`) |
+| Distro          | Packages                                     |
+| --------------- | -------------------------------------------- |
+| Arch            | `ibus` `gtk4` (build: `rust`)                |
 | Debian / Ubuntu | `ibus` `libgtk-4-dev` (build: `cargo rustc`) |
-| Fedora | `ibus` `gtk4-devel` (build: `rust cargo`) |
-| openSUSE | `ibus` `gtk4-devel` (build: `rust cargo`) |
+| Fedora          | `ibus` `gtk4-devel` (build: `rust cargo`)    |
+| openSUSE        | `ibus` `gtk4-devel` (build: `rust cargo`)    |
 
 The exact package names above are the standard ones but are **unverified on those distros** —
 only the Arch line is tested. IBus must be your active input-method framework (on GNOME it is).
@@ -149,23 +149,23 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 ## Enable the input source
 
 1. `ibus restart` (after installing or upgrading the binary).
-2. **Settings → Keyboard → Input Sources → +** → *Vietnamese* → **MăngRS**
+2. **Settings → Keyboard → Input Sources → +** → _Vietnamese_ → **MăngRS**
    (or `ibus engine ibus-mangrs`).
 3. `Super+Space` switches input sources; the gear next to the engine opens the settings window.
 
 ## Usage
 
-| Action | How |
-|---|---|
-| Toggle Vietnamese | input-source menu → *Enable Vietnamese*, or `Super+Space` |
-| Open settings window | input-source menu → *Cài đặt…*, or `ibus-engine-ibus-mangrs -gui` |
-| Change input method | menu → *Input Method* (Telex / VNI / VIQR / Microsoft), or GUI |
-| Change charset | menu → *Charset* (11 charsets), or GUI |
-| Change display mode | menu → *Display* (4 main modes), or GUI (10 modes), or the cycle hotkey |
-| Display mode cycle hotkey | GUI *Kiểu gõ* tab → *Phím tắt đổi chế độ* (e.g. `Control+Alt+v`) |
-| Quick settings | menu → *Quick Settings* (macros, auto-capitalize, abbreviations, foreign-word restore) |
-| Type English / code | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw |
-| Per-app display mode | GUI *Dữ liệu* tab → *Luật theo ứng dụng* (see App Rules below) |
+| Action                    | How                                                                                    |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| Toggle Vietnamese         | input-source menu → _Enable Vietnamese_, or `Super+Space`                              |
+| Open settings window      | input-source menu → _Cài đặt…_, or `ibus-engine-ibus-mangrs -gui`                      |
+| Change input method       | menu → _Input Method_ (Telex / VNI / VIQR / Microsoft), or GUI                         |
+| Change charset            | menu → _Charset_ (11 charsets), or GUI                                                 |
+| Change display mode       | menu → _Display_ (4 main modes), or GUI (10 modes), or the cycle hotkey                |
+| Display mode cycle hotkey | GUI _Kiểu gõ_ tab → _Phím tắt đổi chế độ_ (e.g. `Control+Alt+v`)                       |
+| Quick settings            | menu → _Quick Settings_ (macros, auto-capitalize, abbreviations, foreign-word restore) |
+| Type English / code       | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw         |
+| Per-app display mode      | GUI _Dữ liệu_ tab → _Luật theo ứng dụng_ (see App Rules below)                         |
 
 ## App Rules (per-app display mode)
 
@@ -173,8 +173,8 @@ A rule forces one display mode for one application and overrides the global
 mode. Rules are evaluated in order and the **first match wins**, so list
 specific patterns above general ones.
 
-**In the settings window:** *Dữ liệu* tab → *Luật theo ứng dụng*. Pick an app in
-the dropdown, pick a mode, press *Thêm luật*: the rule is appended as a
+**In the settings window:** _Dữ liệu_ tab → _Luật theo ứng dụng_. Pick an app in
+the dropdown, pick a mode, press _Thêm luật_: the rule is appended as a
 `name=mode` line and saved with the rest of the settings (edits made directly
 in the text box save when you click outside it). The dropdown lists
 only apps the engine has already seen (newest 50, `~/.cache/ibus-mangrs/clients`)
@@ -224,14 +224,14 @@ GNOME Console → `preedit`; Sublime Text → `surrounding`. Those clients drop
 
 ## X11/XIM options
 
-Two compatibility switches in the settings window (*Kiểu gõ* tab →
-*Tương thích X11/XIM*). Both are **off by default**, and both are needed only
+Two compatibility switches in the settings window (_Kiểu gõ_ tab →
+_Tương thích X11/XIM_). Both are **off by default**, and both are needed only
 for apps that reach the engine in unusual ways:
 
-| Switch | `config.toml` | What it does |
-|---|---|---|
+| Switch                            | `config.toml`               | What it does                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Xoá không cần báo cáo surrounding | `x11_delete_without_report` | Lets a direct X11 client (Sublime Text, other GTK3 X11 apps) delete the rewritten tail over IBus even though it never reported its text — what ibus-bamboo does. Without it those clients keep the raw keystrokes when real-key injection is unavailable (`tungf`). Risk: without a report the delete count is unclamped, so a caret moved behind the engine's back can lose a few characters. |
-| Preedit cho app XIM | `preedit_for_xim` | Keeps the underlined mode for XIM clients (JetBrains and other Java apps, which all report the fixed name `xim`). XIM servers draw the composing text in their own window and commit it at the word end. Without it those apps cannot use the default mode at all and need a `forwardkeyevent` rule. Risk: an app that negotiated `XIMPreeditNothing` shows nothing until the word ends. |
+| Preedit cho app XIM               | `preedit_for_xim`           | Keeps the underlined mode for XIM clients (JetBrains and other Java apps, which all report the fixed name `xim`). XIM servers draw the composing text in their own window and commit it at the word end. Without it those apps cannot use the default mode at all and need a `forwardkeyevent` rule. Risk: an app that negotiated `XIMPreeditNothing` shows nothing until the word ends.       |
 
 ## Configuration files
 
@@ -252,7 +252,7 @@ for apps that reach the engine in unusual ways:
   apps only as an anonymous mutter relay, so the engine has no name to match. Install the
   companion GNOME Shell extension (`data/gnome-shell-extension/README.md`), then log out and back
   in — editing or enabling it in place is not enough.
-- **Something else**: enable *Ghi log gỡ lỗi* (GUI *Kiểu gõ* tab → *Chẩn đoán*, or
+- **Something else**: enable _Ghi log gỡ lỗi_ (GUI _Kiểu gõ_ tab → _Chẩn đoán_, or
   `debug_log = true` in `config.toml`), reproduce the issue, and attach
   `~/.cache/ibus-mangrs/debug.log` — the engine logs every focus change,
   capability, keystroke decision and delete/inject with millisecond timestamps
@@ -286,10 +286,9 @@ ibus engine ibus-mangrs
 - `src/debug_log.rs` — opt-in debug log at `~/.cache/ibus-mangrs/debug.log`
 - `src/config.rs` — TOML settings shared by engine + GUI; `src/gui.rs` — GTK4 window (`gui` feature)
 
-
 ## License
 
-- **MăngRS** is licensed under the [GPL-3.0 License](LICENSE).
-- **bamboo-core (Rust)**: [Crates](https://crates.io/crates/bamboo-core) | [GitHub](https://github.com/bamboo-vi/bamboo-core) (MIT) — Vietnamese input algorithm library written in Rust
-- **bamboo-core (Go)**: [GitHub](https://github.com/BambooEngine/bamboo-core) (MIT) — Copyright (C) 2018 Luong Thanh Lam
-- **IBus Bamboo**: [GitHub](https://github.com/BambooEngine/ibus-bamboo) (GPL-3.0) — Copyright (C) 2018 Luong Thanh Lam
+- [**MăngRS**](https://github.com/fundokukiri/ibus-mangrs) is licensed under the [GPL-3.0 License](LICENSE).
+- [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Copyright (C) 2018 Luong Thanh Lam. [GPL-3.0 License](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file)
+- [**bamboo-core (Rust):**](https://github.com/bamboo-vi/bamboo-core) Vietnamese input algorithm library written in Rust. [MIT License](https://github.com/bamboo-vi/bamboo-core?tab=MIT-1-ov-file)
+- [**bamboo-core (Go):**](https://github.com/BambooEngine/bamboo-core) Copyright (C) 2018 Luong Thanh Lam. [MIT License](https://github.com/BambooEngine/bamboo-core?tab=MIT-1-ov-file)
