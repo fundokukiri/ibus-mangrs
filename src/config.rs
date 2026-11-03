@@ -174,8 +174,12 @@ pub enum ModeConfig {
     /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
-    /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent mode.
+    /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent I.
     ForwardKeyEvent,
+    /// The same, but the tail is selected with forwarded Shift+Left and the
+    /// commit replaces the selection — for apps that mishandle a forwarded
+    /// Backspace. ibus-bamboo's ForwardKeyEvent II.
+    ForwardSelect,
     /// Vietnamese processing off, but macros and auto-capitalize still run.
     Off,
     /// The engine is inert: every key is forwarded, no processing at all.
@@ -241,6 +245,7 @@ impl From<ModeConfig> for Mode {
             ModeConfig::SuperSmooth => Mode::SuperSmooth,
             ModeConfig::Select => Mode::Select,
             ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
+            ModeConfig::ForwardSelect => Mode::ForwardSelect,
             ModeConfig::Off => Mode::Off,
             ModeConfig::DefaultTyping => Mode::DefaultTyping,
         }
@@ -257,6 +262,7 @@ impl From<Mode> for ModeConfig {
             Mode::SuperSmooth => ModeConfig::SuperSmooth,
             Mode::Select => ModeConfig::Select,
             Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
+            Mode::ForwardSelect => ModeConfig::ForwardSelect,
             Mode::Off => ModeConfig::Off,
             Mode::DefaultTyping => ModeConfig::DefaultTyping,
         }
@@ -331,6 +337,7 @@ impl ModeConfig {
             ModeConfig::SuperSmooth => "supersmooth",
             ModeConfig::Select => "select",
             ModeConfig::ForwardKeyEvent => "forwardkeyevent",
+            ModeConfig::ForwardSelect => "forwardselect",
             ModeConfig::Off => "off",
             ModeConfig::DefaultTyping => "defaulttyping",
         }
@@ -347,6 +354,11 @@ impl ModeConfig {
             "forwardkeyevent" | "forwardkey" | "forward-key-event" | "forward_key_event" => {
                 ModeConfig::ForwardKeyEvent
             }
+            "forwardselect"
+            | "forwardkeyevent2"
+            | "forwardkeyeventii"
+            | "forward-key-event-2"
+            | "forward_key_event_2" => ModeConfig::ForwardSelect,
             "off" => ModeConfig::Off,
             "defaulttyping" | "default-typing" | "default_typing" => ModeConfig::DefaultTyping,
             _ => return None,
@@ -595,6 +607,13 @@ mod tests {
             ModeConfig::from_key("forwardkey"),
             Some(ModeConfig::ForwardKeyEvent),
             "the short alias must keep working"
+        );
+        let c: Config = toml::from_str("mode = \"forwardselect\"").unwrap();
+        assert_eq!(c.mode, ModeConfig::ForwardSelect);
+        assert_eq!(c.mode.key(), "forwardselect");
+        assert_eq!(
+            ModeConfig::from_key("forwardkeyevent2"),
+            Some(ModeConfig::ForwardSelect)
         );
     }
 
