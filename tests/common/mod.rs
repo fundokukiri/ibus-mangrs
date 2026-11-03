@@ -1,14 +1,14 @@
 //! Shared harness for the local end-to-end functional tests.
 //!
 //! Drives the **real release binary** over a **private D-Bus session bus**
-//! (created by `test/e2e/run.sh` with `dbus-run-session`), playing the role of
+//! (created by `tests/e2e/run.sh` with `dbus-run-session`), playing the role of
 //! ibus-daemon and the focused client: calls `org.freedesktop.IBus.Engine`
 //! methods, listens to the engine's signals, and asserts on the exact stream
 //! real applications see. This is the protocol complement to `cargo test`,
 //! which never touches D-Bus.
 //!
 //! Each `tests/e2e_<feature>.rs` file owns one feature's cases and calls
-//! [`run_suite`]. Skipped unless run through `test/e2e/run.sh` (which sets
+//! [`run_suite`]. Skipped unless run through `tests/e2e/run.sh` (which sets
 //! `MANGRS_E2E` and `MANGRS_E2E_BIN`): the cases need a private bus, and
 //! firing engines at the user's real session bus would be wrong. Plain
 //! `cargo test` never executes them — every case lives behind `#[ignore]`.
@@ -223,7 +223,7 @@ impl Sess {
         fs::create_dir_all(dir.join(".cache")).expect("cache dir");
 
         let conn = Connection::get_private(BusType::Session)
-            .expect("session bus — run through test/e2e/run.sh");
+            .expect("session bus — run through tests/e2e/run.sh");
         conn.register().expect("register on the private bus");
         conn.add_match(&format!(
             "type='signal',interface='{ENGINE_IFACE}',path='{ENGINE_PATH}'"
@@ -495,10 +495,10 @@ pub struct Case {
 }
 
 /// The whole feature as one `#[ignore]`d test: plain `cargo test` never spawns
-/// an engine; `test/e2e/run.sh` turns it on inside a private bus.
+/// an engine; `tests/e2e/run.sh` turns it on inside a private bus.
 pub fn run_suite(cases: &[Case]) {
     let Some(bin) = env::var_os("MANGRS_E2E_BIN").map(PathBuf::from) else {
-        println!("skip: MANGRS_E2E_BIN not set — run through test/e2e/run.sh");
+        println!("skip: MANGRS_E2E_BIN not set — run through tests/e2e/run.sh");
         return;
     };
     if env::var_os("MANGRS_E2E").is_none() {

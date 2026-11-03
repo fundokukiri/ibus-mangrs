@@ -9,9 +9,9 @@
 # triggered (injected keys would land in whatever window has focus).
 #
 # usage:
-#   test/e2e/run.sh              # all features
-#   test/e2e/run.sh preedit      # one feature file (tests/e2e_preedit.rs)
-#   MANGRS_E2E_FILTER=word test/e2e/run.sh   # substring filter inside the cases
+#   tests/e2e/run.sh              # all features
+#   tests/e2e/run.sh preedit      # one feature file (tests/e2e_preedit.rs)
+#   MANGRS_E2E_FILTER=word tests/e2e/run.sh   # substring filter inside the cases
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$REPO/target/release/ibus-engine-ibus-mangrs"

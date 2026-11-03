@@ -6,16 +6,16 @@ ibus-daemon and a focused client would: calling `org.freedesktop.IBus.Engine`
 methods and asserting on the engine's signal stream — the same contract real
 applications see.
 
-They complement `cargo test` (209 unit/golden tests, no D-Bus) with the
+They complement `cargo test` (215 unit/golden tests, no D-Bus) with the
 protocol level: wire encodings, method dispatch, signal ordering, and the
 config/property plumbing that only exists across D-Bus.
 
 ## Run
 
 ```sh
-test/e2e/run.sh                            # every feature file
-test/e2e/run.sh preedit                    # one feature (tests/e2e_preedit.rs)
-MANGRS_E2E_FILTER=word test/e2e/run.sh     # substring filter inside the cases
+tests/e2e/run.sh                            # every feature file
+tests/e2e/run.sh preedit                    # one feature (tests/e2e_preedit.rs)
+MANGRS_E2E_FILTER=word tests/e2e/run.sh     # substring filter inside the cases
 ```
 
 Each feature lives in its own `tests/e2e_<feature>.rs`, so a single feature is
