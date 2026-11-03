@@ -89,6 +89,10 @@ pub struct Config {
     pub preedit_for_xim: bool,
     /// Per-application display mode overrides (phase 9).
     pub app_rules: Vec<AppRule>,
+    /// Which toggles the panel popup shows, in order — the keys of
+    /// `ibus_prop::QUICK_TOGGLES`. Unknown keys are skipped when building the
+    /// menu, so a hand edit or an older file cannot break the panel.
+    pub quick_menu: Vec<String>,
 }
 
 /// One per-application rule: if the client prgname contains `pattern`
@@ -426,6 +430,15 @@ fn default_app_rules() -> Vec<AppRule> {
         .collect()
 }
 
+/// Keys of the quick toggles the panel popup shows by default — the menu the
+/// engine shipped before the list became user-editable.
+fn default_quick_menu() -> Vec<String> {
+    ["macro", "auto_capitalize", "abbreviations", "auto_restore"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -460,6 +473,7 @@ impl Default for Config {
             x11_delete_without_report: false,
             preedit_for_xim: false,
             app_rules: default_app_rules(),
+            quick_menu: default_quick_menu(),
         }
     }
 }
@@ -644,6 +658,30 @@ mod tests {
             ModeConfig::from_key("forwardkeyevent2"),
             Some(ModeConfig::ForwardSelect)
         );
+    }
+
+    #[test]
+    fn quick_menu_round_trips_and_defaults_to_the_old_menu() {
+        // The default is the menu the engine shipped before the list became
+        // editable, so an upgrade changes nothing on the panel.
+        assert_eq!(
+            Config::default().quick_menu,
+            vec![
+                "macro".to_string(),
+                "auto_capitalize".to_string(),
+                "abbreviations".to_string(),
+                "auto_restore".to_string(),
+            ]
+        );
+        let c: Config = toml::from_str("quick_menu = [\"bypass_url\", \"em_dash\"]").unwrap();
+        assert_eq!(
+            c.quick_menu,
+            vec!["bypass_url".to_string(), "em_dash".to_string()]
+        );
+        // A file without the key still parses (the engine must not drop
+        // settings it does not recognise on the next save).
+        let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
+        assert_eq!(c.quick_menu.len(), 4);
     }
 
     #[test]

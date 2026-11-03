@@ -16,7 +16,8 @@ use crate::config::{BracketConfig, CharsetConfig, Config, MethodConfig, ModeConf
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, DropDown, Entry, Orientation, StringList, Switch, TextView,
+    Application, ApplicationWindow, CheckButton, DropDown, Entry, Orientation, StringList, Switch,
+    TextView,
 };
 
 thread_local! {
@@ -109,6 +110,9 @@ struct Ui {
     backspace_interval: Entry,
     post_delay: Entry,
     unicode_channel: DropDown,
+    /// One checkbox per registered quick toggle (`ibus_prop::QUICK_TOGGLES`);
+    /// the checked ones are the panel popup's contents (`config.quick_menu`).
+    quick_menu_checks: Vec<(&'static str, CheckButton)>,
 }
 
 fn method_index(m: MethodConfig) -> u32 {
@@ -211,6 +215,9 @@ impl Ui {
                 crate::config::UnicodeChannel::Clipboard => 1,
                 crate::config::UnicodeChannel::Commit => 0,
             });
+        for (key, check) in &self.quick_menu_checks {
+            check.set_active(config.quick_menu.iter().any(|k| k == key));
+        }
         set_text(
             &self.macro_text,
             &macros
@@ -310,6 +317,13 @@ impl Ui {
             1 => crate::config::UnicodeChannel::Clipboard,
             _ => crate::config::UnicodeChannel::Commit,
         };
+        // Registry order is the menu order; unchecking removes the toggle.
+        config.quick_menu = self
+            .quick_menu_checks
+            .iter()
+            .filter(|(_, check)| check.is_active())
+            .map(|(key, _)| (*key).to_string())
+            .collect();
         // Read here, not in `save_all`: `refresh` asserts that `read` returns
         // everything it just pushed into the widgets, and the rules text view
         // is one of those widgets.
@@ -418,6 +432,10 @@ fn widgets() -> Rc<Ui> {
     let backspace_interval = Entry::builder().width_chars(6).build();
     let post_delay = Entry::builder().width_chars(6).build();
     let unicode_channel = drop_down(CHANNELS, 0);
+    let quick_menu_checks = crate::ibus_prop::QUICK_TOGGLES
+        .iter()
+        .map(|t| (t.key, CheckButton::new()))
+        .collect();
 
     Rc::new(Ui {
         enabled,
@@ -452,6 +470,7 @@ fn widgets() -> Rc<Ui> {
         backspace_interval,
         post_delay,
         unicode_channel,
+        quick_menu_checks,
     })
 }
 
@@ -553,6 +572,22 @@ fn build(app: &Application, initial_page: Option<&str>) {
             &ui.abbrev,
         ),
     ]));
+    // The panel popup's toggle section is the user's own selection; these
+    // checkboxes are that selection.
+    section(
+        &typing,
+        "Menu nhanh trên panel",
+        "Tính năng hiện trong menu popup của biểu tượng MăngRS trên thanh trên",
+    );
+    typing.append(&card(
+        ui.quick_menu_checks
+            .iter()
+            .filter_map(|(key, check)| {
+                let t = crate::ibus_prop::quick_toggle(key)?;
+                Some(pref_row(t.label, t.tooltip, check))
+            })
+            .collect(),
+    ));
     section(
         &typing,
         "Tốc độ gõ (uinput)",
@@ -1055,6 +1090,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
                 $w.connect_active_notify(move |_| s());
             }};
         }
+        // The quick-menu checkboxes save like any switch, so a checkmark is
+        // in config.toml (and on the panel) before the window loses focus.
+        for (_, check) in &ui.quick_menu_checks {
+            on_change!(check);
+        }
         on_change!(ui.enabled);
         on_change!(ui.modern);
         on_change!(ui.free);
@@ -1436,10 +1476,16 @@ mod tests {
             post_delay_ms: 12,
             unicode_channel: crate::config::UnicodeChannel::Clipboard,
             debug_log: true,
+            x11_delete_without_report: true,
+            preedit_for_xim: true,
             app_rules: vec![crate::config::AppRule {
                 pattern: "kate".into(),
                 mode: ModeConfig::Preedit,
             }],
+            // Registry order: the checkboxes are presented in it, so a save
+            // normalizes the list to it (a hand-edited order survives until
+            // the next save).
+            quick_menu: vec!["macro".into(), "bypass_url".into(), "em_dash".into()],
         };
         ui.refresh(&config, &macros, &dictionary);
 
