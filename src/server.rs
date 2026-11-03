@@ -89,6 +89,8 @@ impl Server {
             last_config_mtime: None,
             cycle_hotkey: None,
             enabled_hotkey: None,
+            last_toggle_fire: None,
+            last_cycle_fire: None,
             focus_ext: None,
         };
         handler.last_config_mtime = Config::path()
@@ -200,6 +202,10 @@ struct EngineHandler {
     /// every key event just to compare a hotkey put disk I/O on the key path.
     cycle_hotkey: Option<(u32, u32)>,
     enabled_hotkey: Option<(u32, u32)>,
+    /// Last fire of each hotkey: autorepeat of the combo key would
+    /// re-trigger it tens of times a second while held.
+    last_toggle_fire: Option<Instant>,
+    last_cycle_fire: Option<Instant>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
 }
@@ -494,6 +500,15 @@ impl EngineHandler {
             return false;
         }
 
+        let now = Instant::now();
+        if self
+            .last_toggle_fire
+            .is_some_and(|t| now.duration_since(t) < HOTKEY_REPEAT_GAP)
+        {
+            return true; // autorepeat of the combo key: consume, do nothing
+        }
+        self.last_toggle_fire = Some(now);
+
         let mut config = Config::load();
         config.enabled = !config.enabled;
         if config.save().is_err() {
@@ -519,6 +534,15 @@ impl EngineHandler {
         if !hotkey_matches(mods, expected, keyval, state) {
             return false;
         }
+
+        let now = Instant::now();
+        if self
+            .last_cycle_fire
+            .is_some_and(|t| now.duration_since(t) < HOTKEY_REPEAT_GAP)
+        {
+            return true; // autorepeat of the combo key: consume, do nothing
+        }
+        self.last_cycle_fire = Some(now);
 
         let mut config = Config::load();
         config.mode = match config.mode {
@@ -607,6 +631,11 @@ impl EngineHandler {
 /// Parse a hotkey spec like `Control+Alt+v` into (modifier mask, keysym).
 /// Returns `None` for specs it does not understand. The key may be a single
 /// letter/digit, `space`, or `f1`..`f12`.
+/// Minimum gap between two fires of the same hotkey: key autorepeat
+/// re-sends the combo tens of times a second while it is held, and a
+/// deliberate second press is never this fast.
+const HOTKEY_REPEAT_GAP: Duration = Duration::from_millis(250);
+
 pub(crate) fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
     let mut mods = 0u32;
     let mut key = None;
@@ -660,15 +689,26 @@ pub(crate) fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
 /// modifiers (either side), with every OTHER combo modifier already held —
 /// the just-pressed modifier is not in the event state yet.
 fn hotkey_matches(mods: u32, key: u32, keyval: u32, state: u32) -> bool {
+    // Releases never trigger: a press-release pair would fire the hotkey
+    // twice.
+    if state & keymap::RELEASE_MASK != 0 {
+        return false;
+    }
+    let held = state & keymap::HOTKEY_STATE_MASK;
     if key == 0 {
+        // Modifier-only combo: the pressed key must be one of the combo's
+        // own modifiers (either side), and held-plus-pressed must be
+        // exactly the combo — the just-pressed modifier may or may not be
+        // in the event state yet, depending on the toolkit.
         let Some(pressed) = keymap::modifier_of_keyval(keyval) else {
             return false;
         };
-        mods & pressed != 0 && state & (mods & !pressed) == mods & !pressed
+        mods & pressed != 0 && held | pressed == mods
     } else {
-        // Shift turns the event's keysym uppercase ('Z' vs the stored 'z'),
-        // so the comparison is case-insensitive.
-        keymap::keyval_to_lower(keyval) == keymap::keyval_to_lower(key) && state & mods == mods
+        // Regular combo: exactly the combo's modifiers, no extras — and
+        // case-insensitive, because Shift turns the event's keysym
+        // uppercase ('Z' vs the stored 'z').
+        keymap::keyval_to_lower(keyval) == keymap::keyval_to_lower(key) && held == mods
     }
 }
 
@@ -1524,6 +1564,8 @@ mod tests {
             last_config_mtime: None,
             cycle_hotkey: None,
             enabled_hotkey: None,
+            last_toggle_fire: None,
+            last_cycle_fire: None,
             focus_ext: None,
         };
         let press = |handler: &mut EngineHandler, keyval: u32| {
