@@ -18,6 +18,11 @@ pub const RELEASE_MASK: u32 = 1 << 30;
 /// Every modifier that means "this is a shortcut, not text".
 pub const SHORTCUT_MASK: u32 = CONTROL_MASK | MOD1_MASK | MOD4_MASK;
 
+/// The modifier bits a hotkey combination may consist of. Exact-match scope
+/// for hotkey events: LOCK (Caps Lock) and MOD2 (Num Lock) stay out so a
+/// hotkey keeps working with them on.
+pub const HOTKEY_STATE_MASK: u32 = SHIFT_MASK | CONTROL_MASK | MOD1_MASK | MOD4_MASK | MOD5_MASK;
+
 // Modifier keysyms (left and right variants), X11/keysymdef.h.
 const XK_SHIFT_L: u32 = 0xffe1;
 const XK_SHIFT_R: u32 = 0xffe2;
