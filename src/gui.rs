@@ -189,6 +189,7 @@ struct Ui {
     mode: DropDown,
     charset: DropDown,
     hotkey: Entry,
+    enabled_hotkey: Entry,
     modern: Switch,
     free: Switch,
     auto_correct: Switch,
@@ -295,6 +296,7 @@ impl Ui {
         self.mode.set_selected(mode_index(config.mode));
         self.charset.set_selected(charset_index(config.charset));
         self.hotkey.set_text(&config.cycle_mode_hotkey);
+        self.enabled_hotkey.set_text(&config.enabled_hotkey);
         self.modern.set_active(config.modern_tone_style);
         self.free.set_active(config.free_tone_marking);
         self.auto_correct.set_active(config.auto_correct);
@@ -400,6 +402,7 @@ impl Ui {
             _ => CharsetConfig::Unicode,
         };
         config.cycle_mode_hotkey = self.hotkey.text().trim().to_string();
+        config.enabled_hotkey = self.enabled_hotkey.text().trim().to_string();
         config.debug_log = self.debug_log.is_active();
         config.x11_delete_without_report = self.x11_delete.is_active();
         config.preedit_for_xim = self.preedit_xim.is_active();
@@ -926,6 +929,10 @@ fn widgets() -> Rc<Ui> {
         .placeholder_text("vd. Control+Alt+v")
         .width_chars(18)
         .build();
+    let enabled_hotkey = Entry::builder()
+        .placeholder_text("vd. Control+Alt+space")
+        .width_chars(18)
+        .build();
     let modern = Switch::new();
     let free = Switch::new();
     let auto_correct = Switch::new();
@@ -985,6 +992,7 @@ fn widgets() -> Rc<Ui> {
         mode,
         charset,
         hotkey,
+        enabled_hotkey,
         modern,
         free,
         auto_correct,
@@ -1106,6 +1114,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
             "Phím tắt đổi chế độ",
             "Ví dụ: Control+Alt+v. Để trống là chưa gán",
             &ui.hotkey,
+        ),
+        pref_row(
+            "Phím tắt bật/tắt tiếng Việt",
+            "Ví dụ: Control+Alt+space. Để trống là chưa gán",
+            &ui.enabled_hotkey,
         ),
     ]));
     hint(
@@ -1848,6 +1861,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         // Entries save on Enter or when they lose focus.
         for entry in [
             &ui.hotkey,
+            &ui.enabled_hotkey,
             &ui.time_format,
             &ui.date_format,
             &ui.commit_interval,
@@ -2244,6 +2258,7 @@ mod tests {
             dictionary_enabled: false,
             abbreviations: false,
             cycle_mode_hotkey: "Control+Alt+v".into(),
+            enabled_hotkey: "Control+Alt+space".into(),
             hide_underline: true,
             commit_interval_ms: 33,
             backspace_interval_ms: 7,

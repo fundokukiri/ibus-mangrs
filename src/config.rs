@@ -58,6 +58,9 @@ pub struct Config {
     pub abbreviations: bool,
     /// Hotkey cycling the display mode, e.g. `Control+Alt+v`. Empty = unassigned.
     pub cycle_mode_hotkey: String,
+    /// Hotkey toggling Vietnamese on/off, e.g. `Control+Alt+space`.
+    /// Empty = unassigned.
+    pub enabled_hotkey: String,
     /// Send preedit without the underline attribute (app support permitting).
     pub hide_underline: bool,
     /// Uinput pacing: gap between injected text/commit steps (ms).
@@ -565,6 +568,7 @@ impl Default for Config {
             dictionary_enabled: false,
             abbreviations: true,
             cycle_mode_hotkey: String::new(),
+            enabled_hotkey: String::new(),
             hide_underline: false,
             commit_interval_ms: 20,
             backspace_interval_ms: 5,
@@ -720,6 +724,7 @@ mod tests {
         assert!(c.macro_enabled);
         assert!(!c.em_dash);
         assert!(c.cycle_mode_hotkey.is_empty());
+        assert!(c.enabled_hotkey.is_empty());
     }
 
     #[test]
