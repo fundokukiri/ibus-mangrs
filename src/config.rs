@@ -58,6 +58,9 @@ pub struct Config {
     pub abbreviations: bool,
     /// Hotkey cycling the display mode, e.g. `Control+Alt+v`. Empty = unassigned.
     pub cycle_mode_hotkey: String,
+    /// Hotkey toggling Vietnamese on/off, e.g. `Control+Alt+space`.
+    /// Empty = unassigned.
+    pub enabled_hotkey: String,
     /// Send preedit without the underline attribute (app support permitting).
     pub hide_underline: bool,
     /// Uinput pacing: gap between injected text/commit steps (ms).
@@ -72,8 +75,119 @@ pub struct Config {
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
+    /// Allow the protocol delete for a DIRECT client (never through a mutter
+    /// relay) that advertises surrounding-text support but never reported its
+    /// text: X11 clients such as Sublime Text apply the delete inside their
+    /// own process, where the mutter crash this engine guards against cannot
+    /// happen. ibus-bamboo deletes this way for every client. Off by default:
+    /// without a report the delete count is unclamped, so a caret the engine
+    /// did not see move can lose real text.
+    pub x11_delete_without_report: bool,
+    /// Keep Preedit for XIM clients (the fixed `xim` id: Java apps such as
+    /// JetBrains) instead of falling back to NonPreedit. They report no
+    /// preedit capability because the XIM server draws the preedit itself, so
+    /// the fallback turned accents into raw keystrokes (`tungf`). Off by
+    /// default: an app that negotiated `XIMPreeditNothing` shows nothing
+    /// while the word is being typed.
+    pub preedit_for_xim: bool,
     /// Per-application display mode overrides (phase 9).
     pub app_rules: Vec<AppRule>,
+    /// Which toggles the panel popup shows, in order — the keys of
+    /// `ibus_prop::QUICK_TOGGLES`. Unknown keys are skipped when building the
+    /// menu, so a hand edit or an older file cannot break the panel.
+    pub quick_menu: Vec<String>,
+    /// Which display modes the panel popup's "Chế độ gõ" radio group shows,
+    /// in order — keys of `ibus_prop::MODES`. Same skip-unknown contract as
+    /// `quick_menu`.
+    pub menu_modes: Vec<String>,
+    /// The user-designed panel menu. `None` (or an empty list) means the
+    /// menu is synthesized from `default_menu()` — the shape the engine
+    /// shipped before the menu became editable — so an upgrade and a broken
+    /// hand edit both fall back to the familiar menu.
+    pub menu: Option<Vec<MenuNode>>,
+}
+
+/// One node of the user-designed panel menu. Folders hold ONE level of
+/// items: a folder inside a folder is skipped when the menu is built, so a
+/// hand edit cannot push the popup into unusable nesting.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum MenuNode {
+    /// A quick toggle — a `ibus_prop::QUICK_TOGGLES` key, or "enabled".
+    Toggle {
+        key: String,
+    },
+    /// A radio group: "charset", "method" or "display". Its children are the
+    /// entry keys it shows (`ibus_prop::CHARSETS` / `METHODS` / `MODES`
+    /// keys), in order — the group is an editable folder menu. Unknown keys
+    /// are skipped when the menu is built, and an emptied group disappears.
+    Radios {
+        group: String,
+        #[serde(default)]
+        children: Vec<String>,
+    },
+    /// A fixed action: "macro_editor", "settings" or "about".
+    Action {
+        key: String,
+    },
+    Separator,
+    /// A submenu.
+    Folder {
+        label: String,
+        #[serde(default)]
+        children: Vec<MenuNode>,
+    },
+}
+
+impl Config {
+    /// The panel menu shape the engine shipped before `menu` existed,
+    /// expressed as a node tree: everything in `properties()` used to be
+    /// fixed, with the quick folder built from `quick_menu` and the radio
+    /// groups showing every entry (display: the `menu_modes` selection).
+    pub fn default_menu(&self) -> Vec<MenuNode> {
+        let mut quick = vec![MenuNode::Action {
+            key: "macro_editor".into(),
+        }];
+        quick.extend(
+            self.quick_menu
+                .iter()
+                .map(|key| MenuNode::Toggle { key: key.clone() }),
+        );
+        let all_keys = |entries: &[(&str, &str)]| {
+            entries
+                .iter()
+                .map(|(key, _)| key.to_string())
+                .collect::<Vec<_>>()
+        };
+        vec![
+            MenuNode::Action {
+                key: "about".into(),
+            },
+            MenuNode::Separator,
+            MenuNode::Toggle {
+                key: "enabled".into(),
+            },
+            MenuNode::Radios {
+                group: "charset".into(),
+                children: all_keys(crate::ibus_prop::CHARSETS),
+            },
+            MenuNode::Radios {
+                group: "method".into(),
+                children: all_keys(crate::ibus_prop::METHODS),
+            },
+            MenuNode::Radios {
+                group: "display".into(),
+                children: self.menu_modes.clone(),
+            },
+            MenuNode::Folder {
+                label: "Cấu hình nhanh".into(),
+                children: quick,
+            },
+            MenuNode::Action {
+                key: "settings".into(),
+            },
+        ]
+    }
 }
 
 /// One per-application rule: if the client prgname contains `pattern`
@@ -171,6 +285,15 @@ pub enum ModeConfig {
     /// Select (uinput): Shift+Left selects the typed tail, Delete erases it,
     /// then the Vietnamese word is committed. Needs a surrounding-text report.
     Select,
+    /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
+    /// events through IBus instead of `DeleteSurroundingText` — works in
+    /// clients that drop the protocol delete and where `/dev/uinput` cannot
+    /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent I.
+    ForwardKeyEvent,
+    /// The same, but the tail is selected with forwarded Shift+Left and the
+    /// commit replaces the selection — for apps that mishandle a forwarded
+    /// Backspace. ibus-bamboo's ForwardKeyEvent II.
+    ForwardSelect,
     /// Vietnamese processing off, but macros and auto-capitalize still run.
     Off,
     /// The engine is inert: every key is forwarded, no processing at all.
@@ -235,6 +358,8 @@ impl From<ModeConfig> for Mode {
             ModeConfig::Smooth => Mode::Smooth,
             ModeConfig::SuperSmooth => Mode::SuperSmooth,
             ModeConfig::Select => Mode::Select,
+            ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
+            ModeConfig::ForwardSelect => Mode::ForwardSelect,
             ModeConfig::Off => Mode::Off,
             ModeConfig::DefaultTyping => Mode::DefaultTyping,
         }
@@ -250,6 +375,8 @@ impl From<Mode> for ModeConfig {
             Mode::Smooth => ModeConfig::Smooth,
             Mode::SuperSmooth => ModeConfig::SuperSmooth,
             Mode::Select => ModeConfig::Select,
+            Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
+            Mode::ForwardSelect => ModeConfig::ForwardSelect,
             Mode::Off => ModeConfig::Off,
             Mode::DefaultTyping => ModeConfig::DefaultTyping,
         }
@@ -323,6 +450,8 @@ impl ModeConfig {
             ModeConfig::Smooth => "smooth",
             ModeConfig::SuperSmooth => "supersmooth",
             ModeConfig::Select => "select",
+            ModeConfig::ForwardKeyEvent => "forwardkeyevent",
+            ModeConfig::ForwardSelect => "forwardselect",
             ModeConfig::Off => "off",
             ModeConfig::DefaultTyping => "defaulttyping",
         }
@@ -336,6 +465,14 @@ impl ModeConfig {
             "smooth" => ModeConfig::Smooth,
             "supersmooth" | "super-smooth" | "super_smooth" => ModeConfig::SuperSmooth,
             "select" => ModeConfig::Select,
+            "forwardkeyevent" | "forwardkey" | "forward-key-event" | "forward_key_event" => {
+                ModeConfig::ForwardKeyEvent
+            }
+            "forwardselect"
+            | "forwardkeyevent2"
+            | "forwardkeyeventii"
+            | "forward-key-event-2"
+            | "forward_key_event_2" => ModeConfig::ForwardSelect,
             "off" => ModeConfig::Off,
             "defaulttyping" | "default-typing" | "default_typing" => ModeConfig::DefaultTyping,
             _ => return None,
@@ -388,6 +525,24 @@ fn default_app_rules() -> Vec<AppRule> {
         .collect()
 }
 
+/// Keys of the quick toggles the panel popup shows by default — the menu the
+/// engine shipped before the list became user-editable.
+fn default_quick_menu() -> Vec<String> {
+    ["macro", "auto_capitalize", "abbreviations", "auto_restore"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
+/// Display modes the panel popup showed before the radio group became
+/// editable — the four main entries, not the uinput/technical ones.
+fn default_menu_modes() -> Vec<String> {
+    ["preedit", "nonpreedit", "surrounding", "off"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -413,13 +568,19 @@ impl Default for Config {
             dictionary_enabled: false,
             abbreviations: true,
             cycle_mode_hotkey: String::new(),
+            enabled_hotkey: String::new(),
             hide_underline: false,
             commit_interval_ms: 20,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,
             debug_log: false,
+            x11_delete_without_report: false,
+            preedit_for_xim: false,
             app_rules: default_app_rules(),
+            quick_menu: default_quick_menu(),
+            menu_modes: default_menu_modes(),
+            menu: None,
         }
     }
 }
@@ -563,6 +724,7 @@ mod tests {
         assert!(c.macro_enabled);
         assert!(!c.em_dash);
         assert!(c.cycle_mode_hotkey.is_empty());
+        assert!(c.enabled_hotkey.is_empty());
     }
 
     #[test]
@@ -573,6 +735,148 @@ mod tests {
         assert_eq!(c.charset, CharsetConfig::Nfd);
         let c: Config = toml::from_str("charset = \"cp1258\"").unwrap();
         assert_eq!(c.charset, CharsetConfig::Cp1258);
+    }
+
+    #[test]
+    fn forward_key_event_mode_key_round_trips() {
+        let c: Config = toml::from_str("mode = \"forwardkeyevent\"").unwrap();
+        assert_eq!(c.mode, ModeConfig::ForwardKeyEvent);
+        assert_eq!(c.mode.key(), "forwardkeyevent");
+        assert_eq!(
+            ModeConfig::from_key("forwardkey"),
+            Some(ModeConfig::ForwardKeyEvent),
+            "the short alias must keep working"
+        );
+        // Both compatibility switches ship off: an old config keeps today's
+        // behaviour, and only the settings window turns them on.
+        let c = Config::default();
+        assert!(!c.x11_delete_without_report);
+        assert!(!c.preedit_for_xim);
+        let c: Config =
+            toml::from_str("x11_delete_without_report = true\npreedit_for_xim = true\n").unwrap();
+        assert!(c.x11_delete_without_report);
+        assert!(c.preedit_for_xim);
+        let c = Config::from_toml("mode = \"preedit\"\n");
+        assert!(!c.x11_delete_without_report && !c.preedit_for_xim);
+
+        let c: Config = toml::from_str("mode = \"forwardselect\"").unwrap();
+        assert_eq!(c.mode, ModeConfig::ForwardSelect);
+        assert_eq!(c.mode.key(), "forwardselect");
+        assert_eq!(
+            ModeConfig::from_key("forwardkeyevent2"),
+            Some(ModeConfig::ForwardSelect)
+        );
+    }
+
+    #[test]
+    fn quick_menu_round_trips_and_defaults_to_the_old_menu() {
+        // The default is the menu the engine shipped before the list became
+        // editable, so an upgrade changes nothing on the panel.
+        assert_eq!(
+            Config::default().quick_menu,
+            vec![
+                "macro".to_string(),
+                "auto_capitalize".to_string(),
+                "abbreviations".to_string(),
+                "auto_restore".to_string(),
+            ]
+        );
+        let c: Config = toml::from_str("quick_menu = [\"bypass_url\", \"em_dash\"]").unwrap();
+        assert_eq!(
+            c.quick_menu,
+            vec!["bypass_url".to_string(), "em_dash".to_string()]
+        );
+        // A file without the key still parses (the engine must not drop
+        // settings it does not recognise on the next save).
+        let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
+        assert_eq!(c.quick_menu.len(), 4);
+    }
+
+    #[test]
+    fn menu_modes_round_trips_and_defaults_to_the_main_four() {
+        assert_eq!(
+            Config::default().menu_modes,
+            vec![
+                "preedit".to_string(),
+                "nonpreedit".to_string(),
+                "surrounding".to_string(),
+                "off".to_string(),
+            ]
+        );
+        let c: Config = toml::from_str("menu_modes = [\"smooth\", \"off\", \"preedit\"]").unwrap();
+        assert_eq!(
+            c.menu_modes,
+            vec![
+                "smooth".to_string(),
+                "off".to_string(),
+                "preedit".to_string()
+            ]
+        );
+        let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
+        assert_eq!(c.menu_modes.len(), 4);
+    }
+
+    #[test]
+    fn menu_tree_round_trips_through_toml() {
+        // Absent key: None — the engine synthesizes the shipped menu shape.
+        let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
+        assert_eq!(c.menu, None);
+        assert!(!Config::default().default_menu().is_empty());
+        // The synthesized default: full charset/method groups, the display
+        // group from `menu_modes` (so an upgrade shows the same four modes).
+        let d = Config::default().default_menu();
+        let radios = |g: &str| {
+            d.iter().find_map(|n| match n {
+                MenuNode::Radios { group, children } if group == g => Some(children.clone()),
+                _ => None,
+            })
+        };
+        assert_eq!(
+            radios("charset"),
+            Some(
+                crate::ibus_prop::CHARSETS
+                    .iter()
+                    .map(|(k, _)| k.to_string())
+                    .collect::<Vec<_>>()
+            )
+        );
+        assert_eq!(radios("display"), Some(Config::default().menu_modes));
+
+        let toml_text = r#"
+[[menu]]
+type = "folder"
+label = "Cá nhân"
+children = [ { type = "toggle", key = "em_dash" }, { type = "separator" } ]
+
+[[menu]]
+type = "radios"
+group = "display"
+children = ["preedit", "smooth"]
+"#;
+        let c: Config = toml::from_str(toml_text).unwrap();
+        let menu = c.menu.expect("menu key present");
+        assert_eq!(
+            menu,
+            vec![
+                MenuNode::Folder {
+                    label: "Cá nhân".into(),
+                    children: vec![
+                        MenuNode::Toggle {
+                            key: "em_dash".into()
+                        },
+                        MenuNode::Separator,
+                    ],
+                },
+                MenuNode::Radios {
+                    group: "display".into(),
+                    children: vec!["preedit".into(), "smooth".into()],
+                },
+            ]
+        );
+        // A broken menu node is dropped key-wise by from_toml's salvage path
+        // (bad TOML value → default for that key), never fatal.
+        let c = Config::from_toml("menu = 42\n");
+        assert_eq!(c.menu, None);
     }
 
     #[test]

@@ -88,6 +88,9 @@ impl Server {
             last_config_check: Instant::now(),
             last_config_mtime: None,
             cycle_hotkey: None,
+            enabled_hotkey: None,
+            last_toggle_fire: None,
+            last_cycle_fire: None,
             focus_ext: None,
         };
         handler.last_config_mtime = Config::path()
@@ -198,6 +201,11 @@ struct EngineHandler {
     /// loaded (startup, mtime reload, focus-in). Loading the config file on
     /// every key event just to compare a hotkey put disk I/O on the key path.
     cycle_hotkey: Option<(u32, u32)>,
+    enabled_hotkey: Option<(u32, u32)>,
+    /// Last fire of each hotkey: autorepeat of the combo key would
+    /// re-trigger it tens of times a second while held.
+    last_toggle_fire: Option<Instant>,
+    last_cycle_fire: Option<Instant>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
 }
@@ -336,7 +344,12 @@ impl EngineHandler {
                 // transport decisions keep using `client`, so relayed
                 // contexts keep their mutter-safe delete handling. Focus
                 // path only, never on keys.
-                if engine.relay_context() {
+                // Naming is skipped only when the IBus client string already
+                // carries the application (`gtk3-im:sublime_text`). Relayed
+                // Wayland clients arrive as `gnome-shell` and every XIM client
+                // as the hard-coded `xim`, which names no application at all —
+                // without this no App Rule can target a Java/XIM app.
+                if engine.relay_context() || engine.client_name_is_opaque() {
                     let resolved = ext_name
                         .map(|class| (class.clone(), format!("wayland:{class}")))
                         .or_else(|| {
@@ -361,6 +374,8 @@ impl EngineHandler {
                 // cannot be called here.
                 self.cycle_hotkey =
                     parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
+                self.enabled_hotkey =
+                    parse_hotkey(&config.enabled_hotkey).filter(|(mods, _)| *mods != 0);
                 debug_log::log(&format!("focus-in client={:?}", engine.client()));
                 let actions = engine.apply_config(&config);
                 engine.set_enabled(config.enabled);
@@ -459,6 +474,9 @@ impl EngineHandler {
 
         // The mode-cycle hotkey is handled before any typing: it changes the
         // config and refreshes the panel menu.
+        if self.try_toggle_hotkey(keyval, state, out) {
+            return msg.method_return().append1(true);
+        }
         if self.try_cycle_hotkey(keyval, state, out) {
             return msg.method_return().append1(true);
         }
@@ -471,13 +489,60 @@ impl EngineHandler {
     /// Cycle NonPreedit -> Preedit -> Surrounding -> NonPreedit when `keyval`
     /// with the configured modifiers matches `cycle_mode_hotkey`.
     /// Returns whether the key was consumed.
+    /// Flip Vietnamese on/off when `keyval` with the configured modifiers
+    /// matches `enabled_hotkey`. Same plumbing as the mode-cycle hotkey:
+    /// save, apply, re-register the panel so the check mark follows.
+    fn try_toggle_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
+        let Some((mods, expected)) = self.enabled_hotkey else {
+            return false;
+        };
+        if !hotkey_matches(mods, expected, keyval, state) {
+            return false;
+        }
+
+        let now = Instant::now();
+        if self
+            .last_toggle_fire
+            .is_some_and(|t| now.duration_since(t) < HOTKEY_REPEAT_GAP)
+        {
+            return true; // autorepeat of the combo key: consume, do nothing
+        }
+        self.last_toggle_fire = Some(now);
+
+        let mut config = Config::load();
+        config.enabled = !config.enabled;
+        if config.save().is_err() {
+            return true; // consumed anyway; do not type with a hotkey press
+        }
+        {
+            let mut engine = lock_engine(&self.engine);
+            let actions = engine.apply_config(&config);
+            engine.set_enabled(config.enabled);
+            emit(&mut engine, &actions, out);
+        }
+        self.last_config_mtime = Config::path()
+            .and_then(|p| std::fs::metadata(&p).ok())
+            .and_then(|m| m.modified().ok());
+        register_properties(&config, out);
+        true
+    }
+
     fn try_cycle_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
         let Some((mods, expected)) = self.cycle_hotkey else {
             return false;
         };
-        if keyval != expected || state & mods != mods {
+        if !hotkey_matches(mods, expected, keyval, state) {
             return false;
         }
+
+        let now = Instant::now();
+        if self
+            .last_cycle_fire
+            .is_some_and(|t| now.duration_since(t) < HOTKEY_REPEAT_GAP)
+        {
+            return true; // autorepeat of the combo key: consume, do nothing
+        }
+        self.last_cycle_fire = Some(now);
 
         let mut config = Config::load();
         config.mode = match config.mode {
@@ -486,7 +551,9 @@ impl EngineHandler {
             ModeConfig::Surrounding => ModeConfig::Smooth,
             ModeConfig::Smooth => ModeConfig::SuperSmooth,
             ModeConfig::SuperSmooth => ModeConfig::Select,
-            ModeConfig::Select => ModeConfig::Off,
+            ModeConfig::Select => ModeConfig::ForwardKeyEvent,
+            ModeConfig::ForwardKeyEvent => ModeConfig::ForwardSelect,
+            ModeConfig::ForwardSelect => ModeConfig::Off,
             ModeConfig::Off => ModeConfig::DefaultTyping,
             ModeConfig::DefaultTyping => ModeConfig::NonPreedit,
         };
@@ -509,6 +576,7 @@ impl EngineHandler {
     /// Re-parse the cycle hotkey from an already-loaded config.
     fn refresh_hotkey_cache(&mut self, config: &Config) {
         self.cycle_hotkey = parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
+        self.enabled_hotkey = parse_hotkey(&config.enabled_hotkey).filter(|(mods, _)| *mods != 0);
     }
 
     /// The focused window's WM_CLASS from the focus extension. The
@@ -563,7 +631,12 @@ impl EngineHandler {
 /// Parse a hotkey spec like `Control+Alt+v` into (modifier mask, keysym).
 /// Returns `None` for specs it does not understand. The key may be a single
 /// letter/digit, `space`, or `f1`..`f12`.
-fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
+/// Minimum gap between two fires of the same hotkey: key autorepeat
+/// re-sends the combo tens of times a second while it is held, and a
+/// deliberate second press is never this fast.
+const HOTKEY_REPEAT_GAP: Duration = Duration::from_millis(250);
+
+pub(crate) fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
     let mut mods = 0u32;
     let mut key = None;
     for part in spec.split('+') {
@@ -596,12 +669,47 @@ fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
             _ => return None,
         }
     }
-    let key = key?;
+    // A modifier-only combo ("Control+Shift") completes on the last
+    // modifier: `key` stays 0 and matching keys off that. At least two
+    // modifiers, or the hotkey would eat every press of a lone modifier.
+    let key = match key {
+        Some(k) => k,
+        None if mods.count_ones() >= 2 => 0,
+        _ => return None,
+    };
     if mods == 0 || mods & !keymap::SHIFT_MASK == 0 {
         // A bare or Shift-only hotkey would eat normal typing.
         return None;
     }
     Some((mods, key))
+}
+
+/// Does this key event trigger the hotkey? `key == 0` marks a
+/// modifier-only combo: the pressed key must be one of the combo's own
+/// modifiers (either side), with every OTHER combo modifier already held —
+/// the just-pressed modifier is not in the event state yet.
+fn hotkey_matches(mods: u32, key: u32, keyval: u32, state: u32) -> bool {
+    // Releases never trigger: a press-release pair would fire the hotkey
+    // twice.
+    if state & keymap::RELEASE_MASK != 0 {
+        return false;
+    }
+    let held = state & keymap::HOTKEY_STATE_MASK;
+    if key == 0 {
+        // Modifier-only combo: the pressed key must be one of the combo's
+        // own modifiers (either side), and held-plus-pressed must be
+        // exactly the combo — the just-pressed modifier may or may not be
+        // in the event state yet, depending on the toolkit.
+        let Some(pressed) = keymap::modifier_of_keyval(keyval) else {
+            return false;
+        };
+        mods & pressed != 0 && held | pressed == mods
+    } else {
+        // Regular combo: exactly the combo's modifiers, no extras — and
+        // case-insensitive, because Shift turns the event's keysym
+        // uppercase ('Z' vs the stored 'z').
+        keymap::keyval_to_lower(keyval) == keymap::keyval_to_lower(key) && held == mods
+    }
 }
 
 /// Send the full property list to ibus-daemon. `RegisterProperties` is a
@@ -662,22 +770,21 @@ fn activate_property(engine: &mut Engine, name: &str, state: u32, out: &mut Vec<
         return;
     }
 
-    // Toggles carry their new state directly.
+    // Toggles carry their new state directly. The popup shows the user's
+    // `quick_menu` selection, so every registered toggle must work here —
+    // the registry is the single source of both (see `ibus_prop::QUICK_TOGGLES`).
     let checked = state == ibus_prop::STATE_CHECKED;
     let mut config = Config::load();
-    // Only the toggles the panel actually shows: the popup is deliberately
-    // kept short (see `ibus_prop::properties`), the rest live in the GUI.
     match name {
         ibus_prop::KEY_ENABLED => config.enabled = checked,
-        ibus_prop::KEY_MACROS => config.macro_enabled = checked,
-        ibus_prop::KEY_AUTO_CAPITALIZE => config.auto_capitalize = checked,
-        ibus_prop::KEY_ABBREV => config.abbreviations = checked,
-        ibus_prop::KEY_AUTO_RESTORE => config.auto_restore = checked,
         ibus_prop::KEY_MACRO_EDITOR => {
             open_settings("macros");
             return;
         }
-        _ => return,
+        _ => match ibus_prop::quick_toggle(name) {
+            Some(t) => (t.set)(&mut config, checked),
+            None => return,
+        },
     }
     if config.save().is_err() {
         return;
@@ -709,16 +816,38 @@ fn push_update(prop: &Prop, out: &mut Vec<Message>) {
 
 /// The "Phím tắt" item opens the GTK4 settings window, same as `-gui`.
 fn open_settings(page: &str) {
+    use std::os::unix::process::CommandExt;
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
-    let _ = std::process::Command::new(exe)
+    let page = format!("--page={page}");
+    // ibus-daemon runs as the systemd user unit
+    // org.freedesktop.IBus.session.GNOME.service, and an `ibus restart`
+    // tears that whole cgroup down (KillMode=control-group) — every process
+    // the engine ever spawned dies with it, process groups notwithstanding.
+    // The window is therefore started as a transient user service: systemd
+    // owns it in its own cgroup, so it survives the restart (its restart
+    // button depends on that). Plain spawn for sessions without a systemd
+    // user manager; its own process group is all that can be done there.
+    let spawned = std::process::Command::new("systemd-run")
+        .args(["--user", "--quiet"])
+        .arg(&exe)
         .arg("-gui")
-        .arg(format!("--page={page}"))
+        .arg(&page)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
+    if spawned.is_err() {
+        let _ = std::process::Command::new(exe)
+            .arg("-gui")
+            .arg(page)
+            .process_group(0)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
 }
 
 /// Open the project's GitHub repository in the default browser (the
@@ -730,6 +859,35 @@ fn open_repo_page() {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
+}
+
+/// Backspace scancode as it goes on the wire. Every ibus client adds 8 to get
+/// its own keycode (`ibusimcontext.c`, Qt's input context and the X11/XIM
+/// client all do `keycode += 8`), so this must be the evdev code, NOT the X
+/// keycode: sending the X keycode 22 made clients use 30, i.e. evdev KEY_U,
+/// and every forwarded Backspace typed a `u` ("tùng" came out "tunguuuùng").
+const BACKSPACE_KEYCODE: u32 = 14;
+
+/// Left-arrow scancode, same convention as `BACKSPACE_KEYCODE` (X keycode 113
+/// minus 8). ibus-bamboo forwards the same value for its ForwardKeyEvent II.
+const LEFT_KEYCODE: u32 = 105;
+
+/// One forwarded key as press + release. The release carries no modifier (the
+/// app has already acted on the press); ibus-bamboo's ForwardKeyEvent modes
+/// send the same pair.
+fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u32) {
+    out.push(
+        signal("ForwardKeyEvent")
+            .append1(keyval)
+            .append1(keycode)
+            .append1(state),
+    );
+    out.push(
+        signal("ForwardKeyEvent")
+            .append1(keyval)
+            .append1(keycode)
+            .append1(keymap::RELEASE_MASK),
+    );
 }
 
 /// Handle one key event, pushing resulting signals into `out`.
@@ -940,9 +1098,10 @@ fn emit_with(
                 }
             }
             Action::DeleteBefore(n) => {
-                if !engine.surrounding_data_ok() {
+                if !engine.protocol_delete_ok() {
                     // Defensive: the engine gates deletes on a surrounding
-                    // report; never let one slip to a buffer mutter never saw.
+                    // report (or the direct-client opt-in); never let one slip
+                    // to a buffer mutter never saw.
                     debug_log::log(&format!("delete-before protocol DROPPED (no report) n={n}"));
                 } else {
                     debug_log::log(&format!("delete-before protocol=-{n}"));
@@ -1056,6 +1215,26 @@ fn emit_with(
                     debug_log::log(&format!(
                         "smooth rewrite inject FAILED and no report: deletion dropped n={n}"
                     ));
+                }
+            }
+            // ForwardKeyEvent mode's delete transport: Backspace key events
+            // sent through IBus, so the client's own IM context applies them
+            // like real presses. They ride the same connection as the Commit
+            // that follows, which keeps them ordered; no echo comes back
+            // (the key goes to the application, not to the engine).
+            Action::ForwardBackspaces(n) => {
+                debug_log::log(&format!("forward-backspaces n={n}"));
+                for _ in 0..*n {
+                    push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
+                }
+            }
+            // ForwardSelect: Shift+Left moves the app's own selection over the
+            // raw tail; the Commit that follows replaces it, so no Backspace
+            // handling is needed in the app at all.
+            Action::ForwardSelectLeft(n) => {
+                debug_log::log(&format!("forward-select-left n={n}"));
+                for _ in 0..*n {
+                    push_forward_keys(out, keymap::LEFT, LEFT_KEYCODE, keymap::SHIFT_MASK);
                 }
             }
             Action::SelectLeft(n) => {
@@ -1303,6 +1482,52 @@ mod tests {
         assert_eq!(parse_hotkey("Shift+v"), None);
         assert_eq!(parse_hotkey(""), None);
         assert_eq!(parse_hotkey("NotAModifier+q"), None);
+        // A lone modifier would eat every press of that key.
+        assert_eq!(parse_hotkey("Control"), None);
+        assert_eq!(parse_hotkey("Shift"), None);
+    }
+
+    #[test]
+    fn parse_hotkey_accepts_modifier_only_combos() {
+        use crate::keymap::{CONTROL_MASK, MOD1_MASK, SHIFT_MASK};
+        let (mods, key) = parse_hotkey("Control+Shift").expect("hotkey");
+        assert_eq!(mods, CONTROL_MASK | SHIFT_MASK);
+        assert_eq!(
+            key, 0,
+            "no regular key: matching goes by the pressed modifier"
+        );
+        let (mods, key) = parse_hotkey("Control+Alt").expect("hotkey");
+        assert_eq!(mods, CONTROL_MASK | MOD1_MASK);
+        assert_eq!(key, 0);
+    }
+
+    #[test]
+    fn hotkey_matches_modifier_only_combos() {
+        use crate::keymap::{CONTROL_MASK, MOD1_MASK, MOD4_MASK, SHIFT_MASK};
+        // "Control+Shift": completed by pressing either Shift while Control
+        // is held or Control while Shift is held — either side, either order.
+        let (mods, key) = (CONTROL_MASK | SHIFT_MASK, 0);
+        assert!(hotkey_matches(mods, key, 0xffe2, CONTROL_MASK)); // right Shift
+        assert!(hotkey_matches(mods, key, 0xffe3, SHIFT_MASK)); // left Control
+                                                                // The first modifier alone does not trigger.
+        assert!(!hotkey_matches(mods, key, 0xffe1, 0));
+        // A non-modifier key never matches a modifier-only combo.
+        assert!(!hotkey_matches(mods, key, 0x76, CONTROL_MASK));
+        // Regular combos keep matching by keyval + held modifiers.
+        let (mods, key) = (CONTROL_MASK | MOD1_MASK | MOD4_MASK, 0x76);
+        assert!(hotkey_matches(mods, key, 0x76, mods));
+        assert!(!hotkey_matches(mods, key, 0x76, CONTROL_MASK));
+    }
+
+    #[test]
+    fn hotkey_matches_letters_case_insensitively() {
+        use crate::keymap::{CONTROL_MASK, SHIFT_MASK};
+        // "Shift+Control+Z": with Shift held the event carries the
+        // uppercase keysym 0x5a while the config stores 'z'.
+        let (mods, key) = (CONTROL_MASK | SHIFT_MASK, 0x7a);
+        assert!(hotkey_matches(mods, key, 0x5a, mods));
+        assert!(hotkey_matches(mods, key, 0x7a, mods));
+        assert!(!hotkey_matches(mods, key, 0x78, mods));
     }
 
     /// Build an `org.freedesktop.IBus.Engine` method-call message for `member`.
@@ -1338,6 +1563,9 @@ mod tests {
             last_config_check: Instant::now(),
             last_config_mtime: None,
             cycle_hotkey: None,
+            enabled_hotkey: None,
+            last_toggle_fire: None,
+            last_cycle_fire: None,
             focus_ext: None,
         };
         let press = |handler: &mut EngineHandler, keyval: u32| {
@@ -1745,6 +1973,110 @@ mod tests {
             "the fallback commit must wait for the Backspace echoes"
         );
         assert!(e.has_deferred());
+    }
+
+    #[test]
+    fn forward_key_event_emits_backspace_press_and_release() {
+        // The wire contract every ibus client expects: clients add 8 to the
+        // keycode themselves, so it must be the evdev scancode 14 — sending
+        // the X keycode 22 made them use evdev KEY_U and type a `u` per
+        // forwarded Backspace.
+        let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+        e.set_client(Some("gnome-shell".into()));
+        let mut out = Vec::new();
+        emit_with(
+            &mut e,
+            &[Action::ForwardBackspaces(2)],
+            &mut out,
+            &fake_transports(&|_, _| true),
+        );
+        let keys: Vec<(u32, u32, u32)> = out
+            .iter()
+            .filter(|m| m.member().map(|x| x == "ForwardKeyEvent").unwrap_or(false))
+            .filter_map(|m| m.read3::<u32, u32, u32>().ok())
+            .collect();
+        assert_eq!(keys.len(), 4, "press and release per Backspace: {keys:?}");
+        assert_eq!(
+            keys.iter().filter(|(_, _, state)| *state == 0).count(),
+            2,
+            "two presses: {keys:?}"
+        );
+        assert!(
+            keys.iter()
+                .all(|(keyval, keycode, _)| *keyval == 0xff08 && *keycode == 14),
+            "Backspace keyval with the evdev scancode: {keys:?}"
+        );
+    }
+
+    #[test]
+    fn x11_delete_opt_in_reaches_the_wire_without_a_report() {
+        // The emit guard follows the engine's own rule: with the opt-in on, a
+        // direct client that advertises surrounding text gets the protocol
+        // delete even though it never reported its buffer. Without the switch
+        // the same action is dropped (raw keystrokes instead).
+        for (enabled, want_delete) in [(false, false), (true, true)] {
+            let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+            e.apply_config(&Config {
+                x11_delete_without_report: enabled,
+                ..Config::default()
+            });
+            e.set_mode(Mode::NonPreedit);
+            e.set_client(Some("gtk3-im:sublime_text".into()));
+            e.set_capabilities(1 << 5); // IBUS_CAP_SURROUNDING_TEXT
+            let mut out = Vec::new();
+            emit_with(
+                &mut e,
+                &[Action::DeleteBefore(2)],
+                &mut out,
+                &fake_transports(&|_, _| false),
+            );
+            let deleted = out.iter().any(|m| {
+                m.member()
+                    .map(|x| x == "DeleteSurroundingText")
+                    .unwrap_or(false)
+            });
+            assert_eq!(deleted, want_delete, "switch={enabled}: {out:?}");
+        }
+    }
+
+    #[test]
+    fn forward_select_emits_shift_left_press_and_plain_release() {
+        // ForwardKeyEvent II's wire shape: Left with the shift held on the
+        // press, plain release, scancode 105 (clients add 8 themselves).
+        let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+        e.set_client(Some("xim".into()));
+        let mut out = Vec::new();
+        emit_with(
+            &mut e,
+            &[Action::ForwardSelectLeft(2)],
+            &mut out,
+            &fake_transports(&|_, _| true),
+        );
+        let keys: Vec<(u32, u32, u32)> = out
+            .iter()
+            .filter(|m| m.member().map(|x| x == "ForwardKeyEvent").unwrap_or(false))
+            .filter_map(|m| m.read3::<u32, u32, u32>().ok())
+            .collect();
+        assert_eq!(keys.len(), 4, "press and release per Left: {keys:?}");
+        assert!(
+            keys.iter()
+                .all(|(keyval, keycode, _)| *keyval == 0xff51 && *keycode == 105),
+            "Left keyval with its scancode: {keys:?}"
+        );
+        assert_eq!(
+            keys.iter()
+                .filter(|(_, _, state)| *state == keymap::SHIFT_MASK)
+                .count(),
+            2,
+            "the presses carry the shift: {keys:?}"
+        );
+        assert_eq!(
+            keys.iter()
+                .filter(|(_, _, state)| *state == keymap::RELEASE_MASK)
+                .count(),
+            2,
+            "the releases are plain: {keys:?}"
+        );
     }
 
     #[test]

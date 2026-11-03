@@ -45,6 +45,15 @@ pub enum Mode {
     /// Shift+Left selects the typed tail, Delete erases it, then the word is
     /// committed. Needs a surrounding-text report.
     Select,
+    /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
+    /// events through IBus instead of `DeleteSurroundingText` — works in
+    /// clients that drop the protocol delete and where `/dev/uinput` cannot
+    /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent I.
+    ForwardKeyEvent,
+    /// The same, but the tail is selected with forwarded Shift+Left and the
+    /// commit replaces the selection — for apps that mishandle a forwarded
+    /// Backspace. ibus-bamboo's ForwardKeyEvent II.
+    ForwardSelect,
     /// Vietnamese processing off; macros still run, auto-capitalize does
     /// not (the gap analysis documented this drift — keep the comment true).
     Off,
@@ -79,6 +88,16 @@ pub enum Action {
     /// (mode resolution guarantees it); the server falls back to the
     /// protocol delete if the device died mid-session.
     InjectBackspaces(u32),
+    /// Press Backspace `n` times by forwarding the key events through IBus
+    /// (`ForwardKeyEvent`) — the ForwardKeyEvent mode's delete transport.
+    /// Unlike `/dev/uinput` this reaches every client, including
+    /// mutter-relayed Wayland contexts; unlike the protocol delete it works
+    /// in clients that drop `DeleteSurroundingText`.
+    ForwardBackspaces(u32),
+    /// Select `n` characters to the left with Shift+Left forwarded through
+    /// IBus (ForwardSelect mode); the commit that follows replaces the
+    /// selection. Same wire shape as `ForwardBackspaces`, no `/dev/uinput`.
+    ForwardSelectLeft(u32),
     /// Select `n` characters to the left with Shift+Left (uinput, paced).
     SelectLeft(u32),
     /// Press the Delete key once (erases a selection made by `SelectLeft`).
@@ -180,6 +199,11 @@ pub struct Engine {
     dictionary_mtime: Option<SystemTime>,
     /// Preedit shown without the underline attribute.
     hide_underline: bool,
+    /// Opt-in: protocol deletes to direct clients that advertise
+    /// surrounding-text support without ever reporting their text.
+    x11_delete_without_report: bool,
+    /// Opt-in: keep Preedit for XIM clients, whose server draws the preedit.
+    preedit_for_xim: bool,
     /// Uinput pacing (ms): text/commit step, Backspace gap, post-rewrite idle.
     commit_interval_ms: u64,
     backspace_interval_ms: u64,
@@ -213,6 +237,17 @@ const CAP_SURROUNDING_TEXT: u32 = 1 << 5;
 /// `preedit-*`, so a `DeleteSurroundingText` sent there is dropped and the
 /// next commit appends: `tieengs` comes out as `tieêngs`. Electron inherits
 /// the same code.
+/// Modes whose tail rewrite deletes with key events forwarded through IBus
+/// (`ForwardKeyEvent` signals) instead of the protocol delete or `/dev/uinput`.
+/// They need neither a surrounding-text report nor the virtual device, which
+/// makes them the only workable delete transport in XIM clients (their input
+/// context reports no capabilities at all) and in mutter-relayed Wayland
+/// contexts. Keep this the single place the two variants are recognised, or
+/// one of them silently stops deleting.
+fn forwards_delete(mode: Mode) -> bool {
+    matches!(mode, Mode::ForwardKeyEvent | Mode::ForwardSelect)
+}
+
 const FALLBACK_NO_DELETE_SURROUNDING: &[&str] = &[
     "chrome", "chromium", "electron", "code", "brave", "msedge", "vivaldi", "slack", "discord",
 ];
@@ -259,6 +294,8 @@ impl Engine {
             macros_mtime: None,
             dictionary_mtime: None,
             hide_underline: false,
+            x11_delete_without_report: false,
+            preedit_for_xim: false,
             delete_dropped: false,
             awaiting_delete_proof: None,
             uinput_available: false,
@@ -325,6 +362,8 @@ impl Engine {
         self.macro_enabled = config.macro_enabled;
         self.capitalize_macro = config.capitalize_macro;
         self.macro_in_off_mode = config.macro_in_off_mode;
+        self.x11_delete_without_report = config.x11_delete_without_report;
+        self.preedit_for_xim = config.preedit_for_xim;
         self.time_format = config.time_format.clone();
         self.date_format = config.date_format.clone();
         // Reload the auxiliary files only when they changed on disk (see the
@@ -655,6 +694,15 @@ impl Engine {
         self.surrounding.is_some()
     }
 
+    /// True when the IBus client id names no application. Every XIM client is
+    /// reported as the hard-coded `xim` (ibus-x11 creates all of its input
+    /// contexts with that name — `client/x11/main.c`), so an app rule can only
+    /// ever match it by accident; the compositor extension or `xprop` has to
+    /// name those apps for rules to work.
+    pub fn client_name_is_opaque(&self) -> bool {
+        self.client.as_deref() == Some("xim")
+    }
+
     /// Clients whose IBus context is owned by the compositor: every Wayland
     /// client is relayed by mutter and shows up as `gnome-shell`; `fake` is
     /// the daemon's hotkey context; `None` means no FocusInId arrived —
@@ -861,7 +909,22 @@ impl Engine {
     /// lost. Also several clients silently drop the protocol delete, which
     /// used to duplicate words.
     fn deletes_allowed(&self) -> bool {
-        self.surrounding_data_ok() || (self.uinput_available && !self.injection_forbidden())
+        self.protocol_delete_ok() || (self.uinput_available && !self.injection_forbidden())
+    }
+
+    /// Whether the protocol delete may be sent right now.
+    ///
+    /// A report is the proof that mutter knows the client's buffer, and a
+    /// delete sent to a relayed context without one segfaulted the compositor
+    /// (02:37, Chrome omnibox). A DIRECT client applies the delete in its own
+    /// process instead (GTK clamps it), so with the opt-in the report is not
+    /// required there — ibus-bamboo's surrounding mode deletes that way for
+    /// every client, which is what makes X11 apps like Sublime work.
+    pub fn protocol_delete_ok(&self) -> bool {
+        self.surrounding_data_ok()
+            || (self.x11_delete_without_report
+                && self.caps & CAP_SURROUNDING_TEXT != 0
+                && !self.relay_context())
     }
 
     /// Resolve the mode actually used for the focused client: hard fallbacks
@@ -870,8 +933,15 @@ impl Engine {
         let can_preedit = self.caps & CAP_PREEDIT_TEXT != 0;
         let ruled = self.client_rule_mode();
         let requested = ruled.unwrap_or(self.mode);
-        // Preedit is unusable when the client cannot render it.
-        if requested == Mode::Preedit && !can_preedit {
+        // Preedit is unusable when the client cannot render it — except for
+        // XIM clients, which report no preedit capability even though the XIM
+        // server draws the preedit itself (`XIMPreeditPosition`: ibus-x11
+        // shows it in its own window). Downgrading them turned every word into
+        // raw keystrokes; the opt-in keeps preedit, as ibus-bamboo does.
+        if requested == Mode::Preedit
+            && !can_preedit
+            && !(self.preedit_for_xim && self.client_name_is_opaque())
+        {
             return Mode::NonPreedit;
         }
         // The uinput modes press real keys through /dev/uinput, but on
@@ -887,6 +957,13 @@ impl Engine {
                 || (requested == Mode::Select && self.surrounding.is_none()))
         {
             return Mode::Preedit;
+        }
+        // ForwardKeyEvent carries its own delete transport (Backspace key
+        // events through IBus), so none of the delete-transport heuristics
+        // below apply — falling back to preedit would defeat the mode, which
+        // exists for apps where preedit is unusable.
+        if forwards_delete(requested) {
+            return requested;
         }
         if ruled.is_some() {
             return requested;
@@ -990,8 +1067,12 @@ impl Engine {
         // path, so this key replaces it.
         // The rewrite needs a delete transport; without one the second '-'
         // stays literal instead of duplicating the replacement.
-        if self.em_dash && self.deletes_allowed() && c == '-' && self.last_char == Some('-') {
-            let mut actions = vec![self.tracked_delete(1, 1)];
+        if self.em_dash
+            && (self.deletes_allowed() || forwards_delete(mode))
+            && c == '-'
+            && self.last_char == Some('-')
+        {
+            let mut actions = vec![self.delete_action(mode, 1, 1)];
             actions.push(Action::Commit("—".into()));
             self.tail = replace_tail(&self.tail, 1, "—");
             self.note_char('—');
@@ -1001,12 +1082,12 @@ impl Engine {
         // Double space -> ". ": drop the first space, insert the period, let
         // this space through.
         if self.double_space_period
-            && self.deletes_allowed()
+            && (self.deletes_allowed() || forwards_delete(mode))
             && c == ' '
             && self.last_char == Some(' ')
         {
             let mut actions = self.hide_if_visible();
-            actions.push(self.tracked_delete(1, 1));
+            actions.push(self.delete_action(mode, 1, 1));
             actions.push(Action::Commit(".".into()));
             self.tail = replace_tail(&self.tail, 1, ".");
             self.note_char(' ');
@@ -1094,6 +1175,29 @@ impl Engine {
         self.surrounding.as_ref().map_or(0, |(text, cursor)| {
             (*cursor as usize).min(text.chars().count())
         })
+    }
+
+    /// The delete half of a rewrite for this keystroke: the protocol delete
+    /// (or the server's uinput fallback) in the inline modes, key events
+    /// forwarded through IBus in the two ForwardKeyEvent modes.
+    fn delete_action(&mut self, mode: Mode, n: u32, insert_len: usize) -> Action {
+        match mode {
+            Mode::ForwardKeyEvent => Action::ForwardBackspaces(n),
+            Mode::ForwardSelect => Action::ForwardSelectLeft(n),
+            _ => self.tracked_delete(n, insert_len),
+        }
+    }
+
+    /// Delete count for this keystroke. The forward modes delete with real key
+    /// events, which remove exactly what is on screen; clamping to the last
+    /// surrounding-text report would under-delete there (the report can
+    /// predate the commit). The protocol path keeps the clamp.
+    fn delete_count(&self, mode: Mode, n: u32) -> u32 {
+        if forwards_delete(mode) {
+            n
+        } else {
+            self.clamp_delete(n)
+        }
     }
 
     /// A `DeleteBefore` whose delivery the next ST report proves or refutes
@@ -1360,16 +1464,18 @@ impl Engine {
         // text; without a delete transport the commit would duplicate the
         // raw keys the application already holds.
         if !raw.is_empty() {
-            let expansion = if inline && !self.deletes_allowed() {
+            let expansion = if inline && !self.deletes_allowed() && !forwards_delete(mode) {
                 None
             } else {
                 self.expand_macro(&raw, valid)
             };
             if let Some(exp) = expansion {
                 if inline && !self.tail.is_empty() {
-                    actions.push(
-                        self.tracked_delete(self.tail.chars().count() as u32, exp.chars().count()),
-                    );
+                    actions.push(self.delete_action(
+                        mode,
+                        self.tail.chars().count() as u32,
+                        exp.chars().count(),
+                    ));
                 }
                 actions.push(Action::Commit(exp.clone()));
                 self.tail = exp;
@@ -1389,12 +1495,14 @@ impl Engine {
             // Inline restore rewrites committed text; without a delete
             // transport the raw keys are already on screen, so there is
             // nothing to restore.
-            && (!inline || self.deletes_allowed())
+            && (!inline || self.deletes_allowed() || forwards_delete(mode))
         {
             if inline && !self.tail.is_empty() {
-                actions.push(
-                    self.tracked_delete(self.tail.chars().count() as u32, raw.chars().count()),
-                );
+                actions.push(self.delete_action(
+                    mode,
+                    self.tail.chars().count() as u32,
+                    raw.chars().count(),
+                ));
             }
             actions.push(Action::Commit(raw.clone()));
             self.tail = raw;
@@ -1430,7 +1538,7 @@ impl Engine {
             // Unicode is one char per char, so the delta from bamboo-core can
             // be replayed directly.
             Charset::Unicode => {
-                if edit.delete_chars > 0 && !self.deletes_allowed() {
+                if edit.delete_chars > 0 && !self.deletes_allowed() && !forwards_delete(mode) {
                     // No surrounding data yet: never send a delete (mutter
                     // segfaults on clients whose buffer it never saw). Keep
                     // the composition and pass the key through; the client's
@@ -1449,12 +1557,11 @@ impl Engine {
                 let mut actions = Vec::new();
                 if edit.delete_chars > 0 {
                     let insert_len = edit.insert.chars().count();
-                    actions.push(
-                        self.tracked_delete(
-                            self.clamp_delete(edit.delete_chars as u32),
-                            insert_len,
-                        ),
-                    );
+                    actions.push(self.delete_action(
+                        mode,
+                        self.delete_count(mode, edit.delete_chars as u32),
+                        insert_len,
+                    ));
                 }
                 let insert = edit.insert;
                 if !insert.is_empty() {
@@ -1468,7 +1575,7 @@ impl Engine {
             }
             // Legacy encodings change the character count (VNI `â` -> `aâ`),
             // so bamboo-core's Unicode delta is unusable; rewrite the word.
-            _ if !self.deletes_allowed() => {
+            _ if !self.deletes_allowed() && !forwards_delete(mode) => {
                 // Same gate as the Unicode arm: the rewrite delete cannot
                 // reach the application, and the paired commit would
                 // duplicate the word from the second keystroke on.
@@ -1481,7 +1588,7 @@ impl Engine {
                 vec![Action::Forward]
             }
             _ => {
-                let actions = self.rewrite();
+                let actions = self.rewrite(mode);
                 if let Some(c) = self.tail.chars().last() {
                     self.note_char(c);
                 }
@@ -1493,12 +1600,15 @@ impl Engine {
     /// Replace the whole composition with its legacy-encoded form. Needed
     /// because those encodings change the character count (VNI `â` -> `aâ`),
     /// so bamboo-core's Unicode delta is unusable.
-    fn rewrite(&mut self) -> Vec<Action> {
+    fn rewrite(&mut self, mode: Mode) -> Vec<Action> {
         let text = encode(self.charset, &self.wrapper.output());
         let mut actions = Vec::new();
         if !self.tail.is_empty() {
-            actions
-                .push(self.tracked_delete(self.tail.chars().count() as u32, text.chars().count()));
+            actions.push(self.delete_action(
+                mode,
+                self.tail.chars().count() as u32,
+                text.chars().count(),
+            ));
         }
         if !text.is_empty() {
             actions.push(Action::Commit(text.clone()));
@@ -1674,8 +1784,8 @@ impl Engine {
             // Gated above (returns None); keeps the match exhaustive.
             Mode::Off | Mode::DefaultTyping => None,
             Mode::Smooth | Mode::SuperSmooth | Mode::Select => None,
-            Mode::NonPreedit | Mode::Surrounding => {
-                if !self.deletes_allowed() {
+            Mode::NonPreedit | Mode::Surrounding | Mode::ForwardKeyEvent | Mode::ForwardSelect => {
+                if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
                     // Backspace so the app deletes the last character itself.
                     // Without a transport the screen holds the raw keys (mark
@@ -1689,8 +1799,9 @@ impl Engine {
                     let mut actions = Vec::new();
                     if edit.delete_chars > 0 {
                         let insert_len = edit.insert.chars().count();
-                        actions.push(self.tracked_delete(
-                            self.clamp_delete(edit.delete_chars as u32),
+                        actions.push(self.delete_action(
+                            mode,
+                            self.delete_count(mode, edit.delete_chars as u32),
                             insert_len,
                         ));
                     }
@@ -1705,7 +1816,7 @@ impl Engine {
                     }
                     actions
                 } else {
-                    self.rewrite()
+                    self.rewrite(mode)
                 };
                 if !actions.is_empty() && actions != vec![Action::Consumed] {
                     if let Some(c) = self.tail.chars().last() {
@@ -1976,6 +2087,9 @@ mod tests {
         for a in actions {
             match a {
                 Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
+                // ForwardKeyEvent mode: real Backspace key events, same net effect on
+                // the buffer as a protocol delete.
+                Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
                 // IBus semantics: delete n chars starting at cursor+offset.
                 Action::DeleteSurrounding { offset, n } => {
                     let start = (buf.len() as i64 + *offset as i64).max(0) as usize;
@@ -2029,6 +2143,11 @@ mod tests {
             for a in &actions {
                 match a {
                     Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
+                    // ForwardKeyEvent mode: real Backspace key events, same net effect on
+                    // the buffer as a protocol delete.
+                    Action::ForwardBackspaces(n) => {
+                        buf.truncate(buf.len().saturating_sub(*n as usize))
+                    }
                     // IBus semantics: delete n chars starting at cursor+offset.
                     Action::DeleteSurrounding { offset, n } => {
                         let start = (buf.len() as i64 + *offset as i64).max(0) as usize;
@@ -2168,6 +2287,9 @@ mod tests {
         for a in actions {
             match a {
                 Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
+                // ForwardKeyEvent mode: real Backspace key events, same net effect on
+                // the buffer as a protocol delete.
+                Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
                 // IBus semantics: delete n chars starting at cursor+offset.
                 Action::DeleteSurrounding { offset, n } => {
                     let start = (buf.len() as i64 + *offset as i64).max(0) as usize;
@@ -2629,6 +2751,11 @@ mod tests {
             for a in &actions {
                 match a {
                     Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
+                    // ForwardKeyEvent mode: real Backspace key events, same net effect on
+                    // the buffer as a protocol delete.
+                    Action::ForwardBackspaces(n) => {
+                        buf.truncate(buf.len().saturating_sub(*n as usize))
+                    }
                     Action::Commit(t) => buf.extend(t.chars()),
                     _ => {}
                 }
@@ -2762,6 +2889,223 @@ mod tests {
             .iter()
             .any(|a| matches!(a, Action::UpdatePreedit { .. })));
         assert_eq!(replay(&actions), "tiếng");
+    }
+
+    /// Type through `process_char` without the helpers' forced capabilities.
+    fn type_raw(e: &mut Engine, s: &str) -> Vec<Action> {
+        let mut actions = Vec::new();
+        for c in s.chars() {
+            actions.extend(e.process_char(c));
+        }
+        actions
+    }
+
+    #[test]
+    fn x11_delete_without_report_is_opt_in() {
+        // A direct GTK client that advertises surrounding text but never
+        // reports it: raw keystrokes by default, protocol deletes once the
+        // switch is on (that is what makes Sublime work, like ibus-bamboo).
+        for (enabled, want_delete) in [(false, false), (true, true)] {
+            let mut e = engine(
+                Mode::NonPreedit,
+                Config {
+                    x11_delete_without_report: enabled,
+                    ..Config::default()
+                },
+            );
+            e.set_client(Some("gtk3-im:sublime_text".into()));
+            e.set_capabilities(CAP_SURROUNDING_TEXT);
+            let actions = type_raw(&mut e, "tieengs");
+            assert_eq!(
+                actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+                want_delete,
+                "switch={enabled}: {actions:?}"
+            );
+        }
+        // A mutter relay still needs a report: the switch must never lift the
+        // rule that keeps the compositor alive.
+        let mut e = engine(
+            Mode::NonPreedit,
+            Config {
+                x11_delete_without_report: true,
+                ..Config::default()
+            },
+        );
+        e.set_client(Some("gnome-shell".into()));
+        e.set_capabilities(CAP_SURROUNDING_TEXT);
+        let actions = type_raw(&mut e, "tieengs");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+            "relay contexts keep the report rule: {actions:?}"
+        );
+        // Without the surrounding capability there is nothing to delete with.
+        let mut e = engine(
+            Mode::NonPreedit,
+            Config {
+                x11_delete_without_report: true,
+                ..Config::default()
+            },
+        );
+        e.set_client(Some("xim".into()));
+        e.set_capabilities(0);
+        let actions = type_raw(&mut e, "tieengs");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+            "XIM clients report no capabilities: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn preedit_for_xim_is_opt_in() {
+        // XIM clients report no preedit capability even though the XIM server
+        // draws the preedit itself; without the switch our preedit is
+        // downgraded and every mark key is raw-forwarded ("tungf").
+        for (enabled, want_preedit) in [(false, false), (true, true)] {
+            let mut e = engine(
+                Mode::Preedit,
+                Config {
+                    preedit_for_xim: enabled,
+                    ..Config::default()
+                },
+            );
+            e.set_client(Some("xim".into()));
+            e.set_capabilities(0);
+            let actions = type_raw(&mut e, "tieengs");
+            assert_eq!(
+                actions
+                    .iter()
+                    .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+                want_preedit,
+                "switch={enabled}: {actions:?}"
+            );
+        }
+        // A GTK client that truly cannot show a preedit keeps the fallback.
+        let mut e = engine(
+            Mode::Preedit,
+            Config {
+                preedit_for_xim: true,
+                ..Config::default()
+            },
+        );
+        e.set_client(Some("gtk3-im:someapp".into()));
+        e.set_capabilities(CAP_SURROUNDING_TEXT);
+        let actions = type_raw(&mut e, "tieengs");
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            "the switch is XIM-only: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn forward_key_event_mode_deletes_by_forwarding_backspaces() {
+        // The mode's point: a mutter-relayed client with no surrounding-text
+        // report and no usable /dev/uinput path still rewrites correctly,
+        // because the deletes are Backspace key events sent through IBus.
+        let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT); // no ST capability at all
+        let actions = type_str(&mut e, "tieengs");
+        assert!(
+            !actions.iter().any(|a| matches!(
+                a,
+                Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+            )),
+            "no protocol delete in ForwardKeyEvent mode: {actions:?}"
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+            "the tone rewrite must forward Backspace events: {actions:?}"
+        );
+        assert_eq!(replay(&actions), "tiếng");
+    }
+
+    #[test]
+    fn forward_key_event_mode_survives_the_preedit_heuristics() {
+        // The heuristics that push delete-dropping clients back to preedit
+        // (inline suggestions, the known-client list, a proven swallowed
+        // delete) must not apply: this mode was chosen precisely because
+        // preedit is unusable in the app.
+        let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_suggestions(true);
+        let actions = type_str(&mut e, "tieengs");
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            "ForwardKeyEvent never falls back to preedit: {actions:?}"
+        );
+        assert_eq!(replay(&actions), "tiếng");
+    }
+
+    #[test]
+    fn forward_select_mode_selects_the_tail_before_committing() {
+        // ForwardKeyEvent II: the tail is selected with forwarded Shift+Left
+        // and the commit replaces the selection, so the application never has
+        // to handle a Backspace. XIM clients report no capabilities at all,
+        // which is exactly the case this mode exists for.
+        let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+        e.set_client(Some("xim".into()));
+        e.set_capabilities(0);
+        let mut buf: Vec<char> = Vec::new();
+        let mut selected = 0usize;
+        for c in "tieengs ".chars() {
+            let actions = e.process_char(c);
+            let forwarded = actions.contains(&Action::Forward);
+            for a in &actions {
+                match a {
+                    Action::ForwardSelectLeft(n) => selected += *n as usize,
+                    Action::Commit(t) => {
+                        buf.truncate(buf.len().saturating_sub(selected));
+                        selected = 0;
+                        buf.extend(t.chars());
+                    }
+                    Action::DeleteBefore(_) | Action::DeleteSurrounding { .. } => {
+                        panic!("ForwardSelect must not use a protocol delete: {actions:?}")
+                    }
+                    _ => {}
+                }
+            }
+            if forwarded {
+                buf.push(c);
+            }
+        }
+        assert_eq!(buf.iter().collect::<String>(), "tiếng ");
+    }
+
+    #[test]
+    fn xim_clients_report_no_usable_application_name() {
+        // ibus-x11 names every input context `xim`, so an app rule can only
+        // match one by accident; the server must name the app from the
+        // compositor extension or xprop for rules to work there.
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.set_client(Some("xim".into()));
+        assert!(e.client_name_is_opaque());
+        e.set_client(Some("gtk3-im:sublime_text".into()));
+        assert!(!e.client_name_is_opaque());
+    }
+
+    #[test]
+    fn forward_key_event_backspace_never_deletes_by_protocol() {
+        let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT);
+        type_str(&mut e, "tiee");
+        let Some(actions) = e.backspace() else {
+            panic!("a composition is in flight");
+        };
+        assert!(
+            !actions.iter().any(|a| matches!(
+                a,
+                Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+            )),
+            "backspace must use the forwarded transport: {actions:?}"
+        );
     }
 
     #[test]
