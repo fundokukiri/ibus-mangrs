@@ -4237,14 +4237,14 @@ mod keys_workload_probe {
     use super::*;
     use crate::bamboo_wrapper::Method;
 
-    /// Replay test/keys-test through the engine the way the server does
+    /// Replay tests/keys-test through the engine the way the server does
     /// (chars → process_char, Backspace → backspace(), nav/edit keys →
     /// reset() + the key forwards) and count how many times the lone "x"
     /// from the {home} scenario reaches the application. Exactly once per
     /// round is the contract; the real-app runs showed 0..3.
     #[test]
     fn full_keys_workload_commits_the_lone_x_exactly_once_per_mode() {
-        let keys = std::fs::read_to_string("test/keys-test").expect("keys-test");
+        let keys = std::fs::read_to_string("tests/keys-test").expect("keys-test");
         let mut tokens: Vec<char> = Vec::new();
         let mut chars = keys.chars().peekable();
         while let Some(c) = chars.next() {
