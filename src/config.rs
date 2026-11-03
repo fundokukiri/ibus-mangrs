@@ -114,9 +114,14 @@ pub enum MenuNode {
     Toggle {
         key: String,
     },
-    /// A radio group: "charset", "method" or "display".
+    /// A radio group: "charset", "method" or "display". Its children are the
+    /// entry keys it shows (`ibus_prop::CHARSETS` / `METHODS` / `MODES`
+    /// keys), in order — the group is an editable folder menu. Unknown keys
+    /// are skipped when the menu is built, and an emptied group disappears.
     Radios {
         group: String,
+        #[serde(default)]
+        children: Vec<String>,
     },
     /// A fixed action: "macro_editor", "settings" or "about".
     Action {
@@ -134,7 +139,8 @@ pub enum MenuNode {
 impl Config {
     /// The panel menu shape the engine shipped before `menu` existed,
     /// expressed as a node tree: everything in `properties()` used to be
-    /// fixed, with the quick folder built from `quick_menu`.
+    /// fixed, with the quick folder built from `quick_menu` and the radio
+    /// groups showing every entry (display: the `menu_modes` selection).
     pub fn default_menu(&self) -> Vec<MenuNode> {
         let mut quick = vec![MenuNode::Action {
             key: "macro_editor".into(),
@@ -144,6 +150,12 @@ impl Config {
                 .iter()
                 .map(|key| MenuNode::Toggle { key: key.clone() }),
         );
+        let all_keys = |entries: &[(&str, &str)]| {
+            entries
+                .iter()
+                .map(|(key, _)| key.to_string())
+                .collect::<Vec<_>>()
+        };
         vec![
             MenuNode::Action {
                 key: "about".into(),
@@ -154,12 +166,15 @@ impl Config {
             },
             MenuNode::Radios {
                 group: "charset".into(),
+                children: all_keys(crate::ibus_prop::CHARSETS),
             },
             MenuNode::Radios {
                 group: "method".into(),
+                children: all_keys(crate::ibus_prop::METHODS),
             },
             MenuNode::Radios {
                 group: "display".into(),
+                children: self.menu_modes.clone(),
             },
             MenuNode::Folder {
                 label: "Cấu hình nhanh".into(),
@@ -802,6 +817,25 @@ mod tests {
         let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
         assert_eq!(c.menu, None);
         assert!(!Config::default().default_menu().is_empty());
+        // The synthesized default: full charset/method groups, the display
+        // group from `menu_modes` (so an upgrade shows the same four modes).
+        let d = Config::default().default_menu();
+        let radios = |g: &str| {
+            d.iter().find_map(|n| match n {
+                MenuNode::Radios { group, children } if group == g => Some(children.clone()),
+                _ => None,
+            })
+        };
+        assert_eq!(
+            radios("charset"),
+            Some(
+                crate::ibus_prop::CHARSETS
+                    .iter()
+                    .map(|(k, _)| k.to_string())
+                    .collect::<Vec<_>>()
+            )
+        );
+        assert_eq!(radios("display"), Some(Config::default().menu_modes));
 
         let toml_text = r#"
 [[menu]]
@@ -812,6 +846,7 @@ children = [ { type = "toggle", key = "em_dash" }, { type = "separator" } ]
 [[menu]]
 type = "radios"
 group = "display"
+children = ["preedit", "smooth"]
 "#;
         let c: Config = toml::from_str(toml_text).unwrap();
         let menu = c.menu.expect("menu key present");
@@ -828,7 +863,8 @@ group = "display"
                     ],
                 },
                 MenuNode::Radios {
-                    group: "display".into()
+                    group: "display".into(),
+                    children: vec!["preedit".into(), "smooth".into()],
                 },
             ]
         );
