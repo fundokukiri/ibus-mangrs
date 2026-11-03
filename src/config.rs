@@ -97,6 +97,79 @@ pub struct Config {
     /// in order — keys of `ibus_prop::MODES`. Same skip-unknown contract as
     /// `quick_menu`.
     pub menu_modes: Vec<String>,
+    /// The user-designed panel menu. `None` (or an empty list) means the
+    /// menu is synthesized from `default_menu()` — the shape the engine
+    /// shipped before the menu became editable — so an upgrade and a broken
+    /// hand edit both fall back to the familiar menu.
+    pub menu: Option<Vec<MenuNode>>,
+}
+
+/// One node of the user-designed panel menu. Folders hold ONE level of
+/// items: a folder inside a folder is skipped when the menu is built, so a
+/// hand edit cannot push the popup into unusable nesting.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum MenuNode {
+    /// A quick toggle — a `ibus_prop::QUICK_TOGGLES` key, or "enabled".
+    Toggle {
+        key: String,
+    },
+    /// A radio group: "charset", "method" or "display".
+    Radios {
+        group: String,
+    },
+    /// A fixed action: "macro_editor", "settings" or "about".
+    Action {
+        key: String,
+    },
+    Separator,
+    /// A submenu.
+    Folder {
+        label: String,
+        #[serde(default)]
+        children: Vec<MenuNode>,
+    },
+}
+
+impl Config {
+    /// The panel menu shape the engine shipped before `menu` existed,
+    /// expressed as a node tree: everything in `properties()` used to be
+    /// fixed, with the quick folder built from `quick_menu`.
+    pub fn default_menu(&self) -> Vec<MenuNode> {
+        let mut quick = vec![MenuNode::Action {
+            key: "macro_editor".into(),
+        }];
+        quick.extend(
+            self.quick_menu
+                .iter()
+                .map(|key| MenuNode::Toggle { key: key.clone() }),
+        );
+        vec![
+            MenuNode::Action {
+                key: "about".into(),
+            },
+            MenuNode::Separator,
+            MenuNode::Toggle {
+                key: "enabled".into(),
+            },
+            MenuNode::Radios {
+                group: "charset".into(),
+            },
+            MenuNode::Radios {
+                group: "method".into(),
+            },
+            MenuNode::Radios {
+                group: "display".into(),
+            },
+            MenuNode::Folder {
+                label: "Cấu hình nhanh".into(),
+                children: quick,
+            },
+            MenuNode::Action {
+                key: "settings".into(),
+            },
+        ]
+    }
 }
 
 /// One per-application rule: if the client prgname contains `pattern`
@@ -488,6 +561,7 @@ impl Default for Config {
             app_rules: default_app_rules(),
             quick_menu: default_quick_menu(),
             menu_modes: default_menu_modes(),
+            menu: None,
         }
     }
 }
@@ -720,6 +794,48 @@ mod tests {
         );
         let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
         assert_eq!(c.menu_modes.len(), 4);
+    }
+
+    #[test]
+    fn menu_tree_round_trips_through_toml() {
+        // Absent key: None — the engine synthesizes the shipped menu shape.
+        let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
+        assert_eq!(c.menu, None);
+        assert!(!Config::default().default_menu().is_empty());
+
+        let toml_text = r#"
+[[menu]]
+type = "folder"
+label = "Cá nhân"
+children = [ { type = "toggle", key = "em_dash" }, { type = "separator" } ]
+
+[[menu]]
+type = "radios"
+group = "display"
+"#;
+        let c: Config = toml::from_str(toml_text).unwrap();
+        let menu = c.menu.expect("menu key present");
+        assert_eq!(
+            menu,
+            vec![
+                MenuNode::Folder {
+                    label: "Cá nhân".into(),
+                    children: vec![
+                        MenuNode::Toggle {
+                            key: "em_dash".into()
+                        },
+                        MenuNode::Separator,
+                    ],
+                },
+                MenuNode::Radios {
+                    group: "display".into()
+                },
+            ]
+        );
+        // A broken menu node is dropped key-wise by from_toml's salvage path
+        // (bad TOML value → default for that key), never fatal.
+        let c = Config::from_toml("menu = 42\n");
+        assert_eq!(c.menu, None);
     }
 
     #[test]

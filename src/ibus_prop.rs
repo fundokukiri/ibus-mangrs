@@ -16,7 +16,7 @@
 
 use dbus::arg::{RefArg, Variant};
 
-use crate::config::Config;
+use crate::config::{Config, MenuNode};
 use crate::ibus_text::Props;
 
 pub const TYPE_NORMAL: u32 = 0;
@@ -284,30 +284,92 @@ pub fn quick_toggle(key: &str) -> Option<&'static QuickToggle> {
 /// The whole menu for the current settings. Called on `Enable` and on every
 /// `FocusIn`, so the check marks always match the saved config.
 pub fn properties(config: &Config) -> Vec<Prop> {
-    let charset_items = CHARSETS
+    // Bound outside the match: the synthesized default must outlive the call.
+    let fallback;
+    let nodes = match &config.menu {
+        // An absent or empty design falls back to the shipped menu shape —
+        // an upgrade and a bad hand edit both stay familiar.
+        Some(nodes) if !nodes.is_empty() => nodes,
+        _ => {
+            fallback = config.default_menu();
+            &fallback
+        }
+    };
+    build_menu(config, nodes, 0)
+}
+
+/// Turn one level of menu nodes into properties. Depth 0 is the popup root,
+/// depth 1 the inside of a folder; a folder deeper than that is skipped, so
+/// a hand-edited nesting can never render an unusable popup.
+fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
+    nodes
         .iter()
-        .map(|(key, label)| {
-            Prop::radio(
-                &format!("{KEY_CHARSET}:{key}"),
-                label,
-                config.charset.key() == *key,
-            )
+        .filter_map(|node| {
+            Some(match node {
+                MenuNode::Toggle { key } => {
+                    // "enabled" predates the registry — it is the one toggle
+                    // outside QUICK_TOGGLES.
+                    if key == KEY_ENABLED {
+                        Prop::toggle(KEY_ENABLED, "Bật tiếng Việt", config.enabled)
+                    } else {
+                        let t = quick_toggle(key)?;
+                        let mut p = Prop::toggle(t.key, t.label, (t.get)(config));
+                        p.tooltip = t.tooltip.into();
+                        p
+                    }
+                }
+                MenuNode::Radios { group } => match group.as_str() {
+                    "charset" => Prop::menu(
+                        KEY_CHARSET,
+                        "Bảng mã",
+                        radio_items(CHARSETS, config.charset.key(), KEY_CHARSET),
+                    ),
+                    "method" => Prop::menu(
+                        KEY_METHOD,
+                        "Kiểu gõ",
+                        radio_items(METHODS, config.method.key(), KEY_METHOD),
+                    ),
+                    // The display group's contents stay user-defined through
+                    // `menu_modes`, independent of where the group sits.
+                    "display" => Prop::menu(KEY_DISPLAY, "Chế độ gõ", display_items(config)),
+                    _ => return None,
+                },
+                MenuNode::Action { key } => match key.as_str() {
+                    "macro_editor" => Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"),
+                    "settings" => Prop::normal(KEY_SHORTCUTS, "Cài đặt…"),
+                    "about" => {
+                        let mut p = Prop::normal(
+                            KEY_ABOUT,
+                            format!("MăngRS {}", env!("CARGO_PKG_VERSION")),
+                        );
+                        p.tooltip = "Mở trang GitHub của MăngRS".into();
+                        p
+                    }
+                    _ => return None,
+                },
+                MenuNode::Separator => Prop::separator(),
+                MenuNode::Folder { label, children } => {
+                    if depth > 0 {
+                        return None;
+                    }
+                    Prop::menu(label, label, build_menu(config, children, depth + 1))
+                }
+            })
         })
-        .collect();
-    let method_items = METHODS
+        .collect()
+}
+
+/// One radio item per entry, checked when it is the active value.
+fn radio_items(entries: &[(&str, &str)], active: &str, group_key: &str) -> Vec<Prop> {
+    entries
         .iter()
-        .map(|(key, label)| {
-            Prop::radio(
-                &format!("{KEY_METHOD}:{key}"),
-                label,
-                config.method.key() == *key,
-            )
-        })
-        .collect();
-    // The display group is also user-defined (`config.menu_modes`, edited in
-    // the GUI): the listed modes in list order, unknown keys skipped. The
-    // default is the four main entries, so an upgrade shows the same group.
-    let display_items = config
+        .map(|(key, label)| Prop::radio(&format!("{group_key}:{key}"), label, *key == active))
+        .collect()
+}
+
+/// The display radio group from the user's `menu_modes` selection.
+fn display_items(config: &Config) -> Vec<Prop> {
+    config
         .menu_modes
         .iter()
         .filter_map(|key| {
@@ -318,38 +380,13 @@ pub fn properties(config: &Config) -> Vec<Prop> {
                 config.mode.key() == key.as_str(),
             ))
         })
-        .collect();
-    // The quick group is the user's own selection (`config.quick_menu`,
-    // edited in the GUI): each key that names a registered toggle shows up in
-    // list order, unknown keys are skipped. The editor action stays fixed —
-    // it is not a toggle, so it is not selectable.
-    let quick = std::iter::once(Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"))
-        .chain(config.quick_menu.iter().filter_map(|key| {
-            let t = quick_toggle(key)?;
-            let mut p = Prop::toggle(t.key, t.label, (t.get)(config));
-            p.tooltip = t.tooltip.into();
-            Some(p)
-        }))
-        .collect();
-
-    let mut about = Prop::normal(KEY_ABOUT, format!("MăngRS {}", env!("CARGO_PKG_VERSION")));
-    about.tooltip = "Mở trang GitHub của MăngRS".into();
-
-    vec![
-        about,
-        Prop::separator(),
-        Prop::toggle(KEY_ENABLED, "Bật tiếng Việt", config.enabled),
-        Prop::menu(KEY_CHARSET, "Bảng mã", charset_items),
-        Prop::menu(KEY_METHOD, "Kiểu gõ", method_items),
-        Prop::menu(KEY_DISPLAY, "Chế độ gõ", display_items),
-        Prop::menu("quick", "Cấu hình nhanh", quick),
-        Prop::normal(KEY_SHORTCUTS, "Cài đặt…"),
-    ]
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::MenuNode;
     use dbus::arg::RefArg;
 
     #[test]
@@ -371,10 +408,73 @@ mod tests {
         // The default selection is the four main modes; the rest are one
         // checkbox away in the GUI.
         assert_eq!(props[5].sub.len(), Config::default().menu_modes.len());
-        assert_eq!(props[6].key, "quick");
+        // The synthesized default folder is keyed by its label now.
+        assert_eq!(props[6].key, "Cấu hình nhanh");
         assert_eq!(props[6].sub.len(), 5);
         assert_eq!(props[7].key, KEY_SHORTCUTS);
         assert_eq!(props[7].kind, TYPE_NORMAL);
+    }
+
+    #[test]
+    fn menu_tree_drives_the_popup() {
+        let config = Config {
+            menu: Some(vec![
+                MenuNode::Toggle {
+                    key: "enabled".into(),
+                },
+                MenuNode::Folder {
+                    label: "Cá nhân".into(),
+                    children: vec![
+                        MenuNode::Toggle {
+                            key: "em_dash".into(),
+                        },
+                        MenuNode::Toggle {
+                            key: "not_a_toggle".into(),
+                        },
+                        MenuNode::Folder {
+                            label: "Lồng".into(),
+                            children: vec![],
+                        },
+                        MenuNode::Action {
+                            key: "settings".into(),
+                        },
+                    ],
+                },
+                MenuNode::Radios {
+                    group: "method".into(),
+                },
+                MenuNode::Radios {
+                    group: "not_a_group".into(),
+                },
+            ]),
+            ..Config::default()
+        };
+        let props = properties(&config);
+        // Unknown toggles and radio groups vanish; a folder inside a folder
+        // (one level max) is skipped; the rest renders in list order.
+        assert_eq!(props.len(), 3);
+        assert_eq!(props[0].key, KEY_ENABLED);
+        assert_eq!(props[1].kind, TYPE_MENU);
+        assert_eq!(
+            props[1]
+                .sub
+                .iter()
+                .map(|p| p.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["em_dash", KEY_SHORTCUTS],
+            "unknown toggle and nested folder skipped"
+        );
+        assert_eq!(props[2].key, KEY_METHOD);
+    }
+
+    #[test]
+    fn empty_menu_design_falls_back_to_the_default() {
+        let config = Config {
+            menu: Some(Vec::new()),
+            ..Config::default()
+        };
+        let props = properties(&config);
+        assert_eq!(props.len(), properties(&Config::default()).len());
     }
 
     #[test]
