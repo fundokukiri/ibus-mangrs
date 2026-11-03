@@ -108,6 +108,7 @@ struct Ui {
     dictionary_enabled: Switch,
     dictionary_text: TextView,
     rules_text: TextView,
+    hide_underline: Switch,
     debug_log: Switch,
     x11_delete: Switch,
     preedit_xim: Switch,
@@ -250,6 +251,7 @@ impl Ui {
                 .collect::<Vec<_>>()
                 .join("\n"),
         );
+        self.hide_underline.set_active(config.hide_underline);
         // A field added to Config and Ui but forgotten here would leave a
         // stale widget that the next save writes back (the import bug).
         #[cfg(debug_assertions)]
@@ -301,6 +303,7 @@ impl Ui {
         config.auto_correct = self.auto_correct.is_active();
         config.auto_restore = self.auto_restore.is_active();
         config.abbreviations = self.abbrev.is_active();
+        config.hide_underline = self.hide_underline.is_active();
         config.bypass_url = self.bypass_url.is_active();
         config.w2u = match self.w2u.selected() {
             1 => W2uConfig::NonStart,
@@ -443,6 +446,7 @@ fn widgets() -> Rc<Ui> {
     let dictionary_enabled = Switch::new();
     let dictionary_text = text_view("");
     let rules_text = text_view("");
+    let hide_underline = Switch::new();
     let debug_log = Switch::new();
     let x11_delete = Switch::new();
     let preedit_xim = Switch::new();
@@ -485,6 +489,7 @@ fn widgets() -> Rc<Ui> {
         dictionary_enabled,
         dictionary_text,
         rules_text,
+        hide_underline,
         debug_log,
         x11_delete,
         preedit_xim,
@@ -575,7 +580,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
     ]));
     hint(
         &typing,
-        "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → OFF → Gõ mặc định.",
+        "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF → Gõ mặc định.",
     );
     section(
         &typing,
@@ -587,13 +592,13 @@ fn build(app: &Application, initial_page: Option<&str>) {
         pref_row("Bảng mã", "Unicode và 10 bảng mã cũ", &ui.charset),
         pref_row(
             "Chế độ gõ",
-            "8 chế độ: Gạch chân (mặc định), Không gạch chân, Surrounding, Smooth, Super Smooth, Select, OFF, Gõ mặc định",
+            "10 chế độ: Gạch chân (mặc định), Không gạch chân, Surrounding, Smooth, Super Smooth, Select, ForwardKeyEvent, ForwardKeyEvent II, OFF, Gõ mặc định",
             &ui.mode,
         ),
         pref_row(
-            "Viết tắt",
-            "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
-            &ui.abbrev,
+            "Ẩn gạch chân",
+            "Preedit không có gạch chân (tùy app có nhận không)",
+            &ui.hide_underline,
         ),
     ]));
     // The panel popup's toggle section is the user's own selection; these
@@ -623,72 +628,21 @@ fn build(app: &Application, initial_page: Option<&str>) {
             })
             .collect(),
     );
-    section(
-        &typing,
-        "Tốc độ gõ (uinput)",
-        "Chỉ áp dụng cho Smooth / Super Smooth / Select",
-    );
-    typing.append(&card(vec![
-        pref_row(
-            "Nhịp gõ chữ",
-            "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20",
-            &ui.commit_interval,
-        ),
-        pref_row(
-            "Nhịp xoá lùi",
-            "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5",
-            &ui.backspace_interval,
-        ),
-        pref_row(
-            "Độ trễ sau từ",
-            "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10",
-            &ui.post_delay,
-        ),
-        pref_row(
-            "Kênh gửi từ tiếng Việt",
-            "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
-            &ui.unicode_channel,
-        ),
-    ]));
-    section(
-        &typing,
-        "Tương thích X11/XIM",
-        "Cho app X11 trực tiếp và app XIM (Java/JetBrains)",
-    );
-    typing.append(&card(vec![
-        pref_row(
-            "Xoá không cần báo cáo surrounding",
-            "App X11 trực tiếp (Sublime Text...) xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
-            &ui.x11_delete,
-        ),
-        pref_row(
-            "Preedit cho app XIM",
-            "Giữ gạch chân cho app dùng XIM: chữ đang gõ hiện trong cửa sổ riêng của ibus rồi commit khi hết từ. Tắt thì JetBrains chỉ gõ được ở các chế độ ForwardKeyEvent.",
-            &ui.preedit_xim,
-        ),
-    ]));
-    section(
-        &typing,
-        "Chẩn đoán",
-        "Ghi lại quyết định của engine để gỡ lỗi",
-    );
-    typing.append(&card(vec![pref_row(
-        "Ghi log gỡ lỗi",
-        "Ghi vào ~/.cache/ibus-mangrs/debug.log",
-        &ui.debug_log,
-    )]));
 
     // ===== Page 2: Dấu & Sửa lỗi =====
     let tone = gtk4::Box::new(Orientation::Vertical, 6);
+    // Row titles match the quick-menu registry labels (ibus_prop
+    // ::QUICK_TOGGLES): a toggle ticked in the panel menu must be findable
+    // under the same name here.
     section(&tone, "Dấu thanh", "Kiểu đặt dấu trên nguyên âm");
     tone.append(&card(vec![
         pref_row(
-            "Dấu thanh chuẩn",
+            "Kiểu dấu mới",
             "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)",
             &ui.modern,
         ),
         pref_row(
-            "Bỏ dấu tự do",
+            "Dấu tự do",
             "Dấu đặt anywhere trong từ: hoangf → hoàng",
             &ui.free,
         ),
@@ -696,26 +650,31 @@ fn build(app: &Application, initial_page: Option<&str>) {
     section(&tone, "Chính tả", "Sửa lỗi và khôi phục từ");
     tone.append(&card(vec![
         pref_row(
-            "Tự sửa lỗi chính tả",
+            "Sửa từ sai",
             "Âm tiết sai được chuyển thành âm hợp lệ gần nhất",
             &ui.auto_correct,
         ),
         pref_row(
-            "Khôi phục từ Anh",
+            "Khôi phục từ nước ngoài",
             "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
             &ui.auto_restore,
         ),
         pref_row(
-            "Không bỏ dấu trong URL",
+            "Không gõ URL",
             "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
             &ui.bypass_url,
+        ),
+        pref_row(
+            "Viết tắt",
+            "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
+            &ui.abbrev,
         ),
     ]));
     section(&tone, "Tự động", "Viết hoa và dấu câu tự động");
     tone.append(&card(vec![
         pref_row("Tự viết hoa", "Sau . ! ? và Enter", &ui.auto_capitalize),
         pref_row(
-            "Hai cách → chấm",
+            "2 dấu cách = chấm",
             "Thử nghiệm: hai dấu cách thành dấu chấm",
             &ui.double_space,
         ),
@@ -729,8 +688,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
             &ui.bracket,
         ),
         pref_row(
-            "Gõ -- thành —",
-            "Hai dấu trừ liên tiếp thành gạch dài",
+            "Gạch ngang dài",
+            "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)",
             &ui.em_dash,
         ),
     ]));
@@ -772,8 +731,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
         "Từ trong từ điển không bị khôi phục về chuỗi phím",
     );
     data_box.append(&card(vec![pref_row(
-        "Bật từ điển",
-        "Đọc từ ~/.config/ibus-mangrs/dictionary.txt",
+        "Từ điển của tôi",
+        "Bật: từ trong từ điển không bị khôi phục về chuỗi phím (~/.config/ibus-mangrs/dictionary.txt)",
         &ui.dictionary_enabled,
     )]));
     data_box.append(&card_widget(&scrolled(&ui.dictionary_text, 160)));
@@ -808,7 +767,67 @@ fn build(app: &Application, initial_page: Option<&str>) {
         ),
     ]));
 
-    // ===== Page 5: Giới thiệu =====
+    // ===== Page 5: Nâng cao =====
+    // Everything technical lives here so the everyday pages stay short: the
+    // uinput pacing only matters to three modes, the X11/XIM switches are
+    // app-specific workarounds, and the log switch is for debugging.
+    let advanced = gtk4::Box::new(Orientation::Vertical, 6);
+    section(
+        &advanced,
+        "Tốc độ gõ (uinput)",
+        "Chỉ áp dụng cho Smooth / Super Smooth / Select",
+    );
+    advanced.append(&card(vec![
+        pref_row(
+            "Nhịp gõ chữ",
+            "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20",
+            &ui.commit_interval,
+        ),
+        pref_row(
+            "Nhịp xoá lùi",
+            "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5",
+            &ui.backspace_interval,
+        ),
+        pref_row(
+            "Độ trễ sau từ",
+            "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10",
+            &ui.post_delay,
+        ),
+        pref_row(
+            "Kênh gửi từ tiếng Việt",
+            "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
+            &ui.unicode_channel,
+        ),
+    ]));
+    section(
+        &advanced,
+        "Tương thích X11/XIM",
+        "Cho app X11 trực tiếp và app XIM (Java/JetBrains)",
+    );
+    advanced.append(&card(vec![
+        pref_row(
+            "Xoá không cần báo cáo surrounding",
+            "App X11 trực tiếp (Sublime Text...) xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
+            &ui.x11_delete,
+        ),
+        pref_row(
+            "Preedit cho app XIM",
+            "Giữ gạch chân cho app dùng XIM: chữ đang gõ hiện trong cửa sổ riêng của ibus rồi commit khi hết từ. Tắt thì JetBrains chỉ gõ được ở các chế độ ForwardKeyEvent.",
+            &ui.preedit_xim,
+        ),
+    ]));
+    section(
+        &advanced,
+        "Chẩn đoán",
+        "Ghi lại quyết định của engine để gỡ lỗi",
+    );
+    advanced.append(&card(vec![pref_row(
+        "Ghi log gỡ lỗi",
+        "Ghi vào ~/.cache/ibus-mangrs/debug.log",
+        &ui.debug_log,
+    )]));
+
+    // ===== Page 6: Giới thiệu =====
     let about = gtk4::Box::new(Orientation::Vertical, 6);
 
     // Logo is embedded at compile time: the GUI has no installed asset dir.
@@ -857,8 +876,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
     about.append(&card(vec![
         info_row(
             "input-keyboard-symbolic",
-            "8 chế độ hiển thị",
-            "Preedit, Non-preedit, Surrounding + 3 mode uinput, OFF, Gõ mặc định",
+            "10 chế độ hiển thị",
+            "Preedit, Non-preedit, Surrounding + 3 mode uinput + 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
         ),
         info_row(
             "network-workgroup-symbolic",
@@ -910,14 +929,15 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
     // Content: one scrolled, width-clamped page per section, crossfading.
     // (stack name, pill label, symbolic icon from the icon theme)
-    const PAGES: [(&str, &str, &str); 5] = [
+    const PAGES: [(&str, &str, &str); 6] = [
         ("typing", "Kiểu gõ", "input-keyboard-symbolic"),
         ("tone", "Dấu & Sửa lỗi", "font-x-generic-symbolic"),
         ("macros", "Gõ tắt", "document-edit-symbolic"),
         ("data", "Dữ liệu", "view-list-symbolic"),
+        ("advanced", "Nâng cao", "applications-system-symbolic"),
         ("about", "Giới thiệu", "help-about-symbolic"),
     ];
-    let page_boxes: [&gtk4::Box; 5] = [&typing, &tone, &macro_box, &data_box, &about];
+    let page_boxes: [&gtk4::Box; 6] = [&typing, &tone, &macro_box, &data_box, &advanced, &about];
     let stack = gtk4::Stack::new();
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
@@ -1582,9 +1602,6 @@ mod tests {
         let mut dictionary = Dictionary::load();
         dictionary.set_words(["asl".to_string(), "tr".to_string()].into_iter());
 
-        // `read()` starts from the file, which is where the one option without
-        // a widget (`hide_underline`) comes from.
-        let baseline = ui.read();
         let config = Config {
             enabled: false,
             method: MethodConfig::Vni,
@@ -1608,7 +1625,7 @@ mod tests {
             dictionary_enabled: false,
             abbreviations: false,
             cycle_mode_hotkey: "Control+Alt+v".into(),
-            hide_underline: baseline.hide_underline,
+            hide_underline: true,
             commit_interval_ms: 33,
             backspace_interval_ms: 7,
             post_delay_ms: 12,
