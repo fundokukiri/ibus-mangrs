@@ -46,39 +46,42 @@ export default class MangrsFocusExtension extends Extension {
 
     _export(conn) {
         this._conn = conn;
+        const methodCall = (
+            c,
+            sender,
+            path,
+            iface,
+            method,
+            params,
+            invocation
+        ) => {
+            if (method !== 'GetFocusedWindow') {
+                invocation.return_error_literal(
+                    Gio.DBusError.UNKNOWN_METHOD,
+                    `${iface}.${method}: unknown method`
+                );
+                return;
+            }
+            // No focused window (the overview, a shell popup)
+            // means no name — the engine falls back gracefully.
+            const win = global.display.focus_window;
+            const wmClass = win ? win.get_wm_class() || '' : '';
+            const title = win ? win.get_title() || '' : '';
+            invocation.return_value(
+                new GLib.Variant('(ss)', [wmClass, title])
+            );
+        };
         // A second focus change can race the first export: report and
         // ignore instead of throwing inside the shell.
         try {
+            // GJS 1.90 (Shell 51) wants five arguments and a plain function;
+            // a {handle_method_call} object is rejected.
             this._registrationId = conn.register_object(
                 OBJ_PATH,
                 this._nodeInfo.lookup_interface(IFACE),
-                {
-                    handle_method_call: (
-                        c,
-                        sender,
-                        path,
-                        iface,
-                        method,
-                        params,
-                        invocation
-                    ) => {
-                        if (method !== 'GetFocusedWindow') {
-                            invocation.return_error_literal(
-                                Gio.DBusError.UNKNOWN_METHOD,
-                                `${iface}.${method}: unknown method`
-                            );
-                            return;
-                        }
-                        // No focused window (the overview, a shell popup)
-                        // means no name — the engine falls back gracefully.
-                        const win = global.display.focus_window;
-                        const wmClass = win ? win.get_wm_class() || '' : '';
-                        const title = win ? win.get_title() || '' : '';
-                        invocation.return_value(
-                            new GLib.Variant('(ss)', [wmClass, title])
-                        );
-                    },
-                }
+                methodCall,
+                null,
+                null
             );
         } catch (e) {
             console.warn(`mangrs-focus: object export failed: ${e}`);
@@ -87,7 +90,7 @@ export default class MangrsFocusExtension extends Extension {
 
     disable() {
         if (this._conn && this._registrationId) {
-            this._conn.unexport_object(OBJ_PATH);
+            this._conn.unregister_object(this._registrationId);
         }
         this._registrationId = 0;
         this._conn = null;
