@@ -21,7 +21,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use dbus::ffidisp::{Connection, NameFlag};
+use dbus::ffidisp::{BusType, Connection, NameFlag};
+use dbus::strings::{BusName, Interface, Member, Path as DbusPath};
 use dbus::{Message, MessageType};
 
 use crate::config::{CharsetConfig, Config, MethodConfig, ModeConfig};
@@ -37,6 +38,14 @@ pub const FACTORY_PATH: &str = "/org/freedesktop/IBus/Factory";
 pub const ENGINE_PATH: &str = "/org/freedesktop/IBus/Engine/1";
 pub const ENGINE_IFACE: &str = "org.freedesktop.IBus.Engine";
 pub const FACTORY_IFACE: &str = "org.freedesktop.IBus.Factory";
+
+/// The MăngRS focus extension (`data/gnome-shell-extension`): a session-bus
+/// service naming the focused window. Wayland-native apps reach IBus only as
+/// a mutter relay, and GNOME offers no other name source for them (Shell
+/// Introspect is denied; the wlroots protocol ibus-bamboo uses is absent).
+const FOCUS_EXT_NAME: &str = "io.github.fundokukiri.Mangrs";
+const FOCUS_EXT_PATH: &str = "/io/github/fundokukiri/Mangrs";
+const FOCUS_EXT_IFACE: &str = "io.github.fundokukiri.Mangrs";
 
 /// Shared engine state: the handler mutates it while answering calls, the
 /// main thread reads it when the GUI changes settings.
@@ -79,6 +88,7 @@ impl Server {
             last_config_check: Instant::now(),
             last_config_mtime: None,
             cycle_hotkey: None,
+            focus_ext: None,
         };
         handler.last_config_mtime = Config::path()
             .and_then(|p| std::fs::metadata(&p).ok())
@@ -188,6 +198,8 @@ struct EngineHandler {
     /// loaded (startup, mtime reload, focus-in). Loading the config file on
     /// every key event just to compare a hotkey put disk I/O on the key path.
     cycle_hotkey: Option<(u32, u32)>,
+    /// Session-bus connection to the focus extension, created lazily.
+    focus_ext: Option<Connection>,
 }
 
 impl EngineHandler {
@@ -263,6 +275,14 @@ impl EngineHandler {
             return self.process_key_call(msg, out);
         }
 
+        // The extension round trip must not run under the engine mutex; the
+        // naming step below decides whether the answer is actually used.
+        let ext_name = if matches!(member, "FocusIn" | "FocusInId") {
+            self.focus_extension_app()
+        } else {
+            None
+        };
+
         let mut engine = lock_engine(&self.engine);
 
         match member {
@@ -309,6 +329,30 @@ impl EngineHandler {
                 // left over from the previous client would let the engine send
                 // protocol deletes to it (mutter segfaults on those).
                 engine.clear_buffer_state();
+                // Name the focused app beyond the IBus client string: the
+                // focus extension covers Wayland-native apps (they arrive as
+                // a mutter relay or unnamed), xprop covers X11 when the
+                // extension is absent. The name feeds rule matching only —
+                // transport decisions keep using `client`, so relayed
+                // contexts keep their mutter-safe delete handling. Focus
+                // path only, never on keys.
+                if engine.relay_context() {
+                    let resolved = ext_name
+                        .map(|class| (class.clone(), format!("wayland:{class}")))
+                        .or_else(|| {
+                            x11_active_window_name()
+                                .map(|class| (class.clone(), format!("x11:{class}")))
+                        });
+                    match resolved {
+                        Some((class, named)) => {
+                            engine.set_app_name(Some(named));
+                            note_prgname(&class);
+                        }
+                        None => engine.set_app_name(None),
+                    }
+                } else {
+                    engine.set_app_name(None);
+                }
                 // Pick up settings changed in the GUI since the last focus.
                 let config = Config::load();
                 debug_log::set_enabled(config.debug_log);
@@ -465,6 +509,32 @@ impl EngineHandler {
     /// Re-parse the cycle hotkey from an already-loaded config.
     fn refresh_hotkey_cache(&mut self, config: &Config) {
         self.cycle_hotkey = parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
+    }
+
+    /// The focused window's WM_CLASS from the focus extension. The
+    /// session-bus connection is created lazily and kept for the handler's
+    /// lifetime; a short timeout keeps a dead extension off the focus path.
+    /// Returns `None` when the extension is absent or names nothing (the
+    /// caller then falls back to the X active window).
+    fn focus_extension_app(&mut self) -> Option<String> {
+        if self.focus_ext.is_none() {
+            // The engine inherits the session environment from ibus-daemon;
+            // without a session bus there is no extension either.
+            self.focus_ext = Connection::get_private(BusType::Session)
+                .and_then(|conn| conn.register().map(|_| conn))
+                .ok();
+        }
+        let conn = self.focus_ext.as_ref()?;
+        // Test-only unwraps: the names are this file's own constants.
+        let msg = Message::method_call(
+            &BusName::new(FOCUS_EXT_NAME).unwrap(),
+            &DbusPath::new(FOCUS_EXT_PATH).unwrap(),
+            &Interface::new(FOCUS_EXT_IFACE).unwrap(),
+            &Member::new("GetFocusedWindow").unwrap(),
+        );
+        let reply = conn.send_with_reply_and_block(msg, 300).ok()?;
+        let (class, _title) = reply.read2::<String, String>().ok()?;
+        (!class.is_empty()).then_some(class)
     }
 
     /// Re-apply the config if the file changed since the last check.
@@ -1104,6 +1174,54 @@ fn presses(offset: i32) -> u32 {
     (-offset as i64).max(0) as u32
 }
 
+/// Best-effort name for X11/XWayland clients that never send FocusInId: the
+/// active window's WM_CLASS from the X server. Wayland-native windows are
+/// invisible to XWayland, so this never names them (they stay relayed).
+/// Two `xprop` spawns per unnamed focus-in — focus changes are rare, and this
+/// never runs on the key path.
+fn x11_active_window_name() -> Option<String> {
+    std::env::var_os("DISPLAY")?;
+    let root = std::process::Command::new("xprop")
+        .arg("-root")
+        .arg("_NET_ACTIVE_WINDOW")
+        .output()
+        .ok()?;
+    if !root.status.success() {
+        return None;
+    }
+    let id = active_window_id(std::str::from_utf8(&root.stdout).ok()?)?;
+    let out = std::process::Command::new("xprop")
+        .args(["-id", &id, "WM_CLASS"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    window_class(std::str::from_utf8(&out.stdout).ok()?)
+}
+
+/// `"_NET_ACTIVE_WINDOW(WINDOW): window id # 0x2c00007"` → `"0x2c00007"`.
+fn active_window_id(root_output: &str) -> Option<String> {
+    root_output
+        .split("window id # ")
+        .nth(1)?
+        .split_whitespace()
+        .next()
+        .map(str::to_string)
+}
+
+/// `WM_CLASS(STRING) = "code", "Code"` → `"Code"` (the class, not the
+/// instance); a single-string value is used as-is.
+fn window_class(xprop_output: &str) -> Option<String> {
+    let value = xprop_output.split('=').nth(1)?;
+    let strings: Vec<String> = value
+        .split(',')
+        .map(|p| p.trim().trim_matches('"').to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    strings.get(1).or(strings.first()).cloned()
+}
+
 /// Record a seen client prgname in `~/.cache/ibus-mangrs/clients` so the GUI can
 /// offer it as an App Rules target. Best effort; keeps the newest 50.
 fn note_client(msg: &Message) {
@@ -1113,6 +1231,10 @@ fn note_client(msg: &Message) {
     let Some(prgname) = client.split_once(':').map(|(_, p)| p.to_string()) else {
         return;
     };
+    note_prgname(&prgname);
+}
+
+fn note_prgname(prgname: &str) {
     if prgname == "fake" || prgname.is_empty() {
         return;
     }
@@ -1124,8 +1246,8 @@ fn note_client(msg: &Message) {
     let mut names: Vec<String> = std::fs::read_to_string(&path)
         .map(|t| t.lines().map(str::to_string).collect())
         .unwrap_or_default();
-    names.retain(|n| n != &prgname);
-    names.insert(0, prgname);
+    names.retain(|n| n != prgname);
+    names.insert(0, prgname.to_string());
     names.truncate(50);
     let _ = std::fs::write(path, names.join("\n"));
 }
@@ -1216,6 +1338,7 @@ mod tests {
             last_config_check: Instant::now(),
             last_config_mtime: None,
             cycle_hotkey: None,
+            focus_ext: None,
         };
         let press = |handler: &mut EngineHandler, keyval: u32| {
             let msg = engine_msg("ProcessKeyEvent").append3(keyval, 0u32, 0u32);
@@ -1496,6 +1619,25 @@ mod tests {
         assert!(e.take_nav_echo(keymap::DELETE).unwrap() == vec!["việt".to_string()]);
         assert!(!e.has_deferred());
         assert!(!e.pending_nav_echoes());
+    }
+
+    #[test]
+    fn active_window_id_and_class_parse_xprop_output() {
+        assert_eq!(
+            active_window_id("_NET_ACTIVE_WINDOW(WINDOW): window id # 0x2c00007\n"),
+            Some("0x2c00007".to_string())
+        );
+        assert_eq!(active_window_id("no id here\n"), None);
+        assert_eq!(
+            window_class("WM_CLASS(STRING) = \"code\", \"Code\"\n"),
+            Some("Code".to_string())
+        );
+        // A single-string value stands in for the class.
+        assert_eq!(
+            window_class("WM_CLASS(STRING) = \"foo\"\n"),
+            Some("foo".to_string())
+        );
+        assert_eq!(window_class("WM_CLASS: not found."), None);
     }
 
     #[test]
