@@ -7,6 +7,8 @@ use common::{commits, deletes, preedits, run_suite, Case, Sig, CAPS_BOTH};
 
 const BACKSPACE_KEYVAL: u32 = 0xff08;
 const BACKSPACE_KEYCODE: u32 = 14;
+const LEFT_KEYVAL: u32 = 0xff51;
+const LEFT_KEYCODE: u32 = 105;
 
 const CASES: &[Case] = &[
     Case {
@@ -40,6 +42,14 @@ const CASES: &[Case] = &[
         raw: "",
         dict: "",
         f: forward_keyevent,
+    },
+    Case {
+        name: "forwardkeyevent II selects the tail with forwarded Shift+Left",
+        cfg: &[("mode", "\"forwardselect\"")],
+        macros: &[],
+        raw: "",
+        dict: "",
+        f: forward_select,
     },
 ];
 
@@ -101,6 +111,48 @@ fn forward_keyevent(s: &mut common::Sess) {
     assert!(
         presses.iter().all(|(_, code)| *code == BACKSPACE_KEYCODE),
         "the scancode must be 14, not the X keycode: {presses:x?}"
+    );
+}
+
+fn forward_select(s: &mut common::Sess) {
+    // A XIM client: the input context reports no capabilities at all, so no
+    // protocol delete and no preedit is possible there.
+    s.focus(CAPS_BOTH, "xim");
+    s.drain();
+    let sigs = s.type_plain("tieengs");
+    assert!(
+        deletes(&sigs).is_empty(),
+        "no DeleteSurroundingText in ForwardKeyEvent II: {sigs:?}"
+    );
+    let keys: Vec<(u32, u32, u32)> = sigs
+        .iter()
+        .filter_map(|sig| match sig {
+            Sig::ForwardKeyEvent {
+                keyval,
+                keycode,
+                state,
+            } if *keyval == LEFT_KEYVAL => Some((*keycode, *state, *keyval)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !keys.is_empty(),
+        "the tone rewrite must forward Shift+Left: {sigs:?}"
+    );
+    assert!(
+        keys.iter().all(|(code, _, _)| *code == LEFT_KEYCODE),
+        "the scancode must be the evdev one: {keys:x?}"
+    );
+    assert!(
+        keys.iter().any(|(_, state, _)| *state == 1),
+        "a press carries the shift: {keys:x?}"
+    );
+    assert!(
+        sigs.iter().all(|sig| !matches!(
+            sig,
+            Sig::ForwardKeyEvent { keyval, .. } if *keyval == BACKSPACE_KEYVAL
+        )),
+        "II must not fall back to forwarded Backspace: {sigs:?}"
     );
 }
 

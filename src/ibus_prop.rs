@@ -80,6 +80,7 @@ pub const MODES: &[(&str, &str)] = &[
     ("supersmooth", "Super Smooth (uinput)"),
     ("select", "Select (uinput)"),
     ("forwardkeyevent", "ForwardKeyEvent (Backspace)"),
+    ("forwardselect", "ForwardKeyEvent II (Shift+Left)"),
     ("off", "OFF"),
     ("defaulttyping", "Gõ mặc định"),
 ];

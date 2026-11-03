@@ -7,8 +7,8 @@
 **English** | [Tiếng Việt](vi/README.md)
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
-[`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts, nine display modes (Preedit, NonPreedit, Surrounding,
-ForwardKeyEvent, three uinput modes, OFF, Default Typing), a GTK4 settings window, macros,
+[`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts, ten display modes (Preedit, NonPreedit, Surrounding, two
+ForwardKeyEvent modes, three uinput modes, OFF, Default Typing), a GTK4 settings window, macros,
 a custom dictionary and per-app rules.
 
 > **Platform status:** developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland;
@@ -43,7 +43,7 @@ a custom dictionary and per-app rules.
 - **Custom dictionary**: words that must never be auto-restored.
 - **GTK4 settings window** (5 pages, Vietnamese); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 220 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
+- 224 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
 
 ## Display modes
 
@@ -56,6 +56,7 @@ a custom dictionary and per-app rules.
 | Super Smooth (uinput) | same, without the safety check before rewriting | fast typing (X11) |
 | Select (uinput) | Shift+← selects the tail, Delete erases it, word commits | apps where Backspaces misbehave (X11) |
 | ForwardKeyEvent | non-preedit whose tail rewrite deletes with Backspace key events forwarded through IBus | apps that ignore the delete signal: Chrome, Electron, GNOME Console, Sublime Text |
+| ForwardKeyEvent II | the same, but the tail is selected with forwarded Shift+← and the commit replaces it | apps where a forwarded Backspace is mishandled, X11/XIM apps (JetBrains) |
 | OFF | Vietnamese off, macros still work | mixed Vietnamese/English sessions |
 | Default Typing | engine fully inert, every key forwarded | apps that resent any processing |
 
@@ -160,7 +161,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | Open settings window | input-source menu → *Cài đặt…*, or `ibus-engine-ibus-mangrs -gui` |
 | Change input method | menu → *Input Method* (Telex / VNI / VIQR / Microsoft), or GUI |
 | Change charset | menu → *Charset* (11 charsets), or GUI |
-| Change display mode | menu → *Display* (4 main modes), or GUI (9 modes), or the cycle hotkey |
+| Change display mode | menu → *Display* (4 main modes), or GUI (10 modes), or the cycle hotkey |
 | Display mode cycle hotkey | GUI *Kiểu gõ* tab → *Phím tắt đổi chế độ* (e.g. `Control+Alt+v`) |
 | Quick settings | menu → *Quick Settings* (macros, auto-capitalize, abbreviations, foreign-word restore) |
 | Type English / code | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw |
@@ -197,17 +198,23 @@ mode = "surrounding"
 **Matching:** case-insensitive substring of the app name; a toolkit prefix
 (`gtk4-im:`, `wayland:`, `x11:`) is ignored. The name comes from the companion
 focus extension first, then the X active window (`xprop`), then the prgname
-IBus reports. Short patterns match broadly (`term` also matches `xterm`).
-`pattern = "none"` targets apps with no name at all — the only way to match
-them.
+IBus reports. X11/XIM apps (JetBrains and other Java apps) report only the
+fixed name `xim`, so they are named from the extension/`xprop` instead — a
+rule like `pattern = "jetbrains"` targets them too. Short patterns match
+broadly (`term` also matches `xterm`). `pattern = "none"` targets apps with no
+name at all — the only way to match them.
 
 **Modes:** `preedit` (default), `nonpreedit`, `surrounding`, `smooth`,
 `supersmooth`, `select` (these three need `/dev/uinput` and are meant for X11),
-`forwardkeyevent`, `off`, `defaulttyping`. `forwardkeyevent` commits like
-`nonpreedit` but deletes the rewritten tail by forwarding Backspace keys
-through IBus, which reaches clients that ignore `DeleteSurroundingText`
-(Chrome, Electron, GNOME Console) even on Wayland, where `/dev/uinput` does
-not; it works only if the app accepts forwarded key events, so try it per app.
+`forwardkeyevent`, `forwardselect` (alias `forwardkeyevent2`), `off`,
+`defaulttyping`. The two forward modes commit like `nonpreedit` but delete the
+rewritten tail by forwarding key events through IBus instead of the delete
+signal, which reaches clients that ignore `DeleteSurroundingText` (Chrome,
+Electron, GNOME Console) even on Wayland, where `/dev/uinput` does not, and
+X11/XIM apps (JetBrains), whose input context has no capabilities at all:
+`forwardkeyevent` forwards Backspace, `forwardselect` selects the tail with
+Shift+← and lets the commit replace it. They work only if the app accepts
+forwarded key events, so try them per app.
 
 **Built-in rules**, shown in the text box when `config.toml` has no `app_rules`
 key (edit or delete them there; saving writes them to the file): Chrome,
@@ -243,7 +250,7 @@ GNOME Console → `preedit`; Sublime Text → `surrounding`. Those clients drop
 ## Testing
 
 ```sh
-cargo test                      # 220 unit tests, including the 678-case golden table
+cargo test                      # 224 unit tests, including the 678-case golden table
 cargo clippy --all-targets
 ```
 

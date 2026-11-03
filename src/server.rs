@@ -336,7 +336,12 @@ impl EngineHandler {
                 // transport decisions keep using `client`, so relayed
                 // contexts keep their mutter-safe delete handling. Focus
                 // path only, never on keys.
-                if engine.relay_context() {
+                // Naming is skipped only when the IBus client string already
+                // carries the application (`gtk3-im:sublime_text`). Relayed
+                // Wayland clients arrive as `gnome-shell` and every XIM client
+                // as the hard-coded `xim`, which names no application at all —
+                // without this no App Rule can target a Java/XIM app.
+                if engine.relay_context() || engine.client_name_is_opaque() {
                     let resolved = ext_name
                         .map(|class| (class.clone(), format!("wayland:{class}")))
                         .or_else(|| {
@@ -487,7 +492,8 @@ impl EngineHandler {
             ModeConfig::Smooth => ModeConfig::SuperSmooth,
             ModeConfig::SuperSmooth => ModeConfig::Select,
             ModeConfig::Select => ModeConfig::ForwardKeyEvent,
-            ModeConfig::ForwardKeyEvent => ModeConfig::Off,
+            ModeConfig::ForwardKeyEvent => ModeConfig::ForwardSelect,
+            ModeConfig::ForwardSelect => ModeConfig::Off,
             ModeConfig::Off => ModeConfig::DefaultTyping,
             ModeConfig::DefaultTyping => ModeConfig::NonPreedit,
         };
@@ -739,6 +745,28 @@ fn open_repo_page() {
 /// keycode: sending the X keycode 22 made clients use 30, i.e. evdev KEY_U,
 /// and every forwarded Backspace typed a `u` ("tùng" came out "tunguuuùng").
 const BACKSPACE_KEYCODE: u32 = 14;
+
+/// Left-arrow scancode, same convention as `BACKSPACE_KEYCODE` (X keycode 113
+/// minus 8). ibus-bamboo forwards the same value for its ForwardKeyEvent II.
+const LEFT_KEYCODE: u32 = 105;
+
+/// One forwarded key as press + release. The release carries no modifier (the
+/// app has already acted on the press); ibus-bamboo's ForwardKeyEvent modes
+/// send the same pair.
+fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u32) {
+    out.push(
+        signal("ForwardKeyEvent")
+            .append1(keyval)
+            .append1(keycode)
+            .append1(state),
+    );
+    out.push(
+        signal("ForwardKeyEvent")
+            .append1(keyval)
+            .append1(keycode)
+            .append1(keymap::RELEASE_MASK),
+    );
+}
 
 /// Handle one key event, pushing resulting signals into `out`.
 /// Returns whether the engine consumed the key.
@@ -1074,14 +1102,16 @@ fn emit_with(
             Action::ForwardBackspaces(n) => {
                 debug_log::log(&format!("forward-backspaces n={n}"));
                 for _ in 0..*n {
-                    for state in [0u32, keymap::RELEASE_MASK] {
-                        out.push(
-                            signal("ForwardKeyEvent")
-                                .append1(keymap::BACKSPACE)
-                                .append1(BACKSPACE_KEYCODE)
-                                .append1(state),
-                        );
-                    }
+                    push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
+                }
+            }
+            // ForwardSelect: Shift+Left moves the app's own selection over the
+            // raw tail; the Commit that follows replaces it, so no Backspace
+            // handling is needed in the app at all.
+            Action::ForwardSelectLeft(n) => {
+                debug_log::log(&format!("forward-select-left n={n}"));
+                for _ in 0..*n {
+                    push_forward_keys(out, keymap::LEFT, LEFT_KEYCODE, keymap::SHIFT_MASK);
                 }
             }
             Action::SelectLeft(n) => {
@@ -1803,6 +1833,46 @@ mod tests {
             keys.iter()
                 .all(|(keyval, keycode, _)| *keyval == 0xff08 && *keycode == 14),
             "Backspace keyval with the evdev scancode: {keys:?}"
+        );
+    }
+
+    #[test]
+    fn forward_select_emits_shift_left_press_and_plain_release() {
+        // ForwardKeyEvent II's wire shape: Left with the shift held on the
+        // press, plain release, scancode 105 (clients add 8 themselves).
+        let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+        e.set_client(Some("xim".into()));
+        let mut out = Vec::new();
+        emit_with(
+            &mut e,
+            &[Action::ForwardSelectLeft(2)],
+            &mut out,
+            &fake_transports(&|_, _| true),
+        );
+        let keys: Vec<(u32, u32, u32)> = out
+            .iter()
+            .filter(|m| m.member().map(|x| x == "ForwardKeyEvent").unwrap_or(false))
+            .filter_map(|m| m.read3::<u32, u32, u32>().ok())
+            .collect();
+        assert_eq!(keys.len(), 4, "press and release per Left: {keys:?}");
+        assert!(
+            keys.iter()
+                .all(|(keyval, keycode, _)| *keyval == 0xff51 && *keycode == 105),
+            "Left keyval with its scancode: {keys:?}"
+        );
+        assert_eq!(
+            keys.iter()
+                .filter(|(_, _, state)| *state == keymap::SHIFT_MASK)
+                .count(),
+            2,
+            "the presses carry the shift: {keys:?}"
+        );
+        assert_eq!(
+            keys.iter()
+                .filter(|(_, _, state)| *state == keymap::RELEASE_MASK)
+                .count(),
+            2,
+            "the releases are plain: {keys:?}"
         );
     }
 
