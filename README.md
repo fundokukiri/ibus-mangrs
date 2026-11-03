@@ -7,8 +7,8 @@
 **English** | [Tiếng Việt](vi/README.md)
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
-[`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts, eight display modes (Preedit, NonPreedit, Surrounding, three
-uinput modes, OFF, Default Typing), a GTK4 settings window, macros,
+[`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts, nine display modes (Preedit, NonPreedit, Surrounding,
+ForwardKeyEvent, three uinput modes, OFF, Default Typing), a GTK4 settings window, macros,
 a custom dictionary and per-app rules.
 
 > **Platform status:** developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland;
@@ -43,7 +43,7 @@ a custom dictionary and per-app rules.
 - **Custom dictionary**: words that must never be auto-restored.
 - **GTK4 settings window** (5 pages, Vietnamese); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 215 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
+- 220 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
 
 ## Display modes
 
@@ -55,6 +55,7 @@ a custom dictionary and per-app rules.
 | Smooth (uinput) | raw keys forwarded while typing, latin tail erased with real Backspaces at word end | terminals, quirky apps (X11) |
 | Super Smooth (uinput) | same, without the safety check before rewriting | fast typing (X11) |
 | Select (uinput) | Shift+← selects the tail, Delete erases it, word commits | apps where Backspaces misbehave (X11) |
+| ForwardKeyEvent | non-preedit whose tail rewrite deletes with Backspace key events forwarded through IBus | apps that ignore the delete signal: Chrome, Electron, GNOME Console, Sublime Text |
 | OFF | Vietnamese off, macros still work | mixed Vietnamese/English sessions |
 | Default Typing | engine fully inert, every key forwarded | apps that resent any processing |
 
@@ -159,7 +160,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | Open settings window | input-source menu → *Cài đặt…*, or `ibus-engine-ibus-mangrs -gui` |
 | Change input method | menu → *Input Method* (Telex / VNI / VIQR / Microsoft), or GUI |
 | Change charset | menu → *Charset* (11 charsets), or GUI |
-| Change display mode | menu → *Display* (8 modes), or GUI, or the cycle hotkey |
+| Change display mode | menu → *Display* (4 main modes), or GUI (9 modes), or the cycle hotkey |
 | Display mode cycle hotkey | GUI *Kiểu gõ* tab → *Phím tắt đổi chế độ* (e.g. `Control+Alt+v`) |
 | Quick settings | menu → *Quick Settings* (macros, auto-capitalize, abbreviations, foreign-word restore) |
 | Type English / code | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw |
@@ -202,7 +203,11 @@ them.
 
 **Modes:** `preedit` (default), `nonpreedit`, `surrounding`, `smooth`,
 `supersmooth`, `select` (these three need `/dev/uinput` and are meant for X11),
-`off`, `defaulttyping`.
+`forwardkeyevent`, `off`, `defaulttyping`. `forwardkeyevent` commits like
+`nonpreedit` but deletes the rewritten tail by forwarding Backspace keys
+through IBus, which reaches clients that ignore `DeleteSurroundingText`
+(Chrome, Electron, GNOME Console) even on Wayland, where `/dev/uinput` does
+not; it works only if the app accepts forwarded key events, so try it per app.
 
 **Built-in rules**, shown in the text box when `config.toml` has no `app_rules`
 key (edit or delete them there; saving writes them to the file): Chrome,
@@ -238,7 +243,7 @@ GNOME Console → `preedit`; Sublime Text → `surrounding`. Those clients drop
 ## Testing
 
 ```sh
-cargo test                      # 215 unit tests, including the 678-case golden table
+cargo test                      # 220 unit tests, including the 678-case golden table
 cargo clippy --all-targets
 ```
 

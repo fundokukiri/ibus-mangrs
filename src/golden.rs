@@ -474,6 +474,14 @@ impl FakeClient {
                     self.buf.drain(start..self.caret);
                     self.caret = start;
                 }
+                // ForwardKeyEvent mode: Backspace key events handled by the
+                // client's own IM context — real deletions, never protocol
+                // ones, so the drop_delete fault does not apply.
+                Action::ForwardBackspaces(n) => {
+                    let start = self.caret.saturating_sub(*n as usize);
+                    self.buf.drain(start..self.caret);
+                    self.caret = start;
+                }
                 Action::SelectLeft(n) => {
                     self.caret = self.caret.saturating_sub(*n as usize);
                 }
@@ -691,9 +699,14 @@ mod matrix {
 
     #[test]
     fn ideal_clients_reproduce_the_golden_text_in_every_mode() {
-        // The core invariant: with a perfect client, all three main display
-        // modes leave exactly the same text for the same keystrokes.
-        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        // The core invariant: with a perfect client, every inline display
+        // mode leaves exactly the same text for the same keystrokes.
+        for mode in [
+            Mode::NonPreedit,
+            Mode::Preedit,
+            Mode::Surrounding,
+            Mode::ForwardKeyEvent,
+        ] {
             for (method, keys, _) in SEQUENCES {
                 let method = method_of(method);
                 let mut e = Engine::new(method, mode);
@@ -785,7 +798,12 @@ mod matrix {
                 },
             ),
         ];
-        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        for mode in [
+            Mode::NonPreedit,
+            Mode::Preedit,
+            Mode::Surrounding,
+            Mode::ForwardKeyEvent,
+        ] {
             for (name, faults) in fault_rows {
                 for (method, keys, _) in SEQUENCES {
                     let method = method_of(method);
@@ -849,6 +867,27 @@ mod matrix {
                  {mode:?} final {got:?}"
             );
         }
+    }
+
+    #[test]
+    fn forward_key_event_mode_types_correctly_when_deletes_are_swallowed() {
+        // The point of the mode: a Chrome-style client that drops the
+        // protocol delete still gets exact text, because the rewrite uses
+        // Backspace key events forwarded through IBus, not the protocol.
+        let got = run_session(
+            Method::Telex,
+            Mode::ForwardKeyEvent,
+            Faults {
+                drop_delete: true,
+                ..Faults::default()
+            },
+            "gtk4-im:matrix",
+            "aa tieengs ",
+        );
+        assert_eq!(
+            got, "â tiếng ",
+            "ForwardKeyEvent must not rely on the protocol delete"
+        );
     }
 
     /// Deterministic xorshift64* — no new dependency (the audit forbids

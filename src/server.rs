@@ -486,7 +486,8 @@ impl EngineHandler {
             ModeConfig::Surrounding => ModeConfig::Smooth,
             ModeConfig::Smooth => ModeConfig::SuperSmooth,
             ModeConfig::SuperSmooth => ModeConfig::Select,
-            ModeConfig::Select => ModeConfig::Off,
+            ModeConfig::Select => ModeConfig::ForwardKeyEvent,
+            ModeConfig::ForwardKeyEvent => ModeConfig::Off,
             ModeConfig::Off => ModeConfig::DefaultTyping,
             ModeConfig::DefaultTyping => ModeConfig::NonPreedit,
         };
@@ -731,6 +732,11 @@ fn open_repo_page() {
         .stderr(std::process::Stdio::null())
         .spawn();
 }
+
+/// XKB keycode of Backspace (X keycodes start at 8; ibus-bamboo forwards the
+/// same value). The keyval is authoritative for toolkit clients, the keycode
+/// for XIM/XToolkit ones.
+const BACKSPACE_KEYCODE: u32 = 22;
 
 /// Handle one key event, pushing resulting signals into `out`.
 /// Returns whether the engine consumed the key.
@@ -1056,6 +1062,24 @@ fn emit_with(
                     debug_log::log(&format!(
                         "smooth rewrite inject FAILED and no report: deletion dropped n={n}"
                     ));
+                }
+            }
+            // ForwardKeyEvent mode's delete transport: Backspace key events
+            // sent through IBus, so the client's own IM context applies them
+            // like real presses. They ride the same connection as the Commit
+            // that follows, which keeps them ordered; no echo comes back
+            // (the key goes to the application, not to the engine).
+            Action::ForwardBackspaces(n) => {
+                debug_log::log(&format!("forward-backspaces n={n}"));
+                for _ in 0..*n {
+                    for state in [0u32, keymap::RELEASE_MASK] {
+                        out.push(
+                            signal("ForwardKeyEvent")
+                                .append1(keymap::BACKSPACE)
+                                .append1(BACKSPACE_KEYCODE)
+                                .append1(state),
+                        );
+                    }
                 }
             }
             Action::SelectLeft(n) => {
