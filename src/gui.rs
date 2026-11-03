@@ -590,8 +590,8 @@ impl Ui {
     }
 
     /// Insert the picked item at the selected position: into the selected
-    /// folder / radio group (at its end), or before the selected row at its
-    /// own level; appends at the root when nothing is selected.
+    /// folder / radio group (at its end), or right after the selected row at
+    /// its own level; appends at the root when nothing is selected.
     fn menu_insert(&self, kind: &str, key: &str) {
         let sel = self.menu_selected().map(|(iter, depth)| {
             (
@@ -603,9 +603,9 @@ impl Ui {
         });
 
         // Placement: a selected folder / radio group takes the item at its
-        // end; anything else inserts BEFORE the selected row, at its own
-        // level. A container picked while a child is selected cannot go
-        // inside — containers live at the root, so it lands before the
+        // end; anything else inserts right AFTER the selected row, at its
+        // own level. A container picked while a child is selected cannot go
+        // inside — containers live at the root, so it lands after the
         // child's parent instead.
         let (parent, position, label, kind_label) = match sel {
             Some((iter, _, k, _)) if k == "folder" => {
@@ -638,7 +638,7 @@ impl Ui {
                 };
                 let position = anchor
                     .as_ref()
-                    .and_then(|a| self.menu_sibling_index(parent.as_ref(), a));
+                    .and_then(|a| self.menu_position_after(parent.as_ref(), a));
                 let (label, kind_label) = menu_item_label(kind, key);
                 (parent, position, label, kind_label)
             }
@@ -659,13 +659,13 @@ impl Ui {
         );
     }
 
-    /// The index of `target` among its siblings, for insert-at-position.
-    fn menu_sibling_index(&self, parent: Option<&TreeIter>, target: &TreeIter) -> Option<u32> {
+    /// The insert position right AFTER `target` among its siblings.
+    fn menu_position_after(&self, parent: Option<&TreeIter>, target: &TreeIter) -> Option<u32> {
         let target_path = self.menu_store.path(target);
         self.menu_siblings(parent)
             .iter()
             .position(|i| self.menu_store.path(i) == target_path)
-            .map(|p| p as u32)
+            .map(|p| p as u32 + 1)
     }
 
     /// Refill the type picker for the current selection: a radio group only
@@ -729,15 +729,15 @@ impl Ui {
         } else {
             label
         };
-        // Folders live at the root: before the selected root row, or at the
-        // end when the selection is inside a folder or missing.
+        // Folders live at the root: right after the selected root row, or at
+        // the end when the selection is inside a folder or missing.
         let position = self.menu_selected().and_then(|(iter, depth)| {
             let anchor = if depth == 0 {
                 Some(iter)
             } else {
                 self.menu_store.iter_parent(&iter)
             };
-            anchor.and_then(|a| self.menu_sibling_index(None, &a))
+            anchor.and_then(|a| self.menu_position_after(None, &a))
         });
         self.menu_store.insert_with_values(
             None,
@@ -1239,18 +1239,6 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
     section(
         &data_box,
-        "Luật theo ứng dụng",
-        "Mỗi dòng: tên-ứng-dụng=chế độ (nonpreedit, preedit, surrounding, smooth, supersmooth, select, off, defaulttyping). Tên đặc biệt: gnome-shell = app Wayland, none = app không báo tên",
-    );
-    data_box.append(&card_widget(&add_row));
-    data_box.append(&card_widget(&scrolled(&ui.rules_text, 160)));
-    hint(
-        &data_box,
-        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để engine nhận tên app Wayland-native: Chrome, Firefox, … Danh sách là các app engine đã từng thấy, không phải mọi app đang chạy.",
-    );
-
-    section(
-        &data_box,
         "Sao lưu & khôi phục",
         "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng",
     );
@@ -1319,6 +1307,17 @@ fn build(app: &Application, initial_page: Option<&str>) {
         "Menu trên panel",
         "Tự thiết kế menu popup: thêm thư mục, thêm chức năng, bỏ vào thư mục, sắp xếp thứ tự. Bảng mã / Kiểu gõ / Chế độ gõ cũng chỉnh được mục bên trong.",
         vec![menu_row1, menu_row2, menu_view_row],
+    );
+    section(
+        &advanced,
+        "Luật theo ứng dụng",
+        "Mỗi dòng: tên-ứng-dụng=chế độ (nonpreedit, preedit, surrounding, smooth, supersmooth, select, off, defaulttyping). Tên đặc biệt: gnome-shell = app Wayland, none = app không báo tên",
+    );
+    advanced.append(&card_widget(&add_row));
+    advanced.append(&card_widget(&scrolled(&ui.rules_text, 160)));
+    hint(
+        &advanced,
+        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để engine nhận tên app Wayland-native: Chrome, Firefox, … Danh sách là các app engine đã từng thấy, không phải mọi app đang chạy.",
     );
     section(
         &advanced,
@@ -1479,10 +1478,10 @@ fn build(app: &Application, initial_page: Option<&str>) {
     // (stack name, pill label, symbolic icon from the icon theme)
     const PAGES: [(&str, &str, &str); 6] = [
         ("typing", "Chung", "input-keyboard-symbolic"),
-        ("tone", "Dấu & tự động", "font-x-generic-symbolic"),
-        ("macros", "Gõ tắt", "document-edit-symbolic"),
-        ("data", "Dữ liệu", "view-list-symbolic"),
-        ("advanced", "Tinh chỉnh", "applications-system-symbolic"),
+        ("tone", "Dấu & tự động", "tools-check-spelling-symbolic"),
+        ("macros", "Gõ tắt", "insert-text-symbolic"),
+        ("data", "Dữ liệu", "folder-documents-symbolic"),
+        ("advanced", "Tinh chỉnh", "emblem-system-symbolic"),
         ("about", "Giới thiệu", "help-about-symbolic"),
     ];
     let page_boxes: [&gtk4::Box; 6] = [&typing, &tone, &macro_box, &data_box, &advanced, &about];
@@ -1661,7 +1660,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
          .nav-pill { border-radius: 10px; padding: 8px 14px; min-height: 0; background: none; margin: 0 1px; } \
          .nav-pill:checked { background: alpha(currentColor, 0.10); } \
          .nav-pill label { font-weight: bold; font-size: 16px; } \
-         .nav-pill image { -gtk-icon-size: 18px; } \
+         .nav-pill image { -gtk-icon-size: 16px; opacity: 0.75; } \
          .close-btn { background: alpha(currentColor, 0.10); } \
          .group-card textview, .group-card textview text, .group-card scrolledwindow { background-color: transparent; } \
          dropdown button, dropdown button:hover { background: none; box-shadow: none; border: none; } \
