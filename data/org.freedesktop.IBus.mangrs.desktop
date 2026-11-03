@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MăngRS Cấu hình
+GenericName=Vietnamese IME settings
+Comment=Cấu hình bộ gõ tiếng Việt MăngRS
+Exec=/usr/lib/ibus-mangrs/ibus-engine-ibus-mangrs -gui
+Icon=ibus-mangrs
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=vietnamese;ime;ibus;mangrs;
+StartupNotify=true

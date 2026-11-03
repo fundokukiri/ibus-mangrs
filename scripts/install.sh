@@ -24,6 +24,13 @@ install -Dm644 "$here/data/ibus-mangrs.xml" "$COMPONENT_DIR/ibus-mangrs.xml"
 # Rebuild the registry cache; without -t refresh the daemon serves the old list.
 ibus write-cache --system 2>/dev/null || true
 
+# App icon + desktop entry for the settings window (the Wayland window icon
+# comes from the desktop file matching the app id, not from the binary).
+install -Dm644 "$here/data/logo.png"     "$PREFIX/share/icons/hicolor/512x512/apps/ibus-mangrs.png"
+install -Dm644 "$here/data/org.freedesktop.IBus.mangrs.desktop"     "$PREFIX/share/applications/org.freedesktop.IBus.mangrs.desktop"
+gtk-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
+
 # /dev/uinput permission for the backspace injector (docs/install.md).
 if [ -f "$here/data/80-uinput.rules" ]; then
     install -Dm644 "$here/data/80-uinput.rules" \
@@ -40,6 +47,8 @@ fi
 echo "installed:"
 echo "  $LIBDIR/ibus-engine-ibus-mangrs"
 echo "  $COMPONENT_DIR/ibus-mangrs.xml"
+echo "  $PREFIX/share/icons/hicolor/512x512/apps/ibus-mangrs.png"
+echo "  $PREFIX/share/applications/org.freedesktop.IBus.mangrs.desktop"
 echo
 echo "next:"
 echo "  1. ibus restart"
