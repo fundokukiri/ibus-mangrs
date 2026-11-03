@@ -8,7 +8,7 @@
 //! Layout: header bar with [search] [pill tabs] [close], five pages
 //! (Kiểu gõ / Dấu & Sửa lỗi / Gõ tắt / Dữ liệu / Giới thiệu), grouped cards.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -116,6 +116,137 @@ fn menu_item_label(kind: &str, key: &str) -> (String, String) {
     }
 }
 
+/// Show a hotkey value on its capture button; empty means unassigned.
+fn render_hotkey(btn: &gtk4::Button, value: &str) {
+    btn.set_label(if value.is_empty() {
+        "Chưa gán"
+    } else {
+        value
+    });
+}
+
+/// Turn a hotkey button into a recorder: click it, press a combination —
+/// the combo is written into `value` and saved. Escape cancels, plain
+/// Backspace clears, unusable combinations keep the recorder open. The
+/// combo string matches `server::parse_hotkey` (the same parser re-reads
+/// it from config).
+fn hotkey_wire(btn: &gtk4::Button, value: &Rc<RefCell<String>>, save: impl Fn() + Clone + 'static) {
+    use gtk4::gdk::Key;
+
+    let capturing = Rc::new(Cell::new(false));
+
+    {
+        let capturing = capturing.clone();
+        let btn_c = btn.clone();
+        btn.connect_clicked(move |_| {
+            if capturing.get() {
+                return;
+            }
+            capturing.set(true);
+            btn_c.set_label("Nhấn tổ hợp phím… (Esc hủy)");
+        });
+    }
+
+    let controller = gtk4::EventControllerKey::new();
+    {
+        let btn_c = btn.clone();
+        let capturing = capturing.clone();
+        let value = value.clone();
+        let save = save.clone();
+        controller.connect_key_pressed(move |_, keyval, _keycode, state| {
+            use gtk4::glib::Propagation;
+
+            if !capturing.get() {
+                return Propagation::Proceed;
+            }
+            // gtk4 0.9 hands the keyval over as a gdk::Key already.
+            let key = keyval;
+            // Escape cancels the capture; the stored value stays as it was.
+            if key == Key::Escape {
+                capturing.set(false);
+                render_hotkey(&btn_c, &value.borrow());
+                return Propagation::Stop;
+            }
+            // Modifier presses alone only extend the pending combination.
+            let is_modifier = [
+                Key::Shift_L,
+                Key::Shift_R,
+                Key::Control_L,
+                Key::Control_R,
+                Key::Alt_L,
+                Key::Alt_R,
+                Key::Super_L,
+                Key::Super_R,
+                Key::Hyper_L,
+                Key::Hyper_R,
+                Key::Meta_L,
+                Key::Meta_R,
+            ]
+            .contains(&key);
+            if is_modifier {
+                return Propagation::Stop;
+            }
+            let mods = state
+                & (gtk4::gdk::ModifierType::SHIFT_MASK
+                    | gtk4::gdk::ModifierType::CONTROL_MASK
+                    | gtk4::gdk::ModifierType::ALT_MASK
+                    | gtk4::gdk::ModifierType::SUPER_MASK
+                    | gtk4::gdk::ModifierType::HYPER_MASK
+                    | gtk4::gdk::ModifierType::META_MASK);
+            // Plain Backspace clears the assignment.
+            if key == Key::BackSpace && mods.is_empty() {
+                capturing.set(false);
+                *value.borrow_mut() = String::new();
+                render_hotkey(&btn_c, "");
+                save();
+                return Propagation::Stop;
+            }
+            let mut spec = String::new();
+            for (mask, name) in [
+                (gtk4::gdk::ModifierType::SHIFT_MASK, "Shift"),
+                (gtk4::gdk::ModifierType::CONTROL_MASK, "Control"),
+                (gtk4::gdk::ModifierType::ALT_MASK, "Alt"),
+                (gtk4::gdk::ModifierType::SUPER_MASK, "Super"),
+                (gtk4::gdk::ModifierType::HYPER_MASK, "Super"),
+                (gtk4::gdk::ModifierType::META_MASK, "Super"),
+            ] {
+                if mods.contains(mask) && !spec.contains(&format!("{name}+")) {
+                    spec.push_str(name);
+                    spec.push('+');
+                }
+            }
+            spec.push_str(&key.name().unwrap_or_default());
+            // Rejected combos keep the recorder open: the engine's parser
+            // would silently drop them, so try another key instead.
+            if crate::server::parse_hotkey(&spec).is_none() {
+                btn_c.set_label("Phím này không dùng được — thử phím khác");
+                return Propagation::Stop;
+            }
+            capturing.set(false);
+            *value.borrow_mut() = spec.clone();
+            btn_c.set_label(&spec);
+            save();
+            Propagation::Stop
+        });
+    }
+    btn.add_controller(controller);
+
+    // Leaving the button mid-capture cancels, like Escape.
+    let focus = gtk4::EventControllerFocus::new();
+    {
+        let btn_c = btn.clone();
+        let capturing = capturing.clone();
+        let value = value.clone();
+        focus.connect_leave(move |_| {
+            if capturing.get() {
+                capturing.set(false);
+                render_hotkey(&btn_c, &value.borrow());
+            }
+        });
+    }
+    btn.add_controller(focus);
+}
+
 /// The display label of a radio-group entry ("vni" in charset → "VNI").
 fn menu_entry_label(group: &str, key: &str) -> String {
     let entries: &[(&str, &str)] = match group {
@@ -188,8 +319,10 @@ struct Ui {
     method: DropDown,
     mode: DropDown,
     charset: DropDown,
-    hotkey: Entry,
-    enabled_hotkey: Entry,
+    hotkey_btn: gtk4::Button,
+    hotkey_value: Rc<RefCell<String>>,
+    enabled_hotkey_btn: gtk4::Button,
+    enabled_hotkey_value: Rc<RefCell<String>>,
     modern: Switch,
     free: Switch,
     auto_correct: Switch,
@@ -295,8 +428,10 @@ impl Ui {
         self.method.set_selected(method_index(config.method));
         self.mode.set_selected(mode_index(config.mode));
         self.charset.set_selected(charset_index(config.charset));
-        self.hotkey.set_text(&config.cycle_mode_hotkey);
-        self.enabled_hotkey.set_text(&config.enabled_hotkey);
+        *self.hotkey_value.borrow_mut() = config.cycle_mode_hotkey.clone();
+        render_hotkey(&self.hotkey_btn, &config.cycle_mode_hotkey);
+        *self.enabled_hotkey_value.borrow_mut() = config.enabled_hotkey.clone();
+        render_hotkey(&self.enabled_hotkey_btn, &config.enabled_hotkey);
         self.modern.set_active(config.modern_tone_style);
         self.free.set_active(config.free_tone_marking);
         self.auto_correct.set_active(config.auto_correct);
@@ -401,8 +536,8 @@ impl Ui {
             10 => CharsetConfig::VietwareFull,
             _ => CharsetConfig::Unicode,
         };
-        config.cycle_mode_hotkey = self.hotkey.text().trim().to_string();
-        config.enabled_hotkey = self.enabled_hotkey.text().trim().to_string();
+        config.cycle_mode_hotkey = self.hotkey_value.borrow().clone();
+        config.enabled_hotkey = self.enabled_hotkey_value.borrow().clone();
         config.debug_log = self.debug_log.is_active();
         config.x11_delete_without_report = self.x11_delete.is_active();
         config.preedit_for_xim = self.preedit_xim.is_active();
@@ -925,14 +1060,16 @@ fn widgets() -> Rc<Ui> {
     let method = drop_down(METHODS, 0);
     let mode = drop_down(MODES, 0);
     let charset = drop_down(CHARSETS, 0);
-    let hotkey = Entry::builder()
-        .placeholder_text("vd. Control+Alt+v")
-        .width_chars(18)
-        .build();
-    let enabled_hotkey = Entry::builder()
-        .placeholder_text("vd. Control+Alt+space")
-        .width_chars(18)
-        .build();
+    let hotkey_btn = gtk4::Button::new();
+    hotkey_btn.set_tooltip_text(Some(
+        "Bấm rồi nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
+    ));
+    let hotkey_value = Rc::new(RefCell::new(String::new()));
+    let enabled_hotkey_btn = gtk4::Button::new();
+    enabled_hotkey_btn.set_tooltip_text(Some(
+        "Bấm rồi nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
+    ));
+    let enabled_hotkey_value = Rc::new(RefCell::new(String::new()));
     let modern = Switch::new();
     let free = Switch::new();
     let auto_correct = Switch::new();
@@ -991,8 +1128,10 @@ fn widgets() -> Rc<Ui> {
         method,
         mode,
         charset,
-        hotkey,
-        enabled_hotkey,
+        hotkey_btn,
+        hotkey_value,
+        enabled_hotkey_btn,
+        enabled_hotkey_value,
         modern,
         free,
         auto_correct,
@@ -1113,12 +1252,12 @@ fn build(app: &Application, initial_page: Option<&str>) {
         pref_row(
             "Phím tắt đổi chế độ",
             "Ví dụ: Control+Alt+v. Để trống là chưa gán",
-            &ui.hotkey,
+            &ui.hotkey_btn,
         ),
         pref_row(
             "Phím tắt bật/tắt tiếng Việt",
             "Ví dụ: Control+Alt+space. Để trống là chưa gán",
-            &ui.enabled_hotkey,
+            &ui.enabled_hotkey_btn,
         ),
     ]));
     hint(
@@ -1811,6 +1950,12 @@ fn build(app: &Application, initial_page: Option<&str>) {
                 save();
             });
         }
+        hotkey_wire(&ui.hotkey_btn, &ui.hotkey_value, save.clone());
+        hotkey_wire(
+            &ui.enabled_hotkey_btn,
+            &ui.enabled_hotkey_value,
+            save.clone(),
+        );
         macro_rules! on_change {
             ($w:expr) => {{
                 let s = save.clone();
@@ -1860,8 +2005,6 @@ fn build(app: &Application, initial_page: Option<&str>) {
         }
         // Entries save on Enter or when they lose focus.
         for entry in [
-            &ui.hotkey,
-            &ui.enabled_hotkey,
             &ui.time_format,
             &ui.date_format,
             &ui.commit_interval,
