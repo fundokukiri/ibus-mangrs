@@ -666,7 +666,9 @@ fn hotkey_matches(mods: u32, key: u32, keyval: u32, state: u32) -> bool {
         };
         mods & pressed != 0 && state & (mods & !pressed) == mods & !pressed
     } else {
-        keyval == key && state & mods == mods
+        // Shift turns the event's keysym uppercase ('Z' vs the stored 'z'),
+        // so the comparison is case-insensitive.
+        keymap::keyval_to_lower(keyval) == keymap::keyval_to_lower(key) && state & mods == mods
     }
 }
 
@@ -1475,6 +1477,17 @@ mod tests {
         let (mods, key) = (CONTROL_MASK | MOD1_MASK | MOD4_MASK, 0x76);
         assert!(hotkey_matches(mods, key, 0x76, mods));
         assert!(!hotkey_matches(mods, key, 0x76, CONTROL_MASK));
+    }
+
+    #[test]
+    fn hotkey_matches_letters_case_insensitively() {
+        use crate::keymap::{CONTROL_MASK, SHIFT_MASK};
+        // "Shift+Control+Z": with Shift held the event carries the
+        // uppercase keysym 0x5a while the config stores 'z'.
+        let (mods, key) = (CONTROL_MASK | SHIFT_MASK, 0x7a);
+        assert!(hotkey_matches(mods, key, 0x5a, mods));
+        assert!(hotkey_matches(mods, key, 0x7a, mods));
+        assert!(!hotkey_matches(mods, key, 0x78, mods));
     }
 
     /// Build an `org.freedesktop.IBus.Engine` method-call message for `member`.

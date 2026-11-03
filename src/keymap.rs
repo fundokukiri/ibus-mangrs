@@ -28,6 +28,18 @@ const XK_ALT_R: u32 = 0xffea;
 const XK_SUPER_L: u32 = 0xffeb;
 const XK_SUPER_R: u32 = 0xffec;
 
+/// Lowercase a keysym: ASCII letters and the Latin-1 accented uppercase
+/// range map to their lowercase counterparts, everything else is itself.
+/// Hotkey matching needs this — with Shift held the event carries the
+/// uppercase keysym (`Z`, 0x5a) while the config stores the lowercase one.
+pub fn keyval_to_lower(keyval: u32) -> u32 {
+    if (0x41..=0x5a).contains(&keyval) || (0xc0..=0xde).contains(&keyval) && keyval != 0xd7 {
+        keyval + 0x20
+    } else {
+        keyval
+    }
+}
+
 /// The modifier a modifier keyval belongs to (`Shift_L`/`Shift_R` → Shift).
 /// `None` for every non-modifier keysym.
 pub fn modifier_of_keyval(keyval: u32) -> Option<u32> {
