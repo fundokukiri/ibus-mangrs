@@ -453,11 +453,26 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
     // Quick add for App Rules: pick a client the engine has seen, pick a
     // mode, append one rule line.
-    let client_combo = gtk4::ComboBoxText::new();
-    for name in crate::config::recent_clients() {
-        client_combo.append_text(&name);
-    }
-    client_combo.set_active(Some(0));
+    // Quick-add targets: real clients the engine has seen (GTK IM apps only —
+    // Wayland relays show up as gnome-shell, X11/XIM apps as none) plus the
+    // two pseudo-targets for those nameless groups.
+    let mut app_targets: Vec<(String, String)> = crate::config::recent_clients()
+        .into_iter()
+        .map(|n| {
+            let label = n.clone();
+            (label, n)
+        })
+        .collect();
+    app_targets.push((
+        "gnome-shell (app Wayland)".to_string(),
+        "gnome-shell".to_string(),
+    ));
+    app_targets.push(("(app không báo tên)".to_string(), "none".to_string()));
+    let combo_labels: Vec<&str> = app_targets
+        .iter()
+        .map(|(label, _)| label.as_str())
+        .collect();
+    let client_combo = drop_down(&combo_labels, 0);
     let rule_mode = drop_down(
         &crate::ibus_prop::MODES
             .iter()
@@ -474,27 +489,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
     add_row.append(&client_combo);
     add_row.append(&rule_mode);
     add_row.append(&add_btn);
-    {
-        let ui = ui.clone();
-        add_btn.connect_clicked(move |_| {
-            let Some(name) = client_combo.active_text().map(|s| s.to_string()) else {
-                return;
-            };
-            let Some((key, _)) = crate::ibus_prop::MODES.get(rule_mode.selected() as usize) else {
-                return;
-            };
-            let mode = *key;
-            let mut text = text_of(&ui.rules_text);
-            if !text.is_empty() && !text.ends_with('\n') {
-                text.push('\n');
-            }
-            text.push_str(&format!("{name}={mode}\n"));
-            set_text(&ui.rules_text, &text);
-            if let Err(e) = ui.save_all() {
-                eprintln!("cannot save config: {e}");
-            }
-        });
-    }
+    // The clicked handler is connected after the window exists, so a failed
+    // save can surface in the window (see the save block below).
 
     let export_btn = gtk4::Button::with_label("Xuất…");
     let import_btn = gtk4::Button::with_label("Nhập…");
@@ -682,10 +678,14 @@ fn build(app: &Application, initial_page: Option<&str>) {
     section(
         &data_box,
         "Luật theo ứng dụng",
-        "Mỗi dòng: tên-ứng-dụng=chế độ (nonpreedit, preedit, surrounding, smooth, supersmooth, select, off, defaulttyping)",
+        "Mỗi dòng: tên-ứng-dụng=chế độ (nonpreedit, preedit, surrounding, smooth, supersmooth, select, off, defaulttyping). Tên đặc biệt: gnome-shell = app Wayland, none = app không báo tên",
     );
     data_box.append(&card_widget(&add_row));
     data_box.append(&card_widget(&scrolled(&ui.rules_text, 160)));
+    hint(
+        &data_box,
+        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để engine nhận tên app Wayland-native: Chrome, Firefox, … Danh sách là các app engine đã từng thấy, không phải mọi app đang chạy.",
+    );
 
     section(
         &data_box,
@@ -982,12 +982,40 @@ fn build(app: &Application, initial_page: Option<&str>) {
     }
 
     {
+        let window_for_save = window.clone();
         let ui_for_save = ui.clone();
         let save = move || {
             if let Err(e) = ui_for_save.save_all() {
-                eprintln!("cannot save config: {e}");
+                alert(&window_for_save, &e.to_string());
             }
         };
+        // The quick-add row appends the rule line, then saves through the
+        // same error surface as every other control.
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            let client_combo = client_combo.clone();
+            let rule_mode = rule_mode.clone();
+            add_btn.connect_clicked(move |_| {
+                let idx = client_combo.selected() as usize;
+                let Some((_, pattern)) = app_targets.get(idx) else {
+                    return;
+                };
+                let pattern = pattern.clone();
+                let Some((key, _)) = crate::ibus_prop::MODES.get(rule_mode.selected() as usize)
+                else {
+                    return;
+                };
+                let mode = *key;
+                let mut text = text_of(&ui.rules_text);
+                if !text.is_empty() && !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                text.push_str(&format!("{pattern}={mode}\n"));
+                set_text(&ui.rules_text, &text);
+                save();
+            });
+        }
         macro_rules! on_change {
             ($w:expr) => {{
                 let s = save.clone();
@@ -1059,44 +1087,53 @@ fn build(app: &Application, initial_page: Option<&str>) {
     }
 
     {
+        let window = window.clone();
         export_btn.connect_clicked(move |_| {
-            let dialog = gtk4::FileChooserNative::builder()
+            let dialog = gtk4::FileDialog::builder()
                 .title("Xuất cấu hình")
-                .action(gtk4::FileChooserAction::Save)
                 .modal(true)
+                .initial_name("ibus-mangrs-backup.json")
                 .build();
-            dialog.set_current_name("ibus-mangrs-backup.json");
-            dialog.connect_response(move |d, resp| {
-                if resp == gtk4::ResponseType::Accept {
-                    if let Some(file) = d.file() {
-                        let _ = export_json(file.path());
+            // The clicked handler is Fn and keeps its own capture; the
+            // callback gets its own clone (the parent is only borrowed for
+            // the call, the callback outlives it).
+            let callback_window = window.clone();
+            dialog.save(
+                Some(&window),
+                gtk4::gio::Cancellable::NONE,
+                // A dismissed dialog is also an Err: nothing to save, no error.
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Err(e) = export_json(file.path()) {
+                            alert(&callback_window, &e);
+                        }
                     }
-                }
-                d.destroy();
-            });
-            dialog.show();
+                },
+            );
         });
     }
     {
         let ui = ui.clone();
+        let window = window.clone();
         import_btn.connect_clicked(move |_| {
-            let dialog = gtk4::FileChooserNative::builder()
+            let dialog = gtk4::FileDialog::builder()
                 .title("Nhập cấu hình")
-                .action(gtk4::FileChooserAction::Open)
                 .modal(true)
                 .build();
             let ui = ui.clone();
-            dialog.connect_response(move |d, resp| {
-                if resp == gtk4::ResponseType::Accept {
-                    if let Some(file) = d.file() {
+            let callback_window = window.clone();
+            dialog.open(
+                Some(&window),
+                gtk4::gio::Cancellable::NONE,
+                // A dismissed dialog is also an Err: nothing to import.
+                move |result| {
+                    if let Ok(file) = result {
                         if let Err(e) = import_json(file.path(), &ui) {
-                            eprintln!("import failed: {e}");
+                            alert(&callback_window, &e);
                         }
                     }
-                }
-                d.destroy();
-            });
-            dialog.show();
+                },
+            );
         });
     }
 
@@ -1142,6 +1179,17 @@ fn import_json(path: Option<PathBuf>, ui: &Ui) -> Result<(), String> {
 }
 
 // --- small builders ---
+
+/// Surface a save/import failure in the window: an `eprintln!` is invisible
+/// from a GUI, and a silent failure looks exactly like a broken feature.
+fn alert(window: &impl IsA<gtk4::Window>, text: &str) {
+    gtk4::AlertDialog::builder()
+        .modal(true)
+        .message("Không lưu được cấu hình")
+        .detail(text)
+        .build()
+        .show(Some(window));
+}
 
 fn drop_down(items: &[&str], selected: u32) -> DropDown {
     let dd = DropDown::new(Some(StringList::new(items)), gtk4::Expression::NONE);

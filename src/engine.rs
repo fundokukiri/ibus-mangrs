@@ -93,6 +93,12 @@ pub enum Action {
 pub struct Engine {
     wrapper: BambooWrapper,
     mode: Mode,
+    /// The focused application's name from sources beyond the IBus client
+    /// string (the focus extension for Wayland apps, the X active window for
+    /// X11) — used ONLY for rule matching. Transport decisions keep using
+    /// `client`, so a relayed client keeps its mutter-safe delete handling
+    /// even after it is named.
+    app_name: Option<String>,
     /// IBus capabilities reported by the client, from `SetCapabilities`.
     caps: u32,
     /// True while a preedit string is on screen, so we only send `HidePreedit`
@@ -237,6 +243,7 @@ impl Engine {
             surrounding: None,
             repair_delete: None,
             last_char: None,
+            app_name: None,
             app_rules: Vec::new(),
             auto_restore: true,
             em_dash: false,
@@ -710,6 +717,9 @@ impl Engine {
             self.wrapper.reset();
             self.tail.clear();
             self.clear_buffer_state();
+            // A new client invalidates the previous app's name; the server
+            // re-resolves it right after the focus lookup.
+            self.app_name = None;
             self.client = client;
         }
     }
@@ -794,15 +804,35 @@ impl Engine {
         }
     }
 
+    /// The focused application's name from the focus extension or the X
+    /// active window. Rule matching only — see the field docs.
+    pub fn set_app_name(&mut self, name: Option<String>) {
+        self.app_name = name;
+    }
+
     /// Mode forced by an `AppRule` matching the focused client, if any.
+    /// The rule target is `app_name` (the focus extension / X active window)
+    /// when present, else the IBus client string. The special pattern `none`
+    /// matches clients with neither — the only way to target them, since
+    /// there is no name to substring-match.
     fn client_rule_mode(&self) -> Option<Mode> {
-        let client = self.client.as_deref()?;
-        let prgname = client
-            .split_once(':')
-            .map_or(client, |(_, p)| p)
-            .to_lowercase();
+        let effective = self.app_name.as_deref().or(self.client.as_deref());
         for rule in &self.app_rules {
-            if !rule.pattern.is_empty() && prgname.contains(&rule.pattern.to_lowercase()) {
+            let pattern = rule.pattern.to_lowercase();
+            if pattern == "none" {
+                if effective.is_none() {
+                    return Some(rule.mode.into());
+                }
+                continue;
+            }
+            let Some(target) = effective else {
+                continue;
+            };
+            let name = target
+                .split_once(':')
+                .map_or(target, |(_, p)| p)
+                .to_lowercase();
+            if !pattern.is_empty() && name.contains(&pattern) {
                 return Some(rule.mode.into());
             }
         }
@@ -2755,6 +2785,83 @@ mod tests {
     }
 
     #[test]
+    fn none_rule_targets_unnamed_clients_in_every_display_mode() {
+        // The special `none` pattern targets clients that never reported a
+        // name (X11/XIM apps): with no name there is nothing to substring-
+        // match, so the rule used to be silently skipped for them.
+        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+            let mut e = Engine::new(Method::Telex, Mode::Off);
+            e.set_capabilities(CAP_PREEDIT_TEXT);
+            e.set_client(None);
+            e.apply_config(&Config {
+                // The base mode must be explicit: apply_config resets the
+                // mode to the config's, which defaults to preedit.
+                mode: crate::config::ModeConfig::Off,
+                app_rules: vec![crate::config::AppRule {
+                    pattern: "none".into(),
+                    mode: mode.into(),
+                }],
+                ..Config::default()
+            });
+            assert_eq!(e.effective_mode(), mode, "unnamed client: {mode:?}");
+            // A named client must not match the none rule: the configured
+            // base mode (Off) stands for it.
+            e.set_client(Some("gtk4-im:firefox".into()));
+            assert_ne!(e.effective_mode(), mode, "named client: {mode:?}");
+        }
+    }
+
+    #[test]
+    fn app_name_feeds_rules_but_not_transport_decisions() {
+        // A mutter-relayed client (gnome-shell) is named by the focus
+        // extension: rules must now match the name, while every transport
+        // decision keeps treating the context as relayed (the mutter-safe
+        // delete handling must not be lost just because the app got named).
+        let mut e = Engine::new(Method::Telex, Mode::Off);
+        e.set_capabilities(CAP_PREEDIT_TEXT);
+        e.set_client(Some("gnome-shell".into()));
+        e.apply_config(&Config {
+            mode: crate::config::ModeConfig::Off,
+            app_rules: vec![crate::config::AppRule {
+                pattern: "firefox".into(),
+                mode: crate::config::ModeConfig::Preedit,
+            }],
+            ..Config::default()
+        });
+        // Unnamed relay: no match, the base mode stands.
+        assert_eq!(e.effective_mode(), Mode::Off);
+        e.set_app_name(Some("wayland:Firefox".into()));
+        assert_eq!(
+            e.effective_mode(),
+            Mode::Preedit,
+            "rule matches the app name"
+        );
+        // The transport side is untouched: still a relayed context.
+        assert!(e.relay_context());
+        assert!(e.repair_delete_forbidden());
+        // Named via the extension, the none rule no longer matches it.
+        let mut e2 = Engine::new(Method::Telex, Mode::Off);
+        e2.set_capabilities(CAP_PREEDIT_TEXT);
+        e2.set_client(None);
+        e2.set_app_name(Some("x11:Sublime_text".into()));
+        e2.apply_config(&Config {
+            mode: crate::config::ModeConfig::Off,
+            app_rules: vec![crate::config::AppRule {
+                pattern: "none".into(),
+                mode: crate::config::ModeConfig::Preedit,
+            }],
+            ..Config::default()
+        });
+        assert_eq!(e2.effective_mode(), Mode::Off, "named client skips none");
+        e2.set_app_name(None);
+        assert_eq!(
+            e2.effective_mode(),
+            Mode::Preedit,
+            "unnamed again matches none"
+        );
+    }
+
+    #[test]
     fn firefox_keeps_non_preedit() {
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
         e.set_capabilities(CAP_PREEDIT_TEXT);
@@ -4130,14 +4237,14 @@ mod keys_workload_probe {
     use super::*;
     use crate::bamboo_wrapper::Method;
 
-    /// Replay test/keys-test through the engine the way the server does
+    /// Replay tests/keys-test through the engine the way the server does
     /// (chars → process_char, Backspace → backspace(), nav/edit keys →
     /// reset() + the key forwards) and count how many times the lone "x"
     /// from the {home} scenario reaches the application. Exactly once per
     /// round is the contract; the real-app runs showed 0..3.
     #[test]
     fn full_keys_workload_commits_the_lone_x_exactly_once_per_mode() {
-        let keys = std::fs::read_to_string("test/keys-test").expect("keys-test");
+        let keys = std::fs::read_to_string("tests/keys-test").expect("keys-test");
         let mut tokens: Vec<char> = Vec::new();
         let mut chars = keys.chars().peekable();
         while let Some(c) = chars.next() {
