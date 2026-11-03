@@ -160,10 +160,55 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | Change input method | menu → *Input Method* (Telex / VNI / VIQR / Microsoft), or GUI |
 | Change charset | menu → *Charset* (11 charsets), or GUI |
 | Change display mode | menu → *Display* (8 modes), or GUI, or the cycle hotkey |
-| Display mode cycle hotkey | GUI General tab → *Cycle Mode Hotkey* (e.g. `Control+Alt+v`) |
+| Display mode cycle hotkey | GUI *Kiểu gõ* tab → *Phím tắt đổi chế độ* (e.g. `Control+Alt+v`) |
 | Quick settings | menu → *Quick Settings* (macros, auto-capitalize, abbreviations, foreign-word restore) |
 | Type English / code | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw |
-| Per-app display mode | GUI Applications tab → `process-name=mode`, or the dropdown of seen apps |
+| Per-app display mode | GUI *Dữ liệu* tab → *Luật theo ứng dụng* (see App Rules below) |
+
+## App Rules (per-app display mode)
+
+A rule forces one display mode for one application and overrides the global
+mode. Rules are evaluated in order and the **first match wins**, so list
+specific patterns above general ones.
+
+**In the settings window:** *Dữ liệu* tab → *Luật theo ứng dụng*. Pick an app in
+the dropdown, pick a mode, press *Thêm luật*: the rule is appended as a
+`name=mode` line and saved with the rest of the settings (edits made directly
+in the text box save when you click outside it). The dropdown lists
+only apps the engine has already seen (newest 50, `~/.cache/ibus-mangrs/clients`)
+plus two pseudo-targets: `gnome-shell (app Wayland)` — every Wayland app while
+the focus extension is not installed — and `(app không báo tên)` — apps that
+report no name at all. Type once in an app to make it appear.
+
+**By hand:** one `[[app_rules]]` block per rule in
+`~/.config/ibus-mangrs/config.toml` (hot-reloaded within ~1 s):
+
+```toml
+[[app_rules]]
+pattern = "chrome"
+mode = "preedit"
+
+[[app_rules]]
+pattern = "sublime_text"
+mode = "surrounding"
+```
+
+**Matching:** case-insensitive substring of the app name; a toolkit prefix
+(`gtk4-im:`, `wayland:`, `x11:`) is ignored. The name comes from the companion
+focus extension first, then the X active window (`xprop`), then the prgname
+IBus reports. Short patterns match broadly (`term` also matches `xterm`).
+`pattern = "none"` targets apps with no name at all — the only way to match
+them.
+
+**Modes:** `preedit` (default), `nonpreedit`, `surrounding`, `smooth`,
+`supersmooth`, `select` (these three need `/dev/uinput` and are meant for X11),
+`off`, `defaulttyping`.
+
+**Built-in rules**, shown in the text box when `config.toml` has no `app_rules`
+key (edit or delete them there; saving writes them to the file): Chrome,
+Chromium, Brave, Edge, Vivaldi, Electron apps (VS Code, Slack, Discord) and
+GNOME Console → `preedit`; Sublime Text → `surrounding`. Those clients drop
+`DeleteSurroundingText`, so rewriting there duplicates text.
 
 ## Configuration files
 
@@ -184,10 +229,11 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
   apps only as an anonymous mutter relay, so the engine has no name to match. Install the
   companion GNOME Shell extension (`data/gnome-shell-extension/README.md`), then log out and back
   in — editing or enabling it in place is not enough.
-- **Something else**: enable **Debug Logging** (GUI General tab, or `debug_log = true` in
-  `config.toml`), reproduce the issue, and attach `~/.cache/ibus-mangrs/debug.log` — the engine
-  logs every focus change, capability, keystroke decision and delete/inject with millisecond
-  timestamps cross-referenceable with `journalctl`. Never shares your typed text.
+- **Something else**: enable *Ghi log gỡ lỗi* (GUI *Kiểu gõ* tab → *Chẩn đoán*, or
+  `debug_log = true` in `config.toml`), reproduce the issue, and attach
+  `~/.cache/ibus-mangrs/debug.log` — the engine logs every focus change,
+  capability, keystroke decision and delete/inject with millisecond timestamps
+  cross-referenceable with `journalctl`. Never shares your typed text.
 
 ## Testing
 
