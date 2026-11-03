@@ -88,6 +88,7 @@ impl Server {
             last_config_check: Instant::now(),
             last_config_mtime: None,
             cycle_hotkey: None,
+            enabled_hotkey: None,
             focus_ext: None,
         };
         handler.last_config_mtime = Config::path()
@@ -198,6 +199,7 @@ struct EngineHandler {
     /// loaded (startup, mtime reload, focus-in). Loading the config file on
     /// every key event just to compare a hotkey put disk I/O on the key path.
     cycle_hotkey: Option<(u32, u32)>,
+    enabled_hotkey: Option<(u32, u32)>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
 }
@@ -366,6 +368,8 @@ impl EngineHandler {
                 // cannot be called here.
                 self.cycle_hotkey =
                     parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
+                self.enabled_hotkey =
+                    parse_hotkey(&config.enabled_hotkey).filter(|(mods, _)| *mods != 0);
                 debug_log::log(&format!("focus-in client={:?}", engine.client()));
                 let actions = engine.apply_config(&config);
                 engine.set_enabled(config.enabled);
@@ -464,6 +468,9 @@ impl EngineHandler {
 
         // The mode-cycle hotkey is handled before any typing: it changes the
         // config and refreshes the panel menu.
+        if self.try_toggle_hotkey(keyval, state, out) {
+            return msg.method_return().append1(true);
+        }
         if self.try_cycle_hotkey(keyval, state, out) {
             return msg.method_return().append1(true);
         }
@@ -476,6 +483,35 @@ impl EngineHandler {
     /// Cycle NonPreedit -> Preedit -> Surrounding -> NonPreedit when `keyval`
     /// with the configured modifiers matches `cycle_mode_hotkey`.
     /// Returns whether the key was consumed.
+    /// Flip Vietnamese on/off when `keyval` with the configured modifiers
+    /// matches `enabled_hotkey`. Same plumbing as the mode-cycle hotkey:
+    /// save, apply, re-register the panel so the check mark follows.
+    fn try_toggle_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
+        let Some((mods, expected)) = self.enabled_hotkey else {
+            return false;
+        };
+        if keyval != expected || state & mods != mods {
+            return false;
+        }
+
+        let mut config = Config::load();
+        config.enabled = !config.enabled;
+        if config.save().is_err() {
+            return true; // consumed anyway; do not type with a hotkey press
+        }
+        {
+            let mut engine = lock_engine(&self.engine);
+            let actions = engine.apply_config(&config);
+            engine.set_enabled(config.enabled);
+            emit(&mut engine, &actions, out);
+        }
+        self.last_config_mtime = Config::path()
+            .and_then(|p| std::fs::metadata(&p).ok())
+            .and_then(|m| m.modified().ok());
+        register_properties(&config, out);
+        true
+    }
+
     fn try_cycle_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
         let Some((mods, expected)) = self.cycle_hotkey else {
             return false;
@@ -516,6 +552,7 @@ impl EngineHandler {
     /// Re-parse the cycle hotkey from an already-loaded config.
     fn refresh_hotkey_cache(&mut self, config: &Config) {
         self.cycle_hotkey = parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
+        self.enabled_hotkey = parse_hotkey(&config.enabled_hotkey).filter(|(mods, _)| *mods != 0);
     }
 
     /// The focused window's WM_CLASS from the focus extension. The
@@ -1416,6 +1453,7 @@ mod tests {
             last_config_check: Instant::now(),
             last_config_mtime: None,
             cycle_hotkey: None,
+            enabled_hotkey: None,
             focus_ext: None,
         };
         let press = |handler: &mut EngineHandler, keyval: u32| {
