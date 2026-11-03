@@ -490,7 +490,7 @@ impl EngineHandler {
         let Some((mods, expected)) = self.enabled_hotkey else {
             return false;
         };
-        if keyval != expected || state & mods != mods {
+        if !hotkey_matches(mods, expected, keyval, state) {
             return false;
         }
 
@@ -516,7 +516,7 @@ impl EngineHandler {
         let Some((mods, expected)) = self.cycle_hotkey else {
             return false;
         };
-        if keyval != expected || state & mods != mods {
+        if !hotkey_matches(mods, expected, keyval, state) {
             return false;
         }
 
@@ -640,12 +640,34 @@ pub(crate) fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
             _ => return None,
         }
     }
-    let key = key?;
+    // A modifier-only combo ("Control+Shift") completes on the last
+    // modifier: `key` stays 0 and matching keys off that. At least two
+    // modifiers, or the hotkey would eat every press of a lone modifier.
+    let key = match key {
+        Some(k) => k,
+        None if mods.count_ones() >= 2 => 0,
+        _ => return None,
+    };
     if mods == 0 || mods & !keymap::SHIFT_MASK == 0 {
         // A bare or Shift-only hotkey would eat normal typing.
         return None;
     }
     Some((mods, key))
+}
+
+/// Does this key event trigger the hotkey? `key == 0` marks a
+/// modifier-only combo: the pressed key must be one of the combo's own
+/// modifiers (either side), with every OTHER combo modifier already held —
+/// the just-pressed modifier is not in the event state yet.
+fn hotkey_matches(mods: u32, key: u32, keyval: u32, state: u32) -> bool {
+    if key == 0 {
+        let Some(pressed) = keymap::modifier_of_keyval(keyval) else {
+            return false;
+        };
+        mods & pressed != 0 && state & (mods & !pressed) == mods & !pressed
+    } else {
+        keyval == key && state & mods == mods
+    }
 }
 
 /// Send the full property list to ibus-daemon. `RegisterProperties` is a
@@ -1418,6 +1440,41 @@ mod tests {
         assert_eq!(parse_hotkey("Shift+v"), None);
         assert_eq!(parse_hotkey(""), None);
         assert_eq!(parse_hotkey("NotAModifier+q"), None);
+        // A lone modifier would eat every press of that key.
+        assert_eq!(parse_hotkey("Control"), None);
+        assert_eq!(parse_hotkey("Shift"), None);
+    }
+
+    #[test]
+    fn parse_hotkey_accepts_modifier_only_combos() {
+        use crate::keymap::{CONTROL_MASK, MOD1_MASK, SHIFT_MASK};
+        let (mods, key) = parse_hotkey("Control+Shift").expect("hotkey");
+        assert_eq!(mods, CONTROL_MASK | SHIFT_MASK);
+        assert_eq!(
+            key, 0,
+            "no regular key: matching goes by the pressed modifier"
+        );
+        let (mods, key) = parse_hotkey("Control+Alt").expect("hotkey");
+        assert_eq!(mods, CONTROL_MASK | MOD1_MASK);
+        assert_eq!(key, 0);
+    }
+
+    #[test]
+    fn hotkey_matches_modifier_only_combos() {
+        use crate::keymap::{CONTROL_MASK, MOD1_MASK, MOD4_MASK, SHIFT_MASK};
+        // "Control+Shift": completed by pressing either Shift while Control
+        // is held or Control while Shift is held — either side, either order.
+        let (mods, key) = (CONTROL_MASK | SHIFT_MASK, 0);
+        assert!(hotkey_matches(mods, key, 0xffe2, CONTROL_MASK)); // right Shift
+        assert!(hotkey_matches(mods, key, 0xffe3, SHIFT_MASK)); // left Control
+                                                                // The first modifier alone does not trigger.
+        assert!(!hotkey_matches(mods, key, 0xffe1, 0));
+        // A non-modifier key never matches a modifier-only combo.
+        assert!(!hotkey_matches(mods, key, 0x76, CONTROL_MASK));
+        // Regular combos keep matching by keyval + held modifiers.
+        let (mods, key) = (CONTROL_MASK | MOD1_MASK | MOD4_MASK, 0x76);
+        assert!(hotkey_matches(mods, key, 0x76, mods));
+        assert!(!hotkey_matches(mods, key, 0x76, CONTROL_MASK));
     }
 
     /// Build an `org.freedesktop.IBus.Engine` method-call message for `member`.

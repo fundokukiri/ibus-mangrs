@@ -18,6 +18,28 @@ pub const RELEASE_MASK: u32 = 1 << 30;
 /// Every modifier that means "this is a shortcut, not text".
 pub const SHORTCUT_MASK: u32 = CONTROL_MASK | MOD1_MASK | MOD4_MASK;
 
+// Modifier keysyms (left and right variants), X11/keysymdef.h.
+const XK_SHIFT_L: u32 = 0xffe1;
+const XK_SHIFT_R: u32 = 0xffe2;
+const XK_CONTROL_L: u32 = 0xffe3;
+const XK_CONTROL_R: u32 = 0xffe4;
+const XK_ALT_L: u32 = 0xffe9;
+const XK_ALT_R: u32 = 0xffea;
+const XK_SUPER_L: u32 = 0xffeb;
+const XK_SUPER_R: u32 = 0xffec;
+
+/// The modifier a modifier keyval belongs to (`Shift_L`/`Shift_R` → Shift).
+/// `None` for every non-modifier keysym.
+pub fn modifier_of_keyval(keyval: u32) -> Option<u32> {
+    match keyval {
+        XK_SHIFT_L | XK_SHIFT_R => Some(SHIFT_MASK),
+        XK_CONTROL_L | XK_CONTROL_R => Some(CONTROL_MASK),
+        XK_ALT_L | XK_ALT_R => Some(MOD1_MASK),
+        XK_SUPER_L | XK_SUPER_R => Some(MOD4_MASK),
+        _ => None,
+    }
+}
+
 // X11 keysyms we care about. Values are from X11/keysymdef.h.
 const XK_BACKSPACE: u32 = 0xff08;
 const XK_TAB: u32 = 0xff09;

@@ -201,21 +201,60 @@ fn hotkey_wire(btn: &gtk4::Button, value: &Rc<RefCell<String>>, save: impl Fn() 
                 save();
                 return Propagation::Stop;
             }
-            let mut spec = String::new();
-            for (mask, name) in [
-                (gtk4::gdk::ModifierType::SHIFT_MASK, "Shift"),
-                (gtk4::gdk::ModifierType::CONTROL_MASK, "Control"),
-                (gtk4::gdk::ModifierType::ALT_MASK, "Alt"),
-                (gtk4::gdk::ModifierType::SUPER_MASK, "Super"),
-                (gtk4::gdk::ModifierType::HYPER_MASK, "Super"),
-                (gtk4::gdk::ModifierType::META_MASK, "Super"),
-            ] {
-                if mods.contains(mask) && !spec.contains(&format!("{name}+")) {
-                    spec.push_str(name);
-                    spec.push('+');
+            // Canonical combo string: modifiers first, then the key name.
+            let spec_of = |full: gtk4::gdk::ModifierType, key_name: Option<String>| {
+                let mut spec = String::new();
+                for (mask, name) in [
+                    (gtk4::gdk::ModifierType::SHIFT_MASK, "Shift"),
+                    (gtk4::gdk::ModifierType::CONTROL_MASK, "Control"),
+                    (gtk4::gdk::ModifierType::ALT_MASK, "Alt"),
+                    (gtk4::gdk::ModifierType::SUPER_MASK, "Super"),
+                    (gtk4::gdk::ModifierType::HYPER_MASK, "Super"),
+                    (gtk4::gdk::ModifierType::META_MASK, "Super"),
+                ] {
+                    if full.contains(mask) && !spec.contains(&format!("{name}+")) {
+                        spec.push_str(name);
+                        spec.push('+');
+                    }
                 }
-            }
-            spec.push_str(&key.name().unwrap_or_default());
+                if let Some(k) = key_name {
+                    spec.push_str(&k);
+                }
+                spec
+            };
+            // A second modifier completes a modifier-only combo
+            // ("Control+Shift"): the just-pressed modifier is not in the
+            // event state yet, so it is unioned in here. Alone, a modifier
+            // press only extends the pending combination.
+            let is_modifier = [
+                Key::Shift_L,
+                Key::Shift_R,
+                Key::Control_L,
+                Key::Control_R,
+                Key::Alt_L,
+                Key::Alt_R,
+                Key::Super_L,
+                Key::Super_R,
+                Key::Hyper_L,
+                Key::Hyper_R,
+                Key::Meta_L,
+                Key::Meta_R,
+            ]
+            .contains(&key);
+            let spec = if is_modifier {
+                if mods.is_empty() {
+                    return Propagation::Stop;
+                }
+                let pressed = match key {
+                    Key::Shift_L | Key::Shift_R => gtk4::gdk::ModifierType::SHIFT_MASK,
+                    Key::Control_L | Key::Control_R => gtk4::gdk::ModifierType::CONTROL_MASK,
+                    Key::Alt_L | Key::Alt_R => gtk4::gdk::ModifierType::ALT_MASK,
+                    _ => gtk4::gdk::ModifierType::SUPER_MASK,
+                };
+                spec_of(mods | pressed, None)
+            } else {
+                spec_of(mods, Some(key.name().unwrap_or_default().to_string()))
+            };
             // Rejected combos keep the recorder open: the engine's parser
             // would silently drop them, so try another key instead.
             if crate::server::parse_hotkey(&spec).is_none() {
