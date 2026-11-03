@@ -16,14 +16,19 @@ use crate::config::{BracketConfig, CharsetConfig, Config, MethodConfig, ModeConf
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, CheckButton, DropDown, Entry, Orientation, StringList, Switch,
-    TextView,
+    Application, ApplicationWindow, CheckButton, DropDown, Entry, Orientation, Revealer,
+    StringList, Switch, TextView,
 };
 
 thread_local! {
     /// Every settings row (lowercase "title subtitle", widget) so the search
     /// bar can hide the ones that do not match.
     static ROWS: RefCell<Vec<(String, gtk4::Widget)>> = const { RefCell::new(Vec::new()) };
+    /// Each collapsible section's revealer plus its arrow label: the search
+    /// opens all of them while a query is active (rows inside a collapsed
+    /// section could never be found) and closes them again afterwards.
+    static COLLAPSIBLES: RefCell<Vec<(Revealer, gtk4::Label)>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -113,6 +118,9 @@ struct Ui {
     /// One checkbox per registered quick toggle (`ibus_prop::QUICK_TOGGLES`);
     /// the checked ones are the panel popup's contents (`config.quick_menu`).
     quick_menu_checks: Vec<(&'static str, CheckButton)>,
+    /// One checkbox per display mode (`ibus_prop::MODES`); the checked ones
+    /// are the panel popup's "Chế độ gõ" radio group (`config.menu_modes`).
+    menu_mode_checks: Vec<(&'static str, CheckButton)>,
 }
 
 fn method_index(m: MethodConfig) -> u32 {
@@ -218,6 +226,9 @@ impl Ui {
         for (key, check) in &self.quick_menu_checks {
             check.set_active(config.quick_menu.iter().any(|k| k == key));
         }
+        for (key, check) in &self.menu_mode_checks {
+            check.set_active(config.menu_modes.iter().any(|k| k == key));
+        }
         set_text(
             &self.macro_text,
             &macros
@@ -320,6 +331,13 @@ impl Ui {
         // Registry order is the menu order; unchecking removes the toggle.
         config.quick_menu = self
             .quick_menu_checks
+            .iter()
+            .filter(|(_, check)| check.is_active())
+            .map(|(key, _)| (*key).to_string())
+            .collect();
+        // Same for the panel's display-mode radio group.
+        config.menu_modes = self
+            .menu_mode_checks
             .iter()
             .filter(|(_, check)| check.is_active())
             .map(|(key, _)| (*key).to_string())
@@ -436,6 +454,10 @@ fn widgets() -> Rc<Ui> {
         .iter()
         .map(|t| (t.key, CheckButton::new()))
         .collect();
+    let menu_mode_checks = crate::ibus_prop::MODES
+        .iter()
+        .map(|(key, _)| (*key, CheckButton::new()))
+        .collect();
 
     Rc::new(Ui {
         enabled,
@@ -471,11 +493,13 @@ fn widgets() -> Rc<Ui> {
         post_delay,
         unicode_channel,
         quick_menu_checks,
+        menu_mode_checks,
     })
 }
 
 fn build(app: &Application, initial_page: Option<&str>) {
     ROWS.with(|r| r.borrow_mut().clear());
+    COLLAPSIBLES.with(|c| c.borrow_mut().clear());
 
     let config = Config::load();
     let macros = Macros::load();
@@ -573,13 +597,12 @@ fn build(app: &Application, initial_page: Option<&str>) {
         ),
     ]));
     // The panel popup's toggle section is the user's own selection; these
-    // checkboxes are that selection.
-    section(
+    // checkboxes are that selection. Both customization lists start collapsed:
+    // a dozen rows each would otherwise dominate the page.
+    collapsible_section(
         &typing,
         "Menu nhanh trên panel",
         "Tính năng hiện trong menu popup của biểu tượng MăngRS trên thanh trên",
-    );
-    typing.append(&card(
         ui.quick_menu_checks
             .iter()
             .filter_map(|(key, check)| {
@@ -587,7 +610,19 @@ fn build(app: &Application, initial_page: Option<&str>) {
                 Some(pref_row(t.label, t.tooltip, check))
             })
             .collect(),
-    ));
+    );
+    collapsible_section(
+        &typing,
+        "Chế độ gõ trên menu panel",
+        "Chế độ gõ hiện trong submenu \"Chế độ gõ\" của menu popup — bỏ tích để ẩn khỏi menu",
+        ui.menu_mode_checks
+            .iter()
+            .filter_map(|(key, check)| {
+                let (_, label) = crate::ibus_prop::MODES.iter().find(|(k, _)| k == key)?;
+                Some(pref_row(label, key, check))
+            })
+            .collect(),
+    );
     section(
         &typing,
         "Tốc độ gõ (uinput)",
@@ -936,6 +971,14 @@ fn build(app: &Application, initial_page: Option<&str>) {
                 widget.set_visible(q.is_empty() || text.contains(&q));
             }
         });
+        // Rows inside a collapsed section can never be seen, so a search
+        // opens every collapsible and an empty query restores them closed.
+        COLLAPSIBLES.with(|c| {
+            for (revealer, arrow) in c.borrow().iter() {
+                revealer.set_reveal_child(!q.is_empty());
+                arrow.set_text(if q.is_empty() { "▸" } else { "▼" });
+            }
+        });
     });
 
     let content = gtk4::Box::new(Orientation::Vertical, 0);
@@ -1092,7 +1135,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
         }
         // The quick-menu checkboxes save like any switch, so a checkmark is
         // in config.toml (and on the panel) before the window loses focus.
-        for (_, check) in &ui.quick_menu_checks {
+        for (_, check) in ui
+            .quick_menu_checks
+            .iter()
+            .chain(ui.menu_mode_checks.iter())
+        {
             on_change!(check);
         }
         on_change!(ui.enabled);
@@ -1323,6 +1370,52 @@ fn section(box_: &gtk4::Box, title: &str, subtitle: &str) {
     }
 }
 
+/// A section whose card starts collapsed: clicking the title toggles it.
+/// GTK4 dropped Expander, so this is a flat button over a Revealer. Used for
+/// the long customization lists — they would otherwise dominate the page.
+fn collapsible_section(parent: &gtk4::Box, title: &str, subtitle: &str, rows: Vec<gtk4::Box>) {
+    let header = gtk4::Button::new();
+    header.add_css_class("flat");
+    let h = gtk4::Box::new(Orientation::Horizontal, 8);
+    let arrow = gtk4::Label::new(Some("▸"));
+    let t = gtk4::Label::new(Some(title));
+    t.add_css_class("section-title");
+    h.set_halign(gtk4::Align::Start);
+    h.append(&arrow);
+    h.append(&t);
+    header.set_child(Some(&h));
+    header.set_halign(gtk4::Align::Start);
+    let revealer = Revealer::builder()
+        .transition_type(gtk4::RevealerTransitionType::SlideDown)
+        .transition_duration(150)
+        .reveal_child(false)
+        .build();
+    revealer.set_child(Some(&card(rows)));
+    {
+        let revealer = revealer.clone();
+        let arrow = arrow.clone();
+        header.connect_clicked(move |_| {
+            // The arrow must follow the revealer, not the click count: the
+            // search handler also opens and closes it.
+            let open = !revealer.reveals_child();
+            revealer.set_reveal_child(open);
+            arrow.set_text(if open { "▼" } else { "▸" });
+        });
+    }
+    parent.append(&header);
+    if !subtitle.is_empty() {
+        let s = gtk4::Label::new(Some(subtitle));
+        s.add_css_class("section-sub");
+        s.set_halign(gtk4::Align::Start);
+        s.set_xalign(0.0);
+        s.set_wrap(true);
+        s.set_margin_bottom(10);
+        parent.append(&s);
+    }
+    parent.append(&revealer);
+    COLLAPSIBLES.with(|c| c.borrow_mut().push((revealer, arrow)));
+}
+
 /// A grouped card: rows separated by hairline separators, rounded background.
 fn card(rows: Vec<gtk4::Box>) -> gtk4::Box {
     let c = gtk4::Box::new(Orientation::Vertical, 0);
@@ -1486,6 +1579,7 @@ mod tests {
             // normalizes the list to it (a hand-edited order survives until
             // the next save).
             quick_menu: vec!["macro".into(), "bypass_url".into(), "em_dash".into()],
+            menu_modes: vec!["preedit".into(), "smooth".into(), "off".into()],
         };
         ui.refresh(&config, &macros, &dictionary);
 

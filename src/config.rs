@@ -93,6 +93,10 @@ pub struct Config {
     /// `ibus_prop::QUICK_TOGGLES`. Unknown keys are skipped when building the
     /// menu, so a hand edit or an older file cannot break the panel.
     pub quick_menu: Vec<String>,
+    /// Which display modes the panel popup's "Chế độ gõ" radio group shows,
+    /// in order — keys of `ibus_prop::MODES`. Same skip-unknown contract as
+    /// `quick_menu`.
+    pub menu_modes: Vec<String>,
 }
 
 /// One per-application rule: if the client prgname contains `pattern`
@@ -439,6 +443,15 @@ fn default_quick_menu() -> Vec<String> {
         .collect()
 }
 
+/// Display modes the panel popup showed before the radio group became
+/// editable — the four main entries, not the uinput/technical ones.
+fn default_menu_modes() -> Vec<String> {
+    ["preedit", "nonpreedit", "surrounding", "off"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -474,6 +487,7 @@ impl Default for Config {
             preedit_for_xim: false,
             app_rules: default_app_rules(),
             quick_menu: default_quick_menu(),
+            menu_modes: default_menu_modes(),
         }
     }
 }
@@ -682,6 +696,30 @@ mod tests {
         // settings it does not recognise on the next save).
         let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
         assert_eq!(c.quick_menu.len(), 4);
+    }
+
+    #[test]
+    fn menu_modes_round_trips_and_defaults_to_the_main_four() {
+        assert_eq!(
+            Config::default().menu_modes,
+            vec![
+                "preedit".to_string(),
+                "nonpreedit".to_string(),
+                "surrounding".to_string(),
+                "off".to_string(),
+            ]
+        );
+        let c: Config = toml::from_str("menu_modes = [\"smooth\", \"off\", \"preedit\"]").unwrap();
+        assert_eq!(
+            c.menu_modes,
+            vec![
+                "smooth".to_string(),
+                "off".to_string(),
+                "preedit".to_string()
+            ]
+        );
+        let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
+        assert_eq!(c.menu_modes.len(), 4);
     }
 
     #[test]

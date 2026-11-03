@@ -78,9 +78,10 @@ pub const METHODS: &[(&str, &str)] = &[
     ("microsoft", "Microsoft layout"),
 ];
 
-/// (menu key, label) for every display mode. The menu popup only shows the
-/// four main entries (MAIN_MODES); the uinput and default-typing modes stay
-/// in the GUI — duplicated near-identical choices only widen the popup.
+/// (menu key, label) for every display mode. The menu popup shows the user's
+/// `config.menu_modes` selection (default: the four main entries); the rest
+/// are reachable through the GUI — duplicated near-identical choices only
+/// widen the popup.
 pub const MODES: &[(&str, &str)] = &[
     ("nonpreedit", "Không gạch chân"),
     ("preedit", "Gạch chân (preedit)"),
@@ -93,9 +94,6 @@ pub const MODES: &[(&str, &str)] = &[
     ("off", "OFF"),
     ("defaulttyping", "Gõ mặc định"),
 ];
-
-/// The display modes shown in the menu popup; the rest are GUI-only.
-const MAIN_MODES: &[&str] = &["preedit", "nonpreedit", "surrounding", "off"];
 
 /// One item in the engine's property list.
 pub struct Prop {
@@ -306,15 +304,19 @@ pub fn properties(config: &Config) -> Vec<Prop> {
             )
         })
         .collect();
-    let display_items = MODES
+    // The display group is also user-defined (`config.menu_modes`, edited in
+    // the GUI): the listed modes in list order, unknown keys skipped. The
+    // default is the four main entries, so an upgrade shows the same group.
+    let display_items = config
+        .menu_modes
         .iter()
-        .filter(|(key, _)| MAIN_MODES.contains(key))
-        .map(|(key, label)| {
-            Prop::radio(
+        .filter_map(|key| {
+            let (_, label) = MODES.iter().find(|(k, _)| k == key)?;
+            Some(Prop::radio(
                 &format!("{KEY_DISPLAY}:{key}"),
                 label,
-                config.mode.key() == *key,
-            )
+                config.mode.key() == key.as_str(),
+            ))
         })
         .collect();
     // The quick group is the user's own selection (`config.quick_menu`,
@@ -366,8 +368,9 @@ mod tests {
         assert_eq!(props[4].key, KEY_METHOD);
         assert_eq!(props[4].sub.len(), METHODS.len());
         assert_eq!(props[5].key, KEY_DISPLAY);
-        // Only the main modes are in the popup; the rest live in the GUI.
-        assert_eq!(props[5].sub.len(), MAIN_MODES.len());
+        // The default selection is the four main modes; the rest are one
+        // checkbox away in the GUI.
+        assert_eq!(props[5].sub.len(), Config::default().menu_modes.len());
         assert_eq!(props[6].key, "quick");
         assert_eq!(props[6].sub.len(), 5);
         assert_eq!(props[7].key, KEY_SHORTCUTS);
@@ -442,6 +445,42 @@ mod tests {
         let quick = &props[6];
         assert_eq!(quick.sub.len(), 1);
         assert_eq!(quick.sub[0].key, KEY_MACRO_EDITOR);
+    }
+
+    #[test]
+    fn display_group_is_user_defined() {
+        let config = Config {
+            menu_modes: vec![
+                "off".into(),
+                "smooth".into(),
+                "not_a_mode".into(),
+                "preedit".into(),
+            ],
+            ..Config::default()
+        };
+        let props = properties(&config);
+        let display = &props[5];
+        // Unknown keys vanish; the listed order is the menu order — a mode
+        // outside the default selection shows up once it is listed.
+        assert_eq!(
+            display
+                .sub
+                .iter()
+                .map(|p| p.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["display:off", "display:smooth", "display:preedit"]
+        );
+        // The check mark follows the active mode even when it is not listed.
+        let config = Config {
+            mode: crate::config::ModeConfig::Smooth,
+            menu_modes: vec!["preedit".into(), "off".into()],
+            ..Config::default()
+        };
+        let props = properties(&config);
+        assert!(
+            props[5].sub.iter().all(|p| p.state == STATE_UNCHECKED),
+            "the active mode absent from the list marks nothing"
+        );
     }
 
     #[test]
