@@ -24,6 +24,10 @@ a custom dictionary and per-app rules.
 - **Eleven output charsets**: Unicode (default), Unicode NFD, TCVN3, VNI, VIQR, VISCII, VPS,
   CP1258, BKHCM, Vietware X, Vietware Full.
 - **Eight display modes** (see below), selectable per application via App Rules.
+- **Per-app rules for Wayland-native apps** (Chrome, Firefox, Sublime Text, ...) through the
+  companion GNOME Shell extension: IBus reports those apps only as an anonymous mutter relay,
+  so the extension names the focused window from inside the Shell. Optional — without it rules
+  still match apps IBus names itself and X11 windows.
 - **Typing options**: modern tone placement (`hòa` vs traditional `hoà`), free tone marking
   (`hoangf` → `hoàng`), auto-correction of invalid syllables (the phonotactic check),
   auto-restore of non-Vietnamese words, raw-key bypass after URL/email/path characters
@@ -39,7 +43,7 @@ a custom dictionary and per-app rules.
 - **Custom dictionary**: words that must never be auto-restored.
 - **GTK4 settings window** (5 pages, Vietnamese); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 211 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
+- 215 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
 
 ## Display modes
 
@@ -176,6 +180,10 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 - **Marks do not appear in some apps** (Sublime, XWayland clients): `/dev/uinput` is missing or
   not writable — see the permissions section above.
 - **Mode changes seem ignored**: an App Rule for the app overrides the global mode.
+- **App Rule ignored for Chrome, Firefox or Sublime Text on GNOME Wayland**: IBus reports those
+  apps only as an anonymous mutter relay, so the engine has no name to match. Install the
+  companion GNOME Shell extension (`data/gnome-shell-extension/README.md`), then log out and back
+  in — editing or enabling it in place is not enough.
 - **Something else**: enable **Debug Logging** (GUI General tab, or `debug_log = true` in
   `config.toml`), reproduce the issue, and attach `~/.cache/ibus-mangrs/debug.log` — the engine
   logs every focus change, capability, keystroke decision and delete/inject with millisecond
@@ -184,7 +192,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 ## Testing
 
 ```sh
-cargo test                      # 211 unit tests, including the 678-case golden table
+cargo test                      # 215 unit tests, including the 678-case golden table
 cargo clippy --all-targets
 ```
 

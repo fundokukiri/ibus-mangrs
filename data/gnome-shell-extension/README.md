@@ -23,6 +23,29 @@ gnome-extensions enable mangrs-focus@fundokukiri
 If the names still do not show up after enabling, log out and back in
 (a Wayland session cannot restart the shell in place).
 
+## Update
+
+Copy the files over the installed copy again after pulling:
+
+```sh
+cp -r data/gnome-shell-extension/mangrs-focus@fundokukiri ~/.local/share/gnome-shell/extensions/
+```
+
+Then log out and back in. `gnome-extensions disable` + `enable` is **not**
+enough: GNOME 45+ caches the extension's ES module for the whole session, so
+the old `extension.js` keeps running until the session restarts.
+
+## Troubleshooting
+
+- `UnknownMethod: Object does not exist at path
+  /io/github/fundokukiri/Mangrs` means the extension owns the bus name but
+  never exported the object. Read `journalctl --user -b | grep mangrs-focus`.
+  Errors `At least 5 arguments required` or `Expected type function` came from
+  the calling convention GNOME 46-48 used; the current `extension.js` already
+  targets the GJS API of GNOME 51, so log out and back in to load it.
+- `GetFocusedWindow` returning `('', '')` is normal when nothing has keyboard
+  focus (the overview, a panel popup).
+
 ## Requirements
 
 - GNOME 46-51 (ESM extension format).
