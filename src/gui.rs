@@ -589,38 +589,67 @@ impl Ui {
         out
     }
 
-    /// Insert the picked item: into the selected folder (any function), into
-    /// the selected radio group (its own entries), or at the root.
+    /// Insert the picked item at the selected position: into the selected
+    /// folder / radio group (at its end), or before the selected row at its
+    /// own level; appends at the root when nothing is selected.
     fn menu_insert(&self, kind: &str, key: &str) {
-        let selected = self
-            .menu_selected()
-            .filter(|(_, depth)| *depth == 0)
-            .map(|(iter, _)| {
-                (
-                    iter,
-                    self.menu_value(&iter, MENU_COL_KIND),
-                    self.menu_value(&iter, MENU_COL_KEY),
-                )
-            });
-        let (parent, label, kind_label) = match selected {
-            // A folder takes any function.
-            Some((iter, k, _)) if k == "folder" => {
+        let sel = self.menu_selected().map(|(iter, depth)| {
+            (
+                iter,
+                depth,
+                self.menu_value(&iter, MENU_COL_KIND),
+                self.menu_value(&iter, MENU_COL_KEY),
+            )
+        });
+
+        // Placement: a selected folder / radio group takes the item at its
+        // end; anything else inserts BEFORE the selected row, at its own
+        // level. A container picked while a child is selected cannot go
+        // inside — containers live at the root, so it lands before the
+        // child's parent instead.
+        let (parent, position, label, kind_label) = match sel {
+            Some((iter, _, k, _)) if k == "folder" => {
                 let (label, kind_label) = menu_item_label(kind, key);
-                (Some(iter), label, kind_label)
+                (Some(iter), None, label, kind_label)
             }
-            // A radio group only takes its own entries — the picker offers
-            // just those; this check is the belt to its braces.
-            Some((iter, k, group)) if k == "radios" && kind == "entry" => {
-                (Some(iter), menu_entry_label(&group, key), "Mục chọn".into())
-            }
-            _ => {
+            // The picker offers a radio group only its own entries; this
+            // check is the belt to its braces.
+            Some((iter, _, k, group)) if k == "radios" && kind == "entry" => (
+                Some(iter),
+                None,
+                menu_entry_label(&group, key),
+                "Mục chọn".into(),
+            ),
+            Some((iter, depth, _, _)) => {
+                let parent = self.menu_store.iter_parent(&iter);
+                let pkind = parent
+                    .as_ref()
+                    .map(|p| self.menu_value(p, MENU_COL_KIND))
+                    .unwrap_or_default();
+                let invalid_inside = depth == 1
+                    && ((pkind == "radios" && kind != "entry")
+                        || (pkind == "folder" && kind == "radios"));
+                let (parent, anchor) = if invalid_inside {
+                    (None, parent)
+                } else if depth == 1 {
+                    (parent, Some(iter))
+                } else {
+                    (None, Some(iter))
+                };
+                let position = anchor
+                    .as_ref()
+                    .and_then(|a| self.menu_sibling_index(parent.as_ref(), a));
                 let (label, kind_label) = menu_item_label(kind, key);
-                (None, label, kind_label)
+                (parent, position, label, kind_label)
+            }
+            None => {
+                let (label, kind_label) = menu_item_label(kind, key);
+                (None, None, label, kind_label)
             }
         };
         self.menu_store.insert_with_values(
             parent.as_ref(),
-            None,
+            position,
             &[
                 (MENU_COL_KIND, &kind.to_string()),
                 (MENU_COL_KEY, &key.to_string()),
@@ -628,6 +657,15 @@ impl Ui {
                 (MENU_COL_KIND_LABEL, &kind_label),
             ],
         );
+    }
+
+    /// The index of `target` among its siblings, for insert-at-position.
+    fn menu_sibling_index(&self, parent: Option<&TreeIter>, target: &TreeIter) -> Option<u32> {
+        let target_path = self.menu_store.path(target);
+        self.menu_siblings(parent)
+            .iter()
+            .position(|i| self.menu_store.path(i) == target_path)
+            .map(|p| p as u32)
     }
 
     /// Refill the type picker for the current selection: a radio group only
@@ -691,9 +729,19 @@ impl Ui {
         } else {
             label
         };
+        // Folders live at the root: before the selected root row, or at the
+        // end when the selection is inside a folder or missing.
+        let position = self.menu_selected().and_then(|(iter, depth)| {
+            let anchor = if depth == 0 {
+                Some(iter)
+            } else {
+                self.menu_store.iter_parent(&iter)
+            };
+            anchor.and_then(|a| self.menu_sibling_index(None, &a))
+        });
         self.menu_store.insert_with_values(
             None,
-            None,
+            position,
             &[
                 (MENU_COL_KIND, &"folder".to_string()),
                 (MENU_COL_KEY, &String::new()),
