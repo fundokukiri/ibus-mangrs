@@ -22,9 +22,8 @@ use gtk4::prelude::*;
 // editor on ListView+TreeListModel would triple the code for no user gain.
 #[allow(deprecated)]
 use gtk4::{
-    Application, ApplicationWindow, CellRendererText, CheckButton, ComboBoxText, DropDown, Entry,
-    Orientation, Revealer, StringList, Switch, TextView, TreeIter, TreeStore, TreeView,
-    TreeViewColumn,
+    Application, ApplicationWindow, CellRendererText, ComboBoxText, DropDown, Entry, Orientation,
+    Revealer, StringList, Switch, TextView, TreeIter, TreeStore, TreeView, TreeViewColumn,
 };
 
 thread_local! {
@@ -53,7 +52,7 @@ fn menu_row(node: &MenuNode) -> (String, String, String, String) {
             menu_toggle_label(key),
             "Bật/tắt".into(),
         ),
-        MenuNode::Radios { group } => (
+        MenuNode::Radios { group, .. } => (
             "radios".into(),
             group.clone(),
             menu_radios_label(group),
@@ -115,6 +114,21 @@ fn menu_item_label(kind: &str, key: &str) -> (String, String) {
         "action" => (menu_action_label(key), "Chức năng".into()),
         _ => ("— phân cách —".into(), "Gạch ngang".into()),
     }
+}
+
+/// The display label of a radio-group entry ("vni" in charset → "VNI").
+fn menu_entry_label(group: &str, key: &str) -> String {
+    let entries: &[(&str, &str)] = match group {
+        "charset" => crate::ibus_prop::CHARSETS,
+        "method" => crate::ibus_prop::METHODS,
+        "display" => crate::ibus_prop::MODES,
+        _ => &[],
+    };
+    entries
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, label)| label.to_string())
+        .unwrap_or_else(|| key.to_string())
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -210,9 +224,6 @@ struct Ui {
     menu_view: TreeView,
     menu_kind: ComboBoxText,
     menu_name: Entry,
-    /// One checkbox per display mode (`ibus_prop::MODES`); the checked ones
-    /// are the contents of the "Chế độ gõ" radio group (`config.menu_modes`).
-    menu_mode_checks: Vec<(&'static str, CheckButton)>,
 }
 
 fn method_index(m: MethodConfig) -> u32 {
@@ -323,9 +334,6 @@ impl Ui {
                 crate::config::UnicodeChannel::Clipboard => 1,
                 crate::config::UnicodeChannel::Commit => 0,
             });
-        for (key, check) in &self.menu_mode_checks {
-            check.set_active(config.menu_modes.iter().any(|k| k == key));
-        }
         self.fill_menu_store(config.menu.as_deref().unwrap_or(&config.default_menu()));
         set_text(
             &self.macro_text,
@@ -428,14 +436,6 @@ impl Ui {
             1 => crate::config::UnicodeChannel::Clipboard,
             _ => crate::config::UnicodeChannel::Commit,
         };
-        // The panel's display-mode radio group keeps its own list; the menu
-        // structure itself comes from the editor below.
-        config.menu_modes = self
-            .menu_mode_checks
-            .iter()
-            .filter(|(_, check)| check.is_active())
-            .map(|(key, _)| (*key).to_string())
-            .collect();
         // The designed menu tree; never empty (the editor refuses to remove
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());
@@ -492,10 +492,29 @@ impl Ui {
                 (MENU_COL_KIND_LABEL, &kind_label),
             ],
         );
-        if let MenuNode::Folder { children, .. } = node {
-            for child in children {
-                self.append_menu_node(Some(&iter), child);
+        match node {
+            MenuNode::Folder { children, .. } => {
+                for child in children {
+                    self.append_menu_node(Some(&iter), child);
+                }
             }
+            // A radio group's entries are plain keys in the model.
+            MenuNode::Radios { group, children } => {
+                for entry in children {
+                    let label = menu_entry_label(group, entry);
+                    self.menu_store.insert_with_values(
+                        Some(&iter),
+                        None,
+                        &[
+                            (MENU_COL_KIND, &"entry".to_string()),
+                            (MENU_COL_KEY, entry),
+                            (MENU_COL_LABEL, &label),
+                            (MENU_COL_KIND_LABEL, &"Mục chọn".to_string()),
+                        ],
+                    );
+                }
+            }
+            _ => {}
         }
     }
 
@@ -518,7 +537,14 @@ impl Ui {
         let label = self.menu_value(iter, MENU_COL_LABEL);
         match kind.as_str() {
             "toggle" => MenuNode::Toggle { key },
-            "radios" => MenuNode::Radios { group: key },
+            "radios" => MenuNode::Radios {
+                group: key,
+                children: if depth == 0 {
+                    self.menu_children_keys(iter)
+                } else {
+                    Vec::new()
+                },
+            },
             "action" => MenuNode::Action { key },
             "sep" => MenuNode::Separator,
             // Folders only exist at the root; deeper ones cannot be created
@@ -534,6 +560,22 @@ impl Ui {
         }
     }
 
+    /// The entry keys under a radio group node.
+    fn menu_children_keys(&self, parent: &TreeIter) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Some(iter) = self.menu_store.iter_children(Some(parent)) {
+            loop {
+                if self.menu_value(&iter, MENU_COL_KIND) == "entry" {
+                    out.push(self.menu_value(&iter, MENU_COL_KEY));
+                }
+                if !self.menu_store.iter_next(&iter) {
+                    break;
+                }
+            }
+        }
+        out
+    }
+
     fn menu_children(&self, parent: &TreeIter, depth: usize) -> Vec<MenuNode> {
         let mut out = Vec::new();
         if let Some(iter) = self.menu_store.iter_children(Some(parent)) {
@@ -547,15 +589,35 @@ impl Ui {
         out
     }
 
-    /// Insert the picked item into the selected folder, or at the root.
+    /// Insert the picked item: into the selected folder (any function), into
+    /// the selected radio group (its own entries), or at the root.
     fn menu_insert(&self, kind: &str, key: &str) {
-        let parent = self
+        let selected = self
             .menu_selected()
             .filter(|(_, depth)| *depth == 0)
-            .and_then(|(iter, _)| {
-                (self.menu_value(&iter, MENU_COL_KIND) == "folder").then_some(iter)
+            .map(|(iter, _)| {
+                (
+                    iter,
+                    self.menu_value(&iter, MENU_COL_KIND),
+                    self.menu_value(&iter, MENU_COL_KEY),
+                )
             });
-        let (label, kind_label) = menu_item_label(kind, key);
+        let (parent, label, kind_label) = match selected {
+            // A folder takes any function.
+            Some((iter, k, _)) if k == "folder" => {
+                let (label, kind_label) = menu_item_label(kind, key);
+                (Some(iter), label, kind_label)
+            }
+            // A radio group only takes its own entries — the picker offers
+            // just those; this check is the belt to its braces.
+            Some((iter, k, group)) if k == "radios" && kind == "entry" => {
+                (Some(iter), menu_entry_label(&group, key), "Mục chọn".into())
+            }
+            _ => {
+                let (label, kind_label) = menu_item_label(kind, key);
+                (None, label, kind_label)
+            }
+        };
         self.menu_store.insert_with_values(
             parent.as_ref(),
             None,
@@ -566,6 +628,59 @@ impl Ui {
                 (MENU_COL_KIND_LABEL, &kind_label),
             ],
         );
+    }
+
+    /// Refill the type picker for the current selection: a radio group only
+    /// offers its own entries, everything else offers the generic items.
+    fn menu_fill_picker(&self) {
+        self.menu_kind.remove_all();
+        let selected = self
+            .menu_selected()
+            .filter(|(_, depth)| *depth == 0)
+            .map(|(iter, _)| {
+                (
+                    self.menu_value(&iter, MENU_COL_KIND),
+                    self.menu_value(&iter, MENU_COL_KEY),
+                )
+            });
+        match selected.as_ref().map(|(k, g)| (k.as_str(), g.as_str())) {
+            Some(("radios", "charset")) => {
+                for (key, label) in crate::ibus_prop::CHARSETS {
+                    self.menu_kind.append(Some(&format!("entry:{key}")), label);
+                }
+            }
+            Some(("radios", "method")) => {
+                for (key, label) in crate::ibus_prop::METHODS {
+                    self.menu_kind.append(Some(&format!("entry:{key}")), label);
+                }
+            }
+            Some(("radios", "display")) => {
+                for (key, label) in crate::ibus_prop::MODES {
+                    self.menu_kind.append(Some(&format!("entry:{key}")), label);
+                }
+            }
+            _ => {
+                self.menu_kind
+                    .append(Some("toggle:enabled"), "Bật tiếng Việt");
+                for t in crate::ibus_prop::QUICK_TOGGLES {
+                    self.menu_kind
+                        .append(Some(&format!("toggle:{}", t.key)), t.label);
+                }
+                self.menu_kind
+                    .append(Some("radios:charset"), "Bảng mã (nhóm chọn)");
+                self.menu_kind
+                    .append(Some("radios:method"), "Kiểu gõ (nhóm chọn)");
+                self.menu_kind
+                    .append(Some("radios:display"), "Chế độ gõ (nhóm chọn)");
+                self.menu_kind
+                    .append(Some("action:macro_editor"), "Mở bảng gõ tắt…");
+                self.menu_kind.append(Some("action:settings"), "Cài đặt…");
+                self.menu_kind
+                    .append(Some("action:about"), "Giới thiệu (About)");
+                self.menu_kind.append(Some("sep:"), "Gạch ngang phân cách");
+            }
+        }
+        self.menu_kind.set_active(Some(0));
     }
 
     /// Folders live at the root only — the popup nests one level.
@@ -668,10 +783,18 @@ impl Ui {
     }
 
     /// Move the selected folder child up to the root (after the folder).
+    /// Radio-group entries cannot exist at the root, so they stay put.
     fn menu_out(&self) {
         let Some((iter, 1)) = self.menu_selected() else {
             return;
         };
+        let parent = self.menu_store.iter_parent(&iter);
+        let in_folder = parent
+            .as_ref()
+            .is_some_and(|p| self.menu_value(p, MENU_COL_KIND) == "folder");
+        if !in_folder {
+            return;
+        }
         let kind = self.menu_value(&iter, MENU_COL_KIND);
         let key = self.menu_value(&iter, MENU_COL_KEY);
         let label = self.menu_value(&iter, MENU_COL_LABEL);
@@ -802,24 +925,11 @@ fn widgets() -> Rc<Ui> {
         column.add_attribute(&cell, "text", col as i32);
         menu_view.append_column(&column);
     }
+    // The type picker is filled dynamically from the selection
+    // (menu_fill_picker): a radio group offers its own entries, anything
+    // else the generic items.
     let menu_kind = ComboBoxText::new();
-    menu_kind.append(Some("toggle:enabled"), "Bật tiếng Việt");
-    for t in crate::ibus_prop::QUICK_TOGGLES {
-        menu_kind.append(Some(&format!("toggle:{}", t.key)), t.label);
-    }
-    menu_kind.append(Some("radios:charset"), "Bảng mã (nhóm chọn)");
-    menu_kind.append(Some("radios:method"), "Kiểu gõ (nhóm chọn)");
-    menu_kind.append(Some("radios:display"), "Chế độ gõ (nhóm chọn)");
-    menu_kind.append(Some("action:macro_editor"), "Mở bảng gõ tắt…");
-    menu_kind.append(Some("action:settings"), "Cài đặt…");
-    menu_kind.append(Some("action:about"), "Giới thiệu (About)");
-    menu_kind.append(Some("sep:"), "Gạch ngang phân cách");
-    menu_kind.set_active(Some(0));
     let menu_name = Entry::builder().placeholder_text("Tên thư mục").build();
-    let menu_mode_checks = crate::ibus_prop::MODES
-        .iter()
-        .map(|(key, _)| (*key, CheckButton::new()))
-        .collect();
 
     Rc::new(Ui {
         enabled,
@@ -859,7 +969,6 @@ fn widgets() -> Rc<Ui> {
         menu_view,
         menu_kind,
         menu_name,
-        menu_mode_checks,
     })
 }
 
@@ -874,6 +983,15 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
     let ui = widgets();
     ui.refresh(&config, &macros, &dictionary);
+    // The type picker follows the editor selection: a radio group offers its
+    // own entries, anything else the generic items.
+    ui.menu_fill_picker();
+    {
+        let ui = ui.clone();
+        ui.menu_view.selection().connect_changed(move |_| {
+            ui.menu_fill_picker();
+        });
+    }
 
     // --- pages: grouped-card settings style (section header + cards) ---
 
@@ -1151,20 +1269,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
     collapsible_section(
         &advanced,
         "Menu trên panel",
-        "Tự thiết kế menu popup: thêm thư mục, thêm chức năng, bỏ vào thư mục, sắp xếp thứ tự",
+        "Tự thiết kế menu popup: thêm thư mục, thêm chức năng, bỏ vào thư mục, sắp xếp thứ tự. Bảng mã / Kiểu gõ / Chế độ gõ cũng chỉnh được mục bên trong.",
         vec![menu_row1, menu_row2, menu_view_row],
-    );
-    collapsible_section(
-        &advanced,
-        "Chế độ gõ trên menu panel",
-        "Chế độ gõ hiện trong submenu \"Chế độ gõ\" — bỏ tích để ẩn khỏi menu",
-        ui.menu_mode_checks
-            .iter()
-            .filter_map(|(key, check)| {
-                let (_, label) = crate::ibus_prop::MODES.iter().find(|(k, _)| k == key)?;
-                Some(pref_row(label, key, check))
-            })
-            .collect(),
     );
     section(
         &advanced,
@@ -1651,9 +1757,6 @@ fn build(app: &Application, initial_page: Option<&str>) {
                 $w.connect_active_notify(move |_| s());
             }};
         }
-        for (_, check) in ui.menu_mode_checks.iter() {
-            on_change!(check);
-        }
         on_change!(ui.enabled);
         on_change!(ui.modern);
         on_change!(ui.free);
@@ -2108,7 +2211,7 @@ mod tests {
             }],
             // Passes through read() untouched (see baseline above).
             quick_menu: baseline.quick_menu,
-            menu_modes: vec!["preedit".into(), "smooth".into(), "off".into()],
+            menu_modes: baseline.menu_modes,
             // The editor always produces a design, and refresh normalizes an
             // absent/empty one to the shipped shape; here a small tree that
             // must survive the store round-trip unchanged.
@@ -2130,6 +2233,7 @@ mod tests {
                 },
                 MenuNode::Radios {
                     group: "display".into(),
+                    children: vec!["preedit".into(), "smooth".into()],
                 },
             ]),
         };

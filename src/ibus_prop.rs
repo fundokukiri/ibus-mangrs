@@ -318,22 +318,41 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                         p
                     }
                 }
-                MenuNode::Radios { group } => match group.as_str() {
-                    "charset" => Prop::menu(
-                        KEY_CHARSET,
-                        "Bảng mã",
-                        radio_items(CHARSETS, config.charset.key(), KEY_CHARSET),
-                    ),
-                    "method" => Prop::menu(
-                        KEY_METHOD,
-                        "Kiểu gõ",
-                        radio_items(METHODS, config.method.key(), KEY_METHOD),
-                    ),
-                    // The display group's contents stay user-defined through
-                    // `menu_modes`, independent of where the group sits.
-                    "display" => Prop::menu(KEY_DISPLAY, "Chế độ gõ", display_items(config)),
-                    _ => return None,
-                },
+                MenuNode::Radios {
+                    group,
+                    children: keys,
+                } => {
+                    // The group is an editable folder menu: its children are
+                    // the entry keys it shows. A design saved before children
+                    // existed (or a hand edit) shows what the group showed
+                    // before the tree: every entry, or the menu_modes
+                    // selection for display.
+                    let (group_key, label, entries, active): (&str, &str, &[(&str, &str)], &str) =
+                        match group.as_str() {
+                            "charset" => (KEY_CHARSET, "Bảng mã", CHARSETS, config.charset.key()),
+                            "method" => (KEY_METHOD, "Kiểu gõ", METHODS, config.method.key()),
+                            "display" => (KEY_DISPLAY, "Chế độ gõ", MODES, config.mode.key()),
+                            _ => return None,
+                        };
+                    let fallback: Vec<String> = if keys.is_empty() {
+                        match group.as_str() {
+                            "display" => config.menu_modes.clone(),
+                            _ => entries.iter().map(|(k, _)| k.to_string()).collect(),
+                        }
+                    } else {
+                        keys.clone()
+                    };
+                    // Nothing to show (e.g. display with an empty
+                    // menu_modes): skip rather than render an empty submenu.
+                    if fallback.is_empty() {
+                        return None;
+                    }
+                    Prop::menu(
+                        group_key,
+                        label,
+                        radio_items(entries, &fallback, active, group_key),
+                    )
+                }
                 MenuNode::Action { key } => match key.as_str() {
                     "macro_editor" => Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"),
                     "settings" => Prop::normal(KEY_SHORTCUTS, "Cài đặt…"),
@@ -359,25 +378,21 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
         .collect()
 }
 
-/// One radio item per entry, checked when it is the active value.
-fn radio_items(entries: &[(&str, &str)], active: &str, group_key: &str) -> Vec<Prop> {
-    entries
-        .iter()
-        .map(|(key, label)| Prop::radio(&format!("{group_key}:{key}"), label, *key == active))
-        .collect()
-}
-
-/// The display radio group from the user's `menu_modes` selection.
-fn display_items(config: &Config) -> Vec<Prop> {
-    config
-        .menu_modes
-        .iter()
+/// One radio item per listed key, in list order; unknown keys are skipped
+/// and the check mark follows the group's active value.
+fn radio_items(
+    entries: &[(&str, &str)],
+    keys: &[String],
+    active: &str,
+    group_key: &str,
+) -> Vec<Prop> {
+    keys.iter()
         .filter_map(|key| {
-            let (_, label) = MODES.iter().find(|(k, _)| k == key)?;
+            let (_, label) = entries.iter().find(|(k, _)| k == key)?;
             Some(Prop::radio(
-                &format!("{KEY_DISPLAY}:{key}"),
+                &format!("{group_key}:{key}"),
                 label,
-                config.mode.key() == key.as_str(),
+                key == active,
             ))
         })
         .collect()
@@ -440,11 +455,21 @@ mod tests {
                         },
                     ],
                 },
+                // Legacy shape (no children): the method group falls back to
+                // showing every entry.
                 MenuNode::Radios {
                     group: "method".into(),
+                    children: Vec::new(),
                 },
                 MenuNode::Radios {
                     group: "not_a_group".into(),
+                    children: Vec::new(),
+                },
+                // A trimmed display group: only the listed entries, and an
+                // entry key that names no mode vanishes.
+                MenuNode::Radios {
+                    group: "display".into(),
+                    children: vec!["preedit".into(), "not_a_mode".into()],
                 },
             ]),
             ..Config::default()
@@ -452,7 +477,7 @@ mod tests {
         let props = properties(&config);
         // Unknown toggles and radio groups vanish; a folder inside a folder
         // (one level max) is skipped; the rest renders in list order.
-        assert_eq!(props.len(), 3);
+        assert_eq!(props.len(), 4);
         assert_eq!(props[0].key, KEY_ENABLED);
         assert_eq!(props[1].kind, TYPE_MENU);
         assert_eq!(
@@ -465,6 +490,10 @@ mod tests {
             "unknown toggle and nested folder skipped"
         );
         assert_eq!(props[2].key, KEY_METHOD);
+        assert_eq!(props[2].sub.len(), METHODS.len());
+        assert_eq!(props[3].key, KEY_DISPLAY);
+        assert_eq!(props[3].sub.len(), 1);
+        assert_eq!(props[3].sub[0].key, "display:preedit");
     }
 
     #[test]
