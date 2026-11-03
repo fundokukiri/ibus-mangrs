@@ -199,6 +199,11 @@ pub struct Engine {
     dictionary_mtime: Option<SystemTime>,
     /// Preedit shown without the underline attribute.
     hide_underline: bool,
+    /// Opt-in: protocol deletes to direct clients that advertise
+    /// surrounding-text support without ever reporting their text.
+    x11_delete_without_report: bool,
+    /// Opt-in: keep Preedit for XIM clients, whose server draws the preedit.
+    preedit_for_xim: bool,
     /// Uinput pacing (ms): text/commit step, Backspace gap, post-rewrite idle.
     commit_interval_ms: u64,
     backspace_interval_ms: u64,
@@ -289,6 +294,8 @@ impl Engine {
             macros_mtime: None,
             dictionary_mtime: None,
             hide_underline: false,
+            x11_delete_without_report: false,
+            preedit_for_xim: false,
             delete_dropped: false,
             awaiting_delete_proof: None,
             uinput_available: false,
@@ -355,6 +362,8 @@ impl Engine {
         self.macro_enabled = config.macro_enabled;
         self.capitalize_macro = config.capitalize_macro;
         self.macro_in_off_mode = config.macro_in_off_mode;
+        self.x11_delete_without_report = config.x11_delete_without_report;
+        self.preedit_for_xim = config.preedit_for_xim;
         self.time_format = config.time_format.clone();
         self.date_format = config.date_format.clone();
         // Reload the auxiliary files only when they changed on disk (see the
@@ -900,7 +909,22 @@ impl Engine {
     /// lost. Also several clients silently drop the protocol delete, which
     /// used to duplicate words.
     fn deletes_allowed(&self) -> bool {
-        self.surrounding_data_ok() || (self.uinput_available && !self.injection_forbidden())
+        self.protocol_delete_ok() || (self.uinput_available && !self.injection_forbidden())
+    }
+
+    /// Whether the protocol delete may be sent right now.
+    ///
+    /// A report is the proof that mutter knows the client's buffer, and a
+    /// delete sent to a relayed context without one segfaulted the compositor
+    /// (02:37, Chrome omnibox). A DIRECT client applies the delete in its own
+    /// process instead (GTK clamps it), so with the opt-in the report is not
+    /// required there — ibus-bamboo's surrounding mode deletes that way for
+    /// every client, which is what makes X11 apps like Sublime work.
+    pub fn protocol_delete_ok(&self) -> bool {
+        self.surrounding_data_ok()
+            || (self.x11_delete_without_report
+                && self.caps & CAP_SURROUNDING_TEXT != 0
+                && !self.relay_context())
     }
 
     /// Resolve the mode actually used for the focused client: hard fallbacks
@@ -909,8 +933,15 @@ impl Engine {
         let can_preedit = self.caps & CAP_PREEDIT_TEXT != 0;
         let ruled = self.client_rule_mode();
         let requested = ruled.unwrap_or(self.mode);
-        // Preedit is unusable when the client cannot render it.
-        if requested == Mode::Preedit && !can_preedit {
+        // Preedit is unusable when the client cannot render it — except for
+        // XIM clients, which report no preedit capability even though the XIM
+        // server draws the preedit itself (`XIMPreeditPosition`: ibus-x11
+        // shows it in its own window). Downgrading them turned every word into
+        // raw keystrokes; the opt-in keeps preedit, as ibus-bamboo does.
+        if requested == Mode::Preedit
+            && !can_preedit
+            && !(self.preedit_for_xim && self.client_name_is_opaque())
+        {
             return Mode::NonPreedit;
         }
         // The uinput modes press real keys through /dev/uinput, but on
@@ -2858,6 +2889,113 @@ mod tests {
             .iter()
             .any(|a| matches!(a, Action::UpdatePreedit { .. })));
         assert_eq!(replay(&actions), "tiếng");
+    }
+
+    /// Type through `process_char` without the helpers' forced capabilities.
+    fn type_raw(e: &mut Engine, s: &str) -> Vec<Action> {
+        let mut actions = Vec::new();
+        for c in s.chars() {
+            actions.extend(e.process_char(c));
+        }
+        actions
+    }
+
+    #[test]
+    fn x11_delete_without_report_is_opt_in() {
+        // A direct GTK client that advertises surrounding text but never
+        // reports it: raw keystrokes by default, protocol deletes once the
+        // switch is on (that is what makes Sublime work, like ibus-bamboo).
+        for (enabled, want_delete) in [(false, false), (true, true)] {
+            let mut e = engine(
+                Mode::NonPreedit,
+                Config {
+                    x11_delete_without_report: enabled,
+                    ..Config::default()
+                },
+            );
+            e.set_client(Some("gtk3-im:sublime_text".into()));
+            e.set_capabilities(CAP_SURROUNDING_TEXT);
+            let actions = type_raw(&mut e, "tieengs");
+            assert_eq!(
+                actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+                want_delete,
+                "switch={enabled}: {actions:?}"
+            );
+        }
+        // A mutter relay still needs a report: the switch must never lift the
+        // rule that keeps the compositor alive.
+        let mut e = engine(
+            Mode::NonPreedit,
+            Config {
+                x11_delete_without_report: true,
+                ..Config::default()
+            },
+        );
+        e.set_client(Some("gnome-shell".into()));
+        e.set_capabilities(CAP_SURROUNDING_TEXT);
+        let actions = type_raw(&mut e, "tieengs");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+            "relay contexts keep the report rule: {actions:?}"
+        );
+        // Without the surrounding capability there is nothing to delete with.
+        let mut e = engine(
+            Mode::NonPreedit,
+            Config {
+                x11_delete_without_report: true,
+                ..Config::default()
+            },
+        );
+        e.set_client(Some("xim".into()));
+        e.set_capabilities(0);
+        let actions = type_raw(&mut e, "tieengs");
+        assert!(
+            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+            "XIM clients report no capabilities: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn preedit_for_xim_is_opt_in() {
+        // XIM clients report no preedit capability even though the XIM server
+        // draws the preedit itself; without the switch our preedit is
+        // downgraded and every mark key is raw-forwarded ("tungf").
+        for (enabled, want_preedit) in [(false, false), (true, true)] {
+            let mut e = engine(
+                Mode::Preedit,
+                Config {
+                    preedit_for_xim: enabled,
+                    ..Config::default()
+                },
+            );
+            e.set_client(Some("xim".into()));
+            e.set_capabilities(0);
+            let actions = type_raw(&mut e, "tieengs");
+            assert_eq!(
+                actions
+                    .iter()
+                    .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+                want_preedit,
+                "switch={enabled}: {actions:?}"
+            );
+        }
+        // A GTK client that truly cannot show a preedit keeps the fallback.
+        let mut e = engine(
+            Mode::Preedit,
+            Config {
+                preedit_for_xim: true,
+                ..Config::default()
+            },
+        );
+        e.set_client(Some("gtk3-im:someapp".into()));
+        e.set_capabilities(CAP_SURROUNDING_TEXT);
+        let actions = type_raw(&mut e, "tieengs");
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+            "the switch is XIM-only: {actions:?}"
+        );
     }
 
     #[test]

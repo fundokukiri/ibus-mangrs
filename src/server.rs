@@ -976,9 +976,10 @@ fn emit_with(
                 }
             }
             Action::DeleteBefore(n) => {
-                if !engine.surrounding_data_ok() {
+                if !engine.protocol_delete_ok() {
                     // Defensive: the engine gates deletes on a surrounding
-                    // report; never let one slip to a buffer mutter never saw.
+                    // report (or the direct-client opt-in); never let one slip
+                    // to a buffer mutter never saw.
                     debug_log::log(&format!("delete-before protocol DROPPED (no report) n={n}"));
                 } else {
                     debug_log::log(&format!("delete-before protocol=-{n}"));
@@ -1834,6 +1835,37 @@ mod tests {
                 .all(|(keyval, keycode, _)| *keyval == 0xff08 && *keycode == 14),
             "Backspace keyval with the evdev scancode: {keys:?}"
         );
+    }
+
+    #[test]
+    fn x11_delete_opt_in_reaches_the_wire_without_a_report() {
+        // The emit guard follows the engine's own rule: with the opt-in on, a
+        // direct client that advertises surrounding text gets the protocol
+        // delete even though it never reported its buffer. Without the switch
+        // the same action is dropped (raw keystrokes instead).
+        for (enabled, want_delete) in [(false, false), (true, true)] {
+            let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+            e.apply_config(&Config {
+                x11_delete_without_report: enabled,
+                ..Config::default()
+            });
+            e.set_mode(Mode::NonPreedit);
+            e.set_client(Some("gtk3-im:sublime_text".into()));
+            e.set_capabilities(1 << 5); // IBUS_CAP_SURROUNDING_TEXT
+            let mut out = Vec::new();
+            emit_with(
+                &mut e,
+                &[Action::DeleteBefore(2)],
+                &mut out,
+                &fake_transports(&|_, _| false),
+            );
+            let deleted = out.iter().any(|m| {
+                m.member()
+                    .map(|x| x == "DeleteSurroundingText")
+                    .unwrap_or(false)
+            });
+            assert_eq!(deleted, want_delete, "switch={enabled}: {out:?}");
+        }
     }
 
     #[test]
