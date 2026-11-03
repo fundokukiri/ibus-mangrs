@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="data/logo.png" alt="Logo MăngRS" width="360">
+  <img src="/data/logo.png" alt="Logo MăngRS" width="360">
 </p>
 
 # MăngRS
