@@ -1788,6 +1788,9 @@ fn build(app: &Application, initial_page: Option<&str>) {
         .default_height(700)
         .child(&overlay)
         .build();
+    // X11/XWayland reads the icon from the window; Wayland derives it from
+    // the app id and the installed desktop file instead.
+    window.set_icon_name(Some("ibus-mangrs"));
 
     // Header: [search] ... [pill tabs] ... [close]. Window controls are
     // replaced by our own round close button.
