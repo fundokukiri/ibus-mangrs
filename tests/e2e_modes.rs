@@ -6,6 +6,7 @@ mod common;
 use common::{commits, deletes, preedits, run_suite, Case, Sig, CAPS_BOTH};
 
 const BACKSPACE_KEYVAL: u32 = 0xff08;
+const BACKSPACE_KEYCODE: u32 = 14;
 
 const CASES: &[Case] = &[
     Case {
@@ -75,12 +76,14 @@ fn forward_keyevent(s: &mut common::Sess) {
         "no DeleteSurroundingText in ForwardKeyEvent mode: {sigs:?}"
     );
     assert!(preedits(&sigs).is_empty(), "no preedit: {sigs:?}");
-    let presses: Vec<u32> = sigs
+    let presses: Vec<(u32, u32)> = sigs
         .iter()
         .filter_map(|sig| match sig {
             Sig::ForwardKeyEvent {
-                keyval, state: 0, ..
-            } => Some(*keyval),
+                keyval,
+                keycode,
+                state: 0,
+            } => Some((*keyval, *keycode)),
             _ => None,
         })
         .collect();
@@ -89,8 +92,15 @@ fn forward_keyevent(s: &mut common::Sess) {
         "the tone rewrite must forward Backspace presses: {sigs:?}"
     );
     assert!(
-        presses.iter().all(|k| *k == BACKSPACE_KEYVAL),
+        presses.iter().all(|(k, _)| *k == BACKSPACE_KEYVAL),
         "only Backspace may be forwarded: {presses:x?}"
+    );
+    // ibus clients add 8 to this to get their own keycode, so it is the evdev
+    // scancode (14), not the X keycode (22): 22 made every forwarded
+    // Backspace type a `u` in the owner's app.
+    assert!(
+        presses.iter().all(|(_, code)| *code == BACKSPACE_KEYCODE),
+        "the scancode must be 14, not the X keycode: {presses:x?}"
     );
 }
 
