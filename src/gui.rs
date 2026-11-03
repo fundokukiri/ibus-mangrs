@@ -559,11 +559,13 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let export_btn = gtk4::Button::with_label("Xuất…");
     let import_btn = gtk4::Button::with_label("Nhập…");
 
-    // ===== Page 1: Kiểu gõ =====
+    // ===== Page 1: Chung =====
+    // The everyday tab — what users actually touch. One-off customization
+    // lives on the Tinh chỉnh tab, so this stays short.
     let typing = gtk4::Box::new(Orientation::Vertical, 6);
     section(
         &typing,
-        "Điều khiển",
+        "Trạng thái",
         "Bật tiếng Việt và phím tắt đổi chế độ",
     );
     typing.append(&card(vec![
@@ -582,11 +584,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         &typing,
         "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF → Gõ mặc định.",
     );
-    section(
-        &typing,
-        "Phương thức gõ",
-        "Kiểu gõ, bảng mã và cách hiển thị",
-    );
+    section(&typing, "Cách gõ", "Kiểu gõ, bảng mã và chế độ gõ");
     typing.append(&card(vec![
         pref_row("Kiểu gõ chính", "Telex, VNI, VIQR, Microsoft layout", &ui.method),
         pref_row("Bảng mã", "Unicode và 10 bảng mã cũ", &ui.charset),
@@ -595,41 +593,15 @@ fn build(app: &Application, initial_page: Option<&str>) {
             "10 chế độ: Gạch chân (mặc định), Không gạch chân, Surrounding, Smooth, Super Smooth, Select, ForwardKeyEvent, ForwardKeyEvent II, OFF, Gõ mặc định",
             &ui.mode,
         ),
-        pref_row(
-            "Ẩn gạch chân",
-            "Preedit không có gạch chân (tùy app có nhận không)",
-            &ui.hide_underline,
-        ),
     ]));
-    // The panel popup's toggle section is the user's own selection; these
-    // checkboxes are that selection. Both customization lists start collapsed:
-    // a dozen rows each would otherwise dominate the page.
-    collapsible_section(
-        &typing,
-        "Menu nhanh trên panel",
-        "Tính năng hiện trong menu popup của biểu tượng MăngRS trên thanh trên",
-        ui.quick_menu_checks
-            .iter()
-            .filter_map(|(key, check)| {
-                let t = crate::ibus_prop::quick_toggle(key)?;
-                Some(pref_row(t.label, t.tooltip, check))
-            })
-            .collect(),
-    );
-    collapsible_section(
-        &typing,
-        "Chế độ gõ trên menu panel",
-        "Chế độ gõ hiện trong submenu \"Chế độ gõ\" của menu popup — bỏ tích để ẩn khỏi menu",
-        ui.menu_mode_checks
-            .iter()
-            .filter_map(|(key, check)| {
-                let (_, label) = crate::ibus_prop::MODES.iter().find(|(k, _)| k == key)?;
-                Some(pref_row(label, key, check))
-            })
-            .collect(),
-    );
+    section(&typing, "Hiển thị", "Hình thức của chữ đang gõ");
+    typing.append(&card(vec![pref_row(
+        "Ẩn gạch chân",
+        "Preedit không có gạch chân (tùy app có nhận không)",
+        &ui.hide_underline,
+    )]));
 
-    // ===== Page 2: Dấu & Sửa lỗi =====
+    // ===== Page 2: Dấu & tự động =====
     let tone = gtk4::Box::new(Orientation::Vertical, 6);
     // Row titles match the quick-menu registry labels (ibus_prop
     // ::QUICK_TOGGLES): a toggle ticked in the panel menu must be findable
@@ -767,11 +739,35 @@ fn build(app: &Application, initial_page: Option<&str>) {
         ),
     ]));
 
-    // ===== Page 5: Nâng cao =====
-    // Everything technical lives here so the everyday pages stay short: the
-    // uinput pacing only matters to three modes, the X11/XIM switches are
-    // app-specific workarounds, and the log switch is for debugging.
+    // ===== Page 5: Tinh chỉnh =====
+    // Everything touched once (or only when debugging) lives here so the
+    // everyday tabs stay short: the panel-menu customization lists, the
+    // uinput pacing, the app-specific X11/XIM workarounds, the log switch.
     let advanced = gtk4::Box::new(Orientation::Vertical, 6);
+    collapsible_section(
+        &advanced,
+        "Menu nhanh trên panel",
+        "Tính năng hiện trong menu popup của biểu tượng MăngRS trên thanh trên",
+        ui.quick_menu_checks
+            .iter()
+            .filter_map(|(key, check)| {
+                let t = crate::ibus_prop::quick_toggle(key)?;
+                Some(pref_row(t.label, t.tooltip, check))
+            })
+            .collect(),
+    );
+    collapsible_section(
+        &advanced,
+        "Chế độ gõ trên menu panel",
+        "Chế độ gõ hiện trong submenu \"Chế độ gõ\" của menu popup — bỏ tích để ẩn khỏi menu",
+        ui.menu_mode_checks
+            .iter()
+            .filter_map(|(key, check)| {
+                let (_, label) = crate::ibus_prop::MODES.iter().find(|(k, _)| k == key)?;
+                Some(pref_row(label, key, check))
+            })
+            .collect(),
+    );
     section(
         &advanced,
         "Tốc độ gõ (uinput)",
@@ -930,11 +926,11 @@ fn build(app: &Application, initial_page: Option<&str>) {
     // Content: one scrolled, width-clamped page per section, crossfading.
     // (stack name, pill label, symbolic icon from the icon theme)
     const PAGES: [(&str, &str, &str); 6] = [
-        ("typing", "Kiểu gõ", "input-keyboard-symbolic"),
-        ("tone", "Dấu & Sửa lỗi", "font-x-generic-symbolic"),
+        ("typing", "Chung", "input-keyboard-symbolic"),
+        ("tone", "Dấu & tự động", "font-x-generic-symbolic"),
         ("macros", "Gõ tắt", "document-edit-symbolic"),
         ("data", "Dữ liệu", "view-list-symbolic"),
-        ("advanced", "Nâng cao", "applications-system-symbolic"),
+        ("advanced", "Tinh chỉnh", "applications-system-symbolic"),
         ("about", "Giới thiệu", "help-about-symbolic"),
     ];
     let page_boxes: [&gtk4::Box; 6] = [&typing, &tone, &macro_box, &data_box, &advanced, &about];
