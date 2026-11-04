@@ -8,5 +8,6 @@ use super::*;
 
 pub(super) mod data;
 pub(super) mod macros;
+pub(super) mod rules;
 pub(super) mod tone;
 pub(super) mod typing;

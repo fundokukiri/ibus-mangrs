@@ -228,10 +228,12 @@ struct Ui {
     macros_rows: Rc<RefCell<Vec<MacroRow>>>,
     dictionary_enabled: adw::SwitchRow,
     dictionary_text: TextView,
-    /// App Rules editor: the row container plus one widget pair per rule.
-    /// The rows hold the live values — GObject clones share the object — so
-    /// reading them reads what the user sees.
-    rules_box: gtk4::Box,
+    /// App Rules editor: one boxed-list row per rule. The rows hold the
+    /// live values — GObject clones share the object — so reading them
+    /// reads what the user sees. A plain ListBox, not a PreferencesGroup:
+    /// the group's first_child is its internal header, so a
+    /// remove-everything loop would never end.
+    rules_box: gtk4::ListBox,
     rules_rows: Rc<RefCell<Vec<RuleRow>>>,
     /// Blocks row save handlers while `fill_rules` rebuilds the rows: the
     /// mode dropdown fires `selected_notify` on a programmatic set too.
@@ -1139,7 +1141,10 @@ impl Ui {
         row.append(&up);
         row.append(&down);
         row.append(&del);
-        self.rules_box.append(&row);
+        let list_row = gtk4::ListBoxRow::new();
+        list_row.set_activatable(false);
+        list_row.set_child(Some(&row));
+        self.rules_box.append(&list_row);
     }
 
     /// The "thử luật" verdict: which rule hits the typed name and the mode
@@ -1282,7 +1287,9 @@ fn widgets() -> Rc<Ui> {
     dictionary_text.set_height_request(160);
     // App Rules editor widgets. The rows live in `rules_box`, rebuilt by
     // `fill_rules`; the rest are the fixed helpers around them.
-    let rules_box = gtk4::Box::new(Orientation::Vertical, 0);
+    let rules_box = gtk4::ListBox::new();
+    rules_box.add_css_class("boxed-list");
+    rules_box.set_selection_mode(gtk4::SelectionMode::None);
     let rule_preview_input = Entry::builder()
         .placeholder_text("Firefox / wayland:Firefox / xim")
         .hexpand(true)
