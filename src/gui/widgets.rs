@@ -71,6 +71,33 @@ pub(super) fn drop_down(items: &[&str], selected: u32) -> DropDown {
     dd
 }
 
+/// A boxed-list boolean row (title + dim subtitle). Replaces the plain
+/// Switch + pref_row pair of the old pages.
+pub(super) fn switch_row(title: &str, subtitle: &str) -> adw::SwitchRow {
+    adw::SwitchRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .build()
+}
+
+/// A boxed-list choice row; `selected` indexes into `items`.
+pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::ComboRow {
+    adw::ComboRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .model(&StringList::new(items))
+        .selected(0)
+        .build()
+}
+
+/// An info row for a boxed list (title + dim subtitle, no control).
+pub(super) fn action_row(title: &str, subtitle: &str) -> adw::ActionRow {
+    adw::ActionRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .build()
+}
+
 pub(super) fn text_view(content: &str) -> TextView {
     let view = TextView::builder()
         .hexpand(true)
