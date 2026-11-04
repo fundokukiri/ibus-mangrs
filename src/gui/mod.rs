@@ -193,7 +193,8 @@ struct Ui {
     mode: adw::ComboRow,
     charset: adw::ComboRow,
     /// GNOME-style hotkey row: the dim combo text plus the small edit
-    /// button; the recorder captures on the row (see `hotkey_wire`).
+    /// button; the recorder captures on the edit button (see
+    /// `hotkey_wire`).
     hotkey_label: gtk4::Label,
     hotkey_edit: gtk4::Button,
     hotkey_value: Rc<RefCell<String>>,
@@ -1572,5 +1573,51 @@ mod tests {
         let mut words = ui.read_dictionary();
         words.sort();
         assert_eq!(words, vec!["asl".to_string(), "tr".to_string()]);
+    }
+
+    /// The hotkey recorder must live on the pencil button: after a click the
+    /// button keeps key focus, so the key controllers there receive the
+    /// pressed keys. Regression for the row-anchored recorder whose
+    /// focus-leave handler cancelled the capture before any key arrived —
+    /// with the controllers on the row and the button disabled on click,
+    /// assigning a hotkey did nothing. Needs a display; skips where GTK
+    /// cannot start.
+    #[test]
+    fn hotkey_recorder_lives_on_the_edit_button() {
+        if gtk4::init().is_err() {
+            eprintln!("gui: SKIP (no display)");
+            return;
+        }
+        let kinds = |w: &gtk4::Widget| -> Vec<String> {
+            let list = w.observe_controllers();
+            (0..list.n_items())
+                .filter_map(|i| list.item(i))
+                .map(|o| o.type_().name().to_string())
+                .collect()
+        };
+
+        let label = gtk4::Label::new(None);
+        let edit = gtk4::Button::from_icon_name("document-edit-symbolic");
+        let value = Rc::new(RefCell::new(String::new()));
+        hotkey_wire(&edit, &label, &value, || {});
+
+        let button = kinds(edit.upcast_ref());
+        // 2 ours + GTK's internal one for the button's own key handling.
+        assert!(
+            button
+                .iter()
+                .filter(|k| *k == "GtkEventControllerKey")
+                .count()
+                >= 2,
+            "press/release key controllers must sit on the edit button: {button:?}"
+        );
+        assert!(button.iter().any(|k| *k == "GtkEventControllerFocus"));
+
+        // The capture starts on click and the button stays sensitive:
+        // disabling the focus widget makes GTK move key focus off it, and
+        // the focus-leave handler cancels the capture immediately.
+        edit.emit_clicked();
+        assert!(edit.is_sensitive(), "the recorder disabled the edit button");
+        assert_eq!(label.text(), "Nhấn tổ hợp phím… (Esc hủy)");
     }
 }
