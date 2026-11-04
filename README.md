@@ -13,7 +13,7 @@ a custom dictionary and per-app rules.
 
 > **Platform status:** developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland;
 > X11 smoke-tested). Other distributions and desktop environments have **not** been tested yet —
-> IBus ≥ 1.5 and GTK4 are the only hard requirements, so it should work wherever IBus works.
+> IBus ≥ 1.5 and GTK4 + libadwaita are the only hard requirements, so it should work wherever IBus works.
 > Reports from other distros are welcome.
 
 ---
@@ -41,9 +41,9 @@ a custom dictionary and per-app rules.
 - **Macros** with `$TIME` / `$DATE` expansion and smart capitalization; shorthand keys that are
   valid Vietnamese words never expand while you are typing that word normally.
 - **Custom dictionary**: words that must never be auto-restored.
-- **GTK4 settings window** (5 pages, Vietnamese); every change hot-reloads within ~1 second.
+- **GTK4 + libadwaita settings window** (GNOME Settings style: sidebar, 8 pages, Vietnamese, page search); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 227 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
+- 240 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows); the GUI round-trip and hotkey-recorder tests add 2 more when built with `--features gui`.
 
 ## Display modes
 
@@ -69,12 +69,12 @@ are intended for X11 sessions).
 
 | Distro          | Installed by the one-line installer                 |
 | --------------- | --------------------------------------------------- |
-| Arch            | `ibus` `gtk4` `dbus`, `gcc` `make` `pkgconf`        |
-| Debian / Ubuntu | `ibus` `libgtk-4-dev` `libdbus-1-dev`, build-essential |
-| Fedora          | `ibus` `gtk4-devel` `dbus-devel`, `gcc` `make`      |
+| Arch            | `ibus` `gtk4` `libadwaita` `dbus`, `gcc` `make` `pkgconf` |
+| Debian / Ubuntu | `ibus` `libgtk-4-dev` `libadwaita-1-dev` `libdbus-1-dev`, build-essential |
+| Fedora          | `ibus` `gtk4-devel` `libadwaita-devel` `dbus-devel`, `gcc` `make` |
 
 The installer detects the distro (apt / pacman / dnf), installs only what is missing and leaves
-Rust to rustup; GTK 4.10+ is required (Ubuntu 22.04 ships 4.6). Only the Arch path is tested —
+Rust to rustup; GTK 4.10+ and libadwaita 1.4+ are required (Ubuntu 22.04 ships 4.6). Only the Arch path is tested —
 the Debian/Ubuntu and Fedora package names are the standard ones but unverified there. IBus must
 be your active input-method framework (on GNOME it is).
 
@@ -159,10 +159,10 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | Change input method       | menu → _Input Method_ (Telex / VNI / VIQR / Microsoft), or GUI                         |
 | Change charset            | menu → _Charset_ (11 charsets), or GUI                                                 |
 | Change display mode       | menu → _Display_ (4 main modes), or GUI (10 modes), or the cycle hotkey                |
-| Display mode cycle hotkey | GUI _Kiểu gõ_ tab → _Phím tắt đổi chế độ_ (e.g. `Control+Alt+v`)                       |
+| Display mode cycle hotkey | GUI _Chung_ tab → _Phím tắt đổi chế độ_ (e.g. `Control+Alt+v`)                         |
 | Quick settings            | menu → _Quick Settings_ (macros, auto-capitalize, abbreviations, foreign-word restore) |
 | Type English / code       | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw         |
-| Per-app display mode      | GUI _Dữ liệu_ tab → _Luật theo ứng dụng_ (see App Rules below)                         |
+| Per-app display mode      | GUI _Luật_ tab → _Luật theo ứng dụng_ (see App Rules below)                            |
 
 ## App Rules (per-app display mode)
 
@@ -170,10 +170,11 @@ A rule forces one display mode for one application and overrides the global
 mode. Rules are evaluated in order and the **first match wins**, so list
 specific patterns above general ones.
 
-**In the settings window:** _Dữ liệu_ tab → _Luật theo ứng dụng_. Pick an app in
-the dropdown, pick a mode, press _Thêm luật_: the rule is appended as a
-`name=mode` line and saved with the rest of the settings (edits made directly
-in the text box save when you click outside it). The dropdown lists
+**In the settings window:** _Luật_ tab → _Luật theo ứng dụng_. Pick an app in
+the dropdown (or copy the focused app), pick a mode, press _Thêm luật_: the
+rule is appended as a `name=mode` line and saved with the rest of the settings
+(patterns are edited directly in the rule's text box, saving on
+focus-leave). The dropdown lists
 only apps the engine has already seen (newest 50, `~/.cache/ibus-mangrs/clients`)
 plus two pseudo-targets: `gnome-shell (app Wayland)` — every Wayland app while
 the focus extension is not installed — and `(app không báo tên)` — apps that
@@ -221,7 +222,7 @@ GNOME Console → `preedit`; Sublime Text → `surrounding`. Those clients drop
 
 ## X11/XIM options
 
-Two compatibility switches in the settings window (_Kiểu gõ_ tab →
+Two compatibility switches in the settings window (_Tinh chỉnh_ tab →
 _Tương thích X11/XIM_). Both are **off by default**, and both are needed only
 for apps that reach the engine in unusual ways:
 
@@ -249,7 +250,7 @@ for apps that reach the engine in unusual ways:
   apps only as an anonymous mutter relay, so the engine has no name to match. Install the
   companion GNOME Shell extension (`data/gnome-shell-extension/README.md`), then log out and back
   in — editing or enabling it in place is not enough.
-- **Something else**: enable _Ghi log gỡ lỗi_ (GUI _Kiểu gõ_ tab → _Chẩn đoán_, or
+- **Something else**: enable _Ghi log gỡ lỗi_ (GUI _Tinh chỉnh_ tab → _Chẩn đoán_, or
   `debug_log = true` in `config.toml`), reproduce the issue, and attach
   `~/.cache/ibus-mangrs/debug.log` — the engine logs every focus change,
   capability, keystroke decision and delete/inject with millisecond timestamps
@@ -258,7 +259,7 @@ for apps that reach the engine in unusual ways:
 ## Testing
 
 ```sh
-cargo test                      # 227 unit tests, including the 678-case golden table
+cargo test                      # 240 unit tests, including the 678-case golden table
 cargo clippy --all-targets
 ```
 
@@ -281,7 +282,7 @@ ibus engine ibus-mangrs
 - `src/golden.rs` — 678 keystroke→text golden cases
 - `src/ibus_prop.rs` — IBus property-menu encoding; `src/keymap.rs` — keysym decoding
 - `src/debug_log.rs` — opt-in debug log at `~/.cache/ibus-mangrs/debug.log`
-- `src/config.rs` — TOML settings shared by engine + GUI; `src/gui.rs` — GTK4 window (`gui` feature)
+- `src/config.rs` — TOML settings shared by engine + GUI; `src/gui/` — libadwaita settings window (`gui` feature), texts from `data/gui-content.toml`
 
 ## License
 

@@ -1,6 +1,6 @@
 [package]
 name = "ibus-mangrs"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 authors = ["fundoku"]
 description = "MăngRS - Vietnamese IBus engine built on bamboo-core (make by fundoku with agents coding)"
@@ -29,17 +29,31 @@ toml = "0.8"
 
 [features]
 default = []
-gui = ["dep:gtk4"]
+gui = ["dep:gtk4", "dep:libadwaita"]
 
 [dependencies.gtk4]
 version = "0.9"
 optional = true
 # v4_6: gdk Texture::from_bytes for the embedded logo on the About page.
-# v4_8: CheckButton::set_child for the pill navigation in the header bar.
-# v4_10: AlertDialog to surface save/import failures inside the window.
-features = ["v4_6", "v4_8", "v4_10"]
+# v4_10: gtk::FileDialog for the JSON import/export pickers.
+features = ["v4_6", "v4_10"]
+
+[dependencies.libadwaita]
+version = "0.7"
+optional = true
+# v1_5: NavigationSplitView + AdwDialog family for the GNOME Settings look.
+features = ["v1_5"]
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
+
+# Fast preview profile for iterating on the GUI: release optimizations
+# without LTO/CGU=1, which dominate the 24 s link time.
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+strip = false

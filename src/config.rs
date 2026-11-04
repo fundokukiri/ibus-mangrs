@@ -198,6 +198,32 @@ pub struct AppRule {
     pub mode: ModeConfig,
 }
 
+/// One rule pattern against one rule target (`app_name` when present, else
+/// the IBus client string, `None` when the client has neither) — the shared
+/// predicate behind `app_rule_mode` and the GUI's rule preview.
+/// Case-insensitive substring on the part after the transport prefix
+/// (`wayland:Firefox` → `Firefox`); the special pattern `none` matches only
+/// a client with no name at all, the only way to target one.
+pub fn app_rule_matches(pattern: &str, target: Option<&str>) -> bool {
+    let pattern = pattern.to_lowercase();
+    if pattern == "none" {
+        return target.is_none();
+    }
+    let Some(name) = target else {
+        return false;
+    };
+    let name = name.split_once(':').map_or(name, |(_, p)| p).to_lowercase();
+    !pattern.is_empty() && name.contains(&pattern)
+}
+
+/// First `AppRule` matching the target, in config order.
+pub fn app_rule_mode(rules: &[AppRule], target: Option<&str>) -> Option<ModeConfig> {
+    rules
+        .iter()
+        .find(|rule| app_rule_matches(&rule.pattern, target))
+        .map(|rule| rule.mode)
+}
+
 /// Channel for Vietnamese text in the uinput modes (`unicode_channel`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -899,6 +925,48 @@ children = ["preedit", "smooth"]
         assert!(!c.auto_restore);
         assert_eq!(c.w2u, W2uConfig::Disabled, "the bad key falls back");
         assert!(c.enabled, "missing keys take defaults");
+    }
+
+    #[test]
+    fn app_rule_matches_substring_case_insensitive_first_win() {
+        let rules = vec![
+            AppRule {
+                pattern: "fire".into(),
+                mode: ModeConfig::Preedit,
+            },
+            AppRule {
+                pattern: "fox".into(),
+                mode: ModeConfig::Off,
+            },
+            AppRule {
+                pattern: String::new(),
+                mode: ModeConfig::Surrounding,
+            },
+        ];
+        // The transport prefix is stripped before matching.
+        assert_eq!(
+            app_rule_mode(&rules, Some("wayland:Firefox")),
+            Some(ModeConfig::Preedit)
+        );
+        // The first rule misses `nightfox`, the second hits; the empty
+        // pattern must not catch everything after them.
+        assert_eq!(
+            app_rule_mode(&rules, Some("gtk3-im:nightfox")),
+            Some(ModeConfig::Off)
+        );
+        assert_eq!(app_rule_mode(&rules, Some("Chromium")), None);
+        assert_eq!(app_rule_mode(&rules, None), None);
+    }
+
+    #[test]
+    fn app_rule_none_matches_only_unnamed_clients() {
+        let rules = vec![AppRule {
+            pattern: "none".into(),
+            mode: ModeConfig::Surrounding,
+        }];
+        assert_eq!(app_rule_mode(&rules, None), Some(ModeConfig::Surrounding));
+        assert_eq!(app_rule_mode(&rules, Some("xim")), None);
+        assert_eq!(app_rule_mode(&rules, Some("wayland:Firefox")), None);
     }
 
     #[test]
