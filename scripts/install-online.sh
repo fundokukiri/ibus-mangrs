@@ -111,9 +111,7 @@ case "$DISTRO" in
         "$SUDO" pacman -Sy --noconfirm \
             base-devel \
             gtk4 \
-            gtk4-ime \
             pkgconf \
-            clang \
             ibus \
             || die "failed to install dependencies (pacman)"
         ;;
