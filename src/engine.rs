@@ -865,26 +865,7 @@ impl Engine {
     /// there is no name to substring-match.
     fn client_rule_mode(&self) -> Option<Mode> {
         let effective = self.app_name.as_deref().or(self.client.as_deref());
-        for rule in &self.app_rules {
-            let pattern = rule.pattern.to_lowercase();
-            if pattern == "none" {
-                if effective.is_none() {
-                    return Some(rule.mode.into());
-                }
-                continue;
-            }
-            let Some(target) = effective else {
-                continue;
-            };
-            let name = target
-                .split_once(':')
-                .map_or(target, |(_, p)| p)
-                .to_lowercase();
-            if !pattern.is_empty() && name.contains(&pattern) {
-                return Some(rule.mode.into());
-            }
-        }
-        None
+        crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from)
     }
 
     /// True when the focused app drops `DeleteSurroundingText`, so non-preedit
