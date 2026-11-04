@@ -250,7 +250,6 @@ tooltip = "Các app engine đã từng thấy"
 tooltip = "Sao chép tên app đang focus"
 
 [rows.rule_mode]
-title = "Chế độ gõ"
 tooltip = "Chế độ gõ của luật mới"
 
 [rows.rule_up]
@@ -287,6 +286,7 @@ add_button = "Thêm mục"
 add_tooltip = "Thêm mục vào cuối menu"
 add_here = "Thêm vào đây…"
 row_menu_tooltip = "Thao tác với mục này"
+expand_tooltip = "Mở rộng / thu gọn"
 move_up = "Lên"
 move_down = "Xuống"
 move_out = "Đưa ra khỏi thư mục"
