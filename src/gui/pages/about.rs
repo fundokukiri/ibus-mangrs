@@ -38,30 +38,32 @@ pub(crate) fn build() -> adw::PreferencesPage {
     let project = adw::PreferencesGroup::builder()
         .title("Thông tin dự án")
         .build();
-    let source = action_row(
+    let source = feature_row(
+        "text-x-generic-symbolic",
         "Mã nguồn GitHub",
         "https://github.com/fundokukiri/ibus-mangrs",
     );
-    source.add_suffix(&link_button(
-        "Mở",
-        "https://github.com/fundokukiri/ibus-mangrs",
-    ));
+    source.add_suffix(&link_button("https://github.com/fundokukiri/ibus-mangrs"));
     project.add(&source);
     project.add(&feature_row(
         "avatar-default-symbolic",
         "Tác giả",
         "Phùng Đức Tùng (Fundoku)",
     ));
-    let homepage = action_row("Trang chủ", "https://mangrs.fundoku.io.vn");
-    homepage.add_suffix(&link_button("Mở", "https://mangrs.fundoku.io.vn"));
+    let homepage = feature_row(
+        "web-browser-symbolic",
+        "Trang chủ",
+        "https://mangrs.fundoku.io.vn",
+    );
+    homepage.add_suffix(&link_button("https://mangrs.fundoku.io.vn"));
     project.add(&homepage);
     project.add(&feature_row(
-        "help-about-symbolic",
+        "application-certificate-symbolic",
         "Giấy phép mã nguồn mở",
         "GPL — phiên bản 3, chi tiết trong LICENSE",
     ));
     project.add(&feature_row(
-        "emblem-favorite-symbolic",
+        "package-x-generic-symbolic",
         "Credits",
         "Lõi gõ bamboo-core (MIT, bên thứ 3)",
     ));
