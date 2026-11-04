@@ -156,10 +156,6 @@ subtitle = "Thử nghiệm: hai dấu cách thành dấu chấm"
 title = "Gõ tắt"
 description = "Mở rộng cụm tắt thành câu đầy đủ"
 
-[groups.macros.list]
-title = "Bảng gõ tắt"
-description = "Mỗi cặp: khóa=Nội dung ($TIME, $DATE)"
-
 [groups.macros.raw]
 title = "Nội dung gõ tắt"
 description = "Mỗi dòng một cặp khóa=nội dung ($TIME, $DATE)"
