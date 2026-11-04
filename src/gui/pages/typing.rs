@@ -7,18 +7,41 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
     let status = adw::PreferencesGroup::builder()
-        .title("Trạng thái")
-        .description("Bật tiếng Việt và phím tắt đổi chế độ")
+        .title(t("groups.typing.status.title", "Trạng thái"))
+        .description(t(
+            "groups.typing.status.description",
+            "Bật tiếng Việt và phím tắt đổi chế độ",
+        ))
         .build();
     status.add(&ui.enabled);
-    let mode_hotkey = action_row("Phím tắt đổi chế độ", "Ví dụ: Control+Alt+v");
+    let mode_hotkey = action_row(
+        &t("rows.hotkey_mode.title", "Phím tắt đổi chế độ"),
+        &t("rows.hotkey_mode.subtitle", "Ví dụ: Control+Alt+v"),
+    );
     mode_hotkey.add_suffix(&ui.hotkey_label);
     mode_hotkey.add_suffix(&ui.hotkey_edit);
     status.add(&mode_hotkey);
-    let enabled_hotkey = action_row("Phím tắt bật/tắt tiếng Việt", "Ví dụ: Control+Alt+space");
+    let enabled_hotkey = action_row(
+        &t("rows.hotkey_enabled.title", "Phím tắt bật/tắt tiếng Việt"),
+        &t("rows.hotkey_enabled.subtitle", "Ví dụ: Control+Alt+space"),
+    );
     enabled_hotkey.add_suffix(&ui.enabled_hotkey_label);
     enabled_hotkey.add_suffix(&ui.enabled_hotkey_edit);
     status.add(&enabled_hotkey);
+    attach_info(
+        &mode_hotkey,
+        &t(
+            "tips.hotkey_mode",
+            "Gán phím chuyển tuần tự qua các chế độ gõ. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
+        ),
+    );
+    attach_info(
+        &enabled_hotkey,
+        &t(
+            "tips.hotkey_enabled",
+            "Gán phím bật/tắt tiếng Việt nhanh. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
+        ),
+    );
     page.add(&status);
     // The recorder captures on the edit button (GNOME shortcut style) and
     // saves through the shared funnel handle.
@@ -52,8 +75,11 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     }
 
     let style = adw::PreferencesGroup::builder()
-        .title("Cách gõ")
-        .description("Kiểu gõ, bảng mã và chế độ gõ")
+        .title(t("groups.typing.style.title", "Cách gõ"))
+        .description(t(
+            "groups.typing.style.description",
+            "Kiểu gõ, bảng mã và chế độ gõ",
+        ))
         .build();
     style.add(&ui.method);
     style.add(&ui.charset);
@@ -61,8 +87,11 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     page.add(&style);
 
     let display = adw::PreferencesGroup::builder()
-        .title("Hiển thị")
-        .description("Hình thức của chữ đang gõ")
+        .title(t("groups.typing.display.title", "Hiển thị"))
+        .description(t(
+            "groups.typing.display.description",
+            "Hình thức của chữ đang gõ",
+        ))
         .build();
     display.add(&ui.hide_underline);
     page.add(&display);
@@ -73,7 +102,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let note = gtk4::Label::builder()
         .wrap(true)
         .xalign(0.0)
-        .label("Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF → Gõ mặc định.")
+        .label(t(
+            "groups.typing.cycle_note.text",
+            "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF → Gõ mặc định.",
+        ))
         .build();
     note.add_css_class("dim-label");
     order.add(&note);

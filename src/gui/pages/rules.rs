@@ -19,26 +19,40 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         })
         .collect();
     app_targets.push((
-        "gnome-shell (app Wayland)".to_string(),
+        t("rules.pseudo_wayland", "gnome-shell (app Wayland)"),
         "gnome-shell".to_string(),
     ));
-    app_targets.push(("(app không báo tên)".to_string(), "none".to_string()));
+    app_targets.push((
+        t("rules.pseudo_none", "(app không báo tên)"),
+        "none".to_string(),
+    ));
     let combo_labels: Vec<&str> = app_targets
         .iter()
         .map(|(label, _)| label.as_str())
         .collect();
 
     let focus = adw::PreferencesGroup::builder()
-        .title("Luật theo ứng dụng")
-        .description("Luật đầu tiên thắng; none = app không báo tên")
+        .title(t("groups.rules.focus.title", "Luật theo ứng dụng"))
+        .description(t(
+            "groups.rules.focus.description",
+            "Luật đầu tiên thắng; none = app không báo tên",
+        ))
         .build();
-    focus.set_tooltip_text(Some(
+    focus.set_tooltip_text(Some(&t(
+        "groups.rules.focus.tooltip",
         "Tên app khớp một phần, không phân biệt hoa/thường; đủ 10 chế độ gõ.",
-    ));
-    let focus_row = action_row("App đang focus", "Chuyển sang app đích rồi quay lại");
-    focus_row.set_tooltip_text(Some(
+    )));
+    let focus_row = action_row(
+        &t("rows.rule_focus.title", "App đang focus"),
+        &t(
+            "rows.rule_focus.subtitle",
+            "Chuyển sang app đích rồi quay lại",
+        ),
+    );
+    focus_row.set_tooltip_text(Some(&t(
+        "rows.rule_focus.tooltip",
         "Tên lấy qua extension MăngRS Focus; app không báo tên thì dùng pattern none",
-    ));
+    )));
     ui.rule_focus.set_width_chars(24);
     focus_row.add_suffix(&ui.rule_focus);
     focus.add(&focus_row);
@@ -48,21 +62,28 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // mode, and the rule lands in the list immediately — no intermediate
     // pattern entry to fill in.
     let add_group = adw::PreferencesGroup::builder()
-        .title("Thêm luật")
-        .description("Chọn app đã thấy hoặc copy app đang focus — luật vào thẳng danh sách")
+        .title(t("groups.rules.add.title", "Thêm luật"))
+        .description(t(
+            "groups.rules.add.description",
+            "Chọn app đã thấy hoặc copy app đang focus — luật vào thẳng danh sách",
+        ))
         .build();
     let client_combo = drop_down(&combo_labels, 0);
-    client_combo.set_tooltip_text(Some("Các app engine đã từng thấy"));
-    let or_label = gtk4::Label::new(Some("hoặc"));
+    client_combo.set_tooltip_text(Some(&t(
+        "rows.rule_combo.tooltip",
+        "Các app engine đã từng thấy",
+    )));
+    let or_label = gtk4::Label::new(Some(&t("rules.or_label", "hoặc")));
     or_label.add_css_class("dim-label");
     let focus_use_btn = gtk4::Button::from_icon_name("edit-copy-symbolic");
     focus_use_btn.add_css_class("flat");
-    focus_use_btn.set_tooltip_text(Some(
+    focus_use_btn.set_tooltip_text(Some(&t(
+        "rows.rule_copy.tooltip",
         "Thêm luật cho app đang focus — bấm là luật vào thẳng danh sách",
-    ));
+    )));
     let rule_mode = drop_down(MODES, 1);
-    rule_mode.set_tooltip_text(Some("Chế độ gõ của luật mới"));
-    let add_btn = gtk4::Button::with_label("Thêm luật");
+    rule_mode.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
+    let add_btn = gtk4::Button::with_label(&t("rules.add_button", "Thêm luật"));
     add_btn.add_css_class("suggested-action");
     let add_row = gtk4::Box::new(Orientation::Horizontal, 8);
     add_row.set_margin_start(10);
@@ -78,17 +99,21 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     page.add(&add_group);
 
     let list_group = adw::PreferencesGroup::builder()
-        .title("Danh sách luật")
+        .title(t("groups.rules.list.title", "Danh sách luật"))
         .build();
-    list_group.set_tooltip_text(Some(
+    list_group.set_tooltip_text(Some(&t(
+        "groups.rules.list.tooltip",
         "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native.",
-    ));
+    )));
     list_group.add(&ui.rules_box);
     page.add(&list_group);
 
     let preview_group = adw::PreferencesGroup::builder()
-        .title("Thử luật")
-        .description("Nhập tên app bất kỳ: cho biết luật nào khớp và chế độ gõ kết quả")
+        .title(t("groups.rules.preview.title", "Thử luật"))
+        .description(t(
+            "groups.rules.preview.description",
+            "Nhập tên app bất kỳ: cho biết luật nào khớp và chế độ gõ kết quả",
+        ))
         .build();
     preview_group.add(&ui.rule_preview_input);
     preview_group.add(&ui.rule_preview);

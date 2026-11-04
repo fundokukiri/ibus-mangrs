@@ -43,11 +43,8 @@ pub(super) fn gdk_modifier_of_key(key: gtk4::gdk::Key) -> Option<gtk4::gdk::Modi
 
 /// Show a hotkey value as the row's dim text; empty means unassigned.
 pub(super) fn render_hotkey(label: &gtk4::Label, value: &str) {
-    label.set_text(if value.is_empty() {
-        "Chưa gán"
-    } else {
-        value
-    });
+    let unassigned = t("misc.unassigned", "Chưa gán");
+    label.set_text(if value.is_empty() { &unassigned } else { value });
 }
 
 /// Wire a hotkey row GNOME-style: the edit (pencil) button hosts the
@@ -81,7 +78,7 @@ pub(super) fn hotkey_wire(
             }
             capturing.set(true);
             pending.set(0);
-            label_c.set_text("Nhấn tổ hợp phím… (Esc hủy)");
+            label_c.set_text(&t("misc.capture_prompt", "Nhấn tổ hợp phím… (Esc hủy)"));
             // The button must stay sensitive while focused: disabling the
             // focus widget makes GTK move key focus off it, and the
             // focus-leave handler below would cancel the capture
@@ -137,7 +134,10 @@ pub(super) fn hotkey_wire(
             // Rejected combos keep the recorder open: the engine's parser
             // would silently drop them, so try another key instead.
             if crate::server::parse_hotkey(&spec).is_none() {
-                label_c.set_text("Phím này không dùng được — thử phím khác");
+                label_c.set_text(&t(
+                    "misc.capture_bad_key",
+                    "Phím này không dùng được — thử phím khác",
+                ));
                 return Propagation::Stop;
             }
             capturing.set(false);

@@ -44,58 +44,58 @@ fn menu_row(node: &MenuNode) -> (String, String, String, String) {
             "toggle".into(),
             key.clone(),
             menu_toggle_label(key),
-            "Bật/tắt".into(),
+            t("menu.kind_toggle", "Bật/tắt"),
         ),
         MenuNode::Radios { group, .. } => (
             "radios".into(),
             group.clone(),
             menu_radios_label(group),
-            "Nhóm chọn".into(),
+            t("menu.kind_radios", "Nhóm chọn"),
         ),
         MenuNode::Action { key } => (
             "action".into(),
             key.clone(),
             menu_action_label(key),
-            "Chức năng".into(),
+            t("menu.kind_action", "Chức năng"),
         ),
         MenuNode::Separator => (
             "sep".into(),
             String::new(),
             "— phân cách —".into(),
-            "Gạch ngang".into(),
+            t("menu.kind_sep", "Gạch ngang"),
         ),
         MenuNode::Folder { label, .. } => (
             "folder".into(),
             String::new(),
             label.clone(),
-            "Thư mục".into(),
+            t("menu.kind_folder", "Thư mục"),
         ),
     }
 }
 
 fn menu_toggle_label(key: &str) -> String {
     if key == "enabled" {
-        return "Bật tiếng Việt".into();
+        return t("menu.toggle_enabled", "Bật tiếng Việt");
     }
     crate::ibus_prop::quick_toggle(key)
-        .map(|t| t.label.to_string())
+        .map(|tg| tg.label.to_string())
         .unwrap_or_else(|| key.to_string())
 }
 
 fn menu_radios_label(group: &str) -> String {
     match group {
-        "charset" => "Bảng mã".into(),
-        "method" => "Kiểu gõ".into(),
-        "display" => "Chế độ gõ".into(),
+        "charset" => t("menu.label_charset", "Bảng mã"),
+        "method" => t("menu.label_method", "Kiểu gõ"),
+        "display" => t("menu.label_display", "Chế độ gõ"),
         other => other.into(),
     }
 }
 
 fn menu_action_label(key: &str) -> String {
     match key {
-        "macro_editor" => "Mở bảng gõ tắt…".into(),
-        "settings" => "Cấu hình".into(),
-        "about" => "Giới thiệu (About)".into(),
+        "macro_editor" => t("menu.action_macro_editor", "Mở bảng gõ tắt…"),
+        "settings" => t("menu.action_settings", "Cấu hình"),
+        "about" => t("menu.action_about", "Giới thiệu (About)"),
         other => other.into(),
     }
 }
@@ -113,7 +113,10 @@ fn menu_item_label(kind: &str, key: &str) -> (String, String) {
 mod content;
 mod hotkey;
 mod pages;
+mod text;
 mod widgets;
+
+use text::t;
 
 use content::*;
 use hotkey::*;
@@ -545,12 +548,18 @@ impl Ui {
         let key_entry = Entry::builder()
             .text(key)
             .width_chars(14)
-            .tooltip_text("Khóa gõ tắt (gõ xong sẽ mở rộng)")
+            .tooltip_text(t(
+                "rows.macro_key.tooltip",
+                "Khóa gõ tắt (gõ xong sẽ mở rộng)",
+            ))
             .build();
         let value_entry = Entry::builder()
             .text(value)
             .hexpand(true)
-            .tooltip_text("Nội dung mở rộng ($TIME, $DATE)")
+            .tooltip_text(t(
+                "rows.macro_value.tooltip",
+                "Nội dung mở rộng ($TIME, $DATE)",
+            ))
             .build();
         for e in [&key_entry, &value_entry] {
             let s = self.save_cb.clone();
@@ -569,7 +578,7 @@ impl Ui {
             e.add_controller(controller);
         }
         let del = gtk4::Button::from_icon_name("edit-delete-symbolic");
-        del.set_tooltip_text(Some("Xoá cặp này"));
+        del.set_tooltip_text(Some(&t("rows.macro_delete.tooltip", "Xoá cặp này")));
         del.add_css_class("destructive-action");
         {
             let ui = self.clone();
@@ -833,27 +842,44 @@ impl Ui {
                 }
             }
             _ => {
-                self.menu_kind
-                    .append(Some("toggle:enabled"), "Bật tiếng Việt");
-                for t in crate::ibus_prop::QUICK_TOGGLES {
+                self.menu_kind.append(
+                    Some("toggle:enabled"),
+                    &t("menu.toggle_enabled", "Bật tiếng Việt"),
+                );
+                for quick in crate::ibus_prop::QUICK_TOGGLES {
                     self.menu_kind
-                        .append(Some(&format!("toggle:{}", t.key)), t.label);
+                        .append(Some(&format!("toggle:{}", quick.key)), quick.label);
                 }
+                self.menu_kind.append(
+                    Some("radios:charset"),
+                    &t("menu.radios_charset", "Bảng mã (nhóm chọn)"),
+                );
+                self.menu_kind.append(
+                    Some("radios:method"),
+                    &t("menu.radios_method", "Kiểu gõ (nhóm chọn)"),
+                );
+                self.menu_kind.append(
+                    Some("radios:display"),
+                    &t("menu.radios_display", "Chế độ gõ (nhóm chọn)"),
+                );
+                self.menu_kind.append(
+                    Some("action:macro_editor"),
+                    &t("menu.action_macro_editor", "Mở bảng gõ tắt…"),
+                );
+                self.menu_kind.append(
+                    Some("action:settings"),
+                    &t("menu.action_settings", "Cấu hình"),
+                );
+                self.menu_kind.append(
+                    Some("action:about"),
+                    &t("menu.action_about", "Giới thiệu (About)"),
+                );
                 self.menu_kind
-                    .append(Some("radios:charset"), "Bảng mã (nhóm chọn)");
-                self.menu_kind
-                    .append(Some("radios:method"), "Kiểu gõ (nhóm chọn)");
-                self.menu_kind
-                    .append(Some("radios:display"), "Chế độ gõ (nhóm chọn)");
-                self.menu_kind
-                    .append(Some("action:macro_editor"), "Mở bảng gõ tắt…");
-                self.menu_kind.append(Some("action:settings"), "Cấu hình");
-                self.menu_kind
-                    .append(Some("action:about"), "Giới thiệu (About)");
-                self.menu_kind.append(Some("sep:"), "Gạch ngang phân cách");
+                    .append(Some("sep:"), &t("menu.sep", "Gạch ngang phân cách"));
                 // Last, so the frequently used item kinds keep their
                 // default (first) spot in the picker.
-                self.menu_kind.append(Some("folder:"), "Thư mục mới");
+                self.menu_kind
+                    .append(Some("folder:"), &t("menu.folder", "Thư mục mới"));
             }
         }
         self.menu_kind.set_active(Some(0));
@@ -1061,13 +1087,17 @@ impl Ui {
         row.set_margin_bottom(6);
         let entry = Entry::builder()
             .text(pattern)
-            .tooltip_text(
+            .tooltip_text(t(
+                "rows.rule_pattern.tooltip",
                 "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)",
-            )
+            ))
             .hexpand(true)
             .build();
         let mode_dd = drop_down(MODES, mode_index(mode));
-        mode_dd.set_tooltip_text(Some("Chế độ gõ khi luật khớp"));
+        mode_dd.set_tooltip_text(Some(&t(
+            "rows.rule_mode_dd.tooltip",
+            "Chế độ gõ khi luật khớp",
+        )));
         {
             let rows = self.rules_rows.clone();
             rows.borrow_mut().push(RuleRow {
@@ -1101,7 +1131,7 @@ impl Ui {
         }
         let up = gtk4::Button::from_icon_name("go-up-symbolic");
         up.add_css_class("flat");
-        up.set_tooltip_text(Some("Lên — luật trước thắng"));
+        up.set_tooltip_text(Some(&t("rows.rule_up.tooltip", "Lên — luật trước thắng")));
         {
             let ui = self.clone();
             up.connect_clicked(move |_| {
@@ -1114,7 +1144,7 @@ impl Ui {
         }
         let down = gtk4::Button::from_icon_name("go-down-symbolic");
         down.add_css_class("flat");
-        down.set_tooltip_text(Some("Xuống"));
+        down.set_tooltip_text(Some(&t("rows.rule_down.tooltip", "Xuống")));
         {
             let ui = self.clone();
             down.connect_clicked(move |_| {
@@ -1128,7 +1158,7 @@ impl Ui {
         let del = gtk4::Button::from_icon_name("edit-delete-symbolic");
         del.add_css_class("flat");
         del.add_css_class("destructive-action");
-        del.set_tooltip_text(Some("Xoá luật này"));
+        del.set_tooltip_text(Some(&t("rows.rule_delete.tooltip", "Xoá luật này")));
         {
             let ui = self.clone();
             del.connect_clicked(move |_| {
@@ -1218,68 +1248,137 @@ fn set_text(view: &TextView, text: &str) {
 #[allow(deprecated)]
 fn widgets() -> Rc<Ui> {
     let enabled = switch_row(
-        "Bật tiếng Việt",
-        "Tắt để gõ thẳng mọi phím (gõ tắt vẫn chạy nếu bật ở tab Gõ tắt)",
+        &t("rows.enabled.title", "Bật tiếng Việt"),
+        &t(
+            "rows.enabled.subtitle",
+            "Tắt để gõ thẳng mọi phím (gõ tắt vẫn chạy nếu bật ở tab Gõ tắt)",
+        ),
     );
-    let method = combo_row("Kiểu gõ", "Telex, VNI, VIQR, Microsoft layout", METHODS);
+    let method = combo_row(
+        &t("rows.method.title", "Kiểu gõ"),
+        &t("rows.method.subtitle", "Telex, VNI, VIQR, Microsoft layout"),
+        METHODS,
+    );
     let mode = combo_row(
-        "Chế độ gõ",
-        "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
+        &t("rows.mode.title", "Chế độ gõ"),
+        &t(
+            "rows.mode.subtitle",
+            "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
+        ),
         MODES,
     );
-    let charset = combo_row("Bảng mã", "Unicode và 10 bảng mã cũ", CHARSETS);
-    let hotkey_label = gtk4::Label::new(Some("Chưa gán"));
+    let charset = combo_row(
+        &t("rows.charset.title", "Bảng mã"),
+        &t("rows.charset.subtitle", "Unicode và 10 bảng mã cũ"),
+        CHARSETS,
+    );
+    let capture_tooltip = t(
+        "misc.capture_tooltip",
+        "Gán lại: nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
+    );
+    let hotkey_label = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
     hotkey_label.add_css_class("dim-label");
     let hotkey_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
     hotkey_edit.add_css_class("flat");
-    hotkey_edit.set_tooltip_text(Some(
-        "Gán lại: nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
-    ));
+    hotkey_edit.set_tooltip_text(Some(&capture_tooltip));
     let hotkey_value = Rc::new(RefCell::new(String::new()));
-    let enabled_hotkey_label = gtk4::Label::new(Some("Chưa gán"));
+    let enabled_hotkey_label = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
     enabled_hotkey_label.add_css_class("dim-label");
     let enabled_hotkey_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
     enabled_hotkey_edit.add_css_class("flat");
-    enabled_hotkey_edit.set_tooltip_text(Some(
-        "Gán lại: nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
-    ));
+    enabled_hotkey_edit.set_tooltip_text(Some(&capture_tooltip));
     let enabled_hotkey_value = Rc::new(RefCell::new(String::new()));
-    let modern = switch_row("Kiểu dấu mới", "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)");
-    let free = switch_row("Dấu tự do", "Dấu đặt anywhere trong từ: hoangf → hoàng");
+    let modern = switch_row(
+        &t("rows.modern.title", "Kiểu dấu mới"),
+        &t(
+            "rows.modern.subtitle",
+            "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)",
+        ),
+    );
+    let free = switch_row(
+        &t("rows.free.title", "Dấu tự do"),
+        &t(
+            "rows.free.subtitle",
+            "Dấu đặt anywhere trong từ: hoangf → hoàng",
+        ),
+    );
     let auto_correct = switch_row(
-        "Từ sai trả phím gốc",
-        "Âm tiết không hợp lệ trả về đúng phím đã bấm",
+        &t("rows.auto_correct.title", "Từ sai trả phím gốc"),
+        &t(
+            "rows.auto_correct.subtitle",
+            "Âm tiết không hợp lệ trả về đúng phím đã bấm",
+        ),
     );
     let auto_restore = switch_row(
-        "Khôi phục từ nước ngoài",
-        "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
+        &t("rows.auto_restore.title", "Khôi phục từ nước ngoài"),
+        &t(
+            "rows.auto_restore.subtitle",
+            "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
+        ),
     );
     let abbrev = switch_row(
-        "Viết tắt",
-        "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
+        &t("rows.abbrev.title", "Viết tắt"),
+        &t(
+            "rows.abbrev.subtitle",
+            "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
+        ),
     );
     let bypass_url = switch_row(
-        "Không dấu sau URL",
-        "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
+        &t("rows.bypass_url.title", "Không dấu sau URL"),
+        &t(
+            "rows.bypass_url.subtitle",
+            "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
+        ),
     );
-    let w2u = combo_row("W thành ư", "Tắt / trừ đầu từ / mọi vị trí", ON_OFF_MODES);
+    let w2u = combo_row(
+        &t("rows.w2u.title", "W thành ư"),
+        &t("rows.w2u.subtitle", "Tắt / trừ đầu từ / mọi vị trí"),
+        ON_OFF_MODES,
+    );
     let bracket = combo_row(
-        "[ ] thành ơ ư",
-        "Tắt / trừ đầu từ / mọi vị trí",
+        &t("rows.bracket.title", "[ ] thành ơ ư"),
+        &t("rows.bracket.subtitle", "Tắt / trừ đầu từ / mọi vị trí"),
         ON_OFF_MODES,
     );
     let em_dash = switch_row(
-        "Gạch ngang dài",
-        "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)",
+        &t("rows.em_dash.title", "Gạch ngang dài"),
+        &t(
+            "rows.em_dash.subtitle",
+            "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)",
+        ),
     );
-    let auto_capitalize = switch_row("Tự viết hoa", "Sau . ! ? và Enter");
+    let auto_capitalize = switch_row(
+        &t("rows.auto_capitalize.title", "Tự viết hoa"),
+        &t("rows.auto_capitalize.subtitle", "Sau . ! ? và Enter"),
+    );
     let double_space = switch_row(
-        "2 dấu cách = chấm",
-        "Thử nghiệm: hai dấu cách thành dấu chấm",
+        &t("rows.double_space.title", "2 dấu cách = chấm"),
+        &t(
+            "rows.double_space.subtitle",
+            "Thử nghiệm: hai dấu cách thành dấu chấm",
+        ),
     );
-    let macro_enabled = switch_row("Gõ tắt", "Khóa mở rộng thành cụm khi hết từ");
-    let capitalize_macro = switch_row("Viết hoa gõ tắt", "Khóa viết hoa → nội dung viết hoa theo");
-    let macro_in_off_mode = switch_row("Gõ tắt khi OFF", "Vẫn mở rộng khi tiếng Việt đang tắt");
+    let macro_enabled = switch_row(
+        &t("rows.macro_enabled.title", "Gõ tắt"),
+        &t(
+            "rows.macro_enabled.subtitle",
+            "Khóa mở rộng thành cụm khi hết từ",
+        ),
+    );
+    let capitalize_macro = switch_row(
+        &t("rows.capitalize_macro.title", "Viết hoa gõ tắt"),
+        &t(
+            "rows.capitalize_macro.subtitle",
+            "Khóa viết hoa → nội dung viết hoa theo",
+        ),
+    );
+    let macro_in_off_mode = switch_row(
+        &t("rows.macro_in_off_mode.title", "Gõ tắt khi OFF"),
+        &t(
+            "rows.macro_in_off_mode.subtitle",
+            "Vẫn mở rộng khi tiếng Việt đang tắt",
+        ),
+    );
     // Suffix entries: sized to the format they hold and centered, so the
     // row reads as one balanced control instead of a wide box on the edge.
     let time_format = Entry::builder()
@@ -1295,8 +1394,11 @@ fn widgets() -> Rc<Ui> {
     macros_list.set_selection_mode(gtk4::SelectionMode::None);
     let macros_rows = Rc::new(RefCell::new(Vec::new()));
     let dictionary_enabled = switch_row(
-        "Từ điển của tôi",
-        "Bật: từ trong từ điển không bị khôi phục về chuỗi phím (~/.config/ibus-mangrs/dictionary.txt)",
+        &t("rows.dictionary_enabled.title", "Từ điển của tôi"),
+        &t(
+            "rows.dictionary_enabled.subtitle",
+            "Bật: từ trong từ điển không bị khôi phục về chuỗi phím (~/.config/ibus-mangrs/dictionary.txt)",
+        ),
     );
     let dictionary_text = text_view("");
     // Fixed height so the list cannot stretch (or collapse) the page; the
@@ -1308,12 +1410,16 @@ fn widgets() -> Rc<Ui> {
     rules_box.add_css_class("boxed-list");
     rules_box.set_selection_mode(gtk4::SelectionMode::None);
     let rule_preview_input = Entry::builder()
-        .placeholder_text("Firefox / wayland:Firefox / xim")
+        .placeholder_text(t(
+            "rows.rule_preview_input.placeholder",
+            "Firefox / wayland:Firefox / xim",
+        ))
         .hexpand(true)
         .build();
-    rule_preview_input.set_tooltip_text(Some(
+    rule_preview_input.set_tooltip_text(Some(&t(
+        "rows.rule_preview_input.tooltip",
         "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp và chế độ gõ kết quả",
-    ));
+    )));
     let rule_preview = gtk4::Label::new(None);
     rule_preview.add_css_class("dimmed");
     rule_preview.set_xalign(0.0);
@@ -1321,47 +1427,78 @@ fn widgets() -> Rc<Ui> {
     let rule_focus = gtk4::Label::new(Some("—"));
     rule_focus.set_xalign(0.0);
     rule_focus.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    rule_focus.set_tooltip_text(Some(
+    rule_focus.set_tooltip_text(Some(&t(
+        "rows.rule_focus.chip_tooltip",
         "Chuyển sang app đích rồi quay lại cửa sổ này — tên app sẽ hiện ở đây (cần extension MăngRS Focus)",
-    ));
+    )));
     let rule_focus_value = Rc::new(RefCell::new(String::new()));
     let rules_rows = Rc::new(RefCell::new(Vec::new()));
     let rules_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
-    let hide_underline = switch_row("Ẩn gạch chân", "Chữ đang gõ không có gạch chân (tùy app)");
-    let debug_log = switch_row("Ghi log gỡ lỗi", "Ghi vào ~/.cache/ibus-mangrs/debug.log");
+    let hide_underline = switch_row(
+        &t("rows.hide_underline.title", "Ẩn gạch chân"),
+        &t(
+            "rows.hide_underline.subtitle",
+            "Chữ đang gõ không có gạch chân (tùy app)",
+        ),
+    );
+    let debug_log = switch_row(
+        &t("rows.debug_log.title", "Ghi log gỡ lỗi"),
+        &t(
+            "rows.debug_log.subtitle",
+            "Ghi vào ~/.cache/ibus-mangrs/debug.log",
+        ),
+    );
     let x11_delete = switch_row(
-        "Xoá đuôi từ ở app X11",
-        "App X11 trực tiếp xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
+        &t("rows.x11_delete.title", "Xoá đuôi từ ở app X11"),
+        &t(
+            "rows.x11_delete.subtitle",
+            "App X11 trực tiếp xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
+        ),
     );
     let preedit_xim = switch_row(
-        "Preedit cho app XIM",
-        "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ.",
+        &t("rows.preedit_xim.title", "Preedit cho app XIM"),
+        &t(
+            "rows.preedit_xim.subtitle",
+            "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ.",
+        ),
     );
     let commit_interval = spin_row(
-        "Nhịp gõ chữ",
-        "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20",
+        &t("rows.commit_interval.title", "Nhịp gõ chữ"),
+        &t(
+            "rows.commit_interval.subtitle",
+            "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20",
+        ),
         1.0,
         500.0,
         1.0,
     );
     let backspace_interval = spin_row(
-        "Nhịp xoá lùi",
-        "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5",
+        &t("rows.backspace_interval.title", "Nhịp xoá lùi"),
+        &t(
+            "rows.backspace_interval.subtitle",
+            "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5",
+        ),
         1.0,
         100.0,
         1.0,
     );
     let post_delay = spin_row(
-        "Độ trễ sau từ",
-        "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10",
+        &t("rows.post_delay.title", "Độ trễ sau từ"),
+        &t(
+            "rows.post_delay.subtitle",
+            "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10",
+        ),
         0.0,
         500.0,
         1.0,
     );
     let unicode_channel = combo_row(
-        "Kênh gửi từ tiếng Việt",
-        "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
+        &t("rows.unicode_channel.title", "Kênh gửi từ tiếng Việt"),
+        &t(
+            "rows.unicode_channel.subtitle",
+            "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
+        ),
         CHANNELS,
     );
 
@@ -1375,9 +1512,12 @@ fn widgets() -> Rc<Ui> {
     let menu_view = TreeView::with_model(&menu_store);
     menu_view.set_headers_visible(true);
     menu_view.set_enable_tree_lines(true);
-    for (title, col) in [("Loại", MENU_COL_KIND_LABEL), ("Tên", MENU_COL_LABEL)] {
+    for (title, col) in [
+        (t("panel.column_kind", "Loại"), MENU_COL_KIND_LABEL),
+        (t("panel.column_name", "Tên"), MENU_COL_LABEL),
+    ] {
         let column = TreeViewColumn::new();
-        column.set_title(title);
+        column.set_title(&title);
         let cell = CellRendererText::new();
         column.pack_start(&cell, true);
         column.add_attribute(&cell, "text", col as i32);
@@ -1387,6 +1527,141 @@ fn widgets() -> Rc<Ui> {
     // (menu_fill_picker): a radio group offers its own entries, anything
     // else the generic items.
     let menu_kind = ComboBoxText::new();
+
+    // The "(?)" markers: hover or click for the longer explanation, text
+    // from the content file. Applied here so every page gets them for
+    // free; page-added suffixes (hotkey buttons, format entries) land to
+    // the right of them.
+    macro_rules! info {
+        ($row:expr, $key:expr, $default:expr) => {
+            attach_info(&$row, &t($key, $default));
+        };
+    }
+    info!(
+        enabled,
+        "tips.enabled", "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
+    );
+    info!(
+        method,
+        "tips.method",
+        "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
+    );
+    info!(
+        mode,
+        "tips.mode",
+        "Cách hiển thị chữ đang gõ: preedit (gạch chân) dùng được ở mọi app, các mode uinput gửi phím thật nhưng có thể lệch app."
+    );
+    info!(
+        charset,
+        "tips.charset",
+        "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
+    );
+    info!(
+        modern,
+        "tips.modern", "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."
+    );
+    info!(
+        free,
+        "tips.free", "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên âm gần nhất."
+    );
+    info!(
+        auto_correct,
+        "tips.auto_correct",
+        "Âm tiết không có trong từ điển tiếng Việt sẽ trả về đúng chuỗi phím đã bấm."
+    );
+    info!(
+        auto_restore,
+        "tips.auto_restore",
+        "Từ nước ngoài (english, hello) gõ xong tự trả về chuỗi phím gốc thay vì giữ nguyên."
+    );
+    info!(
+        abbrev,
+        "tips.abbrev", "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
+    );
+    info!(
+        bypass_url,
+        "tips.bypass_url",
+        "Từ ngay sau URL/email/path không được thêm dấu, tránh làm hỏng liên kết khi soạn chat."
+    );
+    info!(
+        w2u,
+        "tips.w2u", "Gõ w nhận ư: w = ư, wa = ưa... tiện cho bàn phím không có sẵn ư."
+    );
+    info!(
+        bracket,
+        "tips.bracket", "Gõ [ và ] nhận ơ và ư theo vị trí trong từ."
+    );
+    info!(
+        em_dash,
+        "tips.em_dash", "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
+    );
+    info!(
+        auto_capitalize,
+        "tips.auto_capitalize", "Tự viết hoa chữ cái đầu câu sau dấu chấm, !, ? hoặc Enter."
+    );
+    info!(
+        double_space,
+        "tips.double_space",
+        "Nhấn hai dấu cách liên tiếp thành dấu chấm + khoảng cách (thử nghiệm)."
+    );
+    info!(
+        macro_enabled,
+        "tips.macro_enabled",
+        "Bật bảng gõ tắt: chuỗi khóa được mở rộng thành nội dung khi gõ xong từ."
+    );
+    info!(
+        capitalize_macro,
+        "tips.capitalize_macro", "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo."
+    );
+    info!(
+        macro_in_off_mode,
+        "tips.macro_in_off_mode", "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
+    );
+    info!(
+        dictionary_enabled,
+        "tips.dictionary_enabled",
+        "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc."
+    );
+    info!(
+        hide_underline,
+        "tips.hide_underline",
+        "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
+    );
+    info!(
+        debug_log,
+        "tips.debug_log",
+        "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
+    );
+    info!(
+        x11_delete,
+        "tips.x11_delete",
+        "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."
+    );
+    info!(
+        preedit_xim,
+        "tips.preedit_xim",
+        "Dùng cửa sổ preedit riêng cho app XIM (Java/JetBrains) vốn không hỗ trợ preedit của IBus."
+    );
+    info!(
+        commit_interval,
+        "tips.commit_interval",
+        "Nhịp gửi từng chữ ở mode uinput — giảm nếu app bị mất chữ, tăng nếu bị đơ."
+    );
+    info!(
+        backspace_interval,
+        "tips.backspace_interval",
+        "Nhịp gửi Backspace ở mode uinput — giảm nếu xoá chậm, tăng nếu app xử lý không kịp."
+    );
+    info!(
+        post_delay,
+        "tips.post_delay",
+        "Chờ sau khi viết lại cả từ trước khi gõ chữ tiếp, dành cho app xử lý phím chậm."
+    );
+    info!(
+        unicode_channel,
+        "tips.unicode_channel",
+        "Cách gửi từ có ký tự đặc biệt: CommitText là an toàn; Clipboard dùng Ctrl+V, tạm đè clipboard."
+    );
 
     Rc::new(Ui {
         enabled,
