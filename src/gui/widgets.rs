@@ -101,11 +101,14 @@ pub(super) fn spin_row(title: &str, subtitle: &str, min: f64, max: f64, step: f6
         .build()
 }
 
-/// An info row for a boxed list (title + dim subtitle, no control).
+/// An info row for a boxed list (title + dim subtitle, no control). Not
+/// activatable — the hover highlight on an activation-shaped row that does
+/// nothing reads as a broken button.
 pub(super) fn action_row(title: &str, subtitle: &str) -> adw::ActionRow {
     adw::ActionRow::builder()
         .title(title)
         .subtitle(subtitle)
+        .activatable(false)
         .build()
 }
 
