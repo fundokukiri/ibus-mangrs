@@ -5,8 +5,9 @@
 //! `dictionary.txt`); the engine watches the config file mtime, so changes
 //! apply within a second without restarting ibus-daemon.
 //!
-//! Layout: header bar with [search] [pill tabs] [close], five pages
-//! (Kiểu gõ / Dấu & Sửa lỗi / Gõ tắt / Dữ liệu / Giới thiệu), grouped cards.
+//! Layout: header bar with [search] [pill tabs] [close], seven pages
+//! (Chung / Dấu & tự động / Gõ tắt / Dữ liệu / Luật / Tinh chỉnh /
+//! Giới thiệu), grouped cards.
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
@@ -1496,8 +1497,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
     // The clicked handler is connected after the window exists, so a failed
     // save can surface in the window (see the save block below).
 
-    // The focused-app chip: the same extension call the engine makes, run on
-    // a worker thread so the sync D-Bus timeout never janks the window. The
+    // The focused-app chip: the same extension call the engine makes. The
     // settings window itself is focused while the user edits, so the useful
     // refresh happens on focus leave — the window the user just switched to
     // is the one they came here to target.
@@ -1513,16 +1513,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
     focus_row.append(&ui.rule_focus);
     focus_row.append(&focus_use_btn);
 
-    // The rules list scrolls at a minimum height so many rules cannot
-    // stretch the tab (mirrors the menu editor's list).
-    let rules_scroll = gtk4::ScrolledWindow::new();
-    rules_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    rules_scroll.set_min_content_height(140);
-    rules_scroll.set_child(Some(&ui.rules_box));
-    let rules_row = gtk4::Box::new(Orientation::Vertical, 0);
-    rules_row.set_margin_bottom(8);
-    rules_row.append(&rules_scroll);
-
+    // The rule rows flow with the page (no inner scroll cap): every rule
+    // stays visible while the page itself scrolls.
     let preview_row = gtk4::Box::new(Orientation::Horizontal, 8);
     preview_row.set_margin_start(10);
     preview_row.set_margin_end(10);
@@ -1712,7 +1704,26 @@ fn build(app: &Application, initial_page: Option<&str>) {
         ),
     ]));
 
-    // ===== Page 5: Tinh chỉnh =====
+    // ===== Page 5: Luật =====
+    // A whole page for the per-app rules: the editor needs the room, the
+    // rule rows flow with the page scroll instead of a cramped inner box,
+    // and it keeps the "one question per tab" split.
+    let rules_page = gtk4::Box::new(Orientation::Vertical, 6);
+    section(
+        &rules_page,
+        "Luật theo ứng dụng",
+        "Luật đầu tiên thắng. Tên app khớp một phần, không phân biệt hoa/thường; none = app không báo tên. Đủ 10 chế độ gõ.",
+    );
+    rules_page.append(&card_widget(&focus_row));
+    rules_page.append(&card_widget(&add_row));
+    rules_page.append(&card_widget(&ui.rules_box));
+    rules_page.append(&card(vec![preview_row, preview_result_row]));
+    hint(
+        &rules_page,
+        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native: Chrome, Firefox, … Nhãn App đang focus lấy tên từ extension — chuyển sang app đích rồi quay lại cài đặt, nó tự cập nhật. Danh sách thêm nhanh là các app engine đã từng thấy, không phải mọi app đang chạy.",
+    );
+
+    // ===== Page 6: Tinh chỉnh =====
     // Everything touched once (or only when debugging) lives here so the
     // everyday tabs stay short: the panel-menu editor, the uinput pacing,
     // the app-specific X11/XIM workarounds, the log switch.
@@ -1764,22 +1775,6 @@ fn build(app: &Application, initial_page: Option<&str>) {
         "Menu trên panel",
         "Tự thiết kế menu popup: thêm thư mục, thêm chức năng, bỏ vào thư mục, sắp xếp thứ tự. Bảng mã / Kiểu gõ / Chế độ gõ cũng chỉnh được mục bên trong.",
         vec![menu_row1, menu_row2, menu_view_row],
-    );
-    collapsible_section(
-        &advanced,
-        "Luật theo ứng dụng",
-        "Luật đầu tiên thắng. Tên app khớp một phần, không phân biệt hoa/thường; none = app không báo tên. Đủ 10 chế độ gõ.",
-        vec![
-            focus_row,
-            add_row,
-            rules_row,
-            preview_row,
-            preview_result_row,
-        ],
-    );
-    hint(
-        &advanced,
-        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native: Chrome, Firefox, … Nhãn App đang focus lấy tên từ extension — chuyển sang app đích rồi quay lại cài đặt, nó tự cập nhật. Danh sách thêm nhanh là các app engine đã từng thấy, không phải mọi app đang chạy.",
     );
     section(
         &advanced,
@@ -1836,7 +1831,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
         &ui.debug_log,
     )]));
 
-    // ===== Page 6: Giới thiệu =====
+    // ===== Page 7: Giới thiệu =====
     let about = gtk4::Box::new(Orientation::Vertical, 6);
 
     // Logo is embedded at compile time: the GUI has no installed asset dir.
@@ -1938,15 +1933,24 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
     // Content: one scrolled, width-clamped page per section, crossfading.
     // (stack name, pill label, symbolic icon from the icon theme)
-    const PAGES: [(&str, &str, &str); 6] = [
+    const PAGES: [(&str, &str, &str); 7] = [
         ("typing", "Chung", "input-keyboard-symbolic"),
         ("tone", "Dấu & tự động", "tools-check-spelling-symbolic"),
         ("macros", "Gõ tắt", "insert-text-symbolic"),
         ("data", "Dữ liệu", "folder-documents-symbolic"),
+        ("rules", "Luật", "view-list-symbolic"),
         ("advanced", "Tinh chỉnh", "emblem-system-symbolic"),
         ("about", "Giới thiệu", "help-about-symbolic"),
     ];
-    let page_boxes: [&gtk4::Box; 6] = [&typing, &tone, &macro_box, &data_box, &advanced, &about];
+    let page_boxes: [&gtk4::Box; 7] = [
+        &typing,
+        &tone,
+        &macro_box,
+        &data_box,
+        &rules_page,
+        &advanced,
+        &about,
+    ];
     let stack = gtk4::Stack::new();
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
@@ -2040,7 +2044,9 @@ fn build(app: &Application, initial_page: Option<&str>) {
     let window = ApplicationWindow::builder()
         .application(app)
         .title("MăngRS")
-        .default_width(780)
+        // Wide enough that all seven pill tabs fit the header without
+        // squeezing.
+        .default_width(900)
         .default_height(700)
         .child(&overlay)
         .build();
@@ -2118,10 +2124,12 @@ fn build(app: &Application, initial_page: Option<&str>) {
     window.set_titlebar(Some(&header));
 
     // Open a specific page when spawned with `--page=<name>` (menu items).
-    // Old page names from the 7-tab layout are mapped onto the new ones.
+    // Old page names from earlier layouts are mapped onto the current ones.
     let wanted = match initial_page {
         Some("general") | None => "typing",
-        Some("dictionary") | Some("apps") | Some("backup") => "data",
+        Some("dictionary") | Some("backup") => "data",
+        // The old "apps" page was the app rules page.
+        Some("apps") => "rules",
         Some(other) => other,
     };
     let (_, pill) = pills.iter().find(|(n, _)| n == wanted).unwrap_or(&pills[0]);
