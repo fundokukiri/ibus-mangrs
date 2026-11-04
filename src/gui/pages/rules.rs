@@ -1,11 +1,12 @@
-//! Page "Luật": the per-app rule editor — focused-app chip, quick-add row,
-//! the rule list (one editable row per rule) and the match preview. All
-//! page widgets are created and wired here; the save funnel comes from the
-//! shared `save_cb` handle.
+//! Page "Luật": the per-app rule editor — focused-app row, native add
+//! fields, one ComboRow per rule and the live match preview. All page
+//! widgets are created and wired here; the save funnel comes from the
+//! shared `save_cb` handle. The page hosts its own ToastOverlay: the only
+//! toast is the copy confirmation, and the window shell stays untouched.
 
 use super::*;
 
-pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
+pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let page = adw::PreferencesPage::new();
 
     // Quick-add targets: real clients the engine has seen (GTK IM apps only
@@ -26,22 +27,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         t("rules.pseudo_none", "(app không báo tên)"),
         "none".to_string(),
     ));
-    let combo_labels: Vec<&str> = app_targets
-        .iter()
-        .map(|(label, _)| label.as_str())
-        .collect();
 
+    // The focused app named by the extension (or xprop): a selectable
+    // monospace label — select-and-copy without any button — plus a flat
+    // copy button that confirms with a toast.
     let focus = adw::PreferencesGroup::builder()
-        .title(t("groups.rules.focus.title", "Luật theo ứng dụng"))
-        .description(t(
-            "groups.rules.focus.description",
-            "Luật đầu tiên thắng; none = app không báo tên",
-        ))
+        .title(t("groups.rules.focus.title", "Ứng dụng đang focus"))
         .build();
-    focus.set_tooltip_text(Some(&t(
-        "groups.rules.focus.tooltip",
-        "Tên app khớp một phần, không phân biệt hoa/thường; đủ 10 chế độ gõ.",
-    )));
     let focus_row = action_row(
         &t("rows.rule_focus.title", "App đang focus"),
         &t(
@@ -55,104 +47,158 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     )));
     ui.rule_focus.set_width_chars(24);
     focus_row.add_suffix(&ui.rule_focus);
+    let copy_btn = gtk4::Button::from_icon_name("edit-copy-symbolic");
+    copy_btn.add_css_class("flat");
+    copy_btn.set_tooltip_text(Some(&t(
+        "rows.rule_copy.tooltip",
+        "Sao chép tên app đang focus",
+    )));
+    focus_row.add_suffix(&copy_btn);
     focus.add(&focus_row);
     page.add(&focus);
 
-    // One add row: pick a known app, or copy the focused one, choose the
-    // mode, and the rule lands in the list immediately — no intermediate
-    // pattern entry to fill in.
+    // Quick-add: pick a seen app (or the focused one) into a native entry,
+    // choose the mode — the rule lands in the list through the shared edit
+    // path, and the button stays dead until a name exists.
     let add_group = adw::PreferencesGroup::builder()
         .title(t("groups.rules.add.title", "Thêm luật"))
         .description(t(
             "groups.rules.add.description",
-            "Chọn app đã thấy hoặc copy app đang focus — luật vào thẳng danh sách",
+            "Chọn app đã thấy hoặc dùng app đang focus.",
         ))
         .build();
-    let client_combo = drop_down(&combo_labels, 0);
-    client_combo.set_tooltip_text(Some(&t(
+    let name_row = adw::EntryRow::builder()
+        .title(t("rows.rule_name.title", "Tên app"))
+        .build();
+    name_row.set_tooltip_text(Some(&t(
+        "rows.rule_name.tooltip",
+        "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)",
+    )));
+    let pick = gtk4::MenuButton::new();
+    pick.set_icon_name("view-more-symbolic");
+    pick.add_css_class("flat");
+    pick.set_tooltip_text(Some(&t(
         "rows.rule_combo.tooltip",
         "Các app engine đã từng thấy",
     )));
-    let or_label = gtk4::Label::new(Some(&t("rules.or_label", "hoặc")));
-    or_label.add_css_class("dim-label");
-    let focus_use_btn = gtk4::Button::from_icon_name("edit-copy-symbolic");
-    focus_use_btn.add_css_class("flat");
-    focus_use_btn.set_tooltip_text(Some(&t(
+    let pick_list = gtk4::Box::new(Orientation::Vertical, 0);
+    let pick_popover = gtk4::Popover::new();
+    for (label, target) in &app_targets {
+        let btn = gtk4::Button::with_label(label);
+        btn.add_css_class("flat");
+        {
+            let name_row = name_row.clone();
+            let popover = pick_popover.clone();
+            let target = target.clone();
+            btn.connect_clicked(move |_| {
+                name_row.set_text(&target);
+                popover.popdown();
+            });
+        }
+        pick_list.append(&btn);
+    }
+    // The seen-apps list is built once, like the old dropdown; a long list
+    // scrolls inside the popover instead of stretching it.
+    let pick_scroll = gtk4::ScrolledWindow::new();
+    pick_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    pick_scroll.set_max_content_height(300);
+    pick_scroll.set_propagate_natural_height(true);
+    pick_scroll.set_child(Some(&pick_list));
+    pick_popover.set_child(Some(&pick_scroll));
+    pick.set_popover(Some(&pick_popover));
+    let use_focus = gtk4::Button::with_label(&t("rules.use_focus_button", "Dùng app đang focus"));
+    use_focus.add_css_class("flat");
+    use_focus.set_tooltip_text(Some(&t(
         "rows.rule_copy.tooltip",
-        "Thêm luật cho app đang focus — bấm là luật vào thẳng danh sách",
+        "Sao chép tên app đang focus",
     )));
-    let rule_mode = drop_down(MODES, 1);
-    rule_mode.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
+    name_row.add_suffix(&pick);
+    name_row.add_suffix(&use_focus);
+    let mode_row = combo_row(&t("rows.rule_mode.title", "Chế độ gõ"), "", MODES);
+    mode_row.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
+    add_group.add(&name_row);
+    add_group.add(&mode_row);
+    // The one suggested-action button of the page, right-aligned as its
+    // own final row.
     let add_btn = gtk4::Button::with_label(&t("rules.add_button", "Thêm luật"));
     add_btn.add_css_class("suggested-action");
-    let add_row = gtk4::Box::new(Orientation::Horizontal, 8);
-    add_row.set_margin_start(10);
-    add_row.set_margin_end(10);
-    add_row.set_margin_top(8);
-    add_row.set_margin_bottom(8);
-    add_row.append(&client_combo);
-    add_row.append(&or_label);
-    add_row.append(&focus_use_btn);
-    add_row.append(&rule_mode);
-    add_row.append(&add_btn);
-    add_group.add(&add_row);
+    add_btn.set_valign(gtk4::Align::Center);
+    add_btn.set_sensitive(false);
+    let add_btn_box = gtk4::Box::new(Orientation::Horizontal, 0);
+    add_btn_box.set_halign(gtk4::Align::End);
+    add_btn_box.set_margin_top(6);
+    add_btn_box.set_margin_bottom(6);
+    add_btn_box.set_margin_end(6);
+    add_btn_box.append(&add_btn);
+    add_group.add(&add_btn_box);
     page.add(&add_group);
 
     let list_group = adw::PreferencesGroup::builder()
         .title(t("groups.rules.list.title", "Danh sách luật"))
+        .description(t(
+            "groups.rules.list.description",
+            "Luật đầu tiên thắng; none = app không báo tên.",
+        ))
         .build();
     list_group.set_tooltip_text(Some(&t(
         "groups.rules.list.tooltip",
         "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native.",
     )));
     list_group.add(&ui.rules_box);
+    list_group.add(&ui.rules_status);
     page.add(&list_group);
 
     let preview_group = adw::PreferencesGroup::builder()
         .title(t("groups.rules.preview.title", "Thử luật"))
         .description(t(
             "groups.rules.preview.description",
-            "Nhập tên app bất kỳ: cho biết luật nào khớp và chế độ gõ kết quả",
+            "Nhập tên app để xem luật nào khớp.",
         ))
         .build();
     preview_group.add(&ui.rule_preview_input);
     preview_group.add(&ui.rule_preview);
     page.add(&preview_group);
 
-    // "Dùng tên này" appends the focused app straight into the rule list,
-    // with the mode picked in the add row.
+    // The page's own toast host: the copy confirmation must surface
+    // somewhere, and the window shell stays untouched by this page work.
+    let toast_overlay = adw::ToastOverlay::new();
+    toast_overlay.set_child(Some(&page));
+
+    // "Dùng app đang focus" fills the entry; the rule itself is added by
+    // the button below, like every hand-typed name.
     {
         let ui = ui.clone();
-        let rule_mode = rule_mode.clone();
-        focus_use_btn.connect_clicked(move |_| {
+        let name_row = name_row.clone();
+        use_focus.connect_clicked(move |_| {
             let pattern = ui.rule_focus_value.borrow().clone();
-            if pattern.is_empty() {
-                return;
+            if !pattern.is_empty() {
+                name_row.set_text(&pattern);
             }
-            let mode = mode_at(rule_mode.selected());
-            ui.edit_rules(move |rules| {
-                rules.push(crate::config::AppRule { pattern, mode });
-            });
         });
     }
-    // The quick-add row appends a rule for the picked app, then saves
-    // through the same error surface as every other control.
+    // The add button follows the entry: no name, no rule.
+    {
+        let name_row = name_row.clone();
+        let btn = add_btn.clone();
+        let watcher = name_row.clone();
+        watcher.connect_changed(move |_| {
+            btn.set_sensitive(!name_row.text().trim().is_empty());
+        });
+    }
     {
         let ui = ui.clone();
-        let client_combo = client_combo.clone();
-        let rule_mode = rule_mode.clone();
+        let name_row = name_row.clone();
         add_btn.connect_clicked(move |_| {
-            let idx = client_combo.selected() as usize;
-            let Some(pattern) = app_targets.get(idx).map(|(_, p)| p.clone()) else {
-                return;
-            };
+            let pattern = name_row.text().trim().to_string();
             if pattern.is_empty() {
                 return;
             }
-            let mode = mode_at(rule_mode.selected());
+            let mode = mode_at(mode_row.selected());
             ui.edit_rules(move |rules| {
                 rules.push(crate::config::AppRule { pattern, mode });
             });
+            // Ready for the next rule; the mode choice stays.
+            name_row.set_text("");
         });
     }
     // The preview follows typing live; mode changes and edits re-run it
@@ -164,6 +210,18 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             ui.update_rule_preview();
         });
     }
+    {
+        let ui = ui.clone();
+        let overlay = toast_overlay.clone();
+        copy_btn.connect_clicked(move |_| {
+            let value = ui.rule_focus_value.borrow().clone();
+            if value.is_empty() {
+                return;
+            }
+            ui.rule_focus.clipboard().set_text(&value);
+            overlay.add_toast(adw::Toast::new(&t("rules.copy_toast", "Đã sao chép")));
+        });
+    }
 
-    page
+    toast_overlay
 }
