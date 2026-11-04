@@ -46,105 +46,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 6: Tinh chỉnh — menu editor, uinput pacing, X11/XIM, log.
     let advanced_page = pages::advanced::build(&ui);
 
-    // ===== Page 7: Giới thiệu =====
-    let about = gtk4::Box::new(Orientation::Vertical, 6);
-
-    // Logo is embedded at compile time: the GUI has no installed asset dir.
-    const LOGO: &[u8] = include_bytes!("../../data/logo.png");
-    let logo = gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(LOGO)).ok();
-    let hero = gtk4::Box::new(Orientation::Vertical, 4);
-    hero.set_halign(gtk4::Align::Center);
-    hero.set_margin_top(30);
-    hero.set_margin_bottom(10);
-    if let Some(texture) = &logo {
-        let image = gtk4::Image::from_paintable(Some(texture));
-        image.set_pixel_size(130);
-        image.set_halign(gtk4::Align::Center);
-        image.add_css_class("app-icon");
-        hero.append(&image);
-    }
-
-    let name = gtk4::Label::new(Some("MăngRS IBus"));
-    name.add_css_class("app-name");
-    name.set_halign(gtk4::Align::Center);
-    name.set_margin_top(12);
-    hero.append(&name);
-
-    let headline = gtk4::Label::new(Some(concat!(
-        "Phiên bản ",
-        env!("CARGO_PKG_VERSION"),
-        " • Native IBus Engine"
-    )));
-    headline.add_css_class("app-version");
-    headline.add_css_class("dim-label");
-    headline.set_halign(gtk4::Align::Center);
-    hero.append(&headline);
-
-    let tagline = gtk4::Label::new(Some(
-        "Bộ gõ tiếng Việt cho lập trình viên và mọi ứng dụng — Rust + bamboo-core",
-    ));
-    tagline.add_css_class("app-tagline");
-    tagline.set_halign(gtk4::Align::Center);
-    tagline.set_wrap(true);
-    tagline.set_justify(gtk4::Justification::Center);
-    tagline.set_margin_top(6);
-    hero.append(&tagline);
-    about.append(&hero);
-
-    section(&about, "Đặc điểm nổi bật", "");
-    about.append(&card(vec![
-        info_row(
-            "input-keyboard-symbolic",
-            "10 chế độ hiển thị",
-            "Preedit, Non-preedit, Surrounding + 3 mode uinput + 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
-        ),
-        info_row(
-            "network-workgroup-symbolic",
-            "URL thông minh",
-            "Từ ngay sau / : @ . _ ~ = # & % ? giữ nguyên, không thêm dấu",
-        ),
-        info_row(
-            "applications-system-symbolic",
-            "App Rules theo ứng dụng",
-            "Mỗi ứng dụng một chế độ — đổi bằng menu, hotkey hoặc cửa sổ này",
-        ),
-        info_row(
-            "insert-text-symbolic",
-            "Gõ tắt & macro",
-            "$TIME/$DATE, viết hoa thông minh, không kích hoạt nhầm từ Việt thật",
-        ),
-    ]));
-
-    section(&about, "Thông tin dự án", "");
-    about.append(&card(vec![
-        row_impl(
-            Some("web-browser-symbolic"),
-            "Mã nguồn GitHub",
-            "https://github.com/fundokukiri/ibus-mangrs",
-            Some(link_button("Mở", "https://github.com/fundokukiri/ibus-mangrs").upcast_ref()),
-        ),
-        info_row(
-            "avatar-default-symbolic",
-            "Tác giả",
-            "Phùng Đức Tùng (Fundoku)",
-        ),
-        row_impl(
-            Some("web-browser-symbolic"),
-            "Trang chủ",
-            "https://mangrs.fundoku.io.vn",
-            Some(link_button("Mở", "https://mangrs.fundoku.io.vn").upcast_ref()),
-        ),
-        info_row(
-            "help-about-symbolic",
-            "Giấy phép mã nguồn mở",
-            "GPL — phiên bản 3, chi tiết trong LICENSE",
-        ),
-        info_row(
-            "emblem-favorite-symbolic",
-            "Credits",
-            "Lõi gõ bamboo-core (MIT, bên thứ 3)",
-        ),
-    ]));
+    // ===== Page 7: Giới thiệu — feature highlights + the about dialog.
+    let about_page = pages::about::build();
 
     // Content: one page per section, crossfading. Stack names are stable —
     // the engine opens pages with `--page=<name>`.
@@ -165,52 +68,14 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         data_page.upcast_ref(),
         rules_page.upcast_ref(),
         advanced_page.upcast_ref(),
-        about.upcast_ref(),
+        about_page.upcast_ref(),
     ];
-    // Pages already on adw::PreferencesPage scroll internally; the plain gtk
-    // boxes keep the width-clamped scroll wrapper until they convert.
-    const ADW_PAGES: [&str; 5] = ["typing", "tone", "macros", "data", "advanced"];
     let stack = gtk4::Stack::new();
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
     stack.set_hexpand(true);
     for ((name, title, _icon), content) in PAGES.iter().zip(page_boxes) {
-        if ADW_PAGES.contains(name) {
-            stack.add_titled(content, Some(name), title);
-            continue;
-        }
-        // One centered column per page, 580px wide at most. GTK has no
-        // max-width, so symmetric margins cap it; they are derived from the
-        // content's own minimum width so the cap can never squeeze (and thus
-        // grow) the window.
-        let clamp = gtk4::Box::new(Orientation::Vertical, 0);
-        clamp.set_halign(gtk4::Align::Fill);
-        clamp.set_hexpand(true);
-        clamp.set_valign(gtk4::Align::Start);
-        clamp.set_margin_top(6);
-        clamp.set_margin_bottom(24);
-        clamp.set_margin_start(24);
-        clamp.set_margin_end(24);
-        content.set_halign(gtk4::Align::Fill);
-        content.set_hexpand(true);
-        clamp.append(content);
-        let scroll = gtk4::ScrolledWindow::new();
-        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-        scroll.set_child(Some(&clamp));
-        {
-            let clamp = clamp.clone();
-            let content = content.clone();
-            scroll.add_tick_callback(move |sc, _| {
-                let cap = 580.max(content.measure(Orientation::Horizontal, -1).0);
-                let margin = ((sc.width() - cap) / 2).max(24);
-                if clamp.margin_start() != margin {
-                    clamp.set_margin_start(margin);
-                    clamp.set_margin_end(margin);
-                }
-                gtk4::glib::ControlFlow::Continue
-            });
-        }
-        stack.add_titled(&scroll, Some(name), title);
+        stack.add_titled(content, Some(name), title);
     }
 
     // --- Adwaita shell: sidebar + content -----------------------------------
@@ -393,33 +258,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         .find(|(n, _)| n == wanted)
         .unwrap_or(&page_rows[0]);
     sidebar_list.select_row(Some(wanted_row));
-
-    // Transitional CSS for the pages that are still plain gtk boxes (the
-    // group-card look). It dies with the last page conversion; the shell
-    // itself uses only libadwaita styling.
-    let css = gtk4::CssProvider::new();
-    css.load_from_data(
-        ".group-card { background: alpha(currentColor, 0.06); border-radius: 14px; padding: 2px 0; } \
-         .group-card separator { background: alpha(currentColor, 0.08); min-height: 1px; } \
-         .group-card textview, .group-card textview text, .group-card scrolledwindow { background-color: transparent; } \
-         dropdown button, dropdown button:hover { background: none; box-shadow: none; border: none; } \
-         .app-icon { border-radius: 32px; padding: 10px; background: alpha(currentColor, 0.06); } \
-         .app-name { font-size: 30px; font-weight: bold; } \
-         .app-version { font-size: 17px; font-weight: bold; } \
-         .app-tagline { font-size: 16px; } \
-         .section-title { font-weight: bold; font-size: 18px; } \
-         .section-sub { font-size: 15px; opacity: 0.6; } \
-         .row-title { font-size: 16px; } \
-         .row-sub { font-size: 14px; opacity: 0.62; } \
-         .row-icon { opacity: 0.85; }",
-    );
-    if let Some(display) = gtk4::gdk::Display::default() {
-        gtk4::style_context_add_provider_for_display(
-            &display,
-            &css,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
 
     {
         let window_for_save = window.clone();

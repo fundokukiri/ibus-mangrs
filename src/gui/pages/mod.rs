@@ -6,6 +6,7 @@
 // page file can `use super::*;` and stay focused on its own widgets.
 use super::*;
 
+pub(super) mod about;
 pub(super) mod advanced;
 pub(super) mod data;
 pub(super) mod macros;
