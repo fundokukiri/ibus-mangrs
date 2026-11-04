@@ -7,13 +7,12 @@ use super::*;
 
 /// Surface a save/import failure in the window: an `eprintln!` is invisible
 /// from a GUI, and a silent failure looks exactly like a broken feature.
-pub(super) fn alert(window: &impl IsA<gtk4::Window>, text: &str) {
-    gtk4::AlertDialog::builder()
-        .modal(true)
-        .message("Không lưu được cấu hình")
-        .detail(text)
+pub(super) fn alert(window: &impl IsA<gtk4::Widget>, text: &str) {
+    adw::AlertDialog::builder()
+        .heading("Không lưu được cấu hình")
+        .body(text)
         .build()
-        .show(Some(window));
+        .present(Some(window));
 }
 
 /// Ask the focus extension for the focused window — the same session-bus
@@ -239,12 +238,6 @@ pub(super) fn row_impl(
     }
     // Hovering anywhere on the row explains the feature.
     h.set_tooltip_text(Some(&format!("{title}: {subtitle}")));
-    ROWS.with(|r| {
-        r.borrow_mut().push((
-            format!("{title} {subtitle}").to_lowercase(),
-            h.clone().upcast(),
-        ))
-    });
     h
 }
 

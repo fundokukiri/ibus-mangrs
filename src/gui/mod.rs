@@ -1,13 +1,13 @@
-//! GTK4 settings window, opened from the popup ("Cấu hình") or with
-//! `-gui`.
+//! GTK4 + libadwaita settings window, opened from the popup ("Cấu hình") or
+//! with `-gui`.
 //!
 //! Every control writes straight to `config.toml` (and `macros.toml` /
 //! `dictionary.txt`); the engine watches the config file mtime, so changes
 //! apply within a second without restarting ibus-daemon.
 //!
-//! Layout: header bar with [search] [pill tabs] [close], seven pages
-//! (Chung / Dấu & tự động / Gõ tắt / Dữ liệu / Luật / Tinh chỉnh /
-//! Giới thiệu), grouped cards.
+//! Layout: GNOME Settings style — a navigation sidebar on the left, one
+//! preferences page per section on the right. Seven pages: Chung /
+//! Dấu & tự động / Gõ tắt / Dữ liệu / Luật / Tinh chỉnh / Giới thiệu.
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
@@ -18,22 +18,22 @@ use crate::config::{
 };
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
+// The crate ships as `libadwaita`; every GNOME project calls it `adw`.
+use adw::prelude::*;
+use libadwaita as adw;
 // TreeView/TreeStore/ComboBoxText are deprecated since GTK 4.10 in favor of
 // ListView/DropDown, but they are the pragmatic editor widgets here: a tree
 // editor on ListView+TreeListModel would triple the code for no user gain.
 #[allow(deprecated)]
 use gtk4::{
-    Application, ApplicationWindow, CellRendererText, ComboBoxText, DropDown, Entry, Orientation,
-    Revealer, StringList, Switch, TextView, TreeIter, TreeStore, TreeView, TreeViewColumn,
+    CellRendererText, ComboBoxText, DropDown, Entry, Orientation, Revealer, StringList, Switch,
+    TextView, TreeIter, TreeStore, TreeView, TreeViewColumn,
 };
 
 thread_local! {
-    /// Every settings row (lowercase "title subtitle", widget) so the search
-    /// bar can hide the ones that do not match.
-    static ROWS: RefCell<Vec<(String, gtk4::Widget)>> = const { RefCell::new(Vec::new()) };
-    /// Each collapsible section's revealer plus its arrow label: the search
-    /// opens all of them while a query is active (rows inside a collapsed
-    /// section could never be found) and closes them again afterwards.
+    /// Each collapsible section's revealer plus its arrow label. GTK4 has no
+    /// Expander, so a section is a flat button over a Revealer; the registry
+    /// lets a section's own button keep the arrow in sync with the state.
     static COLLAPSIBLES: RefCell<Vec<(Revealer, gtk4::Label)>> =
         const { RefCell::new(Vec::new()) };
 }
@@ -147,7 +147,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // page (menu "Mở bảng gõ tắt…"); GTK parses argv itself and rejects
     // these arguments, so read them here and hand GTK an empty argv.
     let page = std::env::args().find_map(|a| a.strip_prefix("--page=").map(str::to_string));
-    let app = Application::builder()
+    let app = adw::Application::builder()
         .application_id("org.freedesktop.IBus.mangrs")
         .build();
     // GApplication is single-instance: a second launch activates the first
