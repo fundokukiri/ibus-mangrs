@@ -747,11 +747,11 @@ impl Ui {
         children_row.set_selectable(false);
         children_row.set_child(Some(&child_list));
         children_row.set_visible(expanded);
-        // The arrow and the row body both expand through one Ui call; the
-        // expanded set lives in the Ui, so a rebuild after a move keeps
-        // blocks open. Row activation (click or Enter) is wired on the
-        // list in panel.rs — the row name carries the design path.
-        header.set_widget_name(&menu_path_key(&path));
+        // The arrow expands directly; the row body expands through its
+        // own click gesture — the list's row-activated never fired for
+        // these rows. The gesture ignores clicks that land on the row's
+        // own buttons (arrow, row menu). The expanded set lives in the
+        // Ui, so a rebuild after a move keeps blocks open.
         let toggle = {
             let ui = self.clone();
             let path = path.clone();
@@ -762,6 +762,30 @@ impl Ui {
             let toggle = toggle.clone();
             move |_| toggle()
         });
+        {
+            let header_pick = header.clone();
+            let toggle = toggle.clone();
+            let gesture = gtk4::GestureClick::new();
+            gesture.connect_released(move |_, _, x, y| {
+                let Some(target) = header_pick.pick(x, y, gtk4::PickFlags::DEFAULT) else {
+                    return;
+                };
+                let mut node = target;
+                loop {
+                    if node.downcast_ref::<gtk4::Button>().is_some()
+                        || node.downcast_ref::<gtk4::MenuButton>().is_some()
+                    {
+                        return;
+                    }
+                    let Some(parent) = node.parent() else {
+                        break;
+                    };
+                    node = parent;
+                }
+                toggle();
+            });
+            header.add_controller(gesture);
+        }
         header.add_suffix(&arrow);
         header.add_suffix(&more);
         self.menu_drop_target(&header, path);
