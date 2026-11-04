@@ -7,16 +7,25 @@ pub(crate) fn build(ui: &Rc<Ui>) -> (adw::PreferencesPage, gtk4::Button) {
     let page = adw::PreferencesPage::new();
 
     let settings = adw::PreferencesGroup::builder()
-        .title("Gõ tắt")
-        .description("Mở rộng cụm tắt thành câu đầy đủ")
+        .title(t("groups.macros.settings.title", "Gõ tắt"))
+        .description(t(
+            "groups.macros.settings.description",
+            "Mở rộng cụm tắt thành câu đầy đủ",
+        ))
         .build();
     settings.add(&ui.macro_enabled);
     settings.add(&ui.capitalize_macro);
     settings.add(&ui.macro_in_off_mode);
-    let time = action_row("Định dạng giờ ($TIME)", "Ví dụ %H:%M");
+    let time = action_row(
+        &t("rows.time_format.title", "Định dạng giờ ($TIME)"),
+        &t("rows.time_format.subtitle", "Ví dụ %H:%M"),
+    );
     time.add_suffix(&ui.time_format);
     settings.add(&time);
-    let date = action_row("Định dạng ngày ($DATE)", "Ví dụ %d/%m/%Y");
+    let date = action_row(
+        &t("rows.date_format.title", "Định dạng ngày ($DATE)"),
+        &t("rows.date_format.subtitle", "Ví dụ %d/%m/%Y"),
+    );
     date.add_suffix(&ui.date_format);
     settings.add(&date);
     page.add(&settings);
@@ -25,16 +34,22 @@ pub(crate) fn build(ui: &Rc<Ui>) -> (adw::PreferencesPage, gtk4::Button) {
     // and the add row below appends a pair. The rows live in the shared
     // ListBox; the group wrapping it is page layout.
     let list_group = adw::PreferencesGroup::builder()
-        .title("Bảng gõ tắt")
-        .description("Mỗi cặp: khóa=Nội dung ($TIME, $DATE)")
+        .title(t("groups.macros.list.title", "Bảng gõ tắt"))
+        .description(t(
+            "groups.macros.list.description",
+            "Mỗi cặp: khóa=Nội dung ($TIME, $DATE)",
+        ))
         .build();
     list_group.add(&ui.macros_list);
     page.add(&list_group);
     let add_group = adw::PreferencesGroup::new();
-    let add_btn = gtk4::Button::with_label("Thêm gõ tắt");
+    let add_btn = gtk4::Button::with_label(&t("groups.macros.add.button", "Thêm gõ tắt"));
     let add_row = action_row(
-        "Thêm cặp mới",
-        "Khóa và nội dung trống — điền ngay sau khi thêm",
+        &t("groups.macros.add.title", "Thêm cặp mới"),
+        &t(
+            "groups.macros.add.subtitle",
+            "Khóa và nội dung trống — điền ngay sau khi thêm",
+        ),
     );
     add_btn.add_css_class("flat");
     add_row.add_suffix(&add_btn);

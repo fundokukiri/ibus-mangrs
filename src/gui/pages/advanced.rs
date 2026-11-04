@@ -14,8 +14,11 @@ pub(crate) fn build(
     // The uinput pacing applies to Smooth / Super Smooth / Select only; the
     // spin rows save on every value change like every other control.
     let pacing = adw::PreferencesGroup::builder()
-        .title("Tốc độ gõ (uinput)")
-        .description("Chỉ áp dụng cho Smooth / Super Smooth / Select")
+        .title(t("groups.advanced.pacing.title", "Tốc độ gõ (uinput)"))
+        .description(t(
+            "groups.advanced.pacing.description",
+            "Chỉ áp dụng cho Smooth / Super Smooth / Select",
+        ))
         .build();
     pacing.add(&ui.commit_interval);
     pacing.add(&ui.backspace_interval);
@@ -32,28 +35,57 @@ pub(crate) fn build(
     }
 
     let xim = adw::PreferencesGroup::builder()
-        .title("Tương thích X11/XIM")
-        .description("Cho app X11 trực tiếp và app XIM (Java/JetBrains)")
+        .title(t("groups.advanced.xim.title", "Tương thích X11/XIM"))
+        .description(t(
+            "groups.advanced.xim.description",
+            "Cho app X11 trực tiếp và app XIM (Java/JetBrains)",
+        ))
         .build();
     xim.add(&ui.x11_delete);
     xim.add(&ui.preedit_xim);
     page.add(&xim);
 
     let backup = adw::PreferencesGroup::builder()
-        .title("Sao lưu & khôi phục")
-        .description("Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng")
+        .title(t("groups.advanced.backup.title", "Sao lưu & khôi phục"))
+        .description(t(
+            "groups.advanced.backup.description",
+            "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng",
+        ))
         .build();
-    let export = action_row("Xuất cấu hình ra JSON", "Lưu ra file để mang đi");
+    let export = action_row(
+        &t("rows.export.title", "Xuất cấu hình ra JSON"),
+        &t("rows.export.subtitle", "Lưu ra file để mang đi"),
+    );
+    attach_info(
+        &export,
+        &t(
+            "tips.export",
+            "Lưu toàn bộ cấu hình, gõ tắt và từ điển ra một file JSON để mang sang máy khác.",
+        ),
+    );
     export.add_suffix(export_btn);
     backup.add(&export);
-    let import = action_row("Nhập cấu hình từ JSON", "Đọc lại từ file đã xuất");
+    let import = action_row(
+        &t("rows.import.title", "Nhập cấu hình từ JSON"),
+        &t("rows.import.subtitle", "Đọc lại từ file đã xuất"),
+    );
+    attach_info(
+        &import,
+        &t(
+            "tips.import",
+            "Đọc lại file JSON đã xuất: ghi đè cấu hình, gõ tắt và từ điển hiện tại.",
+        ),
+    );
     import.add_suffix(import_btn);
     backup.add(&import);
     page.add(&backup);
 
     let diagnostics = adw::PreferencesGroup::builder()
-        .title("Chẩn đoán")
-        .description("Ghi lại quyết định của engine để gỡ lỗi")
+        .title(t("groups.advanced.diagnostics.title", "Chẩn đoán"))
+        .description(t(
+            "groups.advanced.diagnostics.description",
+            "Ghi lại quyết định của engine để gỡ lỗi",
+        ))
         .build();
     diagnostics.add(&ui.debug_log);
     page.add(&diagnostics);
