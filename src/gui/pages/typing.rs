@@ -28,20 +28,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     enabled_hotkey.add_suffix(&ui.enabled_hotkey_label);
     enabled_hotkey.add_suffix(&ui.enabled_hotkey_edit);
     status.add(&enabled_hotkey);
-    attach_info(
-        &mode_hotkey,
-        &t(
-            "tips.hotkey_mode",
-            "Gán phím chuyển tuần tự qua các chế độ gõ. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
-        ),
-    );
-    attach_info(
-        &enabled_hotkey,
-        &t(
-            "tips.hotkey_enabled",
-            "Gán phím bật/tắt tiếng Việt nhanh. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
-        ),
-    );
+    mode_hotkey.set_tooltip_text(Some(&t(
+        "tips.hotkey_mode",
+        "Gán phím chuyển tuần tự qua các chế độ gõ. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
+    )));
+    enabled_hotkey.set_tooltip_text(Some(&t(
+        "tips.hotkey_enabled",
+        "Gán phím bật/tắt tiếng Việt nhanh. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
+    )));
     page.add(&status);
     // The recorder captures on the edit button (GNOME shortcut style) and
     // saves through the shared funnel handle.
