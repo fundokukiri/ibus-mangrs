@@ -115,15 +115,25 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     )));
     name_row.add_suffix(&pick);
     name_row.add_suffix(&use_focus);
-    // The mode element mirrors the app-name row above it: a titled
-    // native row, the action riding as its suffix.
-    let mode_row = combo_row(&t("rows.rule_mode.title", "Chế độ gõ"), "", MODES);
-    mode_row.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
+    // No title: the dropdown's own value text sits at the row start, and
+    // both controls expand evenly so the row reads balanced.
+    let mode_pick = gtk4::DropDown::new(Some(StringList::new(MODES)), gtk4::Expression::NONE);
+    mode_pick.set_selected(1);
+    mode_pick.set_hexpand(true);
+    mode_pick.set_valign(gtk4::Align::Fill);
+    mode_pick.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
     let add_btn = gtk4::Button::with_label(&t("rules.add_button", "Thêm luật"));
     add_btn.add_css_class("suggested-action");
-    add_btn.set_valign(gtk4::Align::Center);
+    add_btn.set_hexpand(true);
+    add_btn.set_valign(gtk4::Align::Fill);
     add_btn.set_sensitive(false);
-    mode_row.add_suffix(&add_btn);
+    let mode_row = gtk4::Box::new(Orientation::Horizontal, 12);
+    mode_row.set_margin_start(12);
+    mode_row.set_margin_end(12);
+    mode_row.set_margin_top(8);
+    mode_row.set_margin_bottom(8);
+    mode_row.append(&mode_pick);
+    mode_row.append(&add_btn);
     add_group.add(&name_row);
     add_group.add(&mode_row);
     page.add(&add_group);
@@ -183,13 +193,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     {
         let ui = ui.clone();
         let name_row = name_row.clone();
-        let mode_row = mode_row.clone();
+        let mode_pick = mode_pick.clone();
         add_btn.connect_clicked(move |_| {
             let pattern = name_row.text().trim().to_string();
             if pattern.is_empty() {
                 return;
             }
-            let mode = mode_at(mode_row.selected());
+            let mode = mode_at(mode_pick.selected());
             ui.edit_rules(move |rules| {
                 rules.push(crate::config::AppRule { pattern, mode });
             });
