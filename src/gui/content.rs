@@ -25,8 +25,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
 
     // --- pages: grouped-card settings style (section header + cards) ---
 
-    let export_btn = gtk4::Button::with_label("Xuất…");
-    let import_btn = gtk4::Button::with_label("Nhập…");
+    let export_btn = gtk4::Button::with_label(&t("misc.export_button", "Xuất…"));
+    let import_btn = gtk4::Button::with_label(&t("misc.import_button", "Nhập…"));
 
     // ===== Page 1: Chung — the everyday page, on its own preferences file.
     let typing_page = pages::typing::build(&ui);
@@ -55,16 +55,48 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // Content: one page per section, crossfading. Stack names are stable —
     // the engine opens pages with `--page=<name>`.
     // (stack name, sidebar label, symbolic icon from the icon theme)
-    const PAGES: [(&str, &str, &str); 8] = [
-        ("typing", "Chung", "input-keyboard-symbolic"),
-        ("tone", "Dấu & tự động", "tools-check-spelling-symbolic"),
-        ("macros", "Gõ tắt", "insert-text-symbolic"),
-        ("data", "Từ điển", "accessories-dictionary-symbolic"),
-        ("rules", "Luật", "view-list-symbolic"),
-        ("panel", "Menu panel", "document-edit-symbolic"),
-        ("advanced", "Tinh chỉnh", "emblem-system-symbolic"),
-        ("about", "Giới thiệu", "help-about-symbolic"),
+    let pages: [(&str, String, &str); 8] = [
+        (
+            "typing",
+            t("pages.typing", "Chung"),
+            "input-keyboard-symbolic",
+        ),
+        (
+            "tone",
+            t("pages.tone", "Dấu & tự động"),
+            "tools-check-spelling-symbolic",
+        ),
+        (
+            "macros",
+            t("pages.macros", "Gõ tắt"),
+            "insert-text-symbolic",
+        ),
+        (
+            "data",
+            t("pages.data", "Từ điển"),
+            "accessories-dictionary-symbolic",
+        ),
+        ("rules", t("pages.rules", "Luật"), "view-list-symbolic"),
+        (
+            "panel",
+            t("pages.panel", "Menu panel"),
+            "document-edit-symbolic",
+        ),
+        (
+            "advanced",
+            t("pages.advanced", "Tinh chỉnh"),
+            "emblem-system-symbolic",
+        ),
+        (
+            "about",
+            t("pages.about", "Giới thiệu"),
+            "help-about-symbolic",
+        ),
     ];
+    let pages_refs: [(&str, &str, &str); 8] = std::array::from_fn(|i| {
+        let (name, title, icon) = &pages[i];
+        (*name, title.as_str(), *icon)
+    });
     let page_boxes: [&gtk4::Widget; 8] = [
         typing_page.upcast_ref(),
         tone_page.upcast_ref(),
@@ -79,7 +111,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
     stack.set_hexpand(true);
-    for ((name, title, _icon), content) in PAGES.iter().zip(page_boxes) {
+    for ((name, title, _icon), content) in pages_refs.iter().zip(page_boxes) {
         stack.add_titled(content, Some(name), title);
     }
 
@@ -99,7 +131,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     {
         let b = gtk4::Box::new(Orientation::Horizontal, 8);
         b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
-        b.append(&gtk4::Label::new(Some("Khởi động lại IBus")));
+        b.append(&gtk4::Label::new(Some(&t(
+            "misc.restart_button",
+            "Khởi động lại IBus",
+        ))));
         restart_btn.set_child(Some(&b));
     }
     restart_btn.add_css_class("suggested-action");
@@ -122,7 +157,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     let sidebar_list = gtk4::ListBox::new();
     sidebar_list.add_css_class("navigation-sidebar");
     let mut page_rows: Vec<(String, gtk4::ListBoxRow)> = Vec::new();
-    for (name, title, icon) in PAGES {
+    for (name, title, icon) in pages_refs {
         if name == "rules" || name == "about" {
             let sep_row = gtk4::ListBoxRow::new();
             sep_row.set_selectable(false);
@@ -147,20 +182,28 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         sidebar_list.append(&row);
         page_rows.push((name.to_string(), row.clone()));
     }
+    // Owned copies for the 'static signal handlers (the const PAGES they
+    // replaced lives only in the content file now).
+    let app_name = t("app.name", "MăngRS");
+    let page_titles: Vec<(String, String)> = pages
+        .iter()
+        .map(|(name, title, _)| (name.to_string(), title.clone()))
+        .collect();
     {
         let stack = stack.clone();
         let title_label = title_label.clone();
         let split_view = split_view.clone();
+        let app_name = app_name.clone();
         sidebar_list.connect_row_selected(move |_, some_row| {
             let Some(row) = some_row else {
                 return;
             };
             let name = row.widget_name().to_string();
-            let title = PAGES
+            let title = page_titles
                 .iter()
-                .find(|(n, _, _)| *n == name)
-                .map(|(_, t, _)| *t)
-                .unwrap_or("MăngRS");
+                .find(|(n, _)| *n == name)
+                .map(|(_, title)| title.as_str())
+                .unwrap_or(&app_name);
             stack.set_visible_child_name(&name);
             title_label.set_text(title);
             // Picking a page while collapsed shows the content again, like
@@ -172,7 +215,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     }
 
     let sidebar_page = adw::NavigationPage::builder()
-        .title("MăngRS")
+        .title(&app_name)
         .child(&sidebar_list)
         .build();
 
@@ -191,11 +234,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // jumps to that page through the sidebar (title and selection stay in
     // sync). The index is built once from the finished page trees.
     let search_btn = gtk4::Button::from_icon_name("system-search-symbolic");
-    search_btn.set_tooltip_text(Some("Tìm chức năng trong mọi trang"));
+    search_btn.set_tooltip_text(Some(&t("search.tooltip", "Tìm chức năng trong mọi trang")));
     header.pack_start(&search_btn);
 
     let search_entry = gtk4::SearchEntry::new();
-    search_entry.set_placeholder_text(Some("Tìm chức năng…"));
+    search_entry.set_placeholder_text(Some(&t("search.placeholder", "Tìm chức năng…")));
     search_entry.set_hexpand(true);
     let search_bar = gtk4::SearchBar::new();
     search_bar.set_search_mode(false);
@@ -206,7 +249,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     let results_list = gtk4::ListBox::new();
     results_list.add_css_class("boxed-list");
     results_list.set_selection_mode(gtk4::SelectionMode::None);
-    let no_results = gtk4::Label::new(Some("Không có kết quả"));
+    let no_results = gtk4::Label::new(Some(&t("search.none", "Không có kết quả")));
     no_results.add_css_class("dim-label");
     let results_box = gtk4::Box::new(Orientation::Vertical, 12);
     // Opaque page background so the results cover the stack underneath.
@@ -226,14 +269,14 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // One hit per page (jump target) plus every named row inside it.
     struct SearchHit {
         page_name: &'static str,
-        page_title: &'static str,
+        page_title: String,
         title: String,
         subtitle: String,
     }
     fn collect_rows(
         w: &gtk4::Widget,
         page_name: &'static str,
-        page_title: &'static str,
+        page_title: &str,
         out: &mut Vec<SearchHit>,
     ) {
         if let Some(row) = w.downcast_ref::<adw::PreferencesRow>() {
@@ -246,7 +289,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                     .unwrap_or_default();
                 out.push(SearchHit {
                     page_name,
-                    page_title,
+                    page_title: page_title.to_string(),
                     title,
                     subtitle,
                 });
@@ -259,12 +302,12 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         }
     }
     let mut index: Vec<SearchHit> = Vec::new();
-    for ((name, title, _), content) in PAGES.iter().zip(&page_boxes) {
+    for ((name, title, _), content) in pages_refs.iter().zip(&page_boxes) {
         index.push(SearchHit {
             page_name: name,
-            page_title: title,
+            page_title: (*title).to_string(),
             title: (*title).to_string(),
-            subtitle: "Trang".to_string(),
+            subtitle: t("search.page_kind", "Trang"),
         });
         collect_rows(content, name, title, &mut index);
     }
@@ -300,7 +343,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                 title.set_halign(gtk4::Align::Start);
                 title.set_hexpand(true);
                 title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-                let page = gtk4::Label::new(Some(hit.page_title));
+                let page = gtk4::Label::new(Some(hit.page_title.as_str()));
                 page.add_css_class("dim-label");
                 b.append(&title);
                 b.append(&page);
@@ -353,7 +396,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     content_toolbar.add_top_bar(&header);
     content_toolbar.set_content(Some(&page_overlay));
     let content_page = adw::NavigationPage::builder()
-        .title("MăngRS")
+        .title(&app_name)
         .child(&content_toolbar)
         .build();
 
@@ -362,7 +405,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
 
     let window = adw::ApplicationWindow::builder()
         .application(app)
-        .title("MăngRS")
+        .title(&app_name)
         .default_width(980)
         .default_height(720)
         .content(&split_view)
@@ -532,7 +575,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         let window = window.clone();
         export_btn.connect_clicked(move |_| {
             let dialog = gtk4::FileDialog::builder()
-                .title("Xuất cấu hình")
+                .title(t("misc.export_dialog", "Xuất cấu hình"))
                 .modal(true)
                 .initial_name("ibus-mangrs-backup.json")
                 .build();
@@ -560,7 +603,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         let restart_for_import = restart_btn.clone();
         import_btn.connect_clicked(move |_| {
             let dialog = gtk4::FileDialog::builder()
-                .title("Nhập cấu hình")
+                .title(t("misc.import_dialog", "Nhập cấu hình"))
                 .modal(true)
                 .build();
             let ui = ui.clone();
@@ -593,7 +636,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             match std::process::Command::new("ibus").arg("restart").spawn() {
                 Ok(_) => {
                     btn.set_visible(false);
-                    toast_overlay.add_toast(adw::Toast::new("Đã khởi động lại IBus"));
+                    toast_overlay.add_toast(adw::Toast::new(&t(
+                        "misc.restart_toast",
+                        "Đã khởi động lại IBus",
+                    )));
                 }
                 Err(e) => alert(&window, &format!("Không khởi động lại được IBus: {e}")),
             }

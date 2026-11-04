@@ -10,16 +10,22 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // ::QUICK_TOGGLES): a toggle ticked in the panel menu must be findable
     // under the same name here.
     let tones = adw::PreferencesGroup::builder()
-        .title("Dấu thanh")
-        .description("Kiểu đặt dấu trên nguyên âm")
+        .title(t("groups.tone.tones.title", "Dấu thanh"))
+        .description(t(
+            "groups.tone.tones.description",
+            "Kiểu đặt dấu trên nguyên âm",
+        ))
         .build();
     tones.add(&ui.modern);
     tones.add(&ui.free);
     page.add(&tones);
 
     let spelling = adw::PreferencesGroup::builder()
-        .title("Chính tả")
-        .description("Sửa lỗi và khôi phục từ")
+        .title(t("groups.tone.spelling.title", "Chính tả"))
+        .description(t(
+            "groups.tone.spelling.description",
+            "Sửa lỗi và khôi phục từ",
+        ))
         .build();
     spelling.add(&ui.auto_correct);
     spelling.add(&ui.auto_restore);
@@ -28,16 +34,22 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     page.add(&spelling);
 
     let automatic = adw::PreferencesGroup::builder()
-        .title("Tự động")
-        .description("Viết hoa và dấu câu tự động")
+        .title(t("groups.tone.auto.title", "Tự động"))
+        .description(t(
+            "groups.tone.auto.description",
+            "Viết hoa và dấu câu tự động",
+        ))
         .build();
     automatic.add(&ui.auto_capitalize);
     automatic.add(&ui.double_space);
     page.add(&automatic);
 
     let special = adw::PreferencesGroup::builder()
-        .title("Ký tự đặc biệt")
-        .description("Chuyển đổi phím tắt ký tự")
+        .title(t("groups.tone.special.title", "Ký tự đặc biệt"))
+        .description(t(
+            "groups.tone.special.description",
+            "Chuyển đổi phím tắt ký tự",
+        ))
         .build();
     special.add(&ui.w2u);
     special.add(&ui.bracket);

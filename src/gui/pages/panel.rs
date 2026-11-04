@@ -10,12 +10,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
     let menu = adw::PreferencesGroup::builder()
-        .title("Menu trên panel")
-        .description(
+        .title(t("groups.panel.menu.title", "Menu trên panel"))
+        .description(t(
+            "groups.panel.menu.description",
             "Tự thiết kế menu popup — Bảng mã / Kiểu gõ / Chế độ gõ cũng chỉnh được mục bên trong",
-        )
+        ))
         .build();
-    let menu_add_btn = gtk4::Button::with_label("Thêm");
+    let menu_add_btn = gtk4::Button::with_label(&t("panel.add_button", "Thêm"));
     menu_add_btn.add_css_class("suggested-action");
     let row1 = gtk4::Box::new(Orientation::Horizontal, 8);
     row1.set_margin_start(10);
@@ -34,12 +35,30 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     menu_del_btn.add_css_class("flat");
     let menu_reset_btn = gtk4::Button::from_icon_name("view-refresh-symbolic");
     menu_reset_btn.add_css_class("flat");
-    menu_reset_btn.set_tooltip_text(Some("Đặt lại menu về thiết kế mặc định"));
+    menu_reset_btn.set_tooltip_text(Some(&t(
+        "panel.reset_tooltip",
+        "Đặt lại menu về thiết kế mặc định",
+    )));
     for (btn, tip) in [
-        (&menu_up_btn, "Lên — đổi thứ tự mục đang chọn"),
-        (&menu_down_btn, "Xuống"),
-        (&menu_out_btn, "Ra ngoài thư mục (chỉ con của thư mục)"),
-        (&menu_del_btn, "Xoá mục đang chọn (thư mục phải rỗng)"),
+        (
+            &menu_up_btn,
+            &t("panel.up_tooltip", "Lên — đổi thứ tự mục đang chọn"),
+        ),
+        (&menu_down_btn, &t("panel.down_tooltip", "Xuống")),
+        (
+            &menu_out_btn,
+            &t(
+                "panel.out_tooltip",
+                "Ra ngoài thư mục (chỉ con của thư mục)",
+            ),
+        ),
+        (
+            &menu_del_btn,
+            &t(
+                "panel.delete_tooltip",
+                "Xoá mục đang chọn (thư mục phải rỗng)",
+            ),
+        ),
     ] {
         btn.set_tooltip_text(Some(tip));
     }
@@ -63,9 +82,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // Rename lives on the tree itself, not a separate form: double-click or
     // press-and-hold the selected root folder. The tooltip makes the
     // gesture discoverable — there is no visible button for it.
-    ui.menu_view.set_tooltip_text(Some(
+    ui.menu_view.set_tooltip_text(Some(&t(
+        "groups.panel.menu.rename_tooltip",
         "Nhấp đôi hoặc giữ chuột vào thư mục (cấp đầu) để đổi tên",
-    ));
+    )));
     page.add(&menu);
 
     // The editor buttons mutate the tree, then save through the shared
@@ -160,12 +180,12 @@ fn open_folder_rename(ui: &Rc<Ui>, view: &TreeView) {
         .activates_default(true)
         .build();
     let dialog = adw::AlertDialog::builder()
-        .heading("Đổi tên thư mục")
-        .body("Nhập tên mới cho thư mục đang chọn")
+        .heading(t("panel.rename_heading", "Đổi tên thư mục"))
+        .body(t("panel.rename_body", "Nhập tên mới cho thư mục đang chọn"))
         .extra_child(&entry)
         .build();
-    dialog.add_response("cancel", "Hủy");
-    dialog.add_response("apply", "Đổi tên");
+    dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
+    dialog.add_response("apply", &t("panel.rename_apply", "Đổi tên"));
     dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("apply"));
     dialog.set_close_response("cancel");

@@ -9,7 +9,7 @@ use super::*;
 /// from a GUI, and a silent failure looks exactly like a broken feature.
 pub(super) fn alert(window: &impl IsA<gtk4::Widget>, text: &str) {
     adw::AlertDialog::builder()
-        .heading("Không lưu được cấu hình")
+        .heading(t("misc.save_alert_heading", "Không lưu được cấu hình"))
         .body(text)
         .build()
         .present(Some(window));
@@ -20,7 +20,9 @@ pub(super) fn alert(window: &impl IsA<gtk4::Widget>, text: &str) {
 pub(super) fn focused_app_name() -> Result<(String, String), String> {
     let conn =
         gtk4::gio::bus_get_sync(gtk4::gio::BusType::Session, None::<&gtk4::gio::Cancellable>)
-            .map_err(|e| format!("Không nối được D-Bus: {e}"))?;
+            .map_err(|e| {
+                t("misc.dbus_error", "Không nối được D-Bus: {e}").replace("{e}", &e.to_string())
+            })?;
     let reply = conn
         .call_sync(
             Some(crate::server::FOCUS_EXT_NAME),
@@ -34,13 +36,16 @@ pub(super) fn focused_app_name() -> Result<(String, String), String> {
             None::<&gtk4::gio::Cancellable>,
         )
         .map_err(|_| {
-            "Không hỏi được extension MăngRS Focus (data/gnome-shell-extension)".to_string()
+            t(
+                "misc.focus_ext_error",
+                "Không hỏi được extension MăngRS Focus (data/gnome-shell-extension)",
+            )
         })?;
     let (class, title) = reply
         .get::<(String, String)>()
         .ok_or("Extension trả dữ liệu không đúng dạng")?;
     if class.is_empty() {
-        return Err("Không có cửa sổ nào đang focus".to_string());
+        return Err(t("misc.focus_none", "Không có cửa sổ nào đang focus"));
     }
     Ok((class, title))
 }
@@ -123,6 +128,32 @@ pub(super) fn text_view(content: &str) -> TextView {
         .build();
     view.buffer().set_text(content);
     view
+}
+
+/// The "(?)" marker: a small flat question icon in the row that explains
+/// the setting on hover (tooltip) or click (dialog). The long text comes
+/// from the content file, so the owner tunes it without code.
+pub(super) fn attach_info<W: IsA<gtk4::Widget> + IsA<adw::ActionRow> + IsA<adw::PreferencesRow>>(
+    row: &W,
+    text: &str,
+) {
+    let btn = gtk4::Button::from_icon_name("dialog-question-symbolic");
+    btn.add_css_class("flat");
+    btn.set_tooltip_text(Some(text));
+    btn.set_valign(gtk4::Align::Center);
+    {
+        let title = row.upcast_ref::<adw::PreferencesRow>().title().to_string();
+        let text = text.to_string();
+        btn.connect_clicked(move |b| {
+            let dialog = adw::AlertDialog::builder()
+                .heading(&title)
+                .body(&text)
+                .build();
+            dialog.add_response("ok", &t("misc.info_ok", "Đã hiểu"));
+            dialog.present(b.root().and_downcast::<gtk4::Window>().as_ref());
+        });
+    }
+    row.add_suffix(&btn);
 }
 
 /// A link that opens in the default browser, drawn as a flat icon —
