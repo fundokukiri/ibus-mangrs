@@ -203,15 +203,6 @@ pub(super) fn card(rows: Vec<gtk4::Box>) -> gtk4::Box {
     c
 }
 
-/// A card holding a single control (text views, the quick-add row).
-pub(super) fn card_widget(widget: &impl IsA<gtk4::Widget>) -> gtk4::Box {
-    let c = gtk4::Box::new(Orientation::Vertical, 0);
-    c.add_css_class("group-card");
-    c.set_margin_bottom(6);
-    c.append(widget);
-    c
-}
-
 /// Generic settings row: optional leading icon, title + small dim subtitle,
 /// optional control on the right. Registered for the search bar.
 pub(super) fn row_impl(
@@ -260,26 +251,4 @@ pub(super) fn row_impl(
 /// A settings row: title + small dim subtitle on the left, control right.
 pub(super) fn pref_row(title: &str, subtitle: &str, widget: &impl IsA<gtk4::Widget>) -> gtk4::Box {
     row_impl(None, title, subtitle, Some(widget.upcast_ref()))
-}
-
-/// Icon + title + subtitle, no control — feature/project lists on About.
-pub(super) fn info_row(icon: &str, title: &str, subtitle: &str) -> gtk4::Box {
-    row_impl(Some(icon), title, subtitle, None)
-}
-
-pub(super) fn hint(box_: &gtk4::Box, text: &str) {
-    // Small and dimmed: hints explain the row above, they must not compete
-    // with it. markup_escape_text because some hints contain < > &.
-    let l = gtk4::Label::new(None);
-    l.set_use_markup(true);
-    l.set_markup(&format!(
-        "<small>{}</small>",
-        gtk4::glib::markup_escape_text(text)
-    ));
-    l.set_halign(gtk4::Align::Start);
-    l.set_xalign(0.0);
-    l.set_wrap(true);
-    l.add_css_class("dim-label");
-    l.set_margin_start(4);
-    box_.append(&l);
 }
