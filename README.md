@@ -67,15 +67,16 @@ are intended for X11 sessions).
 
 ## Requirements
 
-| Distro          | Packages                                     |
-| --------------- | -------------------------------------------- |
-| Arch            | `ibus` `gtk4` (build: `rust`)                |
-| Debian / Ubuntu | `ibus` `libgtk-4-dev` (build: `cargo rustc`) |
-| Fedora          | `ibus` `gtk4-devel` (build: `rust cargo`)    |
-| openSUSE        | `ibus` `gtk4-devel` (build: `rust cargo`)    |
+| Distro          | Installed by the one-line installer                 |
+| --------------- | --------------------------------------------------- |
+| Arch            | `ibus` `gtk4` `dbus`, `gcc` `make` `pkgconf`        |
+| Debian / Ubuntu | `ibus` `libgtk-4-dev` `libdbus-1-dev`, build-essential |
+| Fedora          | `ibus` `gtk4-devel` `dbus-devel`, `gcc` `make`      |
 
-The exact package names above are the standard ones but are **unverified on those distros** —
-only the Arch line is tested. IBus must be your active input-method framework (on GNOME it is).
+The installer detects the distro (apt / pacman / dnf), installs only what is missing and leaves
+Rust to rustup; GTK 4.10+ is required (Ubuntu 22.04 ships 4.6). Only the Arch path is tested —
+the Debian/Ubuntu and Fedora package names are the standard ones but unverified there. IBus must
+be your active input-method framework (on GNOME it is).
 
 ## Build
 
@@ -90,26 +91,22 @@ The engine core comes from the `bamboo-core` crate on crates.io. Source browsing
 
 ### One-line install (online)
 
-Downloads the source, builds it and installs — needs `curl`, Rust (`cargo`), `ibus`, `gtk4` and
-`sudo`; the `/dev/uinput` udev rule and `input` group are set up for you:
+Downloads the source, builds it and installs; missing build dependencies (IBus, GTK4, the build
+toolchain, Rust) are installed for you, so only `curl` and `sudo` are needed up front. The
+`/dev/uinput` udev rule and the `input` group are set up too:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/dev/scripts/install-online.sh | sh
+curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
 ```
 
 (Piping a script to `sh` runs code from the network — review it first if that matters to you.)
 
 ### From a local checkout
 
-One step (build + install + restart IBus):
+Build, install and restart IBus:
 
 ```sh
-./scripts/autoinstall.sh
-```
-
-Or manually:
-
-```sh
+cargo build --release --features gui
 sudo ./scripts/install.sh
 ibus restart
 ```
@@ -230,7 +227,7 @@ for apps that reach the engine in unusual ways:
 
 | Switch                            | `config.toml`               | What it does                                                                                                                                                                                                                                                                                                                                                                                   |
 | --------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Xoá không cần báo cáo surrounding | `x11_delete_without_report` | Lets a direct X11 client (Sublime Text, other GTK3 X11 apps) delete the rewritten tail over IBus even though it never reported its text — what ibus-bamboo does. Without it those clients keep the raw keystrokes when real-key injection is unavailable (`tungf`). Risk: without a report the delete count is unclamped, so a caret moved behind the engine's back can lose a few characters. |
+| Delete without reporting surrounding elements | `x11_delete_without_report` | Lets a direct X11 client (Sublime Text, other GTK3 X11 apps) delete the rewritten tail over IBus even though it never reported its text — what ibus-bamboo does. Without it those clients keep the raw keystrokes when real-key injection is unavailable (`tungf`). Risk: without a report the delete count is unclamped, so a caret moved behind the engine's back can lose a few characters. |
 | Preedit cho app XIM               | `preedit_for_xim`           | Keeps the underlined mode for XIM clients (JetBrains and other Java apps, which all report the fixed name `xim`). XIM servers draw the composing text in their own window and commit it at the word end. Without it those apps cannot use the default mode at all and need a `forwardkeyevent` rule. Risk: an app that negotiated `XIMPreeditNothing` shows nothing until the word ends.       |
 
 ## Configuration files

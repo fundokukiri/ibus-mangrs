@@ -28,7 +28,13 @@ ibus write-cache --system 2>/dev/null || true
 # comes from the desktop file matching the app id, not from the binary).
 install -Dm644 "$here/data/logo.png"     "$PREFIX/share/icons/hicolor/512x512/apps/ibus-mangrs.png"
 install -Dm644 "$here/data/org.freedesktop.IBus.mangrs.desktop"     "$PREFIX/share/applications/org.freedesktop.IBus.mangrs.desktop"
-gtk-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+# GTK4 ships the tool as gtk4-update-icon-cache; the GTK3 name only exists
+# where GTK3 is installed, so try both instead of silently skipping the cache.
+if command -v gtk4-update-icon-cache >/dev/null; then
+    gtk4-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+elif command -v gtk-update-icon-cache >/dev/null; then
+    gtk-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+fi
 update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
 
 # /dev/uinput permission for the backspace injector (docs/install.md).
