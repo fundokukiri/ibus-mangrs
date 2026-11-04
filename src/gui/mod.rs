@@ -21,21 +21,8 @@ use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
 // The crate ships as `libadwaita`; every GNOME project calls it `adw`.
 use adw::prelude::*;
+use gtk4::{Entry, Orientation, StringList, TextView};
 use libadwaita as adw;
-// TreeView/TreeStore/ComboBoxText are deprecated since GTK 4.10 in favor of
-// ListView/DropDown, but they are the pragmatic editor widgets here: a tree
-// editor on ListView+TreeListModel would triple the code for no user gain.
-#[allow(deprecated)]
-use gtk4::{
-    CellRendererText, ComboBoxText, Entry, Orientation, StringList, TextView, TreeIter, TreeStore,
-    TreeView, TreeViewColumn,
-};
-
-// Panel-menu editor store columns.
-const MENU_COL_KIND: u32 = 0;
-const MENU_COL_KEY: u32 = 1;
-const MENU_COL_LABEL: u32 = 2;
-const MENU_COL_KIND_LABEL: u32 = 3;
 
 /// (kind id, key, display label, Vietnamese kind label) for one node.
 fn menu_row(node: &MenuNode) -> (String, String, String, String) {
@@ -97,16 +84,6 @@ fn menu_action_label(key: &str) -> String {
         "settings" => t("menu.action_settings", "Cấu hình"),
         "about" => t("menu.action_about", "Giới thiệu (About)"),
         other => other.into(),
-    }
-}
-
-/// (display label, kind label) for a picker id "kind:key".
-fn menu_item_label(kind: &str, key: &str) -> (String, String) {
-    match kind {
-        "toggle" => (menu_toggle_label(key), "Bật/tắt".into()),
-        "radios" => (menu_radios_label(key), "Nhóm chọn".into()),
-        "action" => (menu_action_label(key), "Chức năng".into()),
-        _ => ("— phân cách —".into(), "Gạch ngang".into()),
     }
 }
 
@@ -190,7 +167,6 @@ const CHARSETS: &[&str] = &[
 const ON_OFF_MODES: &[&str] = &["Tắt", "Trừ đầu từ", "Mọi vị trí"];
 const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
 
-#[allow(deprecated)] // TreeStore/TreeView/ComboBoxText, see the import above
 struct Ui {
     enabled: adw::SwitchRow,
     method: adw::ComboRow,
@@ -260,12 +236,12 @@ struct Ui {
     backspace_interval: adw::SpinRow,
     post_delay: adw::SpinRow,
     unicode_channel: adw::ComboRow,
-    /// The panel-menu editor: a 4-column store (kind id, key, label, kind
-    /// label), its view and the "add" type picker. Folders nest one level
-    /// at most, matching `config::MenuNode`.
-    menu_store: TreeStore,
-    menu_view: TreeView,
-    menu_kind: ComboBoxText,
+    /// The panel-menu editor: the design vector is the source of truth
+    /// (`read` clones it, so the round-trip holds without walking rows);
+    /// the boxed list is its view, rebuilt on every edit. Folders nest one
+    /// level at most, matching `config::MenuNode`.
+    menu: Rc<RefCell<Vec<MenuNode>>>,
+    menu_box: gtk4::ListBox,
 }
 
 /// One macro editor row's widgets.
@@ -276,6 +252,98 @@ struct MacroRow {
 
 /// The save funnel handle shared between `Ui` and the rule-row closures.
 type SharedSave = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
+
+/// Where a picked menu item lands: root end, or inside one root container
+/// (a folder takes generic items, a radio group only its own entries).
+#[derive(Clone)]
+pub(crate) enum MenuScope {
+    Root,
+    Container(Vec<usize>),
+}
+
+/// "0.2.1"-style key so a drag payload carries the row's design position.
+fn menu_path_key(path: &[usize]) -> String {
+    path.iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// Inverse of `menu_path_key`.
+fn menu_parse_key(key: &str) -> Option<Vec<usize>> {
+    key.split('.')
+        .map(|p| p.parse().ok())
+        .collect::<Option<Vec<_>>>()
+}
+
+/// The swap target for one reorder step, or None at the list ends.
+fn menu_step(idx: usize, delta: isize, len: usize) -> Option<usize> {
+    match delta.signum() {
+        -1 => idx.checked_sub(1),
+        _ => Some(idx + 1).filter(|&p| p < len),
+    }
+}
+
+/// Rename a root folder through a small dialog. Only root-level folders
+/// are renamable: entries inside keep their built-in labels, and children
+/// of folders already sit where their parent design put them.
+fn menu_rename_dialog(ui: &Rc<Ui>, path: &[usize], current: &str, parent: &gtk4::Widget) {
+    let entry = Entry::builder()
+        .text(current)
+        .activates_default(true)
+        .build();
+    let dialog = adw::AlertDialog::builder()
+        .heading(t("panel.rename_heading", "Đổi tên thư mục"))
+        .body(t("panel.rename_body", "Nhập tên mới cho thư mục đang chọn"))
+        .extra_child(&entry)
+        .build();
+    dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
+    dialog.add_response("apply", &t("panel.rename_apply", "Đổi tên"));
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("apply"));
+    dialog.set_close_response("cancel");
+    {
+        let ui = ui.clone();
+        let path = path.to_vec();
+        let entry = entry.clone();
+        dialog.connect_response(Some("apply"), move |_, _| {
+            if ui.menu_rename(&path, entry.text().trim()) {
+                ui.fill_menu_list();
+                ui.fire_save();
+            }
+        });
+    }
+    dialog.present(parent.root().and_downcast::<gtk4::Window>().as_ref());
+}
+
+/// Mirror of the old tree-store read: folders keep one level — a nested
+/// folder or radio group survives as an empty node, which the engine
+/// skips anyway — and root radio groups keep their entry keys.
+fn normalize_menu(nodes: &[MenuNode]) -> Vec<MenuNode> {
+    nodes
+        .iter()
+        .map(|node| match node {
+            MenuNode::Folder { label, children } => MenuNode::Folder {
+                label: label.clone(),
+                children: children
+                    .iter()
+                    .map(|child| match child {
+                        MenuNode::Folder { label, .. } => MenuNode::Folder {
+                            label: label.clone(),
+                            children: Vec::new(),
+                        },
+                        MenuNode::Radios { group, .. } => MenuNode::Radios {
+                            group: group.clone(),
+                            children: Vec::new(),
+                        },
+                        other => other.clone(),
+                    })
+                    .collect(),
+            },
+            other => other.clone(),
+        })
+        .collect()
+}
 
 fn method_index(m: MethodConfig) -> u32 {
     match m {
@@ -344,7 +412,6 @@ fn on_off_index<T: PartialEq>(value: &T, disabled: T, nonstart: T) -> u32 {
     }
 }
 
-#[allow(deprecated)]
 impl Ui {
     /// Push a config (plus the two text lists) into every widget. This is the
     /// only config → widget mapping: the initial build and the import both go
@@ -407,7 +474,9 @@ impl Ui {
                 crate::config::UnicodeChannel::Clipboard => 1,
                 crate::config::UnicodeChannel::Commit => 0,
             });
-        self.fill_menu_store(config.menu.as_deref().unwrap_or(&config.default_menu()));
+        let menu = config.menu.clone().unwrap_or_else(|| config.default_menu());
+        *self.menu.borrow_mut() = normalize_menu(&menu);
+        self.fill_menu_list();
         self.fill_macros(
             &macros
                 .entries()
@@ -599,429 +668,587 @@ impl Ui {
         });
     }
 
-    // --- panel-menu editor (store columns: kind id, key, label, kind label) ---
+    // --- panel-menu editor (the design vector is the source of truth) ---
 
-    fn menu_value(&self, iter: &TreeIter, col: u32) -> String {
-        self.menu_store
-            .get_value(iter, col as i32)
-            .get::<String>()
-            .unwrap_or_default()
-    }
-
-    fn menu_selected(&self) -> Option<(TreeIter, usize)> {
-        let (_, iter) = self.menu_view.selection().selected()?;
-        Some((iter, self.menu_store.iter_depth(&iter) as usize))
-    }
-
-    fn fill_menu_store(&self, nodes: &[MenuNode]) {
-        self.menu_store.clear();
-        for node in nodes {
-            self.append_menu_node(None, node);
-        }
-    }
-
-    fn append_menu_node(&self, parent: Option<&TreeIter>, node: &MenuNode) {
-        let (kind, key, label, kind_label) = menu_row(node);
-        let iter = self.menu_store.insert_with_values(
-            parent,
-            None,
-            &[
-                (MENU_COL_KIND, &kind),
-                (MENU_COL_KEY, &key),
-                (MENU_COL_LABEL, &label),
-                (MENU_COL_KIND_LABEL, &kind_label),
-            ],
-        );
-        match node {
-            MenuNode::Folder { children, .. } => {
-                for child in children {
-                    self.append_menu_node(Some(&iter), child);
-                }
-            }
-            // A radio group's entries are plain keys in the model.
-            MenuNode::Radios { group, children } => {
-                for entry in children {
-                    let label = menu_entry_label(group, entry);
-                    self.menu_store.insert_with_values(
-                        Some(&iter),
-                        None,
-                        &[
-                            (MENU_COL_KIND, &"entry".to_string()),
-                            (MENU_COL_KEY, entry),
-                            (MENU_COL_LABEL, &label),
-                            (MENU_COL_KIND_LABEL, &"Mục chọn".to_string()),
-                        ],
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
-
+    /// The design as the user sees it: `read()` clones this, so the
+    /// round-trip holds without walking the widgets.
     fn read_menu(&self) -> Vec<MenuNode> {
-        let mut out = Vec::new();
-        if let Some(iter) = self.menu_store.iter_first() {
-            loop {
-                out.push(self.menu_node_from(&iter, 0));
-                if !self.menu_store.iter_next(&iter) {
-                    break;
-                }
-            }
-        }
-        out
+        self.menu.borrow().clone()
     }
 
-    fn menu_node_from(&self, iter: &TreeIter, depth: usize) -> MenuNode {
-        let kind = self.menu_value(iter, MENU_COL_KIND);
-        let key = self.menu_value(iter, MENU_COL_KEY);
-        let label = self.menu_value(iter, MENU_COL_LABEL);
-        match kind.as_str() {
-            "toggle" => MenuNode::Toggle { key },
-            "radios" => MenuNode::Radios {
-                group: key,
-                children: if depth == 0 {
-                    self.menu_children_keys(iter)
-                } else {
-                    Vec::new()
-                },
-            },
-            "action" => MenuNode::Action { key },
-            "sep" => MenuNode::Separator,
-            // Folders only exist at the root; deeper ones cannot be created
-            // by this editor, so they are not read back either.
-            _ => MenuNode::Folder {
-                label,
-                children: if depth == 0 {
-                    self.menu_children(iter, depth + 1)
-                } else {
-                    Vec::new()
-                },
-            },
+    /// Rebuild the row list from the design vector. Also runs after every
+    /// edit; the caller saves through the funnel.
+    fn fill_menu_list(self: &Rc<Self>) {
+        while let Some(child) = self.menu_box.first_child() {
+            self.menu_box.remove(&child);
+        }
+        let nodes = self.menu.borrow().clone();
+        for (idx, node) in nodes.iter().enumerate() {
+            self.menu_box
+                .append(&self.menu_row_widget(vec![idx], node, 0));
         }
     }
 
-    /// The entry keys under a radio group node.
-    fn menu_children_keys(&self, parent: &TreeIter) -> Vec<String> {
-        let mut out = Vec::new();
-        if let Some(iter) = self.menu_store.iter_children(Some(parent)) {
-            loop {
-                if self.menu_value(&iter, MENU_COL_KIND) == "entry" {
-                    out.push(self.menu_value(&iter, MENU_COL_KEY));
+    /// One editor row: a native ActionRow (or ExpanderRow for a container
+    /// with children) with the type icon, the drag handle and the per-row
+    /// menu. `path` addresses the item in the design vector; folder and
+    /// radios children sit one level down (depth 1, leaves by
+    /// normalization).
+    fn menu_row_widget(
+        self: &Rc<Self>,
+        path: Vec<usize>,
+        node: &MenuNode,
+        depth: usize,
+    ) -> gtk4::Widget {
+        let (kind, _key, label, kind_label) = menu_row(node);
+        // A separator keeps only its dim "— phân cách —" label; containers
+        // with children expand, everything else is a plain row.
+        let widget: gtk4::Widget = match node {
+            MenuNode::Folder { children, .. } if depth == 0 && !children.is_empty() => {
+                let exp = adw::ExpanderRow::builder()
+                    .title(label.as_str())
+                    .subtitle(kind_label.as_str())
+                    .build();
+                for (i, child) in children.iter().enumerate() {
+                    let mut child_path = path.clone();
+                    child_path.push(i);
+                    exp.add_row(&self.menu_row_widget(child_path, child, depth + 1));
                 }
-                if !self.menu_store.iter_next(&iter) {
-                    break;
+                exp.upcast::<gtk4::Widget>()
+            }
+            MenuNode::Radios { group, children } if depth == 0 && !children.is_empty() => {
+                let exp = adw::ExpanderRow::builder()
+                    .title(label.as_str())
+                    .subtitle(kind_label.as_str())
+                    .build();
+                for (i, key) in children.iter().enumerate() {
+                    let mut child_path = path.clone();
+                    child_path.push(i);
+                    let entry = adw::ActionRow::builder()
+                        .title(menu_entry_label(group, key).as_str())
+                        .subtitle(t("menu.kind_entry", "Mục chọn").as_str())
+                        .activatable(false)
+                        .build();
+                    let icon = gtk4::Image::from_icon_name("radio-checked-symbolic");
+                    icon.add_css_class("dim-label");
+                    entry.add_prefix(&icon);
+                    entry.add_prefix(&self.menu_drag_handle(&child_path));
+                    entry.add_suffix(&self.menu_more_button(child_path, "entry"));
+                    exp.add_row(&entry);
                 }
-            }
-        }
-        out
-    }
-
-    fn menu_children(&self, parent: &TreeIter, depth: usize) -> Vec<MenuNode> {
-        let mut out = Vec::new();
-        if let Some(iter) = self.menu_store.iter_children(Some(parent)) {
-            loop {
-                out.push(self.menu_node_from(&iter, depth));
-                if !self.menu_store.iter_next(&iter) {
-                    break;
-                }
-            }
-        }
-        out
-    }
-
-    /// Insert the picked item at the selected position: into the selected
-    /// folder / radio group (at its end), or right after the selected row at
-    /// its own level; appends at the root when nothing is selected.
-    fn menu_insert(&self, kind: &str, key: &str) {
-        let sel = self.menu_selected().map(|(iter, depth)| {
-            (
-                iter,
-                depth,
-                self.menu_value(&iter, MENU_COL_KIND),
-                self.menu_value(&iter, MENU_COL_KEY),
-            )
-        });
-
-        // Placement: a selected folder / radio group takes the item at its
-        // end; anything else inserts right AFTER the selected row, at its
-        // own level. A container picked while a child is selected cannot go
-        // inside — containers live at the root, so it lands after the
-        // child's parent instead.
-        let (parent, position, label, kind_label) = match sel {
-            Some((iter, _, k, _)) if k == "folder" => {
-                let (label, kind_label) = menu_item_label(kind, key);
-                (Some(iter), None, label, kind_label)
-            }
-            // The picker offers a radio group only its own entries; this
-            // check is the belt to its braces.
-            Some((iter, _, k, group)) if k == "radios" && kind == "entry" => (
-                Some(iter),
-                None,
-                menu_entry_label(&group, key),
-                "Mục chọn".into(),
-            ),
-            Some((iter, depth, _, _)) => {
-                let parent = self.menu_store.iter_parent(&iter);
-                let pkind = parent
-                    .as_ref()
-                    .map(|p| self.menu_value(p, MENU_COL_KIND))
-                    .unwrap_or_default();
-                let invalid_inside = depth == 1
-                    && ((pkind == "radios" && kind != "entry")
-                        || (pkind == "folder" && kind == "radios"));
-                let (parent, anchor) = if invalid_inside {
-                    (None, parent)
-                } else if depth == 1 {
-                    (parent, Some(iter))
-                } else {
-                    (None, Some(iter))
-                };
-                let position = anchor
-                    .as_ref()
-                    .and_then(|a| self.menu_position_after(parent.as_ref(), a));
-                let (label, kind_label) = menu_item_label(kind, key);
-                (parent, position, label, kind_label)
-            }
-            None => {
-                let (label, kind_label) = menu_item_label(kind, key);
-                (None, None, label, kind_label)
-            }
-        };
-        self.menu_store.insert_with_values(
-            parent.as_ref(),
-            position,
-            &[
-                (MENU_COL_KIND, &kind.to_string()),
-                (MENU_COL_KEY, &key.to_string()),
-                (MENU_COL_LABEL, &label),
-                (MENU_COL_KIND_LABEL, &kind_label),
-            ],
-        );
-    }
-
-    /// The insert position right AFTER `target` among its siblings.
-    fn menu_position_after(&self, parent: Option<&TreeIter>, target: &TreeIter) -> Option<u32> {
-        let target_path = self.menu_store.path(target);
-        self.menu_siblings(parent)
-            .iter()
-            .position(|i| self.menu_store.path(i) == target_path)
-            .map(|p| p as u32 + 1)
-    }
-
-    /// Refill the type picker for the current selection: a radio group only
-    /// offers its own entries, everything else offers the generic items.
-    fn menu_fill_picker(&self) {
-        self.menu_kind.remove_all();
-        let selected = self
-            .menu_selected()
-            .filter(|(_, depth)| *depth == 0)
-            .map(|(iter, _)| {
-                (
-                    self.menu_value(&iter, MENU_COL_KIND),
-                    self.menu_value(&iter, MENU_COL_KEY),
-                )
-            });
-        match selected.as_ref().map(|(k, g)| (k.as_str(), g.as_str())) {
-            Some(("radios", "charset")) => {
-                for (key, label) in crate::ibus_prop::CHARSETS {
-                    self.menu_kind.append(Some(&format!("entry:{key}")), label);
-                }
-            }
-            Some(("radios", "method")) => {
-                for (key, label) in crate::ibus_prop::METHODS {
-                    self.menu_kind.append(Some(&format!("entry:{key}")), label);
-                }
-            }
-            Some(("radios", "display")) => {
-                for (key, label) in crate::ibus_prop::MODES {
-                    self.menu_kind.append(Some(&format!("entry:{key}")), label);
-                }
+                exp.upcast::<gtk4::Widget>()
             }
             _ => {
-                self.menu_kind.append(
-                    Some("toggle:enabled"),
-                    &t("menu.toggle_enabled", "Bật tiếng Việt"),
-                );
-                for quick in crate::ibus_prop::QUICK_TOGGLES {
-                    self.menu_kind
-                        .append(Some(&format!("toggle:{}", quick.key)), quick.label);
+                let row = adw::ActionRow::builder()
+                    .title(label.as_str())
+                    .subtitle(kind_label.as_str())
+                    .activatable(false)
+                    .build();
+                if kind == "sep" {
+                    // A slim dim row: separators carry no title emphasis.
+                    if let Some(title) = row_title(&row) {
+                        title.add_css_class("dim-label");
+                    }
                 }
-                self.menu_kind.append(
-                    Some("radios:charset"),
-                    &t("menu.radios_charset", "Bảng mã (nhóm chọn)"),
-                );
-                self.menu_kind.append(
-                    Some("radios:method"),
-                    &t("menu.radios_method", "Kiểu gõ (nhóm chọn)"),
-                );
-                self.menu_kind.append(
-                    Some("radios:display"),
-                    &t("menu.radios_display", "Chế độ gõ (nhóm chọn)"),
-                );
-                self.menu_kind.append(
-                    Some("action:macro_editor"),
-                    &t("menu.action_macro_editor", "Mở bảng gõ tắt…"),
-                );
-                self.menu_kind.append(
-                    Some("action:settings"),
-                    &t("menu.action_settings", "Cấu hình"),
-                );
-                self.menu_kind.append(
-                    Some("action:about"),
-                    &t("menu.action_about", "Giới thiệu (About)"),
-                );
-                self.menu_kind
-                    .append(Some("sep:"), &t("menu.sep", "Gạch ngang phân cách"));
-                // Last, so the frequently used item kinds keep their
-                // default (first) spot in the picker.
-                self.menu_kind
-                    .append(Some("folder:"), &t("menu.folder", "Thư mục mới"));
+                row.upcast::<gtk4::Widget>()
             }
+        };
+        let icon = match kind.as_str() {
+            "toggle" => Some(gtk4::Image::from_icon_name("emblem-ok-symbolic")),
+            "radios" => Some(gtk4::Image::from_icon_name("radio-checked-symbolic")),
+            "action" => Some(gtk4::Image::from_icon_name("system-run-symbolic")),
+            "folder" => Some(gtk4::Image::from_icon_name("folder-symbolic")),
+            _ => None,
+        };
+        if let Some(icon) = &icon {
+            icon.add_css_class("dim-label");
         }
-        self.menu_kind.set_active(Some(0));
+        let handle = self.menu_drag_handle(&path);
+        let more = self.menu_more_button(path.clone(), &kind);
+        if let Some(action) = widget.downcast_ref::<adw::ActionRow>() {
+            if let Some(icon) = &icon {
+                action.add_prefix(icon);
+            }
+            action.add_prefix(&handle);
+            action.add_suffix(&more);
+        } else if let Some(exp) = widget.downcast_ref::<adw::ExpanderRow>() {
+            if let Some(icon) = &icon {
+                exp.add_prefix(icon);
+            }
+            exp.add_prefix(&handle);
+            exp.add_suffix(&more);
+        }
+        // The row itself accepts its siblings' payloads (same parent only).
+        let drop =
+            gtk4::DropTarget::new(gtk4::glib::types::Type::STRING, gtk4::gdk::DragAction::MOVE);
+        {
+            let ui = self.clone();
+            let dst_path = path;
+            drop.connect_drop(move |_, value, _, _| {
+                let Ok(src_key) = value.get::<String>() else {
+                    return false;
+                };
+                let Some(src_path) = menu_parse_key(&src_key) else {
+                    return false;
+                };
+                if ui.menu_drag(&src_path, &dst_path) {
+                    ui.fill_menu_list();
+                    ui.fire_save();
+                }
+                false
+            });
+        }
+        widget.add_controller(drop);
+        widget
     }
 
-    /// Folders live at the root only — the popup nests one level.
-    fn menu_add_folder(&self, label: &str) {
-        let label = label.trim();
-        let label = if label.is_empty() {
-            "Thư mục mới"
-        } else {
-            label
-        };
-        // Folders live at the root: right after the selected root row, or at
-        // the end when the selection is inside a folder or missing.
-        let position = self.menu_selected().and_then(|(iter, depth)| {
-            let anchor = if depth == 0 {
-                Some(iter)
-            } else {
-                self.menu_store.iter_parent(&iter)
+    /// The drag handle: a DragSource whose payload is the row's design
+    /// path (see `menu_drag` for the receiving side).
+    fn menu_drag_handle(&self, path: &[usize]) -> gtk4::Image {
+        let handle = gtk4::Image::from_icon_name("list-drag-handle-symbolic");
+        handle.add_css_class("dim-label");
+        let payload = menu_path_key(path).to_value();
+        let src = gtk4::DragSource::new();
+        src.set_actions(gtk4::gdk::DragAction::MOVE);
+        src.connect_prepare(move |_, _, _| Some(gtk4::gdk::ContentProvider::for_value(&payload)));
+        handle.add_controller(src);
+        handle
+    }
+
+    /// The per-row menu: reorder, out, rename (root folders), add-into
+    /// (root containers) and delete. Every action re-renders and saves
+    /// through the funnel — row state exists only in the design vector.
+    fn menu_more_button(self: &Rc<Self>, path: Vec<usize>, kind: &str) -> gtk4::MenuButton {
+        let more = gtk4::MenuButton::new();
+        more.set_icon_name("view-more-symbolic");
+        more.add_css_class("flat");
+        more.set_tooltip_text(Some(&t("panel.row_menu_tooltip", "Thao tác với mục này")));
+        let popover = gtk4::Popover::new();
+        let list = gtk4::Box::new(Orientation::Vertical, 0);
+        // Sensitivity: the sibling position decides up/down, the kind
+        // decides rename and add-into, and only folder children can leave.
+        let (pos, len, parent_kind) = {
+            let menu = self.menu.borrow();
+            let siblings_len = match path.len() {
+                1 => menu.len(),
+                2 => match menu.get(path[0]) {
+                    Some(MenuNode::Folder { children, .. }) => children.len(),
+                    Some(MenuNode::Radios { children, .. }) => children.len(),
+                    _ => 0,
+                },
+                _ => 0,
             };
-            anchor.and_then(|a| self.menu_position_after(None, &a))
-        });
-        self.menu_store.insert_with_values(
-            None,
-            position,
-            &[
-                (MENU_COL_KIND, &"folder".to_string()),
-                (MENU_COL_KEY, &String::new()),
-                (MENU_COL_LABEL, &label.to_string()),
-                (MENU_COL_KIND_LABEL, &"Thư mục".to_string()),
-            ],
-        );
-    }
-
-    fn menu_rename(&self, label: &str) {
-        let Some((iter, 0)) = self.menu_selected() else {
-            return;
+            let parent_kind = match path.len() {
+                2 => menu.get(path[0]).map(|n| menu_row(n).0).unwrap_or_default(),
+                _ => "root".to_string(),
+            };
+            (path.last().copied().unwrap_or(0), siblings_len, parent_kind)
         };
-        if self.menu_value(&iter, MENU_COL_KIND) != "folder" {
-            return;
-        }
-        let label = label.trim();
-        if label.is_empty() {
-            return;
-        }
-        self.menu_store
-            .set_value(&iter, MENU_COL_LABEL, &label.to_value());
-    }
-
-    fn menu_delete(&self) {
-        let Some((iter, depth)) = self.menu_selected() else {
-            return;
-        };
-        // The popup must never end up empty: refuse to remove the last
-        // top-level entry.
-        if depth == 0 && self.menu_root_len() <= 1 {
-            return;
-        }
-        let parent = self.menu_store.iter_parent(&iter);
-        self.menu_store.remove(&iter);
-        // An emptied folder goes away with its last child.
-        if let Some(p) = parent {
-            if self.menu_store.iter_children(Some(&p)).is_none() {
-                self.menu_store.remove(&p);
+        let item = |list: &gtk4::Box, label: &str, css: &str| -> gtk4::Button {
+            let btn = gtk4::Button::with_label(label);
+            btn.add_css_class("flat");
+            if !css.is_empty() {
+                btn.add_css_class(css);
             }
-        }
-    }
-
-    fn menu_root_len(&self) -> usize {
-        self.menu_siblings(None).len()
-    }
-
-    fn menu_siblings(&self, parent: Option<&TreeIter>) -> Vec<TreeIter> {
-        let mut out = Vec::new();
-        let first = match parent {
-            Some(p) => self.menu_store.iter_children(Some(p)),
-            None => self.menu_store.iter_first(),
+            list.append(&btn);
+            btn
         };
-        if let Some(iter) = first {
-            loop {
-                out.push(iter);
-                if !self.menu_store.iter_next(&iter) {
-                    break;
+        let up = item(&list, &t("panel.move_up", "Lên"), "");
+        up.set_sensitive(pos > 0);
+        {
+            let ui = self.clone();
+            let p = path.clone();
+            let popover = popover.clone();
+            up.connect_clicked(move |_| {
+                if ui.menu_move(&p, -1) {
+                    ui.fill_menu_list();
+                    ui.fire_save();
                 }
+                popover.popdown();
+            });
+        }
+        let down = item(&list, &t("panel.move_down", "Xuống"), "");
+        down.set_sensitive(pos + 1 < len);
+        {
+            let ui = self.clone();
+            let p = path.clone();
+            let popover = popover.clone();
+            down.connect_clicked(move |_| {
+                if ui.menu_move(&p, 1) {
+                    ui.fill_menu_list();
+                    ui.fire_save();
+                }
+                popover.popdown();
+            });
+        }
+        if parent_kind == "folder" {
+            let out = item(&list, &t("panel.move_out", "Đưa ra khỏi thư mục"), "");
+            {
+                let ui = self.clone();
+                let p = path.clone();
+                let popover = popover.clone();
+                out.connect_clicked(move |_| {
+                    if ui.menu_out(&p) {
+                        ui.fill_menu_list();
+                        ui.fire_save();
+                    }
+                    popover.popdown();
+                });
             }
         }
+        if kind == "folder" && path.len() == 1 {
+            let rename = item(&list, &t("panel.rename_apply", "Đổi tên"), "");
+            let current = self
+                .menu
+                .borrow()
+                .get(path[0])
+                .and_then(|n| match n {
+                    MenuNode::Folder { label, .. } => Some(label.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            {
+                let ui = self.clone();
+                let p = path.clone();
+                let popover = popover.clone();
+                rename.connect_clicked(move |btn| {
+                    menu_rename_dialog(&ui, &p, &current, btn.upcast_ref());
+                    popover.popdown();
+                });
+            }
+        }
+        if (kind == "folder" || kind == "radios") && path.len() == 1 {
+            let add_here = gtk4::MenuButton::new();
+            add_here.set_label(&t("panel.add_here", "Thêm vào đây…"));
+            add_here.add_css_class("flat");
+            let add_popover = gtk4::Popover::new();
+            add_popover.set_child(Some(
+                &self.menu_add_list(&MenuScope::Container(vec![path[0]]), &add_popover),
+            ));
+            add_here.set_popover(Some(&add_popover));
+            list.append(&add_here);
+        }
+        let del = item(&list, &t("panel.item_delete", "Xóa"), "destructive-action");
+        {
+            let ui = self.clone();
+            let p = path.clone();
+            let popover = popover.clone();
+            del.connect_clicked(move |_| {
+                if ui.menu_delete(&p) {
+                    ui.fill_menu_list();
+                    ui.fire_save();
+                }
+                popover.popdown();
+            });
+        }
+        popover.set_child(Some(&list));
+        more.set_popover(Some(&popover));
+        more
+    }
+
+    /// The addable-item list for `scope` (root, or one root container):
+    /// everything generic for root/folder, a radio group's own entries for
+    /// that group — the old type picker's rule. Buttons append, re-render,
+    /// save and close `popover`.
+    fn menu_add_list(self: &Rc<Self>, scope: &MenuScope, popover: &gtk4::Popover) -> gtk4::Widget {
+        let list = gtk4::Box::new(Orientation::Vertical, 0);
+        for (id, label) in self.menu_addable_items(scope) {
+            let btn = gtk4::Button::with_label(&label);
+            btn.add_css_class("flat");
+            {
+                let ui = self.clone();
+                let scope = scope.clone();
+                let popover = popover.clone();
+                btn.connect_clicked(move |_| {
+                    let Some((kind, key)) = id.split_once(':') else {
+                        return;
+                    };
+                    if ui.menu_add(kind, key, &scope) {
+                        ui.fill_menu_list();
+                        ui.fire_save();
+                    }
+                    popover.popdown();
+                });
+            }
+            list.append(&btn);
+        }
+        let scroll = gtk4::ScrolledWindow::new();
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+        scroll.set_max_content_height(300);
+        scroll.set_propagate_natural_height(true);
+        scroll.set_child(Some(&list));
+        scroll.upcast::<gtk4::Widget>()
+    }
+
+    /// The items addable in `scope` (id "kind:key", display label).
+    fn menu_addable_items(&self, scope: &MenuScope) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        if let MenuScope::Container(path) = scope {
+            let group = self.menu.borrow().get(path[0]).and_then(|n| match n {
+                MenuNode::Radios { group, .. } => Some(group.clone()),
+                _ => None,
+            });
+            if let Some(group) = group {
+                let entries: &[(&str, &str)] = match group.as_str() {
+                    "charset" => crate::ibus_prop::CHARSETS,
+                    "method" => crate::ibus_prop::METHODS,
+                    "display" => crate::ibus_prop::MODES,
+                    _ => &[],
+                };
+                for (key, label) in entries {
+                    out.push((format!("entry:{key}"), label.to_string()));
+                }
+                return out;
+            }
+        }
+        out.push((
+            "toggle:enabled".into(),
+            t("menu.toggle_enabled", "Bật tiếng Việt"),
+        ));
+        for quick in crate::ibus_prop::QUICK_TOGGLES {
+            out.push((format!("toggle:{}", quick.key), quick.label.to_string()));
+        }
+        out.push((
+            "radios:charset".into(),
+            t("menu.radios_charset", "Bảng mã (nhóm chọn)"),
+        ));
+        out.push((
+            "radios:method".into(),
+            t("menu.radios_method", "Kiểu gõ (nhóm chọn)"),
+        ));
+        out.push((
+            "radios:display".into(),
+            t("menu.radios_display", "Chế độ gõ (nhóm chọn)"),
+        ));
+        out.push((
+            "action:macro_editor".into(),
+            t("menu.action_macro_editor", "Mở bảng gõ tắt…"),
+        ));
+        out.push((
+            "action:settings".into(),
+            t("menu.action_settings", "Cấu hình"),
+        ));
+        out.push((
+            "action:about".into(),
+            t("menu.action_about", "Giới thiệu (About)"),
+        ));
+        out.push(("sep:".into(), t("menu.sep", "Gạch ngang phân cách")));
+        // Last, so the frequently used kinds keep their default (first)
+        // spot like the old picker.
+        out.push(("folder:".into(), t("menu.folder", "Thư mục mới")));
         out
     }
 
-    fn menu_move(&self, delta: isize) {
-        let Some((iter, _)) = self.menu_selected() else {
-            return;
+    /// Append the picked item to its scope (root end, or the container's
+    /// end — the tree editor inserted at the container's end too). A radio
+    /// group takes only its own entries.
+    fn menu_add(&self, kind: &str, key: &str, scope: &MenuScope) -> bool {
+        let node = match kind {
+            "toggle" => MenuNode::Toggle {
+                key: key.to_string(),
+            },
+            "radios" => MenuNode::Radios {
+                group: key.to_string(),
+                children: Vec::new(),
+            },
+            "action" => MenuNode::Action {
+                key: key.to_string(),
+            },
+            "sep" => MenuNode::Separator,
+            _ => MenuNode::Folder {
+                label: t("menu.folder", "Thư mục mới"),
+                children: Vec::new(),
+            },
         };
-        let parent = self.menu_store.iter_parent(&iter);
-        let sibs = self.menu_siblings(parent.as_ref());
-        let sel_path = self.menu_store.path(&iter);
-        let Some(pos) = sibs
-            .iter()
-            .position(|i| self.menu_store.path(i) == sel_path)
-        else {
-            return;
-        };
-        let target = if delta < 0 {
-            pos.checked_sub(1)
-        } else {
-            Some(pos + 1).filter(|&p| p < sibs.len())
-        };
-        let Some(target) = target else {
-            return;
-        };
-        self.menu_store.swap(&sibs[pos], &sibs[target]);
-    }
-
-    /// Move the selected folder child up to the root (after the folder).
-    /// Radio-group entries cannot exist at the root, so they stay put.
-    fn menu_out(&self) {
-        let Some((iter, 1)) = self.menu_selected() else {
-            return;
-        };
-        let parent = self.menu_store.iter_parent(&iter);
-        let in_folder = parent
-            .as_ref()
-            .is_some_and(|p| self.menu_value(p, MENU_COL_KIND) == "folder");
-        if !in_folder {
-            return;
+        let mut menu = self.menu.borrow_mut();
+        match scope {
+            MenuScope::Root => {
+                menu.push(node);
+                true
+            }
+            MenuScope::Container(path) => match menu.get_mut(path[0]) {
+                Some(MenuNode::Radios { children, .. }) if kind == "entry" => {
+                    children.push(key.to_string());
+                    true
+                }
+                Some(MenuNode::Folder { children, .. }) => {
+                    children.push(node);
+                    true
+                }
+                _ => false,
+            },
         }
-        let kind = self.menu_value(&iter, MENU_COL_KIND);
-        let key = self.menu_value(&iter, MENU_COL_KEY);
-        let label = self.menu_value(&iter, MENU_COL_LABEL);
-        let kind_label = self.menu_value(&iter, MENU_COL_KIND_LABEL);
-        self.menu_store.insert_with_values(
-            None,
-            None,
-            &[
-                (MENU_COL_KIND, &kind),
-                (MENU_COL_KEY, &key),
-                (MENU_COL_LABEL, &label),
-                (MENU_COL_KIND_LABEL, &kind_label),
-            ],
-        );
-        self.menu_store.remove(&iter);
     }
 
+    /// Reorder a sibling pair. `path` points at the moved row; delta -1 is
+    /// up, 1 is down (a radios entry reorders the group's key list).
+    fn menu_move(&self, path: &[usize], delta: isize) -> bool {
+        let mut menu = self.menu.borrow_mut();
+        let Some(&idx) = path.last() else {
+            return false;
+        };
+        match path.len() {
+            1 => match menu_step(idx, delta, menu.len()) {
+                Some(target) => {
+                    menu.swap(idx, target);
+                    true
+                }
+                None => false,
+            },
+            2 => match menu.get_mut(path[0]) {
+                Some(MenuNode::Folder { children, .. }) => {
+                    match menu_step(idx, delta, children.len()) {
+                        Some(target) => {
+                            children.swap(idx, target);
+                            true
+                        }
+                        None => false,
+                    }
+                }
+                Some(MenuNode::Radios { children, .. }) => {
+                    match menu_step(idx, delta, children.len()) {
+                        Some(target) => {
+                            children.swap(idx, target);
+                            true
+                        }
+                        None => false,
+                    }
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Drop side of the drag handle: move the source item before the
+    /// target row within the same sibling list. Cross-parent drops are
+    /// ignored — the popup nests one level and reparenting by drop is not
+    /// worth the surprise.
+    fn menu_drag(&self, src: &[usize], dst: &[usize]) -> bool {
+        if src.len() != dst.len() || src == dst || src[..src.len() - 1] != dst[..dst.len() - 1] {
+            return false;
+        }
+        let (Some(&s), Some(&d)) = (src.last(), dst.last()) else {
+            return false;
+        };
+        let mut menu = self.menu.borrow_mut();
+        match src.len() {
+            1 => {
+                let item = menu.remove(s);
+                let d = if s < d { d - 1 } else { d };
+                menu.insert(d, item);
+                true
+            }
+            2 => match menu.get_mut(src[0]) {
+                Some(MenuNode::Folder { children, .. }) => {
+                    if s >= children.len() || d >= children.len() {
+                        return false;
+                    }
+                    let item = children.remove(s);
+                    let d = if s < d { d - 1 } else { d };
+                    children.insert(d, item);
+                    true
+                }
+                Some(MenuNode::Radios { children, .. }) => {
+                    if s >= children.len() || d >= children.len() {
+                        return false;
+                    }
+                    let key = children.remove(s);
+                    let d = if s < d { d - 1 } else { d };
+                    children.insert(d, key);
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Move a folder child up to the root (appended at the end, like the
+    /// tree editor appended it). Radio-group entries cannot exist at the
+    /// root, so they stay put.
+    fn menu_out(&self, path: &[usize]) -> bool {
+        let mut menu = self.menu.borrow_mut();
+        if path.len() != 2 {
+            return false;
+        }
+        let item = match menu.get_mut(path[0]) {
+            Some(MenuNode::Folder { children, .. }) if path[1] < children.len() => {
+                Some(children.remove(path[1]))
+            }
+            _ => None,
+        };
+        let Some(item) = item else {
+            return false;
+        };
+        // An emptied folder goes away with its last child.
+        let emptied = matches!(
+            menu.get(path[0]),
+            Some(MenuNode::Folder { children, .. }) if children.is_empty()
+        );
+        if emptied {
+            menu.remove(path[0]);
+        }
+        menu.push(item);
+        true
+    }
+
+    /// Rename a root folder. Entries inside keep their built-in labels,
+    /// and only root folders are renamable.
+    fn menu_rename(&self, path: &[usize], label: &str) -> bool {
+        let label = label.trim();
+        if label.is_empty() || path.len() != 1 {
+            return false;
+        }
+        let mut menu = self.menu.borrow_mut();
+        match menu.get_mut(path[0]) {
+            Some(MenuNode::Folder { label: l, .. }) => {
+                *l = label.to_string();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Remove one item. The popup must never end up empty (the last
+    /// top-level entry refuses), and an emptied container goes away with
+    /// its last child — both as the tree editor did.
+    fn menu_delete(&self, path: &[usize]) -> bool {
+        let mut menu = self.menu.borrow_mut();
+        let Some(&idx) = path.last() else {
+            return false;
+        };
+        match path.len() {
+            1 if menu.len() <= 1 => false,
+            1 => {
+                menu.remove(idx);
+                true
+            }
+            2 => match menu.get_mut(path[0]) {
+                Some(MenuNode::Folder { children, .. }) if idx < children.len() => {
+                    children.remove(idx);
+                    if children.is_empty() {
+                        menu.remove(path[0]);
+                    }
+                    true
+                }
+                Some(MenuNode::Radios { children, .. }) if idx < children.len() => {
+                    children.remove(idx);
+                    if children.is_empty() {
+                        menu.remove(path[0]);
+                    }
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Throw the design away and go back to the shipped shape.
     fn menu_reset(&self) {
-        self.fill_menu_store(&Config::load().default_menu());
+        let default = Config::load().default_menu();
+        *self.menu.borrow_mut() = normalize_menu(&default);
     }
 
     fn read_dictionary(&self) -> Vec<String> {
@@ -1234,7 +1461,6 @@ fn set_text(view: &TextView, text: &str) {
 
 /// The widgets on their own, so a test can drive `refresh`/`read` without a
 /// window; `build` composes them into pages and presents them.
-#[allow(deprecated)]
 fn widgets() -> Rc<Ui> {
     let enabled = switch_row(
         &t("rows.enabled.title", "Bật tiếng Việt"),
@@ -1504,31 +1730,12 @@ fn widgets() -> Rc<Ui> {
         CHANNELS,
     );
 
-    // Panel-menu editor: kind id, key, label, Vietnamese kind label.
-    let menu_store = TreeStore::new(&[
-        gtk4::glib::Type::STRING,
-        gtk4::glib::Type::STRING,
-        gtk4::glib::Type::STRING,
-        gtk4::glib::Type::STRING,
-    ]);
-    let menu_view = TreeView::with_model(&menu_store);
-    menu_view.set_headers_visible(true);
-    menu_view.set_enable_tree_lines(true);
-    for (title, col) in [
-        (t("panel.column_kind", "Loại"), MENU_COL_KIND_LABEL),
-        (t("panel.column_name", "Tên"), MENU_COL_LABEL),
-    ] {
-        let column = TreeViewColumn::new();
-        column.set_title(&title);
-        let cell = CellRendererText::new();
-        column.pack_start(&cell, true);
-        column.add_attribute(&cell, "text", col as i32);
-        menu_view.append_column(&column);
-    }
-    // The type picker is filled dynamically from the selection
-    // (menu_fill_picker): a radio group offers its own entries, anything
-    // else the generic items.
-    let menu_kind = ComboBoxText::new();
+    // Panel-menu editor: the design vector is the source of truth; the
+    // boxed list is its view (rebuilt on every edit).
+    let menu = Rc::new(RefCell::new(Vec::new()));
+    let menu_box = gtk4::ListBox::new();
+    menu_box.add_css_class("boxed-list");
+    menu_box.set_selection_mode(gtk4::SelectionMode::None);
 
     // The "(?)" markers: hover or click for the longer explanation, text
     // from the content file. Applied here so every page gets them for
@@ -1707,9 +1914,8 @@ fn widgets() -> Rc<Ui> {
         backspace_interval,
         post_delay,
         unicode_channel,
-        menu_store,
-        menu_view,
-        menu_kind,
+        menu,
+        menu_box,
     })
 }
 // --- backup / restore (Giai đoạn 11) ---
