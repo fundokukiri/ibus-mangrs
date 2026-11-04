@@ -41,25 +41,30 @@ pub(super) fn gdk_modifier_of_key(key: gtk4::gdk::Key) -> Option<gtk4::gdk::Modi
     })
 }
 
-/// Show a hotkey value on its capture button; empty means unassigned.
-pub(super) fn render_hotkey(btn: &gtk4::Button, value: &str) {
-    btn.set_label(if value.is_empty() {
+/// Show a hotkey value as the row's dim text; empty means unassigned.
+pub(super) fn render_hotkey(label: &gtk4::Label, value: &str) {
+    label.set_text(if value.is_empty() {
         "Chưa gán"
     } else {
         value
     });
 }
 
-/// Turn a hotkey button into a recorder: click it, press a combination —
-/// the combo is written into `value` and saved. Escape cancels, plain
-/// Backspace clears, unusable combinations keep the recorder open. The
-/// combo string matches `server::parse_hotkey` (the same parser re-reads
-/// it from config).
+/// Wire a hotkey row GNOME-style: the edit (pencil) button starts the
+/// capture, the dim text shows the combo, and the key controllers sit on
+/// the row itself so the capture follows the row's focus. The combo is
+/// written into `value` and saved. Escape cancels, plain Backspace clears,
+/// unusable combinations keep the recorder open. The combo string matches
+/// `server::parse_hotkey` (the same parser re-reads it from config).
 pub(super) fn hotkey_wire(
-    btn: &gtk4::Button,
+    row: &impl IsA<gtk4::Widget>,
+    edit: &gtk4::Button,
+    label: &gtk4::Label,
     value: &Rc<RefCell<String>>,
     save: impl Fn() + Clone + 'static,
 ) {
+    row.set_focusable(true);
+
     let capturing = Rc::new(Cell::new(false));
     // Modifiers held during the capture, as a gdk mask. The combo is
     // completed by a regular key press (any number of modifiers) or by
@@ -70,20 +75,23 @@ pub(super) fn hotkey_wire(
     {
         let capturing = capturing.clone();
         let pending = pending.clone();
-        let btn_c = btn.clone();
-        btn.connect_clicked(move |_| {
+        let label_c = label.clone();
+        let edit_c = edit.clone();
+        edit.connect_clicked(move |_| {
             if capturing.get() {
                 return;
             }
             capturing.set(true);
             pending.set(0);
-            btn_c.set_label("Nhấn tổ hợp phím… (Esc hủy)");
+            label_c.set_text("Nhấn tổ hợp phím… (Esc hủy)");
+            edit_c.set_sensitive(false);
         });
     }
 
     let controller = gtk4::EventControllerKey::new();
     {
-        let btn_c = btn.clone();
+        let label_c = label.clone();
+        let edit_c = edit.clone();
         let capturing = capturing.clone();
         let pending = pending.clone();
         let value = value.clone();
@@ -111,14 +119,14 @@ pub(super) fn hotkey_wire(
             if key == gtk4::gdk::Key::Escape {
                 capturing.set(false);
                 pending.set(0);
-                render_hotkey(&btn_c, &value.borrow());
+                capturing_end(&edit_c, &label_c, &value.borrow());
                 return Propagation::Stop;
             }
             // Plain Backspace clears the assignment.
             if key == gtk4::gdk::Key::BackSpace && pending.get() == 0 {
                 capturing.set(false);
                 *value.borrow_mut() = String::new();
-                render_hotkey(&btn_c, "");
+                capturing_end(&edit_c, &label_c, "");
                 save();
                 return Propagation::Stop;
             }
@@ -129,24 +137,25 @@ pub(super) fn hotkey_wire(
             // Rejected combos keep the recorder open: the engine's parser
             // would silently drop them, so try another key instead.
             if crate::server::parse_hotkey(&spec).is_none() {
-                btn_c.set_label("Phím này không dùng được — thử phím khác");
+                label_c.set_text("Phím này không dùng được — thử phím khác");
                 return Propagation::Stop;
             }
             capturing.set(false);
             pending.set(0);
             *value.borrow_mut() = spec.clone();
-            btn_c.set_label(&spec);
+            capturing_end(&edit_c, &label_c, &spec);
             save();
             Propagation::Stop
         });
     }
-    btn.add_controller(controller);
+    row.add_controller(controller);
 
     // A modifier-only combo completes on release: hold Control, tap Shift,
     // done. Releasing the only held modifier keeps the recorder open.
     let released = gtk4::EventControllerKey::new();
     {
-        let btn_c = btn.clone();
+        let edit_c = edit.clone();
+        let label_c = label.clone();
         let capturing = capturing.clone();
         let pending = pending.clone();
         let value = value.clone();
@@ -166,18 +175,19 @@ pub(super) fn hotkey_wire(
                     capturing.set(false);
                     pending.set(0);
                     *value.borrow_mut() = spec.clone();
-                    btn_c.set_label(&spec);
+                    capturing_end(&edit_c, &label_c, &spec);
                     save();
                 }
             }
         });
     }
-    btn.add_controller(released);
+    row.add_controller(released);
 
-    // Leaving the button mid-capture cancels, like Escape.
+    // Leaving the row mid-capture cancels, like Escape.
     let focus = gtk4::EventControllerFocus::new();
     {
-        let btn_c = btn.clone();
+        let edit_c = edit.clone();
+        let label_c = label.clone();
         let capturing = capturing.clone();
         let pending = pending.clone();
         let value = value.clone();
@@ -185,9 +195,15 @@ pub(super) fn hotkey_wire(
             if capturing.get() {
                 capturing.set(false);
                 pending.set(0);
-                render_hotkey(&btn_c, &value.borrow());
+                capturing_end(&edit_c, &label_c, &value.borrow());
             }
         });
     }
-    btn.add_controller(focus);
+    row.add_controller(focus);
+}
+
+/// End a capture: restore the edit button and show `text` in the row.
+fn capturing_end(edit: &gtk4::Button, label: &gtk4::Label, text: &str) {
+    edit.set_sensitive(true);
+    render_hotkey(label, text);
 }

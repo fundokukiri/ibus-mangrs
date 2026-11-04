@@ -288,12 +288,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                 ui.edit_macros(|entries| entries.push((String::new(), String::new())));
             });
         }
-        hotkey_wire(&ui.hotkey_btn, &ui.hotkey_value, save.clone());
-        hotkey_wire(
-            &ui.enabled_hotkey_btn,
-            &ui.enabled_hotkey_value,
-            save.clone(),
-        );
         macro_rules! on_change {
             ($w:expr) => {{
                 let s = save.clone();
