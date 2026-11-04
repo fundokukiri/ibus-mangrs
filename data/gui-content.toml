@@ -199,11 +199,17 @@ tooltip = "Xoá cặp này"
 
 [groups.data.dictionary]
 title = "Từ điển của tôi"
-description = "Từ trong từ điển không bị khôi phục về chuỗi phím (~/.config/ibus-mangrs/dictionary.txt)"
+description = "Từ trong từ điển không bị khôi phục về chuỗi phím."
+
+[groups.data.words]
+title = "Danh sách từ"
+open_button = "Mở tệp"
+open_tooltip = "Mở dictionary.txt bằng ứng dụng mặc định"
+placeholder = "Mỗi dòng một từ — danh sách đang trống"
 
 [rows.dictionary_enabled]
-title = "Từ điển của tôi"
-subtitle = "Bật: từ trong từ điển không bị khôi phục về chuỗi phím (~/.config/ibus-mangrs/dictionary.txt)"
+title = "Dùng từ điển cá nhân"
+subtitle = "~/.config/ibus-mangrs/dictionary.txt"
 
 # --- page Luật --------------------------------------------------------------
 

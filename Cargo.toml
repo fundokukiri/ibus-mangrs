@@ -48,3 +48,12 @@ features = ["v1_5"]
 lto = true
 codegen-units = 1
 strip = true
+
+# Fast preview profile for iterating on the GUI: release optimizations
+# without LTO/CGU=1, which dominate the 24 s link time.
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+strip = false
