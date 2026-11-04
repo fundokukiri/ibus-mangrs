@@ -108,70 +108,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 1: Chung — the everyday page, on its own preferences file.
     let typing_page = pages::typing::build(&ui);
 
-    // ===== Page 2: Dấu & tự động =====
-    let tone = gtk4::Box::new(Orientation::Vertical, 6);
-    // Row titles match the quick-menu registry labels (ibus_prop
-    // ::QUICK_TOGGLES): a toggle ticked in the panel menu must be findable
-    // under the same name here.
-    section(&tone, "Dấu thanh", "Kiểu đặt dấu trên nguyên âm");
-    tone.append(&card(vec![
-        pref_row(
-            "Kiểu dấu mới",
-            "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)",
-            &ui.modern,
-        ),
-        pref_row(
-            "Dấu tự do",
-            "Dấu đặt anywhere trong từ: hoangf → hoàng",
-            &ui.free,
-        ),
-    ]));
-    section(&tone, "Chính tả", "Sửa lỗi và khôi phục từ");
-    tone.append(&card(vec![
-        pref_row(
-            "Từ sai trả phím gốc",
-            "Âm tiết không hợp lệ trả về đúng phím đã bấm",
-            &ui.auto_correct,
-        ),
-        pref_row(
-            "Khôi phục từ nước ngoài",
-            "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
-            &ui.auto_restore,
-        ),
-        pref_row(
-            "Không dấu sau URL",
-            "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
-            &ui.bypass_url,
-        ),
-        pref_row(
-            "Viết tắt",
-            "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
-            &ui.abbrev,
-        ),
-    ]));
-    section(&tone, "Tự động", "Viết hoa và dấu câu tự động");
-    tone.append(&card(vec![
-        pref_row("Tự viết hoa", "Sau . ! ? và Enter", &ui.auto_capitalize),
-        pref_row(
-            "2 dấu cách = chấm",
-            "Thử nghiệm: hai dấu cách thành dấu chấm",
-            &ui.double_space,
-        ),
-    ]));
-    section(&tone, "Ký tự đặc biệt", "Chuyển đổi phím tắt ký tự");
-    tone.append(&card(vec![
-        pref_row("W thành ư", "Tắt / trừ đầu từ / mọi vị trí", &ui.w2u),
-        pref_row(
-            "[ ] thành ơ ư",
-            "Tắt / trừ đầu từ / mọi vị trí",
-            &ui.bracket,
-        ),
-        pref_row(
-            "Gạch ngang dài",
-            "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)",
-            &ui.em_dash,
-        ),
-    ]));
+    // ===== Page 2: Dấu & tự động — tone style and automatic behaviour.
+    let tone_page = pages::tone::build(&ui);
 
     // ===== Page 3: Gõ tắt =====
     let macro_box = gtk4::Box::new(Orientation::Vertical, 6);
@@ -475,7 +413,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     ];
     let page_boxes: [&gtk4::Widget; 7] = [
         typing_page.upcast_ref(),
-        tone.upcast_ref(),
+        tone_page.upcast_ref(),
         macro_box.upcast_ref(),
         data_box.upcast_ref(),
         rules_page.upcast_ref(),
@@ -484,7 +422,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     ];
     // Pages already on adw::PreferencesPage scroll internally; the plain gtk
     // boxes keep the width-clamped scroll wrapper until they convert.
-    const ADW_PAGES: [&str; 1] = ["typing"];
+    const ADW_PAGES: [&str; 2] = ["typing", "tone"];
     let stack = gtk4::Stack::new();
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
