@@ -56,26 +56,20 @@ pub(crate) fn build(
         &t("rows.export.title", "Xuất cấu hình ra JSON"),
         &t("rows.export.subtitle", "Lưu ra file để mang đi"),
     );
-    attach_info(
-        &export,
-        &t(
-            "tips.export",
-            "Lưu toàn bộ cấu hình, gõ tắt và từ điển ra một file JSON để mang sang máy khác.",
-        ),
-    );
+    export.set_tooltip_text(Some(&t(
+        "tips.export",
+        "Lưu toàn bộ cấu hình, gõ tắt và từ điển ra một file JSON để mang sang máy khác.",
+    )));
     export.add_suffix(export_btn);
     backup.add(&export);
     let import = action_row(
         &t("rows.import.title", "Nhập cấu hình từ JSON"),
         &t("rows.import.subtitle", "Đọc lại từ file đã xuất"),
     );
-    attach_info(
-        &import,
-        &t(
-            "tips.import",
-            "Đọc lại file JSON đã xuất: ghi đè cấu hình, gõ tắt và từ điển hiện tại.",
-        ),
-    );
+    import.set_tooltip_text(Some(&t(
+        "tips.import",
+        "Đọc lại file JSON đã xuất: ghi đè cấu hình, gõ tắt và từ điển hiện tại.",
+    )));
     import.add_suffix(import_btn);
     backup.add(&import);
     page.add(&backup);

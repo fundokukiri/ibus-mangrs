@@ -116,21 +116,15 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     name_row.add_suffix(&use_focus);
     let mode_row = combo_row(&t("rows.rule_mode.title", "Chế độ gõ"), "", MODES);
     mode_row.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
-    add_group.add(&name_row);
-    add_group.add(&mode_row);
-    // The one suggested-action button of the page, right-aligned as its
-    // own final row.
+    // The one suggested-action button of the page rides the mode row: the
+    // pick-a-mode and the add are one decision.
     let add_btn = gtk4::Button::with_label(&t("rules.add_button", "Thêm luật"));
     add_btn.add_css_class("suggested-action");
     add_btn.set_valign(gtk4::Align::Center);
     add_btn.set_sensitive(false);
-    let add_btn_box = gtk4::Box::new(Orientation::Horizontal, 0);
-    add_btn_box.set_halign(gtk4::Align::End);
-    add_btn_box.set_margin_top(6);
-    add_btn_box.set_margin_bottom(6);
-    add_btn_box.set_margin_end(6);
-    add_btn_box.append(&add_btn);
-    add_group.add(&add_btn_box);
+    mode_row.add_suffix(&add_btn);
+    add_group.add(&name_row);
+    add_group.add(&mode_row);
     page.add(&add_group);
 
     let list_group = adw::PreferencesGroup::builder()

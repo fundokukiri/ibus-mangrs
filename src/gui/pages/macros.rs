@@ -56,5 +56,26 @@ pub(crate) fn build(ui: &Rc<Ui>) -> (adw::PreferencesPage, gtk4::Button) {
     add_group.add(&add_row);
     page.add(&add_group);
 
+    // The raw table, dictionary-style: one `khóa=nội dung` line per pair,
+    // kept in sync with the rows above (a row edit mirrors here, a text
+    // edit rebuilds the rows on focus-out). Bulk edits — pasting a whole
+    // table — happen here instead of one row at a time.
+    let raw = adw::PreferencesGroup::builder()
+        .title(t("groups.macros.raw.title", "Nội dung gõ tắt"))
+        .description(t(
+            "groups.macros.raw.description",
+            "Mỗi dòng một cặp khóa=nội dung ($TIME, $DATE)",
+        ))
+        .build();
+    let scroll = card_text_editor(
+        &ui.macros_text,
+        &t(
+            "groups.macros.raw.placeholder",
+            "khóa=nội dung — mỗi dòng một cặp",
+        ),
+    );
+    raw.add(&scroll);
+    page.add(&raw);
+
     (page, add_btn)
 }
