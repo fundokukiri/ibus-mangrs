@@ -38,19 +38,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     menu.add(&ui.menu_box);
     page.add(&menu);
 
-    // Clicking (or Enter on) a folder / radio header expands it — the
-    // header row carries its design path as its widget name; leaf rows
-    // are not activatable, so only headers fire.
-    {
-        let ui = ui.clone();
-        let menu_box = ui.menu_box.clone();
-        menu_box.connect_row_activated(move |_, row| {
-            if let Some(path) = menu_parse_key(row.widget_name().as_ref()) {
-                ui.menu_toggle_expander(path);
-            }
-        });
-    }
-
     // Reset is the one destructive-enough action with a confirmation: a
     // stray click must not throw a hand-designed menu away.
     {
