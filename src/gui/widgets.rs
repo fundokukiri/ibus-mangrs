@@ -90,6 +90,17 @@ pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::Com
         .build()
 }
 
+/// A boxed-list number row; `step` is both the arrow increment and the
+/// page increment (x10).
+pub(super) fn spin_row(title: &str, subtitle: &str, min: f64, max: f64, step: f64) -> adw::SpinRow {
+    let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
+    adw::SpinRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .adjustment(&adjustment)
+        .build()
+}
+
 /// An info row for a boxed list (title + dim subtitle, no control).
 pub(super) fn action_row(title: &str, subtitle: &str) -> adw::ActionRow {
     adw::ActionRow::builder()
@@ -136,57 +147,6 @@ pub(super) fn section(box_: &gtk4::Box, title: &str, subtitle: &str) {
         s.set_margin_bottom(10);
         box_.append(&s);
     }
-}
-
-/// A section whose card starts collapsed: clicking the title toggles it.
-/// GTK4 dropped Expander, so this is a flat button over a Revealer. Used for
-/// the long customization lists — they would otherwise dominate the page.
-pub(super) fn collapsible_section(
-    parent: &gtk4::Box,
-    title: &str,
-    subtitle: &str,
-    rows: Vec<gtk4::Box>,
-) {
-    let header = gtk4::Button::new();
-    header.add_css_class("flat");
-    let h = gtk4::Box::new(Orientation::Horizontal, 8);
-    let arrow = gtk4::Label::new(Some("▸"));
-    let t = gtk4::Label::new(Some(title));
-    t.add_css_class("section-title");
-    h.set_halign(gtk4::Align::Start);
-    h.append(&arrow);
-    h.append(&t);
-    header.set_child(Some(&h));
-    header.set_halign(gtk4::Align::Start);
-    let revealer = Revealer::builder()
-        .transition_type(gtk4::RevealerTransitionType::SlideDown)
-        .transition_duration(150)
-        .reveal_child(false)
-        .build();
-    revealer.set_child(Some(&card(rows)));
-    {
-        let revealer = revealer.clone();
-        let arrow = arrow.clone();
-        header.connect_clicked(move |_| {
-            // The arrow must follow the revealer, not the click count: the
-            // search handler also opens and closes it.
-            let open = !revealer.reveals_child();
-            revealer.set_reveal_child(open);
-            arrow.set_text(if open { "▼" } else { "▸" });
-        });
-    }
-    parent.append(&header);
-    if !subtitle.is_empty() {
-        let s = gtk4::Label::new(Some(subtitle));
-        s.add_css_class("section-sub");
-        s.set_halign(gtk4::Align::Start);
-        s.set_xalign(0.0);
-        s.set_wrap(true);
-        s.set_margin_bottom(10);
-        parent.append(&s);
-    }
-    parent.append(&revealer);
-    COLLAPSIBLES.with(|c| c.borrow_mut().push((revealer, arrow)));
 }
 
 /// A grouped card: rows separated by hairline separators, rounded background.
@@ -251,9 +211,4 @@ pub(super) fn row_impl(
 /// Icon + title + subtitle, no control — feature/project lists on About.
 pub(super) fn info_row(icon: &str, title: &str, subtitle: &str) -> gtk4::Box {
     row_impl(Some(icon), title, subtitle, None)
-}
-
-/// A settings row: title + small dim subtitle on the left, control right.
-pub(super) fn pref_row(title: &str, subtitle: &str, widget: &impl IsA<gtk4::Widget>) -> gtk4::Box {
-    row_impl(None, title, subtitle, Some(widget.upcast_ref()))
 }
