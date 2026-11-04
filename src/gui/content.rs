@@ -27,81 +27,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
 
     // --- pages: grouped-card settings style (section header + cards) ---
 
-    // Quick add for App Rules: pick a client the engine has seen or type a
-    // name, pick a mode, append one rule row.
-    // Quick-add targets: real clients the engine has seen (GTK IM apps only —
-    // Wayland relays show up as gnome-shell, X11/XIM apps as none) plus the
-    // two pseudo-targets for those nameless groups.
-    let mut app_targets: Vec<(String, String)> = crate::config::recent_clients()
-        .into_iter()
-        .map(|n| {
-            let label = n.clone();
-            (label, n)
-        })
-        .collect();
-    app_targets.push((
-        "gnome-shell (app Wayland)".to_string(),
-        "gnome-shell".to_string(),
-    ));
-    app_targets.push(("(app không báo tên)".to_string(), "none".to_string()));
-    let combo_labels: Vec<&str> = app_targets
-        .iter()
-        .map(|(label, _)| label.as_str())
-        .collect();
-    let client_combo = drop_down(&combo_labels, 0);
-    client_combo.set_tooltip_text(Some("Các app engine đã từng thấy"));
-    let rule_pattern = Entry::builder()
-        .placeholder_text("hoặc nhập tên app")
-        .hexpand(true)
-        .build();
-    rule_pattern.set_tooltip_text(Some(
-        "Tên pattern: khớp một phần, không phân biệt hoa/thường",
-    ));
-    let rule_mode = drop_down(MODES, 1);
-    let add_btn = gtk4::Button::with_label("Thêm luật");
-    let add_row = gtk4::Box::new(Orientation::Horizontal, 8);
-    add_row.set_margin_start(10);
-    add_row.set_margin_end(10);
-    add_row.set_margin_top(8);
-    add_row.set_margin_bottom(8);
-    add_row.append(&client_combo);
-    add_row.append(&rule_pattern);
-    add_row.append(&rule_mode);
-    add_row.append(&add_btn);
-    // The clicked handler is connected after the window exists, so a failed
-    // save can surface in the window (see the save block below).
-
-    // The focused-app chip: the same extension call the engine makes. The
-    // settings window itself is focused while the user edits, so the useful
-    // refresh happens on focus leave — the window the user just switched to
-    // is the one they came here to target.
-    let focus_use_btn = gtk4::Button::with_label("Dùng tên này");
-    focus_use_btn.set_tooltip_text(Some("Điền tên đang hiện vào ô thêm luật bên dưới"));
-    let focus_row = gtk4::Box::new(Orientation::Horizontal, 8);
-    focus_row.set_margin_start(10);
-    focus_row.set_margin_end(10);
-    focus_row.set_margin_top(8);
-    focus_row.set_margin_bottom(4);
-    let focus_title = gtk4::Label::new(Some("App đang focus:"));
-    focus_row.append(&focus_title);
-    focus_row.append(&ui.rule_focus);
-    focus_row.append(&focus_use_btn);
-
-    // The rule rows flow with the page (no inner scroll cap): every rule
-    // stays visible while the page itself scrolls.
-    let preview_row = gtk4::Box::new(Orientation::Horizontal, 8);
-    preview_row.set_margin_start(10);
-    preview_row.set_margin_end(10);
-    preview_row.set_margin_top(8);
-    let preview_title = gtk4::Label::new(Some("Thử luật:"));
-    preview_row.append(&preview_title);
-    preview_row.append(&ui.rule_preview_input);
-    let preview_result_row = gtk4::Box::new(Orientation::Horizontal, 8);
-    preview_result_row.set_margin_start(10);
-    preview_result_row.set_margin_end(10);
-    preview_result_row.set_margin_bottom(8);
-    preview_result_row.append(&ui.rule_preview);
-
     let export_btn = gtk4::Button::with_label("Xuất…");
     let import_btn = gtk4::Button::with_label("Nhập…");
 
@@ -117,24 +42,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 4: Dữ liệu — dictionary (text area) and JSON backup.
     let data_page = pages::data::build(&ui, &export_btn, &import_btn);
 
-    // ===== Page 5: Luật =====
-    // A whole page for the per-app rules: the editor needs the room, the
-    // rule rows flow with the page scroll instead of a cramped inner box,
-    // and it keeps the "one question per tab" split.
-    let rules_page = gtk4::Box::new(Orientation::Vertical, 6);
-    section(
-        &rules_page,
-        "Luật theo ứng dụng",
-        "Luật đầu tiên thắng. Tên app khớp một phần, không phân biệt hoa/thường; none = app không báo tên. Đủ 10 chế độ gõ.",
-    );
-    rules_page.append(&card_widget(&focus_row));
-    rules_page.append(&card_widget(&add_row));
-    rules_page.append(&card_widget(&ui.rules_box));
-    rules_page.append(&card(vec![preview_row, preview_result_row]));
-    hint(
-        &rules_page,
-        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native: Chrome, Firefox, … Nhãn App đang focus lấy tên từ extension — chuyển sang app đích rồi quay lại cài đặt, nó tự cập nhật. Danh sách thêm nhanh là các app engine đã từng thấy, không phải mọi app đang chạy.",
-    );
+    // ===== Page 5: Luật — chip, quick-add, list editor, preview.
+    let rules_page = pages::rules::build(&ui);
 
     // ===== Page 6: Tinh chỉnh =====
     // Everything touched once (or only when debugging) lives here so the
@@ -635,57 +544,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         // The rule rows are created by `refresh`, so they save through this
         // handle instead of a closure captured at build time.
         *ui.save_cb.borrow_mut() = Some(Rc::new(save.clone()));
-        // The quick-add row appends a rule row, then saves through the same
-        // error surface as every other control. A typed pattern wins over
-        // the dropdown choice.
-        {
-            let ui = ui.clone();
-            let client_combo = client_combo.clone();
-            let rule_mode = rule_mode.clone();
-            let rule_pattern = rule_pattern.clone();
-            add_btn.connect_clicked(move |_| {
-                let idx = client_combo.selected() as usize;
-                let typed = rule_pattern.text().trim().to_string();
-                let pattern = if typed.is_empty() {
-                    app_targets.get(idx).map(|(_, p)| p.clone())
-                } else {
-                    Some(typed)
-                };
-                let Some(pattern) = pattern else {
-                    return;
-                };
-                if pattern.is_empty() {
-                    return;
-                }
-                let mode = mode_at(rule_mode.selected());
-                ui.edit_rules(move |rules| {
-                    rules.push(crate::config::AppRule { pattern, mode });
-                });
-                rule_pattern.set_text("");
-            });
-        }
         // The macro add row appends an empty pair the user fills in.
         {
             let ui = ui.clone();
             macro_add_btn.connect_clicked(move |_| {
                 ui.edit_macros(|entries| entries.push((String::new(), String::new())));
-            });
-        }
-        {
-            let ui = ui.clone();
-            let rule_pattern = rule_pattern.clone();
-            focus_use_btn.connect_clicked(move |_| {
-                let value = ui.rule_focus_value.borrow().clone();
-                if !value.is_empty() {
-                    rule_pattern.set_text(&value);
-                }
-            });
-        }
-        {
-            let ui = ui.clone();
-            let input = ui.rule_preview_input.clone();
-            input.connect_changed(move |_| {
-                ui.update_rule_preview();
             });
         }
         // The panel-menu editor buttons mutate the tree, then save through
