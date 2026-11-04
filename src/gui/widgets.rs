@@ -130,14 +130,15 @@ pub(super) fn text_view(content: &str) -> TextView {
     view
 }
 
-/// The "(?)" marker: a small flat question icon in the row that explains
-/// the setting on hover (tooltip) or click (dialog). The long text comes
-/// from the content file, so the owner tunes it without code.
+/// The "(?)" marker: a small flat about icon — the same glyph the About
+/// page carries — that explains the setting on hover (tooltip) or click
+/// (dialog). The long text comes from the content file, so the owner tunes
+/// it without code.
 pub(super) fn attach_info<W: IsA<gtk4::Widget> + IsA<adw::ActionRow> + IsA<adw::PreferencesRow>>(
     row: &W,
     text: &str,
 ) {
-    let btn = gtk4::Button::from_icon_name("dialog-question-symbolic");
+    let btn = gtk4::Button::from_icon_name("help-about-symbolic");
     btn.add_css_class("flat");
     btn.set_tooltip_text(Some(text));
     btn.set_valign(gtk4::Align::Center);
