@@ -23,7 +23,6 @@ advanced = "Tinh chỉnh"
 about = "Giới thiệu"
 
 [search]
-tooltip = "Tìm chức năng trong mọi trang"
 placeholder = "Tìm chức năng…"
 none = "Không có kết quả"
 page_kind = "Trang"

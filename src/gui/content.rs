@@ -213,9 +213,23 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         });
     }
 
+    // Search lives in the sidebar: the entry (magnifier icon built in)
+    // sits above the page list, always visible; typing overlays the
+    // matching rows over the content, Esc clears the query again.
+    let search_entry = gtk4::SearchEntry::new();
+    search_entry.set_placeholder_text(Some(&t("search.placeholder", "Tìm chức năng…")));
+    search_entry.set_hexpand(true);
+    search_entry.set_margin_top(6);
+    search_entry.set_margin_bottom(6);
+    search_entry.set_margin_start(6);
+    search_entry.set_margin_end(6);
+    let sidebar_box = gtk4::Box::new(Orientation::Vertical, 0);
+    sidebar_box.append(&search_entry);
+    sidebar_list.set_vexpand(true);
+    sidebar_box.append(&sidebar_list);
     let sidebar_page = adw::NavigationPage::builder()
         .title(&app_name)
-        .child(&sidebar_list)
+        .child(&sidebar_box)
         .build();
 
     // The restart button floats over everything at the bottom center of
@@ -225,23 +239,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     page_overlay.add_overlay(&restart_btn);
     let content_toolbar = adw::ToolbarView::new();
 
-    // --- search: one header button, results over every page -----------------
-    // GNOME-Settings-style: the button reveals a search entry; typing shows
-    // a flat list of matching rows across ALL pages, and activating a result
-    // jumps to that page through the sidebar (title and selection stay in
-    // sync). The index is built once from the finished page trees.
-    let search_btn = gtk4::Button::from_icon_name("system-search-symbolic");
-    search_btn.set_tooltip_text(Some(&t("search.tooltip", "Tìm chức năng trong mọi trang")));
-    header.pack_start(&search_btn);
-
-    let search_entry = gtk4::SearchEntry::new();
-    search_entry.set_placeholder_text(Some(&t("search.placeholder", "Tìm chức năng…")));
-    search_entry.set_hexpand(true);
-    let search_bar = gtk4::SearchBar::new();
-    search_bar.set_search_mode(false);
-    search_bar.set_child(Some(&search_entry));
-    search_bar.set_show_close_button(true);
-    content_toolbar.add_top_bar(&search_bar);
+    // --- search: the sidebar entry, results over every page -----------------
+    // Typing in the sidebar entry shows a flat list of matching rows across
+    // ALL pages, and activating a result jumps to that page through the
+    // sidebar (title and selection stay in sync). The index is built once
+    // from the finished page trees.
 
     let results_list = gtk4::ListBox::new();
     results_list.add_css_class("boxed-list");
@@ -359,16 +361,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         search_entry.connect_stop_search(move |_| {
             // Esc: leave search mode with the query cleared.
             entry.set_text("");
-        });
-    }
-    {
-        let entry = search_entry.clone();
-        search_btn.connect_clicked(move |_| {
-            let open = !search_bar.is_search_mode();
-            search_bar.set_search_mode(open);
-            if open {
-                entry.grab_focus();
-            }
         });
     }
     {
