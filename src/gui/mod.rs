@@ -1270,7 +1270,7 @@ fn widgets() -> Rc<Ui> {
         "2 dấu cách = chấm",
         "Thử nghiệm: hai dấu cách thành dấu chấm",
     );
-    let macro_enabled = switch_row("Gõ tắt", "Khóa gõ tắt mở rộng thành cụm khi hết từ");
+    let macro_enabled = switch_row("Gõ tắt", "Khóa mở rộng thành cụm khi hết từ");
     let capitalize_macro = switch_row("Viết hoa gõ tắt", "Khóa viết hoa → nội dung viết hoa theo");
     let macro_in_off_mode = switch_row("Gõ tắt khi OFF", "Vẫn mở rộng khi tiếng Việt đang tắt");
     let time_format = Entry::builder().width_chars(14).build();

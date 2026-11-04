@@ -10,6 +10,7 @@ pub(super) mod about;
 pub(super) mod advanced;
 pub(super) mod data;
 pub(super) mod macros;
+pub(super) mod panel;
 pub(super) mod rules;
 pub(super) mod tone;
 pub(super) mod typing;
