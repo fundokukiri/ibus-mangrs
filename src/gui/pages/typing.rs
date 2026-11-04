@@ -11,19 +11,49 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .description("Bật tiếng Việt và phím tắt đổi chế độ")
         .build();
     status.add(&ui.enabled);
-    let mode_hotkey = action_row(
-        "Phím tắt đổi chế độ",
-        "Ví dụ: Control+Alt+v. Để trống là chưa gán",
-    );
-    mode_hotkey.add_suffix(&ui.hotkey_btn);
+    let mode_hotkey = action_row("Phím tắt đổi chế độ", "Ví dụ: Control+Alt+v");
+    mode_hotkey.add_suffix(&ui.hotkey_label);
+    mode_hotkey.add_suffix(&ui.hotkey_edit);
     status.add(&mode_hotkey);
-    let enabled_hotkey = action_row(
-        "Phím tắt bật/tắt tiếng Việt",
-        "Ví dụ: Control+Alt+space. Để trống là chưa gán",
-    );
-    enabled_hotkey.add_suffix(&ui.enabled_hotkey_btn);
+    let enabled_hotkey = action_row("Phím tắt bật/tắt tiếng Việt", "Ví dụ: Control+Alt+space");
+    enabled_hotkey.add_suffix(&ui.enabled_hotkey_label);
+    enabled_hotkey.add_suffix(&ui.enabled_hotkey_edit);
     status.add(&enabled_hotkey);
     page.add(&status);
+    // The recorder captures on the row (GNOME shortcut style) and saves
+    // through the shared funnel handle.
+    {
+        let ui = ui.clone();
+        let s = ui.save_cb.clone();
+        let row = mode_hotkey.clone();
+        hotkey_wire(
+            &row,
+            &ui.hotkey_edit,
+            &ui.hotkey_label,
+            &ui.hotkey_value,
+            move || {
+                if let Some(save) = s.borrow().as_ref() {
+                    save();
+                }
+            },
+        );
+    }
+    {
+        let ui = ui.clone();
+        let s = ui.save_cb.clone();
+        let row = enabled_hotkey.clone();
+        hotkey_wire(
+            &row,
+            &ui.enabled_hotkey_edit,
+            &ui.enabled_hotkey_label,
+            &ui.enabled_hotkey_value,
+            move || {
+                if let Some(save) = s.borrow().as_ref() {
+                    save();
+                }
+            },
+        );
+    }
 
     let style = adw::PreferencesGroup::builder()
         .title("Cách gõ")

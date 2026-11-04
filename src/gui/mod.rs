@@ -192,9 +192,13 @@ struct Ui {
     method: adw::ComboRow,
     mode: adw::ComboRow,
     charset: adw::ComboRow,
-    hotkey_btn: gtk4::Button,
+    /// GNOME-style hotkey row: the dim combo text plus the small edit
+    /// button; the recorder captures on the row (see `hotkey_wire`).
+    hotkey_label: gtk4::Label,
+    hotkey_edit: gtk4::Button,
     hotkey_value: Rc<RefCell<String>>,
-    enabled_hotkey_btn: gtk4::Button,
+    enabled_hotkey_label: gtk4::Label,
+    enabled_hotkey_edit: gtk4::Button,
     enabled_hotkey_value: Rc<RefCell<String>>,
     modern: adw::SwitchRow,
     free: adw::SwitchRow,
@@ -361,9 +365,9 @@ impl Ui {
         self.mode.set_selected(mode_index(config.mode));
         self.charset.set_selected(charset_index(config.charset));
         *self.hotkey_value.borrow_mut() = config.cycle_mode_hotkey.clone();
-        render_hotkey(&self.hotkey_btn, &config.cycle_mode_hotkey);
+        render_hotkey(&self.hotkey_label, &config.cycle_mode_hotkey);
         *self.enabled_hotkey_value.borrow_mut() = config.enabled_hotkey.clone();
-        render_hotkey(&self.enabled_hotkey_btn, &config.enabled_hotkey);
+        render_hotkey(&self.enabled_hotkey_label, &config.enabled_hotkey);
         self.modern.set_active(config.modern_tone_style);
         self.free.set_active(config.free_tone_marking);
         self.auto_correct.set_active(config.auto_correct);
@@ -1217,14 +1221,20 @@ fn widgets() -> Rc<Ui> {
         MODES,
     );
     let charset = combo_row("Bảng mã", "Unicode và 10 bảng mã cũ", CHARSETS);
-    let hotkey_btn = gtk4::Button::new();
-    hotkey_btn.set_tooltip_text(Some(
-        "Bấm rồi nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
+    let hotkey_label = gtk4::Label::new(Some("Chưa gán"));
+    hotkey_label.add_css_class("dim-label");
+    let hotkey_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
+    hotkey_edit.add_css_class("flat");
+    hotkey_edit.set_tooltip_text(Some(
+        "Gán lại: nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
     ));
     let hotkey_value = Rc::new(RefCell::new(String::new()));
-    let enabled_hotkey_btn = gtk4::Button::new();
-    enabled_hotkey_btn.set_tooltip_text(Some(
-        "Bấm rồi nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
+    let enabled_hotkey_label = gtk4::Label::new(Some("Chưa gán"));
+    enabled_hotkey_label.add_css_class("dim-label");
+    let enabled_hotkey_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
+    enabled_hotkey_edit.add_css_class("flat");
+    enabled_hotkey_edit.set_tooltip_text(Some(
+        "Gán lại: nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
     ));
     let enabled_hotkey_value = Rc::new(RefCell::new(String::new()));
     let modern = switch_row("Kiểu dấu mới", "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)");
@@ -1369,9 +1379,11 @@ fn widgets() -> Rc<Ui> {
         method,
         mode,
         charset,
-        hotkey_btn,
+        hotkey_label,
+        hotkey_edit,
         hotkey_value,
-        enabled_hotkey_btn,
+        enabled_hotkey_label,
+        enabled_hotkey_edit,
         enabled_hotkey_value,
         modern,
         free,
