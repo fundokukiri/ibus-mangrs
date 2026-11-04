@@ -396,7 +396,25 @@ struct Ui {
     macro_text: TextView,
     dictionary_enabled: Switch,
     dictionary_text: TextView,
-    rules_text: TextView,
+    /// App Rules editor: the row container plus one widget pair per rule.
+    /// The rows hold the live values — GObject clones share the object — so
+    /// reading them reads what the user sees.
+    rules_box: gtk4::Box,
+    rules_rows: Rc<RefCell<Vec<RuleRow>>>,
+    /// Blocks row save handlers while `fill_rules` rebuilds the rows: the
+    /// mode dropdown fires `selected_notify` on a programmatic set too.
+    rules_loading: Rc<RefCell<bool>>,
+    /// The save funnel, wired in `build` once the window exists; rows are
+    /// created in `refresh`, so they fire edits through this instead of a
+    /// closure captured at build time. `None` in headless tests.
+    rules_save: SharedSave,
+    /// "Thử luật" input and its verdict label.
+    rule_preview_input: Entry,
+    rule_preview: gtk4::Label,
+    /// The focused-app chip: name label plus the last good name (the label
+    /// also carries error text, so the usable value is kept separately).
+    rule_focus: gtk4::Label,
+    rule_focus_value: Rc<RefCell<String>>,
     hide_underline: Switch,
     debug_log: Switch,
     x11_delete: Switch,
@@ -413,6 +431,15 @@ struct Ui {
     menu_kind: ComboBoxText,
     menu_name: Entry,
 }
+
+/// One App Rules editor row's widgets.
+struct RuleRow {
+    pattern: Entry,
+    mode: DropDown,
+}
+
+/// The save funnel handle shared between `Ui` and the rule-row closures.
+type SharedSave = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
 
 fn method_index(m: MethodConfig) -> u32 {
     match m {
@@ -435,6 +462,23 @@ fn mode_index(m: ModeConfig) -> u32 {
         ModeConfig::ForwardSelect => 7,
         ModeConfig::Off => 8,
         ModeConfig::DefaultTyping => 9,
+    }
+}
+
+/// Inverse of `mode_index`, shared by the main mode dropdown and the
+/// App Rules rows.
+fn mode_at(i: u32) -> ModeConfig {
+    match i {
+        1 => ModeConfig::Preedit,
+        2 => ModeConfig::Surrounding,
+        3 => ModeConfig::Smooth,
+        4 => ModeConfig::SuperSmooth,
+        5 => ModeConfig::Select,
+        6 => ModeConfig::ForwardKeyEvent,
+        7 => ModeConfig::ForwardSelect,
+        8 => ModeConfig::Off,
+        9 => ModeConfig::DefaultTyping,
+        _ => ModeConfig::NonPreedit,
     }
 }
 
@@ -469,8 +513,10 @@ impl Ui {
     /// Push a config (plus the two text lists) into every widget. This is the
     /// only config → widget mapping: the initial build and the import both go
     /// through it, so an import cannot leave a stale widget that the next
-    /// save would write back over the imported file.
-    fn refresh(&self, config: &Config, macros: &Macros, dictionary: &Dictionary) {
+    /// save would write back over the imported file. Takes `&Rc<Self>`
+    /// because the rule rows it rebuilds capture the handle in their
+    /// reorder/delete handlers.
+    fn refresh(self: &Rc<Self>, config: &Config, macros: &Macros, dictionary: &Dictionary) {
         // Normalize the menu design first: an absent or empty design edits
         // the shipped shape. The round-trip assert at the end compares
         // `read()` — which always produces a design — against this copy.
@@ -538,15 +584,7 @@ impl Ui {
             &self.dictionary_text,
             &dictionary.words().collect::<Vec<_>>().join("\n"),
         );
-        set_text(
-            &self.rules_text,
-            &config
-                .app_rules
-                .iter()
-                .map(|r| format!("{}={}", r.pattern, r.mode.key()))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        );
+        self.fill_rules(&config.app_rules);
         self.hide_underline.set_active(config.hide_underline);
         // A field added to Config and Ui but forgotten here would leave a
         // stale widget that the next save writes back (the import bug).
@@ -565,18 +603,7 @@ impl Ui {
             3 => MethodConfig::Microsoft,
             _ => MethodConfig::Telex,
         };
-        config.mode = match self.mode.selected() {
-            1 => ModeConfig::Preedit,
-            2 => ModeConfig::Surrounding,
-            3 => ModeConfig::Smooth,
-            4 => ModeConfig::SuperSmooth,
-            5 => ModeConfig::Select,
-            6 => ModeConfig::ForwardKeyEvent,
-            7 => ModeConfig::ForwardSelect,
-            8 => ModeConfig::Off,
-            9 => ModeConfig::DefaultTyping,
-            _ => ModeConfig::NonPreedit,
-        };
+        config.mode = mode_at(self.mode.selected());
         config.charset = match self.charset.selected() {
             1 => CharsetConfig::Nfd,
             2 => CharsetConfig::Tcvn3,
@@ -632,13 +659,9 @@ impl Ui {
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());
         // Read here, not in `save_all`: `refresh` asserts that `read` returns
-        // everything it just pushed into the widgets, and the rules text view
-        // is one of those widgets.
-        config.app_rules = self
-            .read_rules()
-            .into_iter()
-            .map(|(pattern, mode)| crate::config::AppRule { pattern, mode })
-            .collect();
+        // everything it just pushed into the widgets, and the rule rows are
+        // among those widgets.
+        config.app_rules = self.rules_from_rows();
         config
     }
 
@@ -1065,16 +1088,171 @@ impl Ui {
             .collect()
     }
 
-    fn read_rules(&self) -> Vec<(String, ModeConfig)> {
-        text_of(&self.rules_text)
-            .lines()
-            .filter_map(|l| l.split_once('='))
-            .filter_map(|(p, m)| {
-                let mode = ModeConfig::from_key(m.trim())?;
-                let pattern = p.trim().to_string();
-                (!pattern.is_empty()).then_some((pattern, mode))
+    /// The rules as the rows currently show them; row order is match
+    /// priority. An empty pattern is kept (an inert rule the user can
+    /// delete), so `refresh`'s round-trip assert holds for hand-edited
+    /// configs too.
+    fn rules_from_rows(&self) -> Vec<crate::config::AppRule> {
+        self.rules_rows
+            .borrow()
+            .iter()
+            .map(|row| crate::config::AppRule {
+                pattern: row.pattern.text().trim().to_string(),
+                mode: mode_at(row.mode.selected()),
             })
             .collect()
+    }
+
+    /// Apply one user edit to the rule list: rebuild the rows, then save
+    /// through the funnel like every other control.
+    fn edit_rules(self: &Rc<Self>, edit: impl FnOnce(&mut Vec<crate::config::AppRule>)) {
+        let mut rules = self.rules_from_rows();
+        edit(&mut rules);
+        self.fill_rules(&rules);
+        self.fire_save();
+    }
+
+    /// Rebuild the rule rows from `rules`. Also runs at refresh — that path
+    /// must not save; only user edits do (`edit_rules`).
+    fn fill_rules(self: &Rc<Self>, rules: &[crate::config::AppRule]) {
+        *self.rules_loading.borrow_mut() = true;
+        while let Some(child) = self.rules_box.first_child() {
+            self.rules_box.remove(&child);
+        }
+        self.rules_rows.borrow_mut().clear();
+        for (idx, rule) in rules.iter().enumerate() {
+            self.rule_row(idx, &rule.pattern, rule.mode);
+        }
+        *self.rules_loading.borrow_mut() = false;
+        self.update_rule_preview();
+    }
+
+    /// One editable rule row: the pattern entry, the mode dropdown and the
+    /// reorder/delete buttons. Row order is match priority — the engine
+    /// takes the first rule that hits.
+    fn rule_row(self: &Rc<Self>, idx: usize, pattern: &str, mode: ModeConfig) {
+        let row = gtk4::Box::new(Orientation::Horizontal, 6);
+        row.set_margin_start(10);
+        row.set_margin_end(10);
+        row.set_margin_top(6);
+        row.set_margin_bottom(6);
+        let entry = Entry::builder()
+            .text(pattern)
+            .tooltip_text(
+                "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)",
+            )
+            .hexpand(true)
+            .build();
+        let mode_dd = drop_down(MODES, mode_index(mode));
+        mode_dd.set_tooltip_text(Some("Chế độ gõ khi luật khớp"));
+        {
+            let rows = self.rules_rows.clone();
+            rows.borrow_mut().push(RuleRow {
+                pattern: entry.clone(),
+                mode: mode_dd.clone(),
+            });
+        }
+        {
+            let ui = self.clone();
+            entry.connect_changed(move |_| ui.update_rule_preview());
+        }
+        {
+            let ui = self.clone();
+            entry.connect_activate(move |_| ui.fire_save());
+        }
+        {
+            let ui = self.clone();
+            let controller = gtk4::EventControllerFocus::new();
+            controller.connect_leave(move |_| ui.fire_save());
+            entry.add_controller(controller);
+        }
+        {
+            let ui = self.clone();
+            mode_dd.connect_selected_notify(move |_| {
+                if *ui.rules_loading.borrow() {
+                    return;
+                }
+                ui.fire_save();
+                ui.update_rule_preview();
+            });
+        }
+        let up = gtk4::Button::with_label("▲");
+        up.set_tooltip_text(Some("Lên — luật trước thắng"));
+        {
+            let ui = self.clone();
+            up.connect_clicked(move |_| {
+                ui.edit_rules(|rules| {
+                    if idx > 0 {
+                        rules.swap(idx - 1, idx);
+                    }
+                });
+            });
+        }
+        let down = gtk4::Button::with_label("▼");
+        down.set_tooltip_text(Some("Xuống"));
+        {
+            let ui = self.clone();
+            down.connect_clicked(move |_| {
+                ui.edit_rules(|rules| {
+                    if idx + 1 < rules.len() {
+                        rules.swap(idx, idx + 1);
+                    }
+                });
+            });
+        }
+        let del = gtk4::Button::with_label("✕");
+        del.set_tooltip_text(Some("Xoá luật này"));
+        del.add_css_class("destructive-action");
+        {
+            let ui = self.clone();
+            del.connect_clicked(move |_| {
+                ui.edit_rules(|rules| {
+                    if idx < rules.len() {
+                        rules.remove(idx);
+                    }
+                });
+            });
+        }
+        row.append(&entry);
+        row.append(&mode_dd);
+        row.append(&up);
+        row.append(&down);
+        row.append(&del);
+        self.rules_box.append(&row);
+    }
+
+    /// The "thử luật" verdict: which rule hits the typed name and the mode
+    /// it forces. Rules only — the engine's capability fallbacks are not
+    /// modelled here.
+    fn update_rule_preview(&self) {
+        let input = self.rule_preview_input.text().trim().to_string();
+        if input.is_empty() {
+            self.rule_preview.set_text("");
+            return;
+        }
+        let rules = self.rules_from_rows();
+        let target = Some(input.as_str());
+        if let Some(mode) = crate::config::app_rule_mode(&rules, target) {
+            let (idx, pattern) = rules
+                .iter()
+                .position(|r| crate::config::app_rule_matches(&r.pattern, target))
+                .map(|i| (i + 1, rules[i].pattern.clone()))
+                .unwrap_or((0, String::new()));
+            let label = MODES[mode_index(mode) as usize];
+            self.rule_preview
+                .set_text(&format!("Khớp luật #{idx} \"{pattern}\" → {label}"));
+        } else {
+            self.rule_preview
+                .set_text("Không luật nào khớp → dùng chế độ chung hiện tại");
+        }
+    }
+
+    /// Run the save funnel if the window wired it (headless tests skip it).
+    fn fire_save(&self) {
+        let save = self.rules_save.borrow().clone();
+        if let Some(save) = save {
+            save();
+        }
     }
 
     fn save_all(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -1143,7 +1321,30 @@ fn widgets() -> Rc<Ui> {
     let macro_text = text_view("");
     let dictionary_enabled = Switch::new();
     let dictionary_text = text_view("");
-    let rules_text = text_view("");
+    // App Rules editor widgets. The rows live in `rules_box`, rebuilt by
+    // `fill_rules`; the rest are the fixed helpers around them.
+    let rules_box = gtk4::Box::new(Orientation::Vertical, 0);
+    let rule_preview_input = Entry::builder()
+        .placeholder_text("Firefox / wayland:Firefox / xim")
+        .hexpand(true)
+        .build();
+    rule_preview_input.set_tooltip_text(Some(
+        "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp và chế độ gõ kết quả",
+    ));
+    let rule_preview = gtk4::Label::new(None);
+    rule_preview.add_css_class("dimmed");
+    rule_preview.set_xalign(0.0);
+    rule_preview.set_wrap(true);
+    let rule_focus = gtk4::Label::new(Some("—"));
+    rule_focus.set_xalign(0.0);
+    rule_focus.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    rule_focus.set_tooltip_text(Some(
+        "Chuyển sang app đích rồi quay lại cửa sổ này — tên app sẽ hiện ở đây (cần extension MăngRS Focus)",
+    ));
+    let rule_focus_value = Rc::new(RefCell::new(String::new()));
+    let rules_rows = Rc::new(RefCell::new(Vec::new()));
+    let rules_loading = Rc::new(RefCell::new(false));
+    let rules_save: SharedSave = Rc::new(RefCell::new(None));
     let hide_underline = Switch::new();
     let debug_log = Switch::new();
     let x11_delete = Switch::new();
@@ -1205,7 +1406,14 @@ fn widgets() -> Rc<Ui> {
         macro_text,
         dictionary_enabled,
         dictionary_text,
-        rules_text,
+        rules_box,
+        rules_rows,
+        rules_loading,
+        rules_save,
+        rule_preview_input,
+        rule_preview,
+        rule_focus,
+        rule_focus_value,
         hide_underline,
         debug_log,
         x11_delete,
@@ -1244,8 +1452,8 @@ fn build(app: &Application, initial_page: Option<&str>) {
 
     // --- pages: grouped-card settings style (section header + cards) ---
 
-    // Quick add for App Rules: pick a client the engine has seen, pick a
-    // mode, append one rule line.
+    // Quick add for App Rules: pick a client the engine has seen or type a
+    // name, pick a mode, append one rule row.
     // Quick-add targets: real clients the engine has seen (GTK IM apps only —
     // Wayland relays show up as gnome-shell, X11/XIM apps as none) plus the
     // two pseudo-targets for those nameless groups.
@@ -1266,13 +1474,15 @@ fn build(app: &Application, initial_page: Option<&str>) {
         .map(|(label, _)| label.as_str())
         .collect();
     let client_combo = drop_down(&combo_labels, 0);
-    let rule_mode = drop_down(
-        &crate::ibus_prop::MODES
-            .iter()
-            .map(|(k, _)| *k)
-            .collect::<Vec<_>>(),
-        1,
-    );
+    client_combo.set_tooltip_text(Some("Các app engine đã từng thấy"));
+    let rule_pattern = Entry::builder()
+        .placeholder_text("hoặc nhập tên app")
+        .hexpand(true)
+        .build();
+    rule_pattern.set_tooltip_text(Some(
+        "Tên pattern: khớp một phần, không phân biệt hoa/thường",
+    ));
+    let rule_mode = drop_down(MODES, 1);
     let add_btn = gtk4::Button::with_label("Thêm luật");
     let add_row = gtk4::Box::new(Orientation::Horizontal, 8);
     add_row.set_margin_start(10);
@@ -1280,10 +1490,51 @@ fn build(app: &Application, initial_page: Option<&str>) {
     add_row.set_margin_top(8);
     add_row.set_margin_bottom(8);
     add_row.append(&client_combo);
+    add_row.append(&rule_pattern);
     add_row.append(&rule_mode);
     add_row.append(&add_btn);
     // The clicked handler is connected after the window exists, so a failed
     // save can surface in the window (see the save block below).
+
+    // The focused-app chip: the same extension call the engine makes, run on
+    // a worker thread so the sync D-Bus timeout never janks the window. The
+    // settings window itself is focused while the user edits, so the useful
+    // refresh happens on focus leave — the window the user just switched to
+    // is the one they came here to target.
+    let focus_use_btn = gtk4::Button::with_label("Dùng tên này");
+    focus_use_btn.set_tooltip_text(Some("Điền tên đang hiện vào ô thêm luật bên dưới"));
+    let focus_row = gtk4::Box::new(Orientation::Horizontal, 8);
+    focus_row.set_margin_start(10);
+    focus_row.set_margin_end(10);
+    focus_row.set_margin_top(8);
+    focus_row.set_margin_bottom(4);
+    let focus_title = gtk4::Label::new(Some("App đang focus:"));
+    focus_row.append(&focus_title);
+    focus_row.append(&ui.rule_focus);
+    focus_row.append(&focus_use_btn);
+
+    // The rules list scrolls at a minimum height so many rules cannot
+    // stretch the tab (mirrors the menu editor's list).
+    let rules_scroll = gtk4::ScrolledWindow::new();
+    rules_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    rules_scroll.set_min_content_height(140);
+    rules_scroll.set_child(Some(&ui.rules_box));
+    let rules_row = gtk4::Box::new(Orientation::Vertical, 0);
+    rules_row.set_margin_bottom(8);
+    rules_row.append(&rules_scroll);
+
+    let preview_row = gtk4::Box::new(Orientation::Horizontal, 8);
+    preview_row.set_margin_start(10);
+    preview_row.set_margin_end(10);
+    preview_row.set_margin_top(8);
+    let preview_title = gtk4::Label::new(Some("Thử luật:"));
+    preview_row.append(&preview_title);
+    preview_row.append(&ui.rule_preview_input);
+    let preview_result_row = gtk4::Box::new(Orientation::Horizontal, 8);
+    preview_result_row.set_margin_start(10);
+    preview_result_row.set_margin_end(10);
+    preview_result_row.set_margin_bottom(8);
+    preview_result_row.append(&ui.rule_preview);
 
     let export_btn = gtk4::Button::with_label("Xuất…");
     let import_btn = gtk4::Button::with_label("Nhập…");
@@ -1514,16 +1765,21 @@ fn build(app: &Application, initial_page: Option<&str>) {
         "Tự thiết kế menu popup: thêm thư mục, thêm chức năng, bỏ vào thư mục, sắp xếp thứ tự. Bảng mã / Kiểu gõ / Chế độ gõ cũng chỉnh được mục bên trong.",
         vec![menu_row1, menu_row2, menu_view_row],
     );
-    section(
+    collapsible_section(
         &advanced,
         "Luật theo ứng dụng",
-        "Mỗi dòng: tên-ứng-dụng=chế độ (nonpreedit, preedit, surrounding, smooth, supersmooth, select, off, defaulttyping). Tên đặc biệt: gnome-shell = app Wayland, none = app không báo tên",
+        "Luật đầu tiên thắng. Tên app khớp một phần, không phân biệt hoa/thường; none = app không báo tên. Đủ 10 chế độ gõ.",
+        vec![
+            focus_row,
+            add_row,
+            rules_row,
+            preview_row,
+            preview_result_row,
+        ],
     );
-    advanced.append(&card_widget(&add_row));
-    advanced.append(&card_widget(&scrolled(&ui.rules_text, 160)));
     hint(
         &advanced,
-        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để engine nhận tên app Wayland-native: Chrome, Firefox, … Danh sách là các app engine đã từng thấy, không phải mọi app đang chạy.",
+        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native: Chrome, Firefox, … Nhãn App đang focus lấy tên từ extension — chuyển sang app đích rồi quay lại cài đặt, nó tự cập nhật. Danh sách thêm nhanh là các app engine đã từng thấy, không phải mọi app đang chạy.",
     );
     section(
         &advanced,
@@ -1792,6 +2048,19 @@ fn build(app: &Application, initial_page: Option<&str>) {
     // the app id and the installed desktop file instead.
     window.set_icon_name(Some("ibus-mangrs"));
 
+    // The focused-app chip refreshes when the window loses focus: at that
+    // moment the app the user switched to becomes focused, and that is the
+    // app they came here to target. No refresh at startup — the settings
+    // window itself is the focused window then, which names nothing useful.
+    {
+        let ui = ui.clone();
+        let controller = gtk4::EventControllerFocus::new();
+        controller.connect_leave(move |_| {
+            refresh_focused_app(&ui.rule_focus, &ui.rule_focus_value);
+        });
+        window.add_controller(controller);
+    }
+
     // Header: [search] ... [pill tabs] ... [close]. Window controls are
     // replaced by our own round close button.
     let header = gtk4::HeaderBar::new();
@@ -1904,31 +2173,53 @@ fn build(app: &Application, initial_page: Option<&str>) {
                 Err(e) => alert(&window_for_save, &e.to_string()),
             }
         };
-        // The quick-add row appends the rule line, then saves through the
-        // same error surface as every other control.
+        // The rule rows are created by `refresh`, so they save through this
+        // handle instead of a closure captured at build time.
+        *ui.rules_save.borrow_mut() = Some(Rc::new(save.clone()));
+        // The quick-add row appends a rule row, then saves through the same
+        // error surface as every other control. A typed pattern wins over
+        // the dropdown choice.
         {
-            let save = save.clone();
             let ui = ui.clone();
             let client_combo = client_combo.clone();
             let rule_mode = rule_mode.clone();
+            let rule_pattern = rule_pattern.clone();
             add_btn.connect_clicked(move |_| {
                 let idx = client_combo.selected() as usize;
-                let Some((_, pattern)) = app_targets.get(idx) else {
+                let typed = rule_pattern.text().trim().to_string();
+                let pattern = if typed.is_empty() {
+                    app_targets.get(idx).map(|(_, p)| p.clone())
+                } else {
+                    Some(typed)
+                };
+                let Some(pattern) = pattern else {
                     return;
                 };
-                let pattern = pattern.clone();
-                let Some((key, _)) = crate::ibus_prop::MODES.get(rule_mode.selected() as usize)
-                else {
+                if pattern.is_empty() {
                     return;
-                };
-                let mode = *key;
-                let mut text = text_of(&ui.rules_text);
-                if !text.is_empty() && !text.ends_with('\n') {
-                    text.push('\n');
                 }
-                text.push_str(&format!("{pattern}={mode}\n"));
-                set_text(&ui.rules_text, &text);
-                save();
+                let mode = mode_at(rule_mode.selected());
+                ui.edit_rules(move |rules| {
+                    rules.push(crate::config::AppRule { pattern, mode });
+                });
+                rule_pattern.set_text("");
+            });
+        }
+        {
+            let ui = ui.clone();
+            let rule_pattern = rule_pattern.clone();
+            focus_use_btn.connect_clicked(move |_| {
+                let value = ui.rule_focus_value.borrow().clone();
+                if !value.is_empty() {
+                    rule_pattern.set_text(&value);
+                }
+            });
+        }
+        {
+            let ui = ui.clone();
+            let input = ui.rule_preview_input.clone();
+            input.connect_changed(move |_| {
+                ui.update_rule_preview();
             });
         }
         // The panel-menu editor buttons mutate the tree, then save through
@@ -2076,7 +2367,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
             entry.add_controller(controller);
         }
         // Text views save when focus leaves the window's text area.
-        for view in [&ui.macro_text, &ui.dictionary_text, &ui.rules_text] {
+        for view in [&ui.macro_text, &ui.dictionary_text] {
             let s = save.clone();
             let controller = gtk4::EventControllerFocus::new();
             controller.connect_leave(move |_| s());
@@ -2172,7 +2463,7 @@ fn export_json(path: Option<PathBuf>) -> Result<(), String> {
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
-fn import_json(path: Option<PathBuf>, ui: &Ui) -> Result<(), String> {
+fn import_json(path: Option<PathBuf>, ui: &Rc<Ui>) -> Result<(), String> {
     let Some(path) = path else {
         return Err("no file chosen".into());
     };
@@ -2204,6 +2495,56 @@ fn alert(window: &impl IsA<gtk4::Window>, text: &str) {
         .detail(text)
         .build()
         .show(Some(window));
+}
+
+/// Ask the focus extension for the focused window — the same session-bus
+/// call the engine makes on unnamed focus-ins (`(ss)` wm_class, title).
+fn focused_app_name() -> Result<(String, String), String> {
+    let conn =
+        gtk4::gio::bus_get_sync(gtk4::gio::BusType::Session, None::<&gtk4::gio::Cancellable>)
+            .map_err(|e| format!("Không nối được D-Bus: {e}"))?;
+    let reply = conn
+        .call_sync(
+            Some(crate::server::FOCUS_EXT_NAME),
+            crate::server::FOCUS_EXT_PATH,
+            crate::server::FOCUS_EXT_IFACE,
+            "GetFocusedWindow",
+            None::<&gtk4::glib::Variant>,
+            None,
+            gtk4::gio::DBusCallFlags::NONE,
+            300,
+            None::<&gtk4::gio::Cancellable>,
+        )
+        .map_err(|_| {
+            "Không hỏi được extension MăngRS Focus (data/gnome-shell-extension)".to_string()
+        })?;
+    let (class, title) = reply
+        .get::<(String, String)>()
+        .ok_or("Extension trả dữ liệu không đúng dạng")?;
+    if class.is_empty() {
+        return Err("Không có cửa sổ nào đang focus".to_string());
+    }
+    Ok((class, title))
+}
+
+/// Refresh the focused-app chip. The D-Bus call is sync with a 300 ms
+/// timeout on the main thread — GTK types are not Send, so a worker thread
+/// cannot touch the label — but the callers are startup and focus-leave,
+/// moments when the window is idle anyway; with the extension installed the
+/// call is near-instant.
+fn refresh_focused_app(label: &gtk4::Label, value: &Rc<RefCell<String>>) {
+    match focused_app_name() {
+        Ok((class, title)) => {
+            label.set_text(&class);
+            label.set_tooltip_text(Some(&title));
+            *value.borrow_mut() = class;
+        }
+        Err(e) => {
+            label.set_text(&e);
+            label.set_tooltip_text(None);
+            value.borrow_mut().clear();
+        }
+    }
 }
 
 fn drop_down(items: &[&str], selected: u32) -> DropDown {
@@ -2503,8 +2844,11 @@ mod tests {
 
         assert_eq!(ui.read(), config);
         assert_eq!(
-            ui.read_rules(),
-            vec![("kate".to_string(), ModeConfig::Preedit)]
+            ui.read().app_rules,
+            vec![crate::config::AppRule {
+                pattern: "kate".into(),
+                mode: ModeConfig::Preedit,
+            }]
         );
         assert_eq!(
             ui.read_macros(),
