@@ -119,6 +119,7 @@ fn menu_item_label(kind: &str, key: &str) -> (String, String) {
 
 mod content;
 mod hotkey;
+mod pages;
 mod widgets;
 
 use content::*;
@@ -195,10 +196,10 @@ const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
 
 #[allow(deprecated)] // TreeStore/TreeView/ComboBoxText, see the import above
 struct Ui {
-    enabled: Switch,
-    method: DropDown,
-    mode: DropDown,
-    charset: DropDown,
+    enabled: adw::SwitchRow,
+    method: adw::ComboRow,
+    mode: adw::ComboRow,
+    charset: adw::ComboRow,
     hotkey_btn: gtk4::Button,
     hotkey_value: Rc<RefCell<String>>,
     enabled_hotkey_btn: gtk4::Button,
@@ -241,7 +242,7 @@ struct Ui {
     /// also carries error text, so the usable value is kept separately).
     rule_focus: gtk4::Label,
     rule_focus_value: Rc<RefCell<String>>,
-    hide_underline: Switch,
+    hide_underline: adw::SwitchRow,
     debug_log: Switch,
     x11_delete: Switch,
     preedit_xim: Switch,
@@ -1114,10 +1115,17 @@ fn set_text(view: &TextView, text: &str) {
 /// window; `build` composes them into pages and presents them.
 #[allow(deprecated)]
 fn widgets() -> Rc<Ui> {
-    let enabled = Switch::new();
-    let method = drop_down(METHODS, 0);
-    let mode = drop_down(MODES, 0);
-    let charset = drop_down(CHARSETS, 0);
+    let enabled = switch_row(
+        "Bật tiếng Việt",
+        "Tắt để gõ thẳng mọi phím (gõ tắt vẫn chạy nếu bật ở tab Gõ tắt)",
+    );
+    let method = combo_row("Kiểu gõ", "Telex, VNI, VIQR, Microsoft layout", METHODS);
+    let mode = combo_row(
+        "Chế độ gõ",
+        "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
+        MODES,
+    );
+    let charset = combo_row("Bảng mã", "Unicode và 10 bảng mã cũ", CHARSETS);
     let hotkey_btn = gtk4::Button::new();
     hotkey_btn.set_tooltip_text(Some(
         "Bấm rồi nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
@@ -1171,7 +1179,7 @@ fn widgets() -> Rc<Ui> {
     let rules_rows = Rc::new(RefCell::new(Vec::new()));
     let rules_loading = Rc::new(RefCell::new(false));
     let rules_save: SharedSave = Rc::new(RefCell::new(None));
-    let hide_underline = Switch::new();
+    let hide_underline = switch_row("Ẩn gạch chân", "Chữ đang gõ không có gạch chân (tùy app)");
     let debug_log = Switch::new();
     let x11_delete = Switch::new();
     let preedit_xim = Switch::new();

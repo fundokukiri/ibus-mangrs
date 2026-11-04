@@ -105,52 +105,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     let export_btn = gtk4::Button::with_label("Xuất…");
     let import_btn = gtk4::Button::with_label("Nhập…");
 
-    // ===== Page 1: Chung =====
-    // The everyday tab — what users actually touch. One-off customization
-    // lives on the Tinh chỉnh tab, so this stays short.
-    let typing = gtk4::Box::new(Orientation::Vertical, 6);
-    section(
-        &typing,
-        "Trạng thái",
-        "Bật tiếng Việt và phím tắt đổi chế độ",
-    );
-    typing.append(&card(vec![
-        pref_row(
-            "Bật tiếng Việt",
-            "Tắt để gõ thẳng mọi phím (gõ tắt vẫn chạy nếu bật ở tab Gõ tắt)",
-            &ui.enabled,
-        ),
-        pref_row(
-            "Phím tắt đổi chế độ",
-            "Ví dụ: Control+Alt+v. Để trống là chưa gán",
-            &ui.hotkey_btn,
-        ),
-        pref_row(
-            "Phím tắt bật/tắt tiếng Việt",
-            "Ví dụ: Control+Alt+space. Để trống là chưa gán",
-            &ui.enabled_hotkey_btn,
-        ),
-    ]));
-    hint(
-        &typing,
-        "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF → Gõ mặc định.",
-    );
-    section(&typing, "Cách gõ", "Kiểu gõ, bảng mã và chế độ gõ");
-    typing.append(&card(vec![
-        pref_row("Kiểu gõ", "Telex, VNI, VIQR, Microsoft layout", &ui.method),
-        pref_row("Bảng mã", "Unicode và 10 bảng mã cũ", &ui.charset),
-        pref_row(
-            "Chế độ gõ",
-            "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
-            &ui.mode,
-        ),
-    ]));
-    section(&typing, "Hiển thị", "Hình thức của chữ đang gõ");
-    typing.append(&card(vec![pref_row(
-        "Ẩn gạch chân",
-        "Chữ đang gõ không có gạch chân (tùy app)",
-        &ui.hide_underline,
-    )]));
+    // ===== Page 1: Chung — the everyday page, on its own preferences file.
+    let typing_page = pages::typing::build(&ui);
 
     // ===== Page 2: Dấu & tự động =====
     let tone = gtk4::Box::new(Orientation::Vertical, 6);
@@ -505,8 +461,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         ),
     ]));
 
-    // Content: one scrolled, width-clamped page per section, crossfading.
-    // (stack name, pill label, symbolic icon from the icon theme)
+    // Content: one page per section, crossfading. Stack names are stable —
+    // the engine opens pages with `--page=<name>`.
+    // (stack name, sidebar label, symbolic icon from the icon theme)
     const PAGES: [(&str, &str, &str); 7] = [
         ("typing", "Chung", "input-keyboard-symbolic"),
         ("tone", "Dấu & tự động", "tools-check-spelling-symbolic"),
@@ -516,20 +473,27 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         ("advanced", "Tinh chỉnh", "emblem-system-symbolic"),
         ("about", "Giới thiệu", "help-about-symbolic"),
     ];
-    let page_boxes: [&gtk4::Box; 7] = [
-        &typing,
-        &tone,
-        &macro_box,
-        &data_box,
-        &rules_page,
-        &advanced,
-        &about,
+    let page_boxes: [&gtk4::Widget; 7] = [
+        typing_page.upcast_ref(),
+        tone.upcast_ref(),
+        macro_box.upcast_ref(),
+        data_box.upcast_ref(),
+        rules_page.upcast_ref(),
+        advanced.upcast_ref(),
+        about.upcast_ref(),
     ];
+    // Pages already on adw::PreferencesPage scroll internally; the plain gtk
+    // boxes keep the width-clamped scroll wrapper until they convert.
+    const ADW_PAGES: [&str; 1] = ["typing"];
     let stack = gtk4::Stack::new();
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
     stack.set_hexpand(true);
     for ((name, title, _icon), content) in PAGES.iter().zip(page_boxes) {
+        if ADW_PAGES.contains(name) {
+            stack.add_titled(content, Some(name), title);
+            continue;
+        }
         // One centered column per page, 580px wide at most. GTK has no
         // max-width, so symmetric margins cap it; they are derived from the
         // content's own minimum width so the cap can never squeeze (and thus
