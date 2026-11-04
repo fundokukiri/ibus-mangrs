@@ -255,12 +255,11 @@ struct Ui {
     post_delay: adw::SpinRow,
     unicode_channel: adw::ComboRow,
     /// The panel-menu editor: a 4-column store (kind id, key, label, kind
-    /// label), its view, the "add" type picker and the folder-name entry.
-    /// Folders nest one level at most, matching `config::MenuNode`.
+    /// label), its view and the "add" type picker. Folders nest one level
+    /// at most, matching `config::MenuNode`.
     menu_store: TreeStore,
     menu_view: TreeView,
     menu_kind: ComboBoxText,
-    menu_name: Entry,
 }
 
 /// One App Rules editor row's widgets.
@@ -851,6 +850,9 @@ impl Ui {
                 self.menu_kind
                     .append(Some("action:about"), "Giới thiệu (About)");
                 self.menu_kind.append(Some("sep:"), "Gạch ngang phân cách");
+                // Last, so the frequently used item kinds keep their
+                // default (first) spot in the picker.
+                self.menu_kind.append(Some("folder:"), "Thư mục mới");
             }
         }
         self.menu_kind.set_active(Some(0));
@@ -1381,7 +1383,6 @@ fn widgets() -> Rc<Ui> {
     // (menu_fill_picker): a radio group offers its own entries, anything
     // else the generic items.
     let menu_kind = ComboBoxText::new();
-    let menu_name = Entry::builder().placeholder_text("Tên thư mục").build();
 
     Rc::new(Ui {
         enabled,
@@ -1433,7 +1434,6 @@ fn widgets() -> Rc<Ui> {
         menu_store,
         menu_view,
         menu_kind,
-        menu_name,
     })
 }
 // --- backup / restore (Giai đoạn 11) ---
