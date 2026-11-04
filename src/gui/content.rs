@@ -1,0 +1,1028 @@
+//! The window content: pages, header, and the wiring between them.
+//! Transitional shell — the pages are still plain gtk boxes.
+
+use super::*;
+
+#[allow(deprecated)]
+pub(super) fn build(app: &Application, initial_page: Option<&str>) {
+    ROWS.with(|r| r.borrow_mut().clear());
+    COLLAPSIBLES.with(|c| c.borrow_mut().clear());
+
+    let config = Config::load();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+
+    let ui = widgets();
+    ui.refresh(&config, &macros, &dictionary);
+    // The type picker follows the editor selection: a radio group offers its
+    // own entries, anything else the generic items.
+    ui.menu_fill_picker();
+    {
+        let ui = ui.clone();
+        ui.menu_view.selection().connect_changed(move |_| {
+            ui.menu_fill_picker();
+        });
+    }
+
+    // --- pages: grouped-card settings style (section header + cards) ---
+
+    // Quick add for App Rules: pick a client the engine has seen or type a
+    // name, pick a mode, append one rule row.
+    // Quick-add targets: real clients the engine has seen (GTK IM apps only —
+    // Wayland relays show up as gnome-shell, X11/XIM apps as none) plus the
+    // two pseudo-targets for those nameless groups.
+    let mut app_targets: Vec<(String, String)> = crate::config::recent_clients()
+        .into_iter()
+        .map(|n| {
+            let label = n.clone();
+            (label, n)
+        })
+        .collect();
+    app_targets.push((
+        "gnome-shell (app Wayland)".to_string(),
+        "gnome-shell".to_string(),
+    ));
+    app_targets.push(("(app không báo tên)".to_string(), "none".to_string()));
+    let combo_labels: Vec<&str> = app_targets
+        .iter()
+        .map(|(label, _)| label.as_str())
+        .collect();
+    let client_combo = drop_down(&combo_labels, 0);
+    client_combo.set_tooltip_text(Some("Các app engine đã từng thấy"));
+    let rule_pattern = Entry::builder()
+        .placeholder_text("hoặc nhập tên app")
+        .hexpand(true)
+        .build();
+    rule_pattern.set_tooltip_text(Some(
+        "Tên pattern: khớp một phần, không phân biệt hoa/thường",
+    ));
+    let rule_mode = drop_down(MODES, 1);
+    let add_btn = gtk4::Button::with_label("Thêm luật");
+    let add_row = gtk4::Box::new(Orientation::Horizontal, 8);
+    add_row.set_margin_start(10);
+    add_row.set_margin_end(10);
+    add_row.set_margin_top(8);
+    add_row.set_margin_bottom(8);
+    add_row.append(&client_combo);
+    add_row.append(&rule_pattern);
+    add_row.append(&rule_mode);
+    add_row.append(&add_btn);
+    // The clicked handler is connected after the window exists, so a failed
+    // save can surface in the window (see the save block below).
+
+    // The focused-app chip: the same extension call the engine makes. The
+    // settings window itself is focused while the user edits, so the useful
+    // refresh happens on focus leave — the window the user just switched to
+    // is the one they came here to target.
+    let focus_use_btn = gtk4::Button::with_label("Dùng tên này");
+    focus_use_btn.set_tooltip_text(Some("Điền tên đang hiện vào ô thêm luật bên dưới"));
+    let focus_row = gtk4::Box::new(Orientation::Horizontal, 8);
+    focus_row.set_margin_start(10);
+    focus_row.set_margin_end(10);
+    focus_row.set_margin_top(8);
+    focus_row.set_margin_bottom(4);
+    let focus_title = gtk4::Label::new(Some("App đang focus:"));
+    focus_row.append(&focus_title);
+    focus_row.append(&ui.rule_focus);
+    focus_row.append(&focus_use_btn);
+
+    // The rule rows flow with the page (no inner scroll cap): every rule
+    // stays visible while the page itself scrolls.
+    let preview_row = gtk4::Box::new(Orientation::Horizontal, 8);
+    preview_row.set_margin_start(10);
+    preview_row.set_margin_end(10);
+    preview_row.set_margin_top(8);
+    let preview_title = gtk4::Label::new(Some("Thử luật:"));
+    preview_row.append(&preview_title);
+    preview_row.append(&ui.rule_preview_input);
+    let preview_result_row = gtk4::Box::new(Orientation::Horizontal, 8);
+    preview_result_row.set_margin_start(10);
+    preview_result_row.set_margin_end(10);
+    preview_result_row.set_margin_bottom(8);
+    preview_result_row.append(&ui.rule_preview);
+
+    let export_btn = gtk4::Button::with_label("Xuất…");
+    let import_btn = gtk4::Button::with_label("Nhập…");
+
+    // ===== Page 1: Chung =====
+    // The everyday tab — what users actually touch. One-off customization
+    // lives on the Tinh chỉnh tab, so this stays short.
+    let typing = gtk4::Box::new(Orientation::Vertical, 6);
+    section(
+        &typing,
+        "Trạng thái",
+        "Bật tiếng Việt và phím tắt đổi chế độ",
+    );
+    typing.append(&card(vec![
+        pref_row(
+            "Bật tiếng Việt",
+            "Tắt để gõ thẳng mọi phím (gõ tắt vẫn chạy nếu bật ở tab Gõ tắt)",
+            &ui.enabled,
+        ),
+        pref_row(
+            "Phím tắt đổi chế độ",
+            "Ví dụ: Control+Alt+v. Để trống là chưa gán",
+            &ui.hotkey_btn,
+        ),
+        pref_row(
+            "Phím tắt bật/tắt tiếng Việt",
+            "Ví dụ: Control+Alt+space. Để trống là chưa gán",
+            &ui.enabled_hotkey_btn,
+        ),
+    ]));
+    hint(
+        &typing,
+        "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF → Gõ mặc định.",
+    );
+    section(&typing, "Cách gõ", "Kiểu gõ, bảng mã và chế độ gõ");
+    typing.append(&card(vec![
+        pref_row("Kiểu gõ", "Telex, VNI, VIQR, Microsoft layout", &ui.method),
+        pref_row("Bảng mã", "Unicode và 10 bảng mã cũ", &ui.charset),
+        pref_row(
+            "Chế độ gõ",
+            "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
+            &ui.mode,
+        ),
+    ]));
+    section(&typing, "Hiển thị", "Hình thức của chữ đang gõ");
+    typing.append(&card(vec![pref_row(
+        "Ẩn gạch chân",
+        "Chữ đang gõ không có gạch chân (tùy app)",
+        &ui.hide_underline,
+    )]));
+
+    // ===== Page 2: Dấu & tự động =====
+    let tone = gtk4::Box::new(Orientation::Vertical, 6);
+    // Row titles match the quick-menu registry labels (ibus_prop
+    // ::QUICK_TOGGLES): a toggle ticked in the panel menu must be findable
+    // under the same name here.
+    section(&tone, "Dấu thanh", "Kiểu đặt dấu trên nguyên âm");
+    tone.append(&card(vec![
+        pref_row(
+            "Kiểu dấu mới",
+            "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)",
+            &ui.modern,
+        ),
+        pref_row(
+            "Dấu tự do",
+            "Dấu đặt anywhere trong từ: hoangf → hoàng",
+            &ui.free,
+        ),
+    ]));
+    section(&tone, "Chính tả", "Sửa lỗi và khôi phục từ");
+    tone.append(&card(vec![
+        pref_row(
+            "Từ sai trả phím gốc",
+            "Âm tiết không hợp lệ trả về đúng phím đã bấm",
+            &ui.auto_correct,
+        ),
+        pref_row(
+            "Khôi phục từ nước ngoài",
+            "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
+            &ui.auto_restore,
+        ),
+        pref_row(
+            "Không dấu sau URL",
+            "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
+            &ui.bypass_url,
+        ),
+        pref_row(
+            "Viết tắt",
+            "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
+            &ui.abbrev,
+        ),
+    ]));
+    section(&tone, "Tự động", "Viết hoa và dấu câu tự động");
+    tone.append(&card(vec![
+        pref_row("Tự viết hoa", "Sau . ! ? và Enter", &ui.auto_capitalize),
+        pref_row(
+            "2 dấu cách = chấm",
+            "Thử nghiệm: hai dấu cách thành dấu chấm",
+            &ui.double_space,
+        ),
+    ]));
+    section(&tone, "Ký tự đặc biệt", "Chuyển đổi phím tắt ký tự");
+    tone.append(&card(vec![
+        pref_row("W thành ư", "Tắt / trừ đầu từ / mọi vị trí", &ui.w2u),
+        pref_row(
+            "[ ] thành ơ ư",
+            "Tắt / trừ đầu từ / mọi vị trí",
+            &ui.bracket,
+        ),
+        pref_row(
+            "Gạch ngang dài",
+            "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)",
+            &ui.em_dash,
+        ),
+    ]));
+
+    // ===== Page 3: Gõ tắt =====
+    let macro_box = gtk4::Box::new(Orientation::Vertical, 6);
+    section(&macro_box, "Gõ tắt", "Mở rộng cụm tắt thành câu đầy đủ");
+    macro_box.append(&card(vec![
+        pref_row(
+            "Gõ tắt",
+            "Khóa gõ tắt mở rộng thành cụm khi hết từ",
+            &ui.macro_enabled,
+        ),
+        pref_row(
+            "Viết hoa gõ tắt",
+            "Khóa viết hoa → nội dung viết hoa theo",
+            &ui.capitalize_macro,
+        ),
+        pref_row(
+            "Gõ tắt khi OFF",
+            "Vẫn mở rộng khi tiếng Việt đang tắt",
+            &ui.macro_in_off_mode,
+        ),
+        pref_row("Định dạng giờ ($TIME)", "Ví dụ %H:%M", &ui.time_format),
+        pref_row("Định dạng ngày ($DATE)", "Ví dụ %d/%m/%Y", &ui.date_format),
+    ]));
+    section(
+        &macro_box,
+        "Bảng gõ tắt",
+        "Mỗi dòng: khóa=Nội dung ($TIME, $DATE)",
+    );
+    macro_box.append(&card_widget(&scrolled(&ui.macro_text, 160)));
+
+    // ===== Page 4: Dữ liệu =====
+    let data_box = gtk4::Box::new(Orientation::Vertical, 6);
+    section(
+        &data_box,
+        "Từ điển của tôi",
+        "Từ trong từ điển không bị khôi phục về chuỗi phím",
+    );
+    data_box.append(&card(vec![pref_row(
+        "Từ điển của tôi",
+        "Bật: từ trong từ điển không bị khôi phục về chuỗi phím (~/.config/ibus-mangrs/dictionary.txt)",
+        &ui.dictionary_enabled,
+    )]));
+    data_box.append(&card_widget(&scrolled(&ui.dictionary_text, 160)));
+
+    section(
+        &data_box,
+        "Sao lưu & khôi phục",
+        "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng",
+    );
+    data_box.append(&card(vec![
+        pref_row(
+            "Xuất cấu hình ra JSON",
+            "Lưu ra file để mang đi",
+            &export_btn,
+        ),
+        pref_row(
+            "Nhập cấu hình từ JSON",
+            "Đọc lại từ file đã xuất",
+            &import_btn,
+        ),
+    ]));
+
+    // ===== Page 5: Luật =====
+    // A whole page for the per-app rules: the editor needs the room, the
+    // rule rows flow with the page scroll instead of a cramped inner box,
+    // and it keeps the "one question per tab" split.
+    let rules_page = gtk4::Box::new(Orientation::Vertical, 6);
+    section(
+        &rules_page,
+        "Luật theo ứng dụng",
+        "Luật đầu tiên thắng. Tên app khớp một phần, không phân biệt hoa/thường; none = app không báo tên. Đủ 10 chế độ gõ.",
+    );
+    rules_page.append(&card_widget(&focus_row));
+    rules_page.append(&card_widget(&add_row));
+    rules_page.append(&card_widget(&ui.rules_box));
+    rules_page.append(&card(vec![preview_row, preview_result_row]));
+    hint(
+        &rules_page,
+        "Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native: Chrome, Firefox, … Nhãn App đang focus lấy tên từ extension — chuyển sang app đích rồi quay lại cài đặt, nó tự cập nhật. Danh sách thêm nhanh là các app engine đã từng thấy, không phải mọi app đang chạy.",
+    );
+
+    // ===== Page 6: Tinh chỉnh =====
+    // Everything touched once (or only when debugging) lives here so the
+    // everyday tabs stay short: the panel-menu editor, the uinput pacing,
+    // the app-specific X11/XIM workarounds, the log switch.
+    let advanced = gtk4::Box::new(Orientation::Vertical, 6);
+
+    // The panel popup is the user's own design: folders (one level deep),
+    // toggles, radio groups, actions and separators, freely ordered. The
+    // editor rows below get their handlers once `save` exists.
+    let menu_add_btn = gtk4::Button::with_label("Thêm");
+    let menu_folder_btn = gtk4::Button::with_label("Thêm thư mục");
+    let menu_rename_btn = gtk4::Button::with_label("Đổi tên");
+    let menu_up_btn = gtk4::Button::with_label("Lên");
+    let menu_down_btn = gtk4::Button::with_label("Xuống");
+    let menu_out_btn = gtk4::Button::with_label("Ra ngoài");
+    let menu_del_btn = gtk4::Button::with_label("Xoá");
+    let menu_reset_btn = gtk4::Button::with_label("Đặt lại mặc định");
+    let menu_row1 = gtk4::Box::new(Orientation::Horizontal, 8);
+    menu_row1.set_margin_start(10);
+    menu_row1.set_margin_end(10);
+    menu_row1.set_margin_top(8);
+    menu_row1.set_margin_bottom(4);
+    menu_row1.append(&ui.menu_kind);
+    menu_row1.append(&menu_add_btn);
+    menu_row1.append(&ui.menu_name);
+    menu_row1.append(&menu_folder_btn);
+    menu_row1.append(&menu_rename_btn);
+    let menu_row2 = gtk4::Box::new(Orientation::Horizontal, 8);
+    menu_row2.set_margin_start(10);
+    menu_row2.set_margin_end(10);
+    menu_row2.set_margin_top(4);
+    menu_row2.set_margin_bottom(8);
+    menu_row2.append(&menu_up_btn);
+    menu_row2.append(&menu_down_btn);
+    menu_row2.append(&menu_out_btn);
+    menu_row2.append(&menu_del_btn);
+    menu_row2.append(&menu_reset_btn);
+    let menu_view_row = gtk4::Box::new(Orientation::Vertical, 0);
+    menu_view_row.set_margin_start(10);
+    menu_view_row.set_margin_end(10);
+    menu_view_row.set_margin_top(0);
+    menu_view_row.set_margin_bottom(8);
+    let menu_scroll = gtk4::ScrolledWindow::new();
+    menu_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    menu_scroll.set_min_content_height(220);
+    menu_scroll.set_child(Some(&ui.menu_view));
+    menu_view_row.append(&menu_scroll);
+    collapsible_section(
+        &advanced,
+        "Menu trên panel",
+        "Tự thiết kế menu popup: thêm thư mục, thêm chức năng, bỏ vào thư mục, sắp xếp thứ tự. Bảng mã / Kiểu gõ / Chế độ gõ cũng chỉnh được mục bên trong.",
+        vec![menu_row1, menu_row2, menu_view_row],
+    );
+    section(
+        &advanced,
+        "Tốc độ gõ (uinput)",
+        "Chỉ áp dụng cho Smooth / Super Smooth / Select",
+    );
+    advanced.append(&card(vec![
+        pref_row(
+            "Nhịp gõ chữ",
+            "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20",
+            &ui.commit_interval,
+        ),
+        pref_row(
+            "Nhịp xoá lùi",
+            "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5",
+            &ui.backspace_interval,
+        ),
+        pref_row(
+            "Độ trễ sau từ",
+            "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10",
+            &ui.post_delay,
+        ),
+        pref_row(
+            "Kênh gửi từ tiếng Việt",
+            "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
+            &ui.unicode_channel,
+        ),
+    ]));
+    section(
+        &advanced,
+        "Tương thích X11/XIM",
+        "Cho app X11 trực tiếp và app XIM (Java/JetBrains)",
+    );
+    advanced.append(&card(vec![
+        pref_row(
+            "Xoá đuôi từ ở app X11",
+            "App X11 trực tiếp xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
+            &ui.x11_delete,
+        ),
+        pref_row(
+            "Preedit cho app XIM",
+            "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ.",
+            &ui.preedit_xim,
+        ),
+    ]));
+    section(
+        &advanced,
+        "Chẩn đoán",
+        "Ghi lại quyết định của engine để gỡ lỗi",
+    );
+    advanced.append(&card(vec![pref_row(
+        "Ghi log gỡ lỗi",
+        "Ghi vào ~/.cache/ibus-mangrs/debug.log",
+        &ui.debug_log,
+    )]));
+
+    // ===== Page 7: Giới thiệu =====
+    let about = gtk4::Box::new(Orientation::Vertical, 6);
+
+    // Logo is embedded at compile time: the GUI has no installed asset dir.
+    const LOGO: &[u8] = include_bytes!("../../data/logo.png");
+    let logo = gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(LOGO)).ok();
+    let hero = gtk4::Box::new(Orientation::Vertical, 4);
+    hero.set_halign(gtk4::Align::Center);
+    hero.set_margin_top(30);
+    hero.set_margin_bottom(10);
+    if let Some(texture) = &logo {
+        let image = gtk4::Image::from_paintable(Some(texture));
+        image.set_pixel_size(130);
+        image.set_halign(gtk4::Align::Center);
+        image.add_css_class("app-icon");
+        hero.append(&image);
+    }
+
+    let name = gtk4::Label::new(Some("MăngRS IBus"));
+    name.add_css_class("app-name");
+    name.set_halign(gtk4::Align::Center);
+    name.set_margin_top(12);
+    hero.append(&name);
+
+    let headline = gtk4::Label::new(Some(concat!(
+        "Phiên bản ",
+        env!("CARGO_PKG_VERSION"),
+        " • Native IBus Engine"
+    )));
+    headline.add_css_class("app-version");
+    headline.add_css_class("dim-label");
+    headline.set_halign(gtk4::Align::Center);
+    hero.append(&headline);
+
+    let tagline = gtk4::Label::new(Some(
+        "Bộ gõ tiếng Việt cho lập trình viên và mọi ứng dụng — Rust + bamboo-core",
+    ));
+    tagline.add_css_class("app-tagline");
+    tagline.set_halign(gtk4::Align::Center);
+    tagline.set_wrap(true);
+    tagline.set_justify(gtk4::Justification::Center);
+    tagline.set_margin_top(6);
+    hero.append(&tagline);
+    about.append(&hero);
+
+    section(&about, "Đặc điểm nổi bật", "");
+    about.append(&card(vec![
+        info_row(
+            "input-keyboard-symbolic",
+            "10 chế độ hiển thị",
+            "Preedit, Non-preedit, Surrounding + 3 mode uinput + 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
+        ),
+        info_row(
+            "network-workgroup-symbolic",
+            "URL thông minh",
+            "Từ ngay sau / : @ . _ ~ = # & % ? giữ nguyên, không thêm dấu",
+        ),
+        info_row(
+            "applications-system-symbolic",
+            "App Rules theo ứng dụng",
+            "Mỗi ứng dụng một chế độ — đổi bằng menu, hotkey hoặc cửa sổ này",
+        ),
+        info_row(
+            "insert-text-symbolic",
+            "Gõ tắt & macro",
+            "$TIME/$DATE, viết hoa thông minh, không kích hoạt nhầm từ Việt thật",
+        ),
+    ]));
+
+    section(&about, "Thông tin dự án", "");
+    about.append(&card(vec![
+        row_impl(
+            Some("web-browser-symbolic"),
+            "Mã nguồn GitHub",
+            "https://github.com/fundokukiri/ibus-mangrs",
+            Some(link_button("Mở", "https://github.com/fundokukiri/ibus-mangrs").upcast_ref()),
+        ),
+        info_row(
+            "avatar-default-symbolic",
+            "Tác giả",
+            "Phùng Đức Tùng (Fundoku)",
+        ),
+        row_impl(
+            Some("web-browser-symbolic"),
+            "Trang chủ",
+            "https://mangrs.fundoku.io.vn",
+            Some(link_button("Mở", "https://mangrs.fundoku.io.vn").upcast_ref()),
+        ),
+        info_row(
+            "help-about-symbolic",
+            "Giấy phép mã nguồn mở",
+            "GPL — phiên bản 3, chi tiết trong LICENSE",
+        ),
+        info_row(
+            "emblem-favorite-symbolic",
+            "Credits",
+            "Lõi gõ bamboo-core (MIT, bên thứ 3)",
+        ),
+    ]));
+
+    // Content: one scrolled, width-clamped page per section, crossfading.
+    // (stack name, pill label, symbolic icon from the icon theme)
+    const PAGES: [(&str, &str, &str); 7] = [
+        ("typing", "Chung", "input-keyboard-symbolic"),
+        ("tone", "Dấu & tự động", "tools-check-spelling-symbolic"),
+        ("macros", "Gõ tắt", "insert-text-symbolic"),
+        ("data", "Dữ liệu", "folder-documents-symbolic"),
+        ("rules", "Luật", "view-list-symbolic"),
+        ("advanced", "Tinh chỉnh", "emblem-system-symbolic"),
+        ("about", "Giới thiệu", "help-about-symbolic"),
+    ];
+    let page_boxes: [&gtk4::Box; 7] = [
+        &typing,
+        &tone,
+        &macro_box,
+        &data_box,
+        &rules_page,
+        &advanced,
+        &about,
+    ];
+    let stack = gtk4::Stack::new();
+    stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
+    stack.set_vexpand(true);
+    stack.set_hexpand(true);
+    for ((name, title, _icon), content) in PAGES.iter().zip(page_boxes) {
+        // One centered column per page, 580px wide at most. GTK has no
+        // max-width, so symmetric margins cap it; they are derived from the
+        // content's own minimum width so the cap can never squeeze (and thus
+        // grow) the window.
+        let clamp = gtk4::Box::new(Orientation::Vertical, 0);
+        clamp.set_halign(gtk4::Align::Fill);
+        clamp.set_hexpand(true);
+        clamp.set_valign(gtk4::Align::Start);
+        clamp.set_margin_top(6);
+        clamp.set_margin_bottom(24);
+        clamp.set_margin_start(24);
+        clamp.set_margin_end(24);
+        content.set_halign(gtk4::Align::Fill);
+        content.set_hexpand(true);
+        clamp.append(content);
+        let scroll = gtk4::ScrolledWindow::new();
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+        scroll.set_child(Some(&clamp));
+        {
+            let clamp = clamp.clone();
+            let content = content.clone();
+            scroll.add_tick_callback(move |sc, _| {
+                let cap = 580.max(content.measure(Orientation::Horizontal, -1).0);
+                let margin = ((sc.width() - cap) / 2).max(24);
+                if clamp.margin_start() != margin {
+                    clamp.set_margin_start(margin);
+                    clamp.set_margin_end(margin);
+                }
+                gtk4::glib::ControlFlow::Continue
+            });
+        }
+        stack.add_titled(&scroll, Some(name), title);
+    }
+
+    // Search bar (toggled by the magnifier on the left of the header).
+    let search_entry = gtk4::SearchEntry::new();
+    search_entry.set_placeholder_text(Some("Tìm cài đặt…"));
+    search_entry.set_width_chars(32);
+    let search_bar = gtk4::SearchBar::new();
+    search_bar.set_child(Some(&search_entry));
+    search_bar.connect_entry(&search_entry);
+    search_entry.connect_search_changed(|entry| {
+        let q = entry.text().to_lowercase();
+        ROWS.with(|rows| {
+            for (text, widget) in rows.borrow().iter() {
+                widget.set_visible(q.is_empty() || text.contains(&q));
+            }
+        });
+        // Rows inside a collapsed section can never be seen, so a search
+        // opens every collapsible and an empty query restores them closed.
+        COLLAPSIBLES.with(|c| {
+            for (revealer, arrow) in c.borrow().iter() {
+                revealer.set_reveal_child(!q.is_empty());
+                arrow.set_text(if q.is_empty() { "▸" } else { "▼" });
+            }
+        });
+    });
+
+    let content = gtk4::Box::new(Orientation::Vertical, 0);
+    content.append(&search_bar);
+    content.append(&stack);
+
+    // The floating restart button. It stays hidden until a change is saved:
+    // every control already writes straight to config.toml, so the only
+    // thing left for the user to do is restart IBus (a new engine binary or
+    // component XML needs it; plain settings changes apply within a second).
+    let restart_btn = gtk4::Button::new();
+    {
+        let b = gtk4::Box::new(Orientation::Horizontal, 8);
+        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
+        b.append(&gtk4::Label::new(Some("Khởi động lại IBus")));
+        restart_btn.set_child(Some(&b));
+    }
+    restart_btn.add_css_class("suggested-action");
+    restart_btn.add_css_class("pill");
+    restart_btn.set_halign(gtk4::Align::Center);
+    restart_btn.set_valign(gtk4::Align::End);
+    restart_btn.set_margin_bottom(18);
+    restart_btn.set_visible(false);
+
+    // The overlay floats the restart button over the page, bottom center.
+    let overlay = gtk4::Overlay::new();
+    overlay.set_child(Some(&content));
+    overlay.add_overlay(&restart_btn);
+
+    let window = ApplicationWindow::builder()
+        .application(app)
+        .title("MăngRS")
+        // Wide enough that all seven pill tabs fit the header without
+        // squeezing.
+        .default_width(900)
+        .default_height(700)
+        .child(&overlay)
+        .build();
+    // X11/XWayland reads the icon from the window; Wayland derives it from
+    // the app id and the installed desktop file instead.
+    window.set_icon_name(Some("ibus-mangrs"));
+
+    // The focused-app chip refreshes when the window loses focus: at that
+    // moment the app the user switched to becomes focused, and that is the
+    // app they came here to target. No refresh at startup — the settings
+    // window itself is the focused window then, which names nothing useful.
+    {
+        let ui = ui.clone();
+        let controller = gtk4::EventControllerFocus::new();
+        controller.connect_leave(move |_| {
+            refresh_focused_app(&ui.rule_focus, &ui.rule_focus_value);
+        });
+        window.add_controller(controller);
+    }
+
+    // Header: [search] ... [pill tabs] ... [close]. Window controls are
+    // replaced by our own round close button.
+    let header = gtk4::HeaderBar::new();
+    header.set_show_title_buttons(false);
+
+    let search_btn = gtk4::ToggleButton::new();
+    search_btn.set_icon_name("system-search-symbolic");
+    search_btn.add_css_class("flat");
+    search_btn.add_css_class("circular");
+    search_btn
+        .bind_property("active", &search_bar, "search-mode-enabled")
+        .bidirectional()
+        .sync_create()
+        .build();
+    header.pack_start(&search_btn);
+
+    let close_btn = gtk4::Button::from_icon_name("window-close-symbolic");
+    close_btn.add_css_class("circular");
+    close_btn.add_css_class("close-btn");
+    {
+        let window = window.clone();
+        close_btn.connect_clicked(move |_| window.close());
+    }
+    header.pack_end(&close_btn);
+
+    let pillbar = gtk4::Box::new(Orientation::Horizontal, 4);
+    pillbar.set_halign(gtk4::Align::Center);
+    let mut pills: Vec<(String, gtk4::ToggleButton)> = Vec::new();
+    let mut group: Option<gtk4::ToggleButton> = None;
+    for (name, title, icon) in PAGES {
+        let pill = gtk4::ToggleButton::new();
+        pill.set_has_frame(false);
+        let h = gtk4::Box::new(Orientation::Horizontal, 8);
+        h.set_halign(gtk4::Align::Center);
+        h.append(&gtk4::Image::from_icon_name(icon));
+        h.append(&gtk4::Label::new(Some(title)));
+        pill.set_child(Some(&h));
+        pill.add_css_class("nav-pill");
+        // Radio behaviour: exactly one pill active.
+        match &group {
+            Some(first) => pill.set_group(Some(first)),
+            None => group = Some(pill.clone()),
+        }
+        let stack = stack.clone();
+        let target = name.to_string();
+        pill.connect_toggled(move |pill| {
+            if pill.is_active() {
+                stack.set_visible_child_name(&target);
+            }
+        });
+        pills.push((name.to_string(), pill.clone()));
+        pillbar.append(&pill);
+    }
+    header.set_title_widget(Some(&pillbar));
+    window.set_titlebar(Some(&header));
+
+    // Open a specific page when spawned with `--page=<name>` (menu items).
+    // Old page names from earlier layouts are mapped onto the current ones.
+    let wanted = match initial_page {
+        Some("general") | None => "typing",
+        Some("dictionary") | Some("backup") => "data",
+        // The old "apps" page was the app rules page.
+        Some("apps") => "rules",
+        Some(other) => other,
+    };
+    let (_, pill) = pills.iter().find(|(n, _)| n == wanted).unwrap_or(&pills[0]);
+    pill.set_active(true);
+
+    // Grouped-card look, theme-agnostic (alpha over currentColor adapts to
+    // light/dark without libadwaita).
+    let css = gtk4::CssProvider::new();
+    css.load_from_data(
+        "window { font-family: \"Adwaita Sans\", \"Cantarell\", sans-serif; } \
+         headerbar { background: none; box-shadow: none; border: none; padding: 8px 12px 4px 12px; } \
+         .group-card { background: alpha(currentColor, 0.06); border-radius: 14px; padding: 2px 0; } \
+         .group-card separator { background: alpha(currentColor, 0.08); min-height: 1px; } \
+         .nav-pill { border-radius: 10px; padding: 8px 14px; min-height: 0; background: none; margin: 0 1px; } \
+         .nav-pill:checked { background: alpha(currentColor, 0.10); } \
+         .nav-pill label { font-weight: bold; font-size: 16px; } \
+         .nav-pill image { -gtk-icon-size: 16px; opacity: 0.75; } \
+         .close-btn { background: alpha(currentColor, 0.10); } \
+         .group-card textview, .group-card textview text, .group-card scrolledwindow { background-color: transparent; } \
+         dropdown button, dropdown button:hover { background: none; box-shadow: none; border: none; } \
+         .app-icon { border-radius: 32px; padding: 10px; background: alpha(currentColor, 0.06); } \
+         .app-name { font-size: 30px; font-weight: bold; } \
+         .app-version { font-size: 17px; font-weight: bold; } \
+         .app-tagline { font-size: 16px; } \
+         .section-title { font-weight: bold; font-size: 18px; } \
+         .section-sub { font-size: 15px; opacity: 0.6; } \
+         .row-title { font-size: 16px; } \
+         .row-sub { font-size: 14px; opacity: 0.62; } \
+         .row-icon { opacity: 0.85; }",
+    );
+    if let Some(display) = gtk4::gdk::Display::default() {
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &css,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+
+    {
+        let window_for_save = window.clone();
+        let ui_for_save = ui.clone();
+        let restart_for_save = restart_btn.clone();
+        let save = move || {
+            match ui_for_save.save_all() {
+                // Every saved change floats the restart button up: the
+                // settings are already on disk, the button is only there so
+                // a restart is one click away.
+                Ok(()) => restart_for_save.set_visible(true),
+                Err(e) => alert(&window_for_save, &e.to_string()),
+            }
+        };
+        // The rule rows are created by `refresh`, so they save through this
+        // handle instead of a closure captured at build time.
+        *ui.rules_save.borrow_mut() = Some(Rc::new(save.clone()));
+        // The quick-add row appends a rule row, then saves through the same
+        // error surface as every other control. A typed pattern wins over
+        // the dropdown choice.
+        {
+            let ui = ui.clone();
+            let client_combo = client_combo.clone();
+            let rule_mode = rule_mode.clone();
+            let rule_pattern = rule_pattern.clone();
+            add_btn.connect_clicked(move |_| {
+                let idx = client_combo.selected() as usize;
+                let typed = rule_pattern.text().trim().to_string();
+                let pattern = if typed.is_empty() {
+                    app_targets.get(idx).map(|(_, p)| p.clone())
+                } else {
+                    Some(typed)
+                };
+                let Some(pattern) = pattern else {
+                    return;
+                };
+                if pattern.is_empty() {
+                    return;
+                }
+                let mode = mode_at(rule_mode.selected());
+                ui.edit_rules(move |rules| {
+                    rules.push(crate::config::AppRule { pattern, mode });
+                });
+                rule_pattern.set_text("");
+            });
+        }
+        {
+            let ui = ui.clone();
+            let rule_pattern = rule_pattern.clone();
+            focus_use_btn.connect_clicked(move |_| {
+                let value = ui.rule_focus_value.borrow().clone();
+                if !value.is_empty() {
+                    rule_pattern.set_text(&value);
+                }
+            });
+        }
+        {
+            let ui = ui.clone();
+            let input = ui.rule_preview_input.clone();
+            input.connect_changed(move |_| {
+                ui.update_rule_preview();
+            });
+        }
+        // The panel-menu editor buttons mutate the tree, then save through
+        // the shared funnel — the design is on disk (and the panel, after a
+        // reload) before the window loses focus.
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_add_btn.connect_clicked(move |_| {
+                let Some(id) = ui.menu_kind.active_id() else {
+                    return;
+                };
+                let Some((kind, key)) = id.split_once(':') else {
+                    return;
+                };
+                ui.menu_insert(kind, key);
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_folder_btn.connect_clicked(move |_| {
+                let name = ui.menu_name.text().to_string();
+                ui.menu_add_folder(&name);
+                ui.menu_name.set_text("");
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_rename_btn.connect_clicked(move |_| {
+                let name = ui.menu_name.text().to_string();
+                ui.menu_rename(&name);
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_up_btn.connect_clicked(move |_| {
+                ui.menu_move(-1);
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_down_btn.connect_clicked(move |_| {
+                ui.menu_move(1);
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_out_btn.connect_clicked(move |_| {
+                ui.menu_out();
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_del_btn.connect_clicked(move |_| {
+                ui.menu_delete();
+                save();
+            });
+        }
+        {
+            let save = save.clone();
+            let ui = ui.clone();
+            menu_reset_btn.connect_clicked(move |_| {
+                ui.menu_reset();
+                save();
+            });
+        }
+        hotkey_wire(&ui.hotkey_btn, &ui.hotkey_value, save.clone());
+        hotkey_wire(
+            &ui.enabled_hotkey_btn,
+            &ui.enabled_hotkey_value,
+            save.clone(),
+        );
+        macro_rules! on_change {
+            ($w:expr) => {{
+                let s = save.clone();
+                $w.connect_active_notify(move |_| s());
+            }};
+        }
+        on_change!(ui.enabled);
+        on_change!(ui.modern);
+        on_change!(ui.free);
+        on_change!(ui.auto_correct);
+        on_change!(ui.auto_restore);
+        on_change!(ui.abbrev);
+        on_change!(ui.bypass_url);
+        on_change!(ui.em_dash);
+        on_change!(ui.auto_capitalize);
+        on_change!(ui.double_space);
+        on_change!(ui.macro_enabled);
+        on_change!(ui.capitalize_macro);
+        on_change!(ui.macro_in_off_mode);
+        on_change!(ui.dictionary_enabled);
+        on_change!(ui.debug_log);
+        on_change!(ui.x11_delete);
+        on_change!(ui.preedit_xim);
+        {
+            let s = save.clone();
+            ui.method.connect_selected_notify(move |_| s());
+        }
+        {
+            let s = save.clone();
+            ui.mode.connect_selected_notify(move |_| s());
+        }
+        {
+            let s = save.clone();
+            ui.charset.connect_selected_notify(move |_| s());
+        }
+        {
+            let s = save.clone();
+            ui.w2u.connect_selected_notify(move |_| s());
+        }
+        {
+            let s = save.clone();
+            ui.bracket.connect_selected_notify(move |_| s());
+        }
+        {
+            let s = save.clone();
+            ui.unicode_channel.connect_selected_notify(move |_| s());
+        }
+        // Entries save on Enter or when they lose focus.
+        for entry in [
+            &ui.time_format,
+            &ui.date_format,
+            &ui.commit_interval,
+            &ui.backspace_interval,
+            &ui.post_delay,
+        ] {
+            let s = save.clone();
+            entry.connect_activate(move |_| s());
+            let s = save.clone();
+            let controller = gtk4::EventControllerFocus::new();
+            controller.connect_leave(move |_| s());
+            entry.add_controller(controller);
+        }
+        // Text views save when focus leaves the window's text area.
+        for view in [&ui.macro_text, &ui.dictionary_text] {
+            let s = save.clone();
+            let controller = gtk4::EventControllerFocus::new();
+            controller.connect_leave(move |_| s());
+            view.add_controller(controller);
+        }
+    }
+
+    {
+        let window = window.clone();
+        export_btn.connect_clicked(move |_| {
+            let dialog = gtk4::FileDialog::builder()
+                .title("Xuất cấu hình")
+                .modal(true)
+                .initial_name("ibus-mangrs-backup.json")
+                .build();
+            // The clicked handler is Fn and keeps its own capture; the
+            // callback gets its own clone (the parent is only borrowed for
+            // the call, the callback outlives it).
+            let callback_window = window.clone();
+            dialog.save(
+                Some(&window),
+                gtk4::gio::Cancellable::NONE,
+                // A dismissed dialog is also an Err: nothing to save, no error.
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Err(e) = export_json(file.path()) {
+                            alert(&callback_window, &e);
+                        }
+                    }
+                },
+            );
+        });
+    }
+    {
+        let ui = ui.clone();
+        let window = window.clone();
+        let restart_for_import = restart_btn.clone();
+        import_btn.connect_clicked(move |_| {
+            let dialog = gtk4::FileDialog::builder()
+                .title("Nhập cấu hình")
+                .modal(true)
+                .build();
+            let ui = ui.clone();
+            let callback_window = window.clone();
+            let restart_for_import = restart_for_import.clone();
+            dialog.open(
+                Some(&window),
+                gtk4::gio::Cancellable::NONE,
+                // A dismissed dialog is also an Err: nothing to import.
+                move |result| {
+                    if let Ok(file) = result {
+                        match import_json(file.path(), &ui) {
+                            // An import rewrites config.toml wholesale — the
+                            // restart button applies to it like any save.
+                            Ok(()) => restart_for_import.set_visible(true),
+                            Err(e) => alert(&callback_window, &e),
+                        }
+                    }
+                },
+            );
+        });
+    }
+
+    {
+        let window = window.clone();
+        let btn = restart_btn.clone();
+        restart_btn.connect_clicked(move |_| {
+            // User-initiated only — the engine never restarts IBus itself.
+            match std::process::Command::new("ibus").arg("restart").spawn() {
+                Ok(_) => btn.set_visible(false),
+                Err(e) => alert(&window, &format!("Không khởi động lại được IBus: {e}")),
+            }
+        });
+    }
+
+    window.present();
+}
