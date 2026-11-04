@@ -204,17 +204,17 @@ struct Ui {
     hotkey_value: Rc<RefCell<String>>,
     enabled_hotkey_btn: gtk4::Button,
     enabled_hotkey_value: Rc<RefCell<String>>,
-    modern: Switch,
-    free: Switch,
-    auto_correct: Switch,
-    auto_restore: Switch,
-    abbrev: Switch,
-    bypass_url: Switch,
-    w2u: DropDown,
-    bracket: DropDown,
-    em_dash: Switch,
-    auto_capitalize: Switch,
-    double_space: Switch,
+    modern: adw::SwitchRow,
+    free: adw::SwitchRow,
+    auto_correct: adw::SwitchRow,
+    auto_restore: adw::SwitchRow,
+    abbrev: adw::SwitchRow,
+    bypass_url: adw::SwitchRow,
+    w2u: adw::ComboRow,
+    bracket: adw::ComboRow,
+    em_dash: adw::SwitchRow,
+    auto_capitalize: adw::SwitchRow,
+    double_space: adw::SwitchRow,
     macro_enabled: Switch,
     capitalize_macro: Switch,
     macro_in_off_mode: Switch,
@@ -1136,17 +1136,39 @@ fn widgets() -> Rc<Ui> {
         "Bấm rồi nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
     ));
     let enabled_hotkey_value = Rc::new(RefCell::new(String::new()));
-    let modern = Switch::new();
-    let free = Switch::new();
-    let auto_correct = Switch::new();
-    let auto_restore = Switch::new();
-    let abbrev = Switch::new();
-    let bypass_url = Switch::new();
-    let w2u = drop_down(ON_OFF_MODES, 0);
-    let bracket = drop_down(ON_OFF_MODES, 0);
-    let em_dash = Switch::new();
-    let auto_capitalize = Switch::new();
-    let double_space = Switch::new();
+    let modern = switch_row("Kiểu dấu mới", "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)");
+    let free = switch_row("Dấu tự do", "Dấu đặt anywhere trong từ: hoangf → hoàng");
+    let auto_correct = switch_row(
+        "Từ sai trả phím gốc",
+        "Âm tiết không hợp lệ trả về đúng phím đã bấm",
+    );
+    let auto_restore = switch_row(
+        "Khôi phục từ nước ngoài",
+        "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
+    );
+    let abbrev = switch_row(
+        "Viết tắt",
+        "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
+    );
+    let bypass_url = switch_row(
+        "Không dấu sau URL",
+        "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
+    );
+    let w2u = combo_row("W thành ư", "Tắt / trừ đầu từ / mọi vị trí", ON_OFF_MODES);
+    let bracket = combo_row(
+        "[ ] thành ơ ư",
+        "Tắt / trừ đầu từ / mọi vị trí",
+        ON_OFF_MODES,
+    );
+    let em_dash = switch_row(
+        "Gạch ngang dài",
+        "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)",
+    );
+    let auto_capitalize = switch_row("Tự viết hoa", "Sau . ! ? và Enter");
+    let double_space = switch_row(
+        "2 dấu cách = chấm",
+        "Thử nghiệm: hai dấu cách thành dấu chấm",
+    );
     let macro_enabled = Switch::new();
     let capitalize_macro = Switch::new();
     let macro_in_off_mode = Switch::new();
