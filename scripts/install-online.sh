@@ -2,15 +2,16 @@
 # One-line online installer: auto-installs dependencies, downloads the source,
 # builds, and installs.
 #
-#   curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/dev/scripts/install-online.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
 #
-# Needs: sudo. Installs rustup + cargo, ibus, gtk4, and the build toolchain
-# on your distro (apt / pacman / dnf). Re-run to upgrade.
+# Installs everything the build needs on Debian/Ubuntu (apt), Arch (pacman) and
+# Fedora (dnf): build toolchain, IBus, GTK4, DBus headers, Rust (via rustup).
+# Needs curl and sudo (or run as root). Re-run to upgrade.
 
 set -eu
 
 REPO=fundokukiri/ibus-mangrs
-BRANCH=dev
+REF=master
 
 die() {
     echo "ERROR: $*" >&2
@@ -19,141 +20,147 @@ die() {
 
 # ---- detect distro ----
 DISTRO=""
-if [ -f /etc/os-release ]; then
+if [ -r /etc/os-release ]; then
     # shellcheck disable=SC1091
     . /etc/os-release
-    DISTRO="${ID:-}"
 fi
 
-case "$DISTRO" in
-    ubuntu|debian|linuxmint|pop) DISTRO=debian ;;
-    fedora|rhel|centos|almalinux|rocky) DISTRO=fedora ;;
-    arch|manjaro|endeavouros) DISTRO=arch ;;
+case "${ID:-}" in
+    debian|ubuntu|linuxmint|pop|elementary|kali|zorin) DISTRO=debian ;;
+    arch|manjaro|endeavouros|garuda|artix) DISTRO=arch ;;
+    fedora|rhel|centos|almalinux|rocky|ol) DISTRO=fedora ;;
 esac
 
-# ---- sudo check ----
-if [ "$(id -u)" -ne 0 ]; then
-    command -v sudo >/dev/null || die "sudo not found — install it first"
-else
-    echo ">> running as root; sudo will not be used"
+if [ -z "$DISTRO" ]; then
+    case " ${ID_LIKE:-} " in
+        *" debian "*|*" ubuntu "*) DISTRO=debian ;;
+        *" arch "*) DISTRO=arch ;;
+        *" rhel "*|*" fedora "*) DISTRO=fedora ;;
+    esac
 fi
-SUDO="${SUDO:-sudo}"
 
-# ---- ensure curl ----
-command -v curl >/dev/null || {
-    echo ">> installing curl..."
+# Last resort: go by the package manager that is actually installed.
+if [ -z "$DISTRO" ]; then
+    if command -v apt-get >/dev/null; then DISTRO=debian
+    elif command -v pacman >/dev/null; then DISTRO=arch
+    elif command -v dnf >/dev/null; then DISTRO=fedora
+    fi
+fi
+[ -n "$DISTRO" ] || die "unsupported distro '${ID:-unknown}': install Rust, IBus, GTK4 and build tools yourself, then re-run"
+echo ">> distro family: $DISTRO"
+
+# ---- root / sudo ----
+if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+    echo ">> running as root; sudo will not be used"
+else
+    command -v sudo >/dev/null || die "sudo not found: install it or run this as root"
+    SUDO=sudo
+fi
+
+# ---- package helpers ----
+pkg_installed() {
     case "$DISTRO" in
-        debian) "$SUDO" apt-get update -qq && "$SUDO" apt-get install -y -qq curl ;;
-        arch)   "$SUDO" pacman -Sy --noconfirm curl ;;
-        fedora) "$SUDO" dnf install -y -q curl ;;
-        *)      die "unsupported distro '$DISTRO': install curl yourself" ;;
+        debian) dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed" ;;
+        arch) pacman -Qi "$1" >/dev/null 2>&1 ;;
+        fedora) rpm -q "$1" >/dev/null 2>&1 ;;
     esac
 }
+
+# Install only the packages still missing; a re-run installs nothing.
+ensure_pkgs() {
+    missing=""
+    for p in "$@"; do
+        pkg_installed "$p" || missing="$missing $p"
+    done
+    if [ -z "$missing" ]; then
+        echo ">> dependencies already installed"
+        return 0
+    fi
+    echo ">> installing:$missing"
+    # shellcheck disable=SC2086
+    case "$DISTRO" in
+        debian)
+            $SUDO apt-get update -qq || die "apt-get update failed"
+            $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $missing \
+                || die "failed to install packages (apt)"
+            ;;
+        arch)
+            $SUDO pacman -Sy --needed --noconfirm $missing \
+                || die "failed to install packages (pacman)"
+            ;;
+        fedora)
+            $SUDO dnf install -y -q $missing || die "failed to install packages (dnf)"
+            ;;
+        *) die "unsupported distro '$DISTRO'" ;;
+    esac
+}
+
+# GTK4 dev pulls the cairo/pango/glib/gdk-pixbuf/graphene headers in on every
+# distro; DBus is needed by the `dbus` crate, not by GTK.
+case "$DISTRO" in
+    debian)
+        DEPS="build-essential pkg-config git tar gzip curl ibus desktop-file-utils
+            libdbus-1-dev libgtk-4-dev"
+        ;;
+    arch)
+        DEPS="gcc make pkgconf git tar gzip curl ibus dbus gtk4 desktop-file-utils"
+        ;;
+    fedora)
+        DEPS="gcc make pkgconf-pkg-config git tar gzip curl ibus dbus-devel
+            gtk4-devel desktop-file-utils"
+        ;;
+esac
+
+# shellcheck disable=SC2086
+ensure_pkgs $DEPS
 
 # ---- ensure rustup/cargo ----
 if ! command -v cargo >/dev/null; then
-    echo ">> installing rustup (Rust toolchain)..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    # cargo is installed by rustup; refresh PATH for this shell.
-    if [ -f "$HOME/.cargo/env" ]; then
-        # shellcheck disable=SC1090
-        . "$HOME/.cargo/env"
-    fi
-    command -v cargo >/dev/null || die "rustup installed but cargo not found"
+    echo ">> installing Rust (rustup)..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+        || die "rustup install failed"
 fi
+if [ -f "$HOME/.cargo/env" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.cargo/env"
+fi
+export PATH="$HOME/.cargo/bin:$PATH"
+command -v cargo >/dev/null || die "cargo not found after installing Rust"
 
-# ---- ensure IBus is present ----
-command -v ibus-daemon >/dev/null || {
-    echo ">> IBus not found — installing the IBus package for your distro..."
-    case "$DISTRO" in
-        debian)
-            "$SUDO" apt-get update -qq || true
-            "$SUDO" apt-get install -y -qq ibus || die "failed to install ibus (apt)"
-            ;;
-        arch)
-            "$SUDO" pacman -Sy --noconfirm ibus || die "failed to install ibus (pacman)"
-            ;;
-        fedora)
-            "$SUDO" dnf install -y -q ibus || die "failed to install ibus (dnf)"
-            ;;
-        *)
-            die "unsupported distro '$DISTRO': install ibus yourself and re-run"
-            ;;
-    esac
-    command -v ibus-daemon >/dev/null || die "ibus package installed but ibus-daemon still not found"
-}
+# ---- verify the headers the build actually links against ----
+for mod in dbus-1 gtk4 glib-2.0 gdk-pixbuf-2.0 pango cairo graphene-1.0; do
+    pkg-config --exists "$mod" \
+        || die "missing development headers for $mod: a package above did not provide it"
+done
 
-# ---- install build + GUI dependencies (auto, per-dist
-
-case "$DISTRO" in
-    debian)
-        echo ">> installing build toolchain, DBus, GTK4 and build deps (needs sudo)..."
-        "$SUDO" apt-get update -qq || true
-        "$SUDO" apt-get install -y -qq \
-            build-essential \
-            pkg-config \
-            clang \
-            gcc \
-            git \
-            libdbus-1-dev \
-            libglib2.0-dev \
-            libcairo2-dev \
-            libpango1.0-dev \
-            libgdk-pixbuf-2.0-dev \
-            libgtk-4-dev \
-            libgraphene-1.0-dev \
-            libayatana-appindicator3-dev \
-            libibus-1.0-dev \
-            || die "failed to install dependencies (apt)"
-        ;;
-    arch)
-        echo ">> installing build toolchain, GTK4 and build deps (needs sudo)..."
-        "$SUDO" pacman -Sy --noconfirm \
-            base-devel \
-            gtk4 \
-            pkgconf \
-            ibus \
-            || die "failed to install dependencies (pacman)"
-        ;;
-    fedora)
-        echo ">> installing build toolchain, GTK4 and build deps (needs sudo)..."
-        "$SUDO" dnf install -y -q \
-            rustup-core \
-            gcc \
-            clang \
-            pkgconf-pkg-config \
-            gtk4-devel \
-            gtk4-immodules-extras \
-            libappindicator-gtk3-devel \
-            glib2-devel \
-            cairo-devel \
-            pango-devel \
-            gdk-pixbuf2-devel \
-            graphite2-devel \
-            dbus-devel \
-            || die "failed to install dependencies (dnf)"
-        if ! command -v rustc >/dev/null; then
-            rustup default stable || die "failed to install stable toolchain"
-        fi
-        ;;
-    *)
-        die "unsupported distro '$DISTRO': install rust, ibus, gtk4 and build tools yourself, then re-run"
-        ;;
+# gtk4 crate enables v4_8/v4_10; building against an older GTK fails deep in
+# rustc (Ubuntu 22.04 ships GTK 4.6), so stop early with a readable message.
+gtk_ver=$(pkg-config --modversion gtk4)
+case "$gtk_ver" in
+    4.1[0-9]*|4.[2-9][0-9]*|[5-9].*) ;;
+    *) die "GTK $gtk_ver is too old: the settings GUI needs 4.10+ (Ubuntu 22.04 ships 4.6, use 24.04 or newer)" ;;
 esac
+echo ">> GTK $gtk_ver, $(cargo --version)"
 
+# ---- download, build, install ----
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-echo ">> downloading ibus-mangrs ($BRANCH)..."
-curl -fsSL "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" | tar -xz -C "$tmp"
-cd "$tmp/ibus-mangrs-$BRANCH"
+echo ">> downloading ibus-mangrs ($REF)..."
+curl -fsSL "https://github.com/$REPO/archive/refs/heads/$REF.tar.gz" | tar -xz -C "$tmp" \
+    || die "download failed"
+cd "$tmp/ibus-mangrs-$REF"
 
-echo ">> building (this takes a minute)..."
-cargo build --release --features gui
+echo ">> building (this takes a few minutes)..."
+cargo build --release --features gui || die "build failed"
 
 echo ">> installing (needs sudo)..."
-"$SUDO" ./scripts/install.sh
+# shellcheck disable=SC2086
+$SUDO ./scripts/install.sh
+
 ibus-daemon -r --replace 2>/dev/null || ibus restart 2>/dev/null || true
 
 echo
 echo "done. enable the input source:"
 echo "  Settings -> Keyboard -> Input Sources -> + -> Vietnamese -> MăngRS"
+echo "  (log out and back in once if you were just added to the input group)"
