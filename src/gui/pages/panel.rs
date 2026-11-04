@@ -16,11 +16,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         )
         .build();
     let menu_add_btn = gtk4::Button::with_label("Thêm");
-    menu_add_btn.add_css_class("flat");
-    let menu_folder_btn = gtk4::Button::with_label("Thêm thư mục");
-    menu_folder_btn.add_css_class("flat");
-    let menu_rename_btn = gtk4::Button::with_label("Đổi tên");
-    menu_rename_btn.add_css_class("flat");
+    menu_add_btn.add_css_class("suggested-action");
     let row1 = gtk4::Box::new(Orientation::Horizontal, 8);
     row1.set_margin_start(10);
     row1.set_margin_end(10);
@@ -28,9 +24,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     row1.set_margin_bottom(4);
     row1.append(&ui.menu_kind);
     row1.append(&menu_add_btn);
-    row1.append(&menu_folder_btn);
-    row1.append(&ui.menu_name);
-    row1.append(&menu_rename_btn);
     let menu_up_btn = gtk4::Button::from_icon_name("go-up-symbolic");
     menu_up_btn.add_css_class("flat");
     let menu_down_btn = gtk4::Button::from_icon_name("go-down-symbolic");
@@ -67,6 +60,12 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     menu.add(&row1);
     menu.add(&row2);
     menu.add(&menu_scroll);
+    // Rename lives on the tree itself, not a separate form: double-click or
+    // press-and-hold the selected root folder. The tooltip makes the
+    // gesture discoverable — there is no visible button for it.
+    ui.menu_view.set_tooltip_text(Some(
+        "Nhấp đôi hoặc giữ chuột vào thư mục (cấp đầu) để đổi tên",
+    ));
     page.add(&menu);
 
     // The editor buttons mutate the tree, then save through the shared
@@ -81,26 +80,31 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             let Some((kind, key)) = id.split_once(':') else {
                 return;
             };
-            ui.menu_insert(kind, key);
+            if kind == "folder" {
+                ui.menu_add_folder("");
+            } else {
+                ui.menu_insert(kind, key);
+            }
             ui.fire_save();
         });
     }
     {
         let ui = ui.clone();
-        menu_folder_btn.connect_clicked(move |_| {
-            let name = ui.menu_name.text().to_string();
-            ui.menu_add_folder(&name);
-            ui.menu_name.set_text("");
-            ui.fire_save();
+        let view = ui.menu_view.clone();
+        let view_c = view.clone();
+        view.connect_row_activated(move |_, path, _| {
+            if path.depth() == 1 {
+                open_folder_rename(&ui, &view_c);
+            }
         });
     }
     {
         let ui = ui.clone();
-        menu_rename_btn.connect_clicked(move |_| {
-            let name = ui.menu_name.text().to_string();
-            ui.menu_rename(&name);
-            ui.fire_save();
-        });
+        let view = ui.menu_view.clone();
+        let view_c = view.clone();
+        let long = gtk4::GestureLongPress::new();
+        long.connect_pressed(move |_, _, _| open_folder_rename(&ui, &view_c));
+        view.add_controller(long);
     }
     for (btn, delta) in [(&menu_up_btn, -1), (&menu_down_btn, 1)] {
         let ui = ui.clone();
@@ -138,4 +142,40 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     }
 
     page
+}
+
+/// Rename the selected root folder through a small dialog. Only root-level
+/// folders are renamable: entries inside keep their built-in labels, and
+/// children of folders already sit where their parent design put them.
+#[allow(deprecated)] // TreeView, see the mod.rs import note
+fn open_folder_rename(ui: &Rc<Ui>, view: &TreeView) {
+    let Some((iter, depth)) = ui.menu_selected() else {
+        return;
+    };
+    if depth != 0 || ui.menu_value(&iter, MENU_COL_KIND) != "folder" {
+        return;
+    }
+    let entry = gtk4::Entry::builder()
+        .text(ui.menu_value(&iter, MENU_COL_LABEL).as_str())
+        .activates_default(true)
+        .build();
+    let dialog = adw::AlertDialog::builder()
+        .heading("Đổi tên thư mục")
+        .body("Nhập tên mới cho thư mục đang chọn")
+        .extra_child(&entry)
+        .build();
+    dialog.add_response("cancel", "Hủy");
+    dialog.add_response("apply", "Đổi tên");
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("apply"));
+    dialog.set_close_response("cancel");
+    {
+        let ui = ui.clone();
+        let entry = entry.clone();
+        dialog.connect_response(Some("apply"), move |_, _| {
+            ui.menu_rename(entry.text().trim());
+            ui.fire_save();
+        });
+    }
+    dialog.present(view.root().and_downcast::<gtk4::Window>().as_ref());
 }
