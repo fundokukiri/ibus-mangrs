@@ -111,34 +111,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 2: Dấu & tự động — tone style and automatic behaviour.
     let tone_page = pages::tone::build(&ui);
 
-    // ===== Page 3: Gõ tắt =====
-    let macro_box = gtk4::Box::new(Orientation::Vertical, 6);
-    section(&macro_box, "Gõ tắt", "Mở rộng cụm tắt thành câu đầy đủ");
-    macro_box.append(&card(vec![
-        pref_row(
-            "Gõ tắt",
-            "Khóa gõ tắt mở rộng thành cụm khi hết từ",
-            &ui.macro_enabled,
-        ),
-        pref_row(
-            "Viết hoa gõ tắt",
-            "Khóa viết hoa → nội dung viết hoa theo",
-            &ui.capitalize_macro,
-        ),
-        pref_row(
-            "Gõ tắt khi OFF",
-            "Vẫn mở rộng khi tiếng Việt đang tắt",
-            &ui.macro_in_off_mode,
-        ),
-        pref_row("Định dạng giờ ($TIME)", "Ví dụ %H:%M", &ui.time_format),
-        pref_row("Định dạng ngày ($DATE)", "Ví dụ %d/%m/%Y", &ui.date_format),
-    ]));
-    section(
-        &macro_box,
-        "Bảng gõ tắt",
-        "Mỗi dòng: khóa=Nội dung ($TIME, $DATE)",
-    );
-    macro_box.append(&card_widget(&scrolled(&ui.macro_text, 160)));
+    // ===== Page 3: Gõ tắt — switches, formats and the macro editor.
+    let (macro_page, macro_add_btn) = pages::macros::build(&ui);
 
     // ===== Page 4: Dữ liệu =====
     let data_box = gtk4::Box::new(Orientation::Vertical, 6);
@@ -414,7 +388,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     let page_boxes: [&gtk4::Widget; 7] = [
         typing_page.upcast_ref(),
         tone_page.upcast_ref(),
-        macro_box.upcast_ref(),
+        macro_page.upcast_ref(),
         data_box.upcast_ref(),
         rules_page.upcast_ref(),
         advanced.upcast_ref(),
@@ -422,7 +396,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     ];
     // Pages already on adw::PreferencesPage scroll internally; the plain gtk
     // boxes keep the width-clamped scroll wrapper until they convert.
-    const ADW_PAGES: [&str; 2] = ["typing", "tone"];
+    const ADW_PAGES: [&str; 3] = ["typing", "tone", "macros"];
     let stack = gtk4::Stack::new();
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
@@ -689,7 +663,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         };
         // The rule rows are created by `refresh`, so they save through this
         // handle instead of a closure captured at build time.
-        *ui.rules_save.borrow_mut() = Some(Rc::new(save.clone()));
+        *ui.save_cb.borrow_mut() = Some(Rc::new(save.clone()));
         // The quick-add row appends a rule row, then saves through the same
         // error surface as every other control. A typed pattern wins over
         // the dropdown choice.
@@ -717,6 +691,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                     rules.push(crate::config::AppRule { pattern, mode });
                 });
                 rule_pattern.set_text("");
+            });
+        }
+        // The macro add row appends an empty pair the user fills in.
+        {
+            let ui = ui.clone();
+            macro_add_btn.connect_clicked(move |_| {
+                ui.edit_macros(|entries| entries.push((String::new(), String::new())));
             });
         }
         {
@@ -881,11 +862,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             entry.add_controller(controller);
         }
         // Text views save when focus leaves the window's text area.
-        for view in [&ui.macro_text, &ui.dictionary_text] {
+        {
             let s = save.clone();
             let controller = gtk4::EventControllerFocus::new();
             controller.connect_leave(move |_| s());
-            view.add_controller(controller);
+            ui.dictionary_text.add_controller(controller);
         }
     }
 

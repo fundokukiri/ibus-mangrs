@@ -215,12 +215,17 @@ struct Ui {
     em_dash: adw::SwitchRow,
     auto_capitalize: adw::SwitchRow,
     double_space: adw::SwitchRow,
-    macro_enabled: Switch,
-    capitalize_macro: Switch,
-    macro_in_off_mode: Switch,
+    macro_enabled: adw::SwitchRow,
+    capitalize_macro: adw::SwitchRow,
+    macro_in_off_mode: adw::SwitchRow,
     time_format: Entry,
     date_format: Entry,
-    macro_text: TextView,
+    /// Macro editor: one boxed-list row per entry (key, value); GObject
+    /// clones share the widgets, so reading them reads what the user sees.
+    /// The rows live in a plain ListBox — a PreferencesGroup's first_child
+    /// is its internal header, so a remove-everything loop would never end.
+    macros_list: gtk4::ListBox,
+    macros_rows: Rc<RefCell<Vec<MacroRow>>>,
     dictionary_enabled: Switch,
     dictionary_text: TextView,
     /// App Rules editor: the row container plus one widget pair per rule.
@@ -234,7 +239,7 @@ struct Ui {
     /// The save funnel, wired in `build` once the window exists; rows are
     /// created in `refresh`, so they fire edits through this instead of a
     /// closure captured at build time. `None` in headless tests.
-    rules_save: SharedSave,
+    save_cb: SharedSave,
     /// "Thử luật" input and its verdict label.
     rule_preview_input: Entry,
     rule_preview: gtk4::Label,
@@ -263,6 +268,12 @@ struct Ui {
 struct RuleRow {
     pattern: Entry,
     mode: DropDown,
+}
+
+/// One macro editor row's widgets.
+struct MacroRow {
+    key: Entry,
+    value: Entry,
 }
 
 /// The save funnel handle shared between `Ui` and the rule-row closures.
@@ -399,13 +410,11 @@ impl Ui {
                 crate::config::UnicodeChannel::Commit => 0,
             });
         self.fill_menu_store(config.menu.as_deref().unwrap_or(&config.default_menu()));
-        set_text(
-            &self.macro_text,
+        self.fill_macros(
             &macros
                 .entries()
-                .map(|(k, v)| format!("{k}={v}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<Vec<_>>(),
         );
         set_text(
             &self.dictionary_text,
@@ -492,13 +501,98 @@ impl Ui {
         config
     }
 
-    fn read_macros(&self) -> Vec<(String, String)> {
-        let text = text_of(&self.macro_text);
-        text.lines()
-            .filter_map(|l| l.split_once('='))
-            .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+    /// The macros as the rows currently show them; an empty key or value
+    /// drops the row (the old text list skipped such lines too).
+    fn macros_from_rows(&self) -> Vec<(String, String)> {
+        self.macros_rows
+            .borrow()
+            .iter()
+            .map(|row| {
+                (
+                    row.key.text().trim().to_string(),
+                    row.value.text().trim().to_string(),
+                )
+            })
             .filter(|(k, v)| !k.is_empty() && !v.is_empty())
             .collect()
+    }
+
+    // --- macro editor (one boxed row per shortcut) ---
+
+    /// Apply one user edit to the macro list: rebuild the rows, then save
+    /// through the funnel like every other control.
+    fn edit_macros(self: &Rc<Self>, edit: impl FnOnce(&mut Vec<(String, String)>)) {
+        let mut entries = self.macros_from_rows();
+        edit(&mut entries);
+        self.fill_macros(&entries);
+        self.fire_save();
+    }
+
+    /// Rebuild the macro rows from `entries`.
+    fn fill_macros(self: &Rc<Self>, entries: &[(String, String)]) {
+        while let Some(child) = self.macros_list.first_child() {
+            self.macros_list.remove(&child);
+        }
+        self.macros_rows.borrow_mut().clear();
+        for (idx, (k, v)) in entries.iter().enumerate() {
+            self.macro_row(idx, k, v);
+        }
+    }
+
+    /// One editable macro row: the key entry, the value entry and the
+    /// delete button, hosted in the group's boxed list.
+    fn macro_row(self: &Rc<Self>, idx: usize, key: &str, value: &str) {
+        let h = gtk4::Box::new(Orientation::Horizontal, 8);
+        let key_entry = Entry::builder()
+            .text(key)
+            .width_chars(14)
+            .tooltip_text("Khóa gõ tắt (gõ xong sẽ mở rộng)")
+            .build();
+        let value_entry = Entry::builder()
+            .text(value)
+            .hexpand(true)
+            .tooltip_text("Nội dung mở rộng ($TIME, $DATE)")
+            .build();
+        for e in [&key_entry, &value_entry] {
+            let s = self.save_cb.clone();
+            e.connect_activate(move |_| {
+                if let Some(f) = s.borrow().as_ref() {
+                    f();
+                }
+            });
+            let s = self.save_cb.clone();
+            let controller = gtk4::EventControllerFocus::new();
+            controller.connect_leave(move |_| {
+                if let Some(f) = s.borrow().as_ref() {
+                    f();
+                }
+            });
+            e.add_controller(controller);
+        }
+        let del = gtk4::Button::from_icon_name("edit-delete-symbolic");
+        del.set_tooltip_text(Some("Xoá cặp này"));
+        del.add_css_class("destructive-action");
+        {
+            let ui = self.clone();
+            del.connect_clicked(move |_| {
+                ui.edit_macros(|entries| {
+                    if idx < entries.len() {
+                        entries.remove(idx);
+                    }
+                });
+            });
+        }
+        h.append(&key_entry);
+        h.append(&value_entry);
+        h.append(&del);
+        let row = gtk4::ListBoxRow::new();
+        row.set_activatable(false);
+        row.set_child(Some(&h));
+        self.macros_list.append(&row);
+        self.macros_rows.borrow_mut().push(MacroRow {
+            key: key_entry,
+            value: value_entry,
+        });
     }
 
     // --- panel-menu editor (store columns: kind id, key, label, kind label) ---
@@ -1076,7 +1170,7 @@ impl Ui {
 
     /// Run the save funnel if the window wired it (headless tests skip it).
     fn fire_save(&self) {
-        let save = self.rules_save.borrow().clone();
+        let save = self.save_cb.borrow().clone();
         if let Some(save) = save {
             save();
         }
@@ -1087,7 +1181,7 @@ impl Ui {
         config.save()?;
 
         let mut macros = Macros::load();
-        macros.set_entries(self.read_macros().into_iter());
+        macros.set_entries(self.macros_from_rows().into_iter());
         macros.save()?;
 
         let mut dict = Dictionary::load();
@@ -1169,12 +1263,15 @@ fn widgets() -> Rc<Ui> {
         "2 dấu cách = chấm",
         "Thử nghiệm: hai dấu cách thành dấu chấm",
     );
-    let macro_enabled = Switch::new();
-    let capitalize_macro = Switch::new();
-    let macro_in_off_mode = Switch::new();
+    let macro_enabled = switch_row("Gõ tắt", "Khóa gõ tắt mở rộng thành cụm khi hết từ");
+    let capitalize_macro = switch_row("Viết hoa gõ tắt", "Khóa viết hoa → nội dung viết hoa theo");
+    let macro_in_off_mode = switch_row("Gõ tắt khi OFF", "Vẫn mở rộng khi tiếng Việt đang tắt");
     let time_format = Entry::builder().width_chars(14).build();
     let date_format = Entry::builder().width_chars(14).build();
-    let macro_text = text_view("");
+    let macros_list = gtk4::ListBox::new();
+    macros_list.add_css_class("boxed-list");
+    macros_list.set_selection_mode(gtk4::SelectionMode::None);
+    let macros_rows = Rc::new(RefCell::new(Vec::new()));
     let dictionary_enabled = Switch::new();
     let dictionary_text = text_view("");
     // App Rules editor widgets. The rows live in `rules_box`, rebuilt by
@@ -1200,7 +1297,7 @@ fn widgets() -> Rc<Ui> {
     let rule_focus_value = Rc::new(RefCell::new(String::new()));
     let rules_rows = Rc::new(RefCell::new(Vec::new()));
     let rules_loading = Rc::new(RefCell::new(false));
-    let rules_save: SharedSave = Rc::new(RefCell::new(None));
+    let save_cb: SharedSave = Rc::new(RefCell::new(None));
     let hide_underline = switch_row("Ẩn gạch chân", "Chữ đang gõ không có gạch chân (tùy app)");
     let debug_log = Switch::new();
     let x11_delete = Switch::new();
@@ -1259,13 +1356,14 @@ fn widgets() -> Rc<Ui> {
         macro_in_off_mode,
         time_format,
         date_format,
-        macro_text,
+        macros_list,
+        macros_rows,
         dictionary_enabled,
         dictionary_text,
         rules_box,
         rules_rows,
         rules_loading,
-        rules_save,
+        save_cb,
         rule_preview_input,
         rule_preview,
         rule_focus,
@@ -1422,7 +1520,7 @@ mod tests {
             }]
         );
         assert_eq!(
-            ui.read_macros(),
+            ui.macros_from_rows(),
             vec![("gs".to_string(), "giờ sáng".to_string())]
         );
         // A set: the order it hands the text view back in is not the input order.
