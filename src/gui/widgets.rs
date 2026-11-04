@@ -121,13 +121,37 @@ pub(super) fn text_view(content: &str) -> TextView {
     let view = TextView::builder()
         .hexpand(true)
         .monospace(true)
-        .left_margin(10)
-        .right_margin(10)
-        .top_margin(8)
-        .bottom_margin(8)
+        .left_margin(12)
+        .right_margin(12)
+        .top_margin(12)
+        .bottom_margin(12)
         .build();
     view.buffer().set_text(content);
     view
+}
+
+/// The internal subtitle label of an Adw row: it is not a public child, so
+/// a caption/monospace look for file paths reaches it through the tree.
+/// Falls back to the second label (title, then subtitle order) when the
+/// theme class is absent.
+pub(super) fn row_subtitle<W: IsA<gtk4::Widget>>(row: &W) -> Option<gtk4::Label> {
+    fn walk(w: &gtk4::Widget, labels: &mut Vec<gtk4::Label>) {
+        if let Some(l) = w.downcast_ref::<gtk4::Label>() {
+            labels.push(l.clone());
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            walk(&c, labels);
+            child = c.next_sibling();
+        }
+    }
+    let mut labels = Vec::new();
+    walk(row.upcast_ref(), &mut labels);
+    labels
+        .iter()
+        .find(|l| l.css_classes().iter().any(|c| c.as_str() == "subtitle"))
+        .cloned()
+        .or_else(|| labels.get(1).cloned())
 }
 
 /// The "(?)" marker: a small flat about icon — the same glyph the About

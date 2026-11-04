@@ -1394,12 +1394,24 @@ fn widgets() -> Rc<Ui> {
     macros_list.set_selection_mode(gtk4::SelectionMode::None);
     let macros_rows = Rc::new(RefCell::new(Vec::new()));
     let dictionary_enabled = switch_row(
-        &t("rows.dictionary_enabled.title", "Từ điển của tôi"),
+        &t("rows.dictionary_enabled.title", "Dùng từ điển cá nhân"),
         &t(
             "rows.dictionary_enabled.subtitle",
-            "Bật: từ trong từ điển không bị khôi phục về chuỗi phím (~/.config/ibus-mangrs/dictionary.txt)",
+            "~/.config/ibus-mangrs/dictionary.txt",
         ),
     );
+    // The subtitle is a file path: monospace caption reads as a path, not
+    // prose. The label is internal, so the classes go on via the helper;
+    // the old "(?)" marker's text became this row's tooltip.
+    if let Some(subtitle) = row_subtitle(&dictionary_enabled) {
+        subtitle.add_css_class("monospace");
+        subtitle.add_css_class("caption");
+        subtitle.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+    }
+    dictionary_enabled.set_tooltip_text(Some(&t(
+        "tips.dictionary_enabled",
+        "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc.",
+    )));
     let dictionary_text = text_view("");
     // Fixed height so the list cannot stretch (or collapse) the page; the
     // page's own scroll takes over beyond it.
@@ -1616,11 +1628,6 @@ fn widgets() -> Rc<Ui> {
     info!(
         macro_in_off_mode,
         "tips.macro_in_off_mode", "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
-    );
-    info!(
-        dictionary_enabled,
-        "tips.dictionary_enabled",
-        "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc."
     );
     info!(
         hide_underline,
