@@ -41,23 +41,27 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     ));
     ui.rule_focus.set_width_chars(24);
     focus_row.add_suffix(&ui.rule_focus);
-    let focus_use_btn = gtk4::Button::from_icon_name("edit-paste-symbolic");
-    focus_use_btn.set_tooltip_text(Some("Điền tên đang hiện vào ô thêm luật bên dưới"));
-    focus_row.add_suffix(&focus_use_btn);
     focus.add(&focus_row);
     page.add(&focus);
 
-    let add_group = adw::PreferencesGroup::builder().title("Thêm luật").build();
+    // One add row: pick a known app, or copy the focused one, choose the
+    // mode, and the rule lands in the list immediately — no intermediate
+    // pattern entry to fill in.
+    let add_group = adw::PreferencesGroup::builder()
+        .title("Thêm luật")
+        .description("Chọn app đã thấy hoặc copy app đang focus — luật vào thẳng danh sách")
+        .build();
     let client_combo = drop_down(&combo_labels, 0);
     client_combo.set_tooltip_text(Some("Các app engine đã từng thấy"));
-    let rule_pattern = Entry::builder()
-        .placeholder_text("hoặc nhập tên app")
-        .hexpand(true)
-        .build();
-    rule_pattern.set_tooltip_text(Some(
-        "Tên pattern: khớp một phần, không phân biệt hoa/thường",
+    let or_label = gtk4::Label::new(Some("hoặc"));
+    or_label.add_css_class("dim-label");
+    let focus_use_btn = gtk4::Button::from_icon_name("edit-copy-symbolic");
+    focus_use_btn.add_css_class("flat");
+    focus_use_btn.set_tooltip_text(Some(
+        "Thêm luật cho app đang focus — bấm là luật vào thẳng danh sách",
     ));
     let rule_mode = drop_down(MODES, 1);
+    rule_mode.set_tooltip_text(Some("Chế độ gõ của luật mới"));
     let add_btn = gtk4::Button::with_label("Thêm luật");
     add_btn.add_css_class("suggested-action");
     let add_row = gtk4::Box::new(Orientation::Horizontal, 8);
@@ -66,7 +70,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     add_row.set_margin_top(8);
     add_row.set_margin_bottom(8);
     add_row.append(&client_combo);
-    add_row.append(&rule_pattern);
+    add_row.append(&or_label);
+    add_row.append(&focus_use_btn);
     add_row.append(&rule_mode);
     add_row.append(&add_btn);
     add_group.add(&add_row);
@@ -89,34 +94,31 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     preview_group.add(&ui.rule_preview);
     page.add(&preview_group);
 
-    // "Dùng tên này" fills the typed-pattern entry with the chip's name.
+    // "Dùng tên này" appends the focused app straight into the rule list,
+    // with the mode picked in the add row.
     {
         let ui = ui.clone();
-        let rule_pattern = rule_pattern.clone();
+        let rule_mode = rule_mode.clone();
         focus_use_btn.connect_clicked(move |_| {
-            let value = ui.rule_focus_value.borrow().clone();
-            if !value.is_empty() {
-                rule_pattern.set_text(&value);
+            let pattern = ui.rule_focus_value.borrow().clone();
+            if pattern.is_empty() {
+                return;
             }
+            let mode = mode_at(rule_mode.selected());
+            ui.edit_rules(move |rules| {
+                rules.push(crate::config::AppRule { pattern, mode });
+            });
         });
     }
-    // The quick-add row appends a rule row, then saves through the same
-    // error surface as every other control. A typed pattern wins over the
-    // dropdown choice.
+    // The quick-add row appends a rule for the picked app, then saves
+    // through the same error surface as every other control.
     {
         let ui = ui.clone();
         let client_combo = client_combo.clone();
         let rule_mode = rule_mode.clone();
-        let rule_pattern = rule_pattern.clone();
         add_btn.connect_clicked(move |_| {
             let idx = client_combo.selected() as usize;
-            let typed = rule_pattern.text().trim().to_string();
-            let pattern = if typed.is_empty() {
-                app_targets.get(idx).map(|(_, p)| p.clone())
-            } else {
-                Some(typed)
-            };
-            let Some(pattern) = pattern else {
+            let Some(pattern) = app_targets.get(idx).map(|(_, p)| p.clone()) else {
                 return;
             };
             if pattern.is_empty() {
@@ -126,7 +128,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             ui.edit_rules(move |rules| {
                 rules.push(crate::config::AppRule { pattern, mode });
             });
-            rule_pattern.set_text("");
         });
     }
     // The preview follows typing live; mode changes and edits re-run it
