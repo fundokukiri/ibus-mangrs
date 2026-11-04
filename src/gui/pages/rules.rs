@@ -114,10 +114,15 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     )));
     name_row.add_suffix(&pick);
     name_row.add_suffix(&use_focus);
-    let mode_row = combo_row(&t("rows.rule_mode.title", "Chế độ gõ"), "", MODES);
-    mode_row.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
-    // The one suggested-action button of the page rides the mode row: the
-    // pick-a-mode and the add are one decision.
+    // The mode pick leads the row without a label — the dropdown speaks
+    // for itself — and the suggested-action add closes it: pick and add
+    // are one decision. A plain DropDown, since a titled ComboRow would
+    // put the value back on the right.
+    let mode_pick = gtk4::DropDown::new(Some(StringList::new(MODES)), gtk4::Expression::NONE);
+    mode_pick.set_selected(1);
+    mode_pick.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
+    let mode_row = action_row("", "");
+    mode_row.add_prefix(&mode_pick);
     let add_btn = gtk4::Button::with_label(&t("rules.add_button", "Thêm luật"));
     add_btn.add_css_class("suggested-action");
     add_btn.set_valign(gtk4::Align::Center);
@@ -182,12 +187,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     {
         let ui = ui.clone();
         let name_row = name_row.clone();
+        let mode_pick = mode_pick.clone();
         add_btn.connect_clicked(move |_| {
             let pattern = name_row.text().trim().to_string();
             if pattern.is_empty() {
                 return;
             }
-            let mode = mode_at(mode_row.selected());
+            let mode = mode_at(mode_pick.selected());
             ui.edit_rules(move |rules| {
                 rules.push(crate::config::AppRule { pattern, mode });
             });
