@@ -101,14 +101,14 @@ ensure_pkgs() {
 case "$DISTRO" in
     debian)
         DEPS="build-essential pkg-config git tar gzip curl ibus desktop-file-utils
-            libdbus-1-dev libgtk-4-dev"
+            libdbus-1-dev libgtk-4-dev libadwaita-1-dev"
         ;;
     arch)
-        DEPS="gcc make pkgconf git tar gzip curl ibus dbus gtk4 desktop-file-utils"
+        DEPS="gcc make pkgconf git tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils"
         ;;
     fedora)
         DEPS="gcc make pkgconf-pkg-config git tar gzip curl ibus dbus-devel
-            gtk4-devel desktop-file-utils"
+            gtk4-devel libadwaita-devel desktop-file-utils"
         ;;
 esac
 
@@ -129,17 +129,26 @@ export PATH="$HOME/.cargo/bin:$PATH"
 command -v cargo >/dev/null || die "cargo not found after installing Rust"
 
 # ---- verify the headers the build actually links against ----
-for mod in dbus-1 gtk4 glib-2.0 gdk-pixbuf-2.0 pango cairo graphene-1.0; do
+for mod in dbus-1 gtk4 libadwaita-1 glib-2.0 gdk-pixbuf-2.0 pango cairo graphene-1.0; do
     pkg-config --exists "$mod" \
         || die "missing development headers for $mod: a package above did not provide it"
 done
 
-# gtk4 crate enables v4_8/v4_10; building against an older GTK fails deep in
-# rustc (Ubuntu 22.04 ships GTK 4.6), so stop early with a readable message.
+# gtk4 crate enables v4_10 and libadwaita-rs v1_5; building against older
+# libraries fails deep in rustc (Ubuntu 22.04 ships GTK 4.6), so stop early
+# with a readable message.
 gtk_ver=$(pkg-config --modversion gtk4)
 case "$gtk_ver" in
     4.1[0-9]*|4.[2-9][0-9]*|[5-9].*) ;;
     *) die "GTK $gtk_ver is too old: the settings GUI needs 4.10+ (Ubuntu 22.04 ships 4.6, use 24.04 or newer)" ;;
+esac
+if ! pkg-config --modversion libadwaita-1 >/dev/null 2>&1; then
+    die "libadwaita development headers missing: the settings GUI needs libadwaita 1.4+"
+fi
+adw_ver=$(pkg-config --modversion libadwaita-1)
+case "$adw_ver" in
+    1.[4-9]*|1.[1-9][0-9]*|[2-9].*) ;;
+    *) die "libadwaita $adw_ver is too old: the settings GUI needs 1.4+" ;;
 esac
 echo ">> GTK $gtk_ver, $(cargo --version)"
 

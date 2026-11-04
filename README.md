@@ -13,7 +13,7 @@ a custom dictionary and per-app rules.
 
 > **Platform status:** developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland;
 > X11 smoke-tested). Other distributions and desktop environments have **not** been tested yet —
-> IBus ≥ 1.5 and GTK4 are the only hard requirements, so it should work wherever IBus works.
+> IBus ≥ 1.5 and GTK4 + libadwaita are the only hard requirements, so it should work wherever IBus works.
 > Reports from other distros are welcome.
 
 ---
@@ -41,7 +41,7 @@ a custom dictionary and per-app rules.
 - **Macros** with `$TIME` / `$DATE` expansion and smart capitalization; shorthand keys that are
   valid Vietnamese words never expand while you are typing that word normally.
 - **Custom dictionary**: words that must never be auto-restored.
-- **GTK4 settings window** (5 pages, Vietnamese); every change hot-reloads within ~1 second.
+- **GTK4 + libadwaita settings window** (GNOME Settings style: sidebar, 7 pages, Vietnamese); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
 - 227 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
 
@@ -69,12 +69,12 @@ are intended for X11 sessions).
 
 | Distro          | Installed by the one-line installer                 |
 | --------------- | --------------------------------------------------- |
-| Arch            | `ibus` `gtk4` `dbus`, `gcc` `make` `pkgconf`        |
-| Debian / Ubuntu | `ibus` `libgtk-4-dev` `libdbus-1-dev`, build-essential |
-| Fedora          | `ibus` `gtk4-devel` `dbus-devel`, `gcc` `make`      |
+| Arch            | `ibus` `gtk4` `libadwaita` `dbus`, `gcc` `make` `pkgconf` |
+| Debian / Ubuntu | `ibus` `libgtk-4-dev` `libadwaita-1-dev` `libdbus-1-dev`, build-essential |
+| Fedora          | `ibus` `gtk4-devel` `libadwaita-devel` `dbus-devel`, `gcc` `make` |
 
 The installer detects the distro (apt / pacman / dnf), installs only what is missing and leaves
-Rust to rustup; GTK 4.10+ is required (Ubuntu 22.04 ships 4.6). Only the Arch path is tested —
+Rust to rustup; GTK 4.10+ and libadwaita 1.4+ are required (Ubuntu 22.04 ships 4.6). Only the Arch path is tested —
 the Debian/Ubuntu and Fedora package names are the standard ones but unverified there. IBus must
 be your active input-method framework (on GNOME it is).
 
