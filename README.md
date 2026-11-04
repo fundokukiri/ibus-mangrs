@@ -41,9 +41,9 @@ a custom dictionary and per-app rules.
 - **Macros** with `$TIME` / `$DATE` expansion and smart capitalization; shorthand keys that are
   valid Vietnamese words never expand while you are typing that word normally.
 - **Custom dictionary**: words that must never be auto-restored.
-- **GTK4 + libadwaita settings window** (GNOME Settings style: sidebar, 7 pages, Vietnamese); every change hot-reloads within ~1 second.
+- **GTK4 + libadwaita settings window** (GNOME Settings style: sidebar, 8 pages, Vietnamese, page search); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 227 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows).
+- 240 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows); the GUI round-trip and hotkey-recorder tests add 2 more when built with `--features gui`.
 
 ## Display modes
 
@@ -159,7 +159,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | Change input method       | menu → _Input Method_ (Telex / VNI / VIQR / Microsoft), or GUI                         |
 | Change charset            | menu → _Charset_ (11 charsets), or GUI                                                 |
 | Change display mode       | menu → _Display_ (4 main modes), or GUI (10 modes), or the cycle hotkey                |
-| Display mode cycle hotkey | GUI _Kiểu gõ_ tab → _Phím tắt đổi chế độ_ (e.g. `Control+Alt+v`)                       |
+| Display mode cycle hotkey | GUI _Chung_ tab → _Phím tắt đổi chế độ_ (e.g. `Control+Alt+v`)                         |
 | Quick settings            | menu → _Quick Settings_ (macros, auto-capitalize, abbreviations, foreign-word restore) |
 | Type English / code       | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw         |
 | Per-app display mode      | GUI _Luật_ tab → _Luật theo ứng dụng_ (see App Rules below)                            |
@@ -222,7 +222,7 @@ GNOME Console → `preedit`; Sublime Text → `surrounding`. Those clients drop
 
 ## X11/XIM options
 
-Two compatibility switches in the settings window (_Kiểu gõ_ tab →
+Two compatibility switches in the settings window (_Tinh chỉnh_ tab →
 _Tương thích X11/XIM_). Both are **off by default**, and both are needed only
 for apps that reach the engine in unusual ways:
 
@@ -250,7 +250,7 @@ for apps that reach the engine in unusual ways:
   apps only as an anonymous mutter relay, so the engine has no name to match. Install the
   companion GNOME Shell extension (`data/gnome-shell-extension/README.md`), then log out and back
   in — editing or enabling it in place is not enough.
-- **Something else**: enable _Ghi log gỡ lỗi_ (GUI _Kiểu gõ_ tab → _Chẩn đoán_, or
+- **Something else**: enable _Ghi log gỡ lỗi_ (GUI _Tinh chỉnh_ tab → _Chẩn đoán_, or
   `debug_log = true` in `config.toml`), reproduce the issue, and attach
   `~/.cache/ibus-mangrs/debug.log` — the engine logs every focus change,
   capability, keystroke decision and delete/inject with millisecond timestamps
@@ -259,7 +259,7 @@ for apps that reach the engine in unusual ways:
 ## Testing
 
 ```sh
-cargo test                      # 227 unit tests, including the 678-case golden table
+cargo test                      # 240 unit tests, including the 678-case golden table
 cargo clippy --all-targets
 ```
 
@@ -282,7 +282,7 @@ ibus engine ibus-mangrs
 - `src/golden.rs` — 678 keystroke→text golden cases
 - `src/ibus_prop.rs` — IBus property-menu encoding; `src/keymap.rs` — keysym decoding
 - `src/debug_log.rs` — opt-in debug log at `~/.cache/ibus-mangrs/debug.log`
-- `src/config.rs` — TOML settings shared by engine + GUI; `src/gui.rs` — GTK4 window (`gui` feature)
+- `src/config.rs` — TOML settings shared by engine + GUI; `src/gui/` — libadwaita settings window (`gui` feature), texts from `data/gui-content.toml`
 
 ## License
 
