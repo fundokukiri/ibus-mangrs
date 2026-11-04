@@ -43,9 +43,10 @@ pub const FACTORY_IFACE: &str = "org.freedesktop.IBus.Factory";
 /// service naming the focused window. Wayland-native apps reach IBus only as
 /// a mutter relay, and GNOME offers no other name source for them (Shell
 /// Introspect is denied; the wlroots protocol ibus-bamboo uses is absent).
-const FOCUS_EXT_NAME: &str = "io.github.fundokukiri.Mangrs";
-const FOCUS_EXT_PATH: &str = "/io/github/fundokukiri/Mangrs";
-const FOCUS_EXT_IFACE: &str = "io.github.fundokukiri.Mangrs";
+/// The settings window asks the same service for its focused-app chip.
+pub(crate) const FOCUS_EXT_NAME: &str = "io.github.fundokukiri.Mangrs";
+pub(crate) const FOCUS_EXT_PATH: &str = "/io/github/fundokukiri/Mangrs";
+pub(crate) const FOCUS_EXT_IFACE: &str = "io.github.fundokukiri.Mangrs";
 
 /// Shared engine state: the handler mutates it while answering calls, the
 /// main thread reads it when the GUI changes settings.
