@@ -214,21 +214,24 @@ subtitle = "~/.config/ibus-mangrs/dictionary.txt"
 # --- page Luật --------------------------------------------------------------
 
 [groups.rules.focus]
-title = "Luật theo ứng dụng"
-description = "Luật đầu tiên thắng; none = app không báo tên"
-tooltip = "Tên app khớp một phần, không phân biệt hoa/thường; đủ 10 chế độ gõ."
+title = "Ứng dụng đang focus"
 
 [groups.rules.add]
 title = "Thêm luật"
-description = "Chọn app đã thấy hoặc copy app đang focus — luật vào thẳng danh sách"
+description = "Chọn app đã thấy hoặc dùng app đang focus."
 
 [groups.rules.list]
 title = "Danh sách luật"
+description = "Luật đầu tiên thắng; none = app không báo tên."
 tooltip = "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native."
 
 [groups.rules.preview]
 title = "Thử luật"
-description = "Nhập tên app bất kỳ: cho biết luật nào khớp và chế độ gõ kết quả"
+description = "Nhập tên app để xem luật nào khớp."
+
+[rows.rule_name]
+title = "Tên app"
+tooltip = "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)"
 
 [rows.rule_focus]
 title = "App đang focus"
@@ -240,16 +243,11 @@ chip_tooltip = "Chuyển sang app đích rồi quay lại cửa sổ này — t�
 tooltip = "Các app engine đã từng thấy"
 
 [rows.rule_copy]
-tooltip = "Thêm luật cho app đang focus — bấm là luật vào thẳng danh sách"
+tooltip = "Sao chép tên app đang focus"
 
 [rows.rule_mode]
+title = "Chế độ gõ"
 tooltip = "Chế độ gõ của luật mới"
-
-[rows.rule_pattern]
-tooltip = "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)"
-
-[rows.rule_mode_dd]
-tooltip = "Chế độ gõ khi luật khớp"
 
 [rows.rule_up]
 tooltip = "Lên — luật trước thắng"
@@ -265,8 +263,12 @@ placeholder = "Firefox / wayland:Firefox / xim"
 tooltip = "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp và chế độ gõ kết quả"
 
 [rules]
-or_label = "hoặc"
 add_button = "Thêm luật"
+use_focus_button = "Dùng app đang focus"
+copy_toast = "Đã sao chép"
+empty = "Chưa có luật nào"
+result_title = "Kết quả"
+no_match = "Không khớp luật nào"
 pseudo_wayland = "gnome-shell (app Wayland)"
 pseudo_none = "(app không báo tên)"
 

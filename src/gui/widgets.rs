@@ -70,12 +70,6 @@ pub(super) fn refresh_focused_app(label: &gtk4::Label, value: &Rc<RefCell<String
     }
 }
 
-pub(super) fn drop_down(items: &[&str], selected: u32) -> DropDown {
-    let dd = DropDown::new(Some(StringList::new(items)), gtk4::Expression::NONE);
-    dd.set_selected(selected);
-    dd
-}
-
 /// A boxed-list boolean row (title + dim subtitle). Replaces the plain
 /// Switch + pref_row pair of the old pages.
 pub(super) fn switch_row(title: &str, subtitle: &str) -> adw::SwitchRow {
@@ -135,6 +129,18 @@ pub(super) fn text_view(content: &str) -> TextView {
 /// Falls back to the second label (title, then subtitle order) when the
 /// theme class is absent.
 pub(super) fn row_subtitle<W: IsA<gtk4::Widget>>(row: &W) -> Option<gtk4::Label> {
+    row_labels(row).1
+}
+
+/// The internal title label of an Adw row, for the same reason — e.g. an
+/// app id that must ellipsize at its middle instead of its end.
+pub(super) fn row_title<W: IsA<gtk4::Widget>>(row: &W) -> Option<gtk4::Label> {
+    row_labels(row).0
+}
+
+/// All labels inside an Adw row: (title, subtitle) by their theme classes,
+/// with positional fallback (first label = title, second = subtitle).
+fn row_labels<W: IsA<gtk4::Widget>>(row: &W) -> (Option<gtk4::Label>, Option<gtk4::Label>) {
     fn walk(w: &gtk4::Widget, labels: &mut Vec<gtk4::Label>) {
         if let Some(l) = w.downcast_ref::<gtk4::Label>() {
             labels.push(l.clone());
@@ -147,11 +153,18 @@ pub(super) fn row_subtitle<W: IsA<gtk4::Widget>>(row: &W) -> Option<gtk4::Label>
     }
     let mut labels = Vec::new();
     walk(row.upcast_ref(), &mut labels);
-    labels
+    let has = |l: &gtk4::Label, class: &str| l.css_classes().iter().any(|c| c.as_str() == class);
+    let title = labels
         .iter()
-        .find(|l| l.css_classes().iter().any(|c| c.as_str() == "subtitle"))
+        .find(|l| has(l, "title"))
         .cloned()
-        .or_else(|| labels.get(1).cloned())
+        .or_else(|| labels.first().cloned());
+    let subtitle = labels
+        .iter()
+        .find(|l| has(l, "subtitle"))
+        .cloned()
+        .or_else(|| labels.get(1).cloned());
+    (title, subtitle)
 }
 
 /// The "(?)" marker: a small flat about icon — the same glyph the About

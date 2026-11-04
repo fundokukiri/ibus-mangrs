@@ -27,8 +27,8 @@ use libadwaita as adw;
 // editor on ListView+TreeListModel would triple the code for no user gain.
 #[allow(deprecated)]
 use gtk4::{
-    CellRendererText, ComboBoxText, DropDown, Entry, Orientation, StringList, TextView, TreeIter,
-    TreeStore, TreeView, TreeViewColumn,
+    CellRendererText, ComboBoxText, Entry, Orientation, StringList, TextView, TreeIter, TreeStore,
+    TreeView, TreeViewColumn,
 };
 
 // Panel-menu editor store columns.
@@ -235,7 +235,9 @@ struct Ui {
     /// the group's first_child is its internal header, so a
     /// remove-everything loop would never end.
     rules_box: gtk4::ListBox,
-    rules_rows: Rc<RefCell<Vec<RuleRow>>>,
+    /// Shown by `fill_rules` when no rule exists: an empty group reads as
+    /// a bug otherwise (compact StatusPage, no icon).
+    rules_status: adw::StatusPage,
     /// Blocks row save handlers while `fill_rules` rebuilds the rows: the
     /// mode dropdown fires `selected_notify` on a programmatic set too.
     rules_loading: Rc<RefCell<bool>>,
@@ -243,9 +245,9 @@ struct Ui {
     /// created in `refresh`, so they fire edits through this instead of a
     /// closure captured at build time. `None` in headless tests.
     save_cb: SharedSave,
-    /// "Thử luật" input and its verdict label.
-    rule_preview_input: Entry,
-    rule_preview: gtk4::Label,
+    /// "Thử luật" input and its verdict row.
+    rule_preview_input: adw::EntryRow,
+    rule_preview: adw::ActionRow,
     /// The focused-app chip: name label plus the last good name (the label
     /// also carries error text, so the usable value is kept separately).
     rule_focus: gtk4::Label,
@@ -264,12 +266,6 @@ struct Ui {
     menu_store: TreeStore,
     menu_view: TreeView,
     menu_kind: ComboBoxText,
-}
-
-/// One App Rules editor row's widgets.
-struct RuleRow {
-    pattern: Entry,
-    mode: DropDown,
 }
 
 /// One macro editor row's widgets.
@@ -1042,14 +1038,18 @@ impl Ui {
     /// delete), so `refresh`'s round-trip assert holds for hand-edited
     /// configs too.
     fn rules_from_rows(&self) -> Vec<crate::config::AppRule> {
-        self.rules_rows
-            .borrow()
-            .iter()
-            .map(|row| crate::config::AppRule {
-                pattern: row.pattern.text().trim().to_string(),
-                mode: mode_at(row.mode.selected()),
-            })
-            .collect()
+        let mut out = Vec::new();
+        let mut child = self.rules_box.first_child();
+        while let Some(row) = child {
+            child = row.next_sibling();
+            if let Some(combo) = row.downcast_ref::<adw::ComboRow>() {
+                out.push(crate::config::AppRule {
+                    pattern: combo.title().trim().to_string(),
+                    mode: mode_at(combo.selected()),
+                });
+            }
+        }
+        out
     }
 
     /// Apply one user edit to the rule list: rebuild the rows, then save
@@ -1068,60 +1068,41 @@ impl Ui {
         while let Some(child) = self.rules_box.first_child() {
             self.rules_box.remove(&child);
         }
-        self.rules_rows.borrow_mut().clear();
+        let total = rules.len();
         for (idx, rule) in rules.iter().enumerate() {
-            self.rule_row(idx, &rule.pattern, rule.mode);
+            self.rule_row(idx, total, &rule.pattern, rule.mode);
         }
+        self.rules_box.set_visible(total > 0);
+        self.rules_status.set_visible(total == 0);
         *self.rules_loading.borrow_mut() = false;
         self.update_rule_preview();
     }
 
-    /// One editable rule row: the pattern entry, the mode dropdown and the
-    /// reorder/delete buttons. Row order is match priority — the engine
-    /// takes the first rule that hits.
-    fn rule_row(self: &Rc<Self>, idx: usize, pattern: &str, mode: ModeConfig) {
-        let row = gtk4::Box::new(Orientation::Horizontal, 6);
-        row.set_margin_start(10);
-        row.set_margin_end(10);
-        row.set_margin_top(6);
-        row.set_margin_bottom(6);
-        let entry = Entry::builder()
-            .text(pattern)
-            .tooltip_text(t(
-                "rows.rule_pattern.tooltip",
-                "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)",
-            ))
-            .hexpand(true)
+    /// One rule as a native ComboRow: the app id is the title, the forced
+    /// mode the subtitle; the suffix holds the reorder pair and the trash.
+    /// Row order is match priority — the engine takes the first rule that
+    /// hits.
+    fn rule_row(self: &Rc<Self>, idx: usize, total: usize, pattern: &str, mode: ModeConfig) {
+        let row = adw::ComboRow::builder()
+            .title(pattern)
+            .use_subtitle(true)
+            .model(&StringList::new(MODES))
+            .selected(mode_index(mode))
             .build();
-        let mode_dd = drop_down(MODES, mode_index(mode));
-        mode_dd.set_tooltip_text(Some(&t(
-            "rows.rule_mode_dd.tooltip",
-            "Chế độ gõ khi luật khớp",
-        )));
-        {
-            let rows = self.rules_rows.clone();
-            rows.borrow_mut().push(RuleRow {
-                pattern: entry.clone(),
-                mode: mode_dd.clone(),
-            });
+        // The theme ellipsize is END; a long id would hide its tail, and
+        // the title label is not a public child — hence the helper.
+        if let Some(title) = row_title(&row) {
+            title.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
         }
+        row.set_tooltip_text(Some(pattern));
+        let num = gtk4::Label::new(Some(&(idx + 1).to_string()));
+        num.add_css_class("dim-label");
+        num.add_css_class("caption");
+        num.set_valign(gtk4::Align::Center);
+        row.add_prefix(&num);
         {
             let ui = self.clone();
-            entry.connect_changed(move |_| ui.update_rule_preview());
-        }
-        {
-            let ui = self.clone();
-            entry.connect_activate(move |_| ui.fire_save());
-        }
-        {
-            let ui = self.clone();
-            let controller = gtk4::EventControllerFocus::new();
-            controller.connect_leave(move |_| ui.fire_save());
-            entry.add_controller(controller);
-        }
-        {
-            let ui = self.clone();
-            mode_dd.connect_selected_notify(move |_| {
+            row.connect_selected_notify(move |_| {
                 if *ui.rules_loading.borrow() {
                     return;
                 }
@@ -1129,8 +1110,11 @@ impl Ui {
                 ui.update_rule_preview();
             });
         }
+        // Reorder as a linked pair; delete as a flat trash that only turns
+        // red under the pointer ("error" is a permanent tint otherwise).
         let up = gtk4::Button::from_icon_name("go-up-symbolic");
         up.add_css_class("flat");
+        up.set_sensitive(idx > 0);
         up.set_tooltip_text(Some(&t("rows.rule_up.tooltip", "Lên — luật trước thắng")));
         {
             let ui = self.clone();
@@ -1144,6 +1128,7 @@ impl Ui {
         }
         let down = gtk4::Button::from_icon_name("go-down-symbolic");
         down.add_css_class("flat");
+        down.set_sensitive(idx + 1 < total);
         down.set_tooltip_text(Some(&t("rows.rule_down.tooltip", "Xuống")));
         {
             let ui = self.clone();
@@ -1155,9 +1140,12 @@ impl Ui {
                 });
             });
         }
-        let del = gtk4::Button::from_icon_name("edit-delete-symbolic");
+        let linked = gtk4::Box::new(Orientation::Horizontal, 0);
+        linked.add_css_class("linked");
+        linked.append(&up);
+        linked.append(&down);
+        let del = gtk4::Button::from_icon_name("user-trash-symbolic");
         del.add_css_class("flat");
-        del.add_css_class("destructive-action");
         del.set_tooltip_text(Some(&t("rows.rule_delete.tooltip", "Xoá luật này")));
         {
             let ui = self.clone();
@@ -1169,41 +1157,42 @@ impl Ui {
                 });
             });
         }
-        row.append(&entry);
-        row.append(&mode_dd);
-        row.append(&up);
-        row.append(&down);
-        row.append(&del);
-        let list_row = gtk4::ListBoxRow::new();
-        list_row.set_activatable(false);
-        list_row.set_child(Some(&row));
-        self.rules_box.append(&list_row);
+        {
+            let del_enter = del.clone();
+            let del_leave = del.clone();
+            let hover = gtk4::EventControllerMotion::new();
+            hover.connect_enter(move |_, _, _| del_enter.add_css_class("error"));
+            hover.connect_leave(move |_| del_leave.remove_css_class("error"));
+            del.add_controller(hover);
+        }
+        row.add_suffix(&linked);
+        row.add_suffix(&del);
+        self.rules_box.append(&row);
     }
 
-    /// The "thử luật" verdict: which rule hits the typed name and the mode
-    /// it forces. Rules only — the engine's capability fallbacks are not
-    /// modelled here.
+    /// The "thử luật" verdict as the result row's subtitle: which rule hits
+    /// the typed name and the mode it forces. Rules only — the engine's
+    /// capability fallbacks are not modelled here.
     fn update_rule_preview(&self) {
         let input = self.rule_preview_input.text().trim().to_string();
-        if input.is_empty() {
-            self.rule_preview.set_text("");
-            return;
-        }
-        let rules = self.rules_from_rows();
-        let target = Some(input.as_str());
-        if let Some(mode) = crate::config::app_rule_mode(&rules, target) {
-            let (idx, pattern) = rules
-                .iter()
-                .position(|r| crate::config::app_rule_matches(&r.pattern, target))
-                .map(|i| (i + 1, rules[i].pattern.clone()))
-                .unwrap_or((0, String::new()));
-            let label = MODES[mode_index(mode) as usize];
-            self.rule_preview
-                .set_text(&format!("Khớp luật #{idx} \"{pattern}\" → {label}"));
+        let verdict = if input.is_empty() {
+            String::new()
         } else {
-            self.rule_preview
-                .set_text("Không luật nào khớp → dùng chế độ chung hiện tại");
-        }
+            let rules = self.rules_from_rows();
+            let target = Some(input.as_str());
+            match crate::config::app_rule_mode(&rules, target) {
+                Some(mode) => {
+                    let idx = rules
+                        .iter()
+                        .position(|r| crate::config::app_rule_matches(&r.pattern, target))
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
+                    format!("Khớp luật #{idx} · {}", MODES[mode_index(mode) as usize])
+                }
+                None => t("rules.no_match", "Không khớp luật nào").to_string(),
+            }
+        };
+        self.rule_preview.set_subtitle(&verdict);
     }
 
     /// Run the save funnel if the window wired it (headless tests skip it).
@@ -1421,30 +1410,31 @@ fn widgets() -> Rc<Ui> {
     let rules_box = gtk4::ListBox::new();
     rules_box.add_css_class("boxed-list");
     rules_box.set_selection_mode(gtk4::SelectionMode::None);
-    let rule_preview_input = Entry::builder()
-        .placeholder_text(t(
-            "rows.rule_preview_input.placeholder",
-            "Firefox / wayland:Firefox / xim",
-        ))
-        .hexpand(true)
+    let rules_status = adw::StatusPage::builder()
+        .title(t("rules.empty", "Chưa có luật nào"))
+        .build();
+    // The input is a native EntryRow; the verdict is the subtitle of a
+    // read-only result row underneath it. EntryRow has no placeholder in
+    // this libadwaita, so the examples live in the tooltip.
+    let rule_preview_input = adw::EntryRow::builder()
+        .title(t("rows.rule_name.title", "Tên app"))
         .build();
     rule_preview_input.set_tooltip_text(Some(&t(
         "rows.rule_preview_input.tooltip",
-        "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp và chế độ gõ kết quả",
+        "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp. Ví dụ: Firefox / wayland:Firefox / xim",
     )));
-    let rule_preview = gtk4::Label::new(None);
-    rule_preview.add_css_class("dimmed");
-    rule_preview.set_xalign(0.0);
-    rule_preview.set_wrap(true);
+    let rule_preview = action_row(&t("rules.result_title", "Kết quả"), "");
     let rule_focus = gtk4::Label::new(Some("—"));
     rule_focus.set_xalign(0.0);
     rule_focus.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    rule_focus.set_selectable(true);
+    rule_focus.add_css_class("monospace");
+    rule_focus.add_css_class("dim-label");
     rule_focus.set_tooltip_text(Some(&t(
         "rows.rule_focus.chip_tooltip",
         "Chuyển sang app đích rồi quay lại cửa sổ này — tên app sẽ hiện ở đây (cần extension MăngRS Focus)",
     )));
     let rule_focus_value = Rc::new(RefCell::new(String::new()));
-    let rules_rows = Rc::new(RefCell::new(Vec::new()));
     let rules_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
     let hide_underline = switch_row(
@@ -1702,7 +1692,7 @@ fn widgets() -> Rc<Ui> {
         dictionary_enabled,
         dictionary_text,
         rules_box,
-        rules_rows,
+        rules_status,
         rules_loading,
         save_cb,
         rule_preview_input,
