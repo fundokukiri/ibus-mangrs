@@ -52,11 +52,16 @@ pub(crate) fn build() -> adw::PreferencesPage {
     );
     source.add_suffix(&link_button(&source_url));
     project.add(&source);
-    project.add(&feature_row(
+    let author = feature_row(
         "avatar-default-symbolic",
         &t("about.author_title", "Tác giả"),
         &t("about.author_value", "Phùng Đức Tùng (Fundoku)"),
-    ));
+    );
+    author.add_suffix(&link_button(&t(
+        "about.author_url",
+        "https://fundoku.io.vn",
+    )));
+    project.add(&author);
     let homepage = feature_row(
         "web-browser-symbolic",
         &t("about.homepage_title", "Trang chủ"),
