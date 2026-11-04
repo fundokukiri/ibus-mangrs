@@ -49,24 +49,29 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 7: Giới thiệu — feature highlights + the about dialog.
     let about_page = pages::about::build();
 
+    // ===== Page 6: Menu panel — the popup designer.
+    let panel_page = pages::panel::build(&ui);
+
     // Content: one page per section, crossfading. Stack names are stable —
     // the engine opens pages with `--page=<name>`.
     // (stack name, sidebar label, symbolic icon from the icon theme)
-    const PAGES: [(&str, &str, &str); 7] = [
+    const PAGES: [(&str, &str, &str); 8] = [
         ("typing", "Chung", "input-keyboard-symbolic"),
         ("tone", "Dấu & tự động", "tools-check-spelling-symbolic"),
         ("macros", "Gõ tắt", "insert-text-symbolic"),
         ("data", "Dữ liệu", "folder-documents-symbolic"),
         ("rules", "Luật", "view-list-symbolic"),
+        ("panel", "Menu panel", "document-edit-symbolic"),
         ("advanced", "Tinh chỉnh", "emblem-system-symbolic"),
         ("about", "Giới thiệu", "help-about-symbolic"),
     ];
-    let page_boxes: [&gtk4::Widget; 7] = [
+    let page_boxes: [&gtk4::Widget; 8] = [
         typing_page.upcast_ref(),
         tone_page.upcast_ref(),
         macro_page.upcast_ref(),
         data_page.upcast_ref(),
         rules_page.upcast_ref(),
+        panel_page.upcast_ref(),
         advanced_page.upcast_ref(),
         about_page.upcast_ref(),
     ];
@@ -257,6 +262,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         Some("dictionary") | Some("backup") => "data",
         // The old "apps" page was the app rules page.
         Some("apps") => "rules",
+        Some("menupanel") => "panel",
         Some(other) => other,
     };
     let (_, wanted_row) = page_rows

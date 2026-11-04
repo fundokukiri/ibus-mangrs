@@ -30,12 +30,15 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
 
     let focus = adw::PreferencesGroup::builder()
         .title("Luật theo ứng dụng")
-        .description("Luật đầu tiên thắng. Tên app khớp một phần, không phân biệt hoa/thường; none = app không báo tên. Đủ 10 chế độ gõ.")
+        .description("Luật đầu tiên thắng; none = app không báo tên")
         .build();
-    let focus_row = action_row(
-        "App đang focus",
-        "Chuyển sang app đích rồi quay lại — tên tự cập nhật qua extension MăngRS Focus",
-    );
+    focus.set_tooltip_text(Some(
+        "Tên app khớp một phần, không phân biệt hoa/thường; đủ 10 chế độ gõ.",
+    ));
+    let focus_row = action_row("App đang focus", "Chuyển sang app đích rồi quay lại");
+    focus_row.set_tooltip_text(Some(
+        "Tên lấy qua extension MăngRS Focus; app không báo tên thì dùng pattern none",
+    ));
     ui.rule_focus.set_width_chars(24);
     focus_row.add_suffix(&ui.rule_focus);
     let focus_use_btn = gtk4::Button::from_icon_name("edit-paste-symbolic");
@@ -72,6 +75,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let list_group = adw::PreferencesGroup::builder()
         .title("Danh sách luật")
         .build();
+    list_group.set_tooltip_text(Some(
+        "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native.",
+    ));
     list_group.add(&ui.rules_box);
     page.add(&list_group);
 
@@ -82,16 +88,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     preview_group.add(&ui.rule_preview_input);
     preview_group.add(&ui.rule_preview);
     page.add(&preview_group);
-
-    let limits = adw::PreferencesGroup::new();
-    let note = gtk4::Label::builder()
-        .wrap(true)
-        .xalign(0.0)
-        .label("Chỉ app dùng GTK IM module mới báo tên riêng cho engine; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native: Chrome, Firefox, … Danh sách thêm nhanh là các app engine đã từng thấy, không phải mọi app đang chạy.")
-        .build();
-    note.add_css_class("dim-label");
-    limits.add(&note);
-    page.add(&limits);
 
     // "Dùng tên này" fills the typed-pattern entry with the chip's name.
     {
