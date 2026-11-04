@@ -575,10 +575,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             ui.dictionary_text.add_controller(controller);
         }
         {
-            let ui = ui.clone();
+            let s = save.clone();
             let view = ui.macros_text.clone();
             let controller = gtk4::EventControllerFocus::new();
-            controller.connect_leave(move |_| ui.apply_macros_text());
+            controller.connect_leave(move |_| s());
             view.add_controller(controller);
         }
     }

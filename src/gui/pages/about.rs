@@ -24,13 +24,9 @@ pub(crate) fn build() -> adw::PreferencesPage {
     const LOGO: &[u8] = include_bytes!("../../../data/logo.png");
     if let Ok(texture) = gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(LOGO)) {
         let image = gtk4::Image::from_paintable(Some(&texture));
-        image.set_pixel_size(128);
+        image.set_pixel_size(176);
         hero.append(&image);
     }
-    let name = gtk4::Label::new(Some(&app_name));
-    name.add_css_class("title-1");
-    name.set_halign(gtk4::Align::Center);
-    hero.append(&name);
     let version = gtk4::Label::new(Some(&format!(
         "Phiên bản {} • {}",
         env!("CARGO_PKG_VERSION"),
