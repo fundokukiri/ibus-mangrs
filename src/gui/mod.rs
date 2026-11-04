@@ -26,17 +26,9 @@ use libadwaita as adw;
 // editor on ListView+TreeListModel would triple the code for no user gain.
 #[allow(deprecated)]
 use gtk4::{
-    CellRendererText, ComboBoxText, DropDown, Entry, Orientation, Revealer, StringList, Switch,
-    TextView, TreeIter, TreeStore, TreeView, TreeViewColumn,
+    CellRendererText, ComboBoxText, DropDown, Entry, Orientation, StringList, TextView, TreeIter,
+    TreeStore, TreeView, TreeViewColumn,
 };
-
-thread_local! {
-    /// Each collapsible section's revealer plus its arrow label. GTK4 has no
-    /// Expander, so a section is a flat button over a Revealer; the registry
-    /// lets a section's own button keep the arrow in sync with the state.
-    static COLLAPSIBLES: RefCell<Vec<(Revealer, gtk4::Label)>> =
-        const { RefCell::new(Vec::new()) };
-}
 
 // Panel-menu editor store columns.
 const MENU_COL_KIND: u32 = 0;
@@ -250,13 +242,13 @@ struct Ui {
     rule_focus: gtk4::Label,
     rule_focus_value: Rc<RefCell<String>>,
     hide_underline: adw::SwitchRow,
-    debug_log: Switch,
-    x11_delete: Switch,
-    preedit_xim: Switch,
-    commit_interval: Entry,
-    backspace_interval: Entry,
-    post_delay: Entry,
-    unicode_channel: DropDown,
+    debug_log: adw::SwitchRow,
+    x11_delete: adw::SwitchRow,
+    preedit_xim: adw::SwitchRow,
+    commit_interval: adw::SpinRow,
+    backspace_interval: adw::SpinRow,
+    post_delay: adw::SpinRow,
+    unicode_channel: adw::ComboRow,
     /// The panel-menu editor: a 4-column store (kind id, key, label, kind
     /// label), its view, the "add" type picker and the folder-name entry.
     /// Folders nest one level at most, matching `config::MenuNode`.
@@ -402,10 +394,10 @@ impl Ui {
         self.x11_delete.set_active(config.x11_delete_without_report);
         self.preedit_xim.set_active(config.preedit_for_xim);
         self.commit_interval
-            .set_text(&config.commit_interval_ms.to_string());
+            .set_value(config.commit_interval_ms as f64);
         self.backspace_interval
-            .set_text(&config.backspace_interval_ms.to_string());
-        self.post_delay.set_text(&config.post_delay_ms.to_string());
+            .set_value(config.backspace_interval_ms as f64);
+        self.post_delay.set_value(config.post_delay_ms as f64);
         self.unicode_channel
             .set_selected(match config.unicode_channel {
                 crate::config::UnicodeChannel::Clipboard => 1,
@@ -486,9 +478,9 @@ impl Ui {
         config.time_format = self.time_format.text().trim().to_string();
         config.date_format = self.date_format.text().trim().to_string();
         config.dictionary_enabled = self.dictionary_enabled.is_active();
-        config.commit_interval_ms = self.commit_interval.text().trim().parse().unwrap_or(20);
-        config.backspace_interval_ms = self.backspace_interval.text().trim().parse().unwrap_or(5);
-        config.post_delay_ms = self.post_delay.text().trim().parse().unwrap_or(10);
+        config.commit_interval_ms = self.commit_interval.value() as u64;
+        config.backspace_interval_ms = self.backspace_interval.value() as u64;
+        config.post_delay_ms = self.post_delay.value() as u64;
         config.unicode_channel = match self.unicode_channel.selected() {
             1 => crate::config::UnicodeChannel::Clipboard,
             _ => crate::config::UnicodeChannel::Commit,
@@ -1312,13 +1304,41 @@ fn widgets() -> Rc<Ui> {
     let rules_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
     let hide_underline = switch_row("Ẩn gạch chân", "Chữ đang gõ không có gạch chân (tùy app)");
-    let debug_log = Switch::new();
-    let x11_delete = Switch::new();
-    let preedit_xim = Switch::new();
-    let commit_interval = Entry::builder().width_chars(6).build();
-    let backspace_interval = Entry::builder().width_chars(6).build();
-    let post_delay = Entry::builder().width_chars(6).build();
-    let unicode_channel = drop_down(CHANNELS, 0);
+    let debug_log = switch_row("Ghi log gỡ lỗi", "Ghi vào ~/.cache/ibus-mangrs/debug.log");
+    let x11_delete = switch_row(
+        "Xoá đuôi từ ở app X11",
+        "App X11 trực tiếp xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
+    );
+    let preedit_xim = switch_row(
+        "Preedit cho app XIM",
+        "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ.",
+    );
+    let commit_interval = spin_row(
+        "Nhịp gõ chữ",
+        "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20",
+        1.0,
+        500.0,
+        1.0,
+    );
+    let backspace_interval = spin_row(
+        "Nhịp xoá lùi",
+        "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5",
+        1.0,
+        100.0,
+        1.0,
+    );
+    let post_delay = spin_row(
+        "Độ trễ sau từ",
+        "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10",
+        0.0,
+        500.0,
+        1.0,
+    );
+    let unicode_channel = combo_row(
+        "Kênh gửi từ tiếng Việt",
+        "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
+        CHANNELS,
+    );
 
     // Panel-menu editor: kind id, key, label, Vietnamese kind label.
     let menu_store = TreeStore::new(&[

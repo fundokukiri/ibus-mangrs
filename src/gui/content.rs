@@ -7,8 +7,6 @@ use super::*;
 
 #[allow(deprecated)]
 pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
-    COLLAPSIBLES.with(|c| c.borrow_mut().clear());
-
     let config = Config::load();
     let macros = Macros::load();
     let dictionary = Dictionary::load();
@@ -45,113 +43,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 5: Luật — chip, quick-add, list editor, preview.
     let rules_page = pages::rules::build(&ui);
 
-    // ===== Page 6: Tinh chỉnh =====
-    // Everything touched once (or only when debugging) lives here so the
-    // everyday tabs stay short: the panel-menu editor, the uinput pacing,
-    // the app-specific X11/XIM workarounds, the log switch.
-    let advanced = gtk4::Box::new(Orientation::Vertical, 6);
-
-    // The panel popup is the user's own design: folders (one level deep),
-    // toggles, radio groups, actions and separators, freely ordered. The
-    // editor rows below get their handlers once `save` exists.
-    let menu_add_btn = gtk4::Button::with_label("Thêm");
-    let menu_folder_btn = gtk4::Button::with_label("Thêm thư mục");
-    let menu_rename_btn = gtk4::Button::with_label("Đổi tên");
-    let menu_up_btn = gtk4::Button::with_label("Lên");
-    let menu_down_btn = gtk4::Button::with_label("Xuống");
-    let menu_out_btn = gtk4::Button::with_label("Ra ngoài");
-    let menu_del_btn = gtk4::Button::with_label("Xoá");
-    let menu_reset_btn = gtk4::Button::with_label("Đặt lại mặc định");
-    let menu_row1 = gtk4::Box::new(Orientation::Horizontal, 8);
-    menu_row1.set_margin_start(10);
-    menu_row1.set_margin_end(10);
-    menu_row1.set_margin_top(8);
-    menu_row1.set_margin_bottom(4);
-    menu_row1.append(&ui.menu_kind);
-    menu_row1.append(&menu_add_btn);
-    menu_row1.append(&ui.menu_name);
-    menu_row1.append(&menu_folder_btn);
-    menu_row1.append(&menu_rename_btn);
-    let menu_row2 = gtk4::Box::new(Orientation::Horizontal, 8);
-    menu_row2.set_margin_start(10);
-    menu_row2.set_margin_end(10);
-    menu_row2.set_margin_top(4);
-    menu_row2.set_margin_bottom(8);
-    menu_row2.append(&menu_up_btn);
-    menu_row2.append(&menu_down_btn);
-    menu_row2.append(&menu_out_btn);
-    menu_row2.append(&menu_del_btn);
-    menu_row2.append(&menu_reset_btn);
-    let menu_view_row = gtk4::Box::new(Orientation::Vertical, 0);
-    menu_view_row.set_margin_start(10);
-    menu_view_row.set_margin_end(10);
-    menu_view_row.set_margin_top(0);
-    menu_view_row.set_margin_bottom(8);
-    let menu_scroll = gtk4::ScrolledWindow::new();
-    menu_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    menu_scroll.set_min_content_height(220);
-    menu_scroll.set_child(Some(&ui.menu_view));
-    menu_view_row.append(&menu_scroll);
-    collapsible_section(
-        &advanced,
-        "Menu trên panel",
-        "Tự thiết kế menu popup: thêm thư mục, thêm chức năng, bỏ vào thư mục, sắp xếp thứ tự. Bảng mã / Kiểu gõ / Chế độ gõ cũng chỉnh được mục bên trong.",
-        vec![menu_row1, menu_row2, menu_view_row],
-    );
-    section(
-        &advanced,
-        "Tốc độ gõ (uinput)",
-        "Chỉ áp dụng cho Smooth / Super Smooth / Select",
-    );
-    advanced.append(&card(vec![
-        pref_row(
-            "Nhịp gõ chữ",
-            "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20",
-            &ui.commit_interval,
-        ),
-        pref_row(
-            "Nhịp xoá lùi",
-            "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5",
-            &ui.backspace_interval,
-        ),
-        pref_row(
-            "Độ trễ sau từ",
-            "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10",
-            &ui.post_delay,
-        ),
-        pref_row(
-            "Kênh gửi từ tiếng Việt",
-            "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
-            &ui.unicode_channel,
-        ),
-    ]));
-    section(
-        &advanced,
-        "Tương thích X11/XIM",
-        "Cho app X11 trực tiếp và app XIM (Java/JetBrains)",
-    );
-    advanced.append(&card(vec![
-        pref_row(
-            "Xoá đuôi từ ở app X11",
-            "App X11 trực tiếp xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
-            &ui.x11_delete,
-        ),
-        pref_row(
-            "Preedit cho app XIM",
-            "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ.",
-            &ui.preedit_xim,
-        ),
-    ]));
-    section(
-        &advanced,
-        "Chẩn đoán",
-        "Ghi lại quyết định của engine để gỡ lỗi",
-    );
-    advanced.append(&card(vec![pref_row(
-        "Ghi log gỡ lỗi",
-        "Ghi vào ~/.cache/ibus-mangrs/debug.log",
-        &ui.debug_log,
-    )]));
+    // ===== Page 6: Tinh chỉnh — menu editor, uinput pacing, X11/XIM, log.
+    let advanced_page = pages::advanced::build(&ui);
 
     // ===== Page 7: Giới thiệu =====
     let about = gtk4::Box::new(Orientation::Vertical, 6);
@@ -271,12 +164,12 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         macro_page.upcast_ref(),
         data_page.upcast_ref(),
         rules_page.upcast_ref(),
-        advanced.upcast_ref(),
+        advanced_page.upcast_ref(),
         about.upcast_ref(),
     ];
     // Pages already on adw::PreferencesPage scroll internally; the plain gtk
     // boxes keep the width-clamped scroll wrapper until they convert.
-    const ADW_PAGES: [&str; 4] = ["typing", "tone", "macros", "data"];
+    const ADW_PAGES: [&str; 5] = ["typing", "tone", "macros", "data", "advanced"];
     let stack = gtk4::Stack::new();
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
@@ -551,82 +444,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                 ui.edit_macros(|entries| entries.push((String::new(), String::new())));
             });
         }
-        // The panel-menu editor buttons mutate the tree, then save through
-        // the shared funnel — the design is on disk (and the panel, after a
-        // reload) before the window loses focus.
-        {
-            let save = save.clone();
-            let ui = ui.clone();
-            menu_add_btn.connect_clicked(move |_| {
-                let Some(id) = ui.menu_kind.active_id() else {
-                    return;
-                };
-                let Some((kind, key)) = id.split_once(':') else {
-                    return;
-                };
-                ui.menu_insert(kind, key);
-                save();
-            });
-        }
-        {
-            let save = save.clone();
-            let ui = ui.clone();
-            menu_folder_btn.connect_clicked(move |_| {
-                let name = ui.menu_name.text().to_string();
-                ui.menu_add_folder(&name);
-                ui.menu_name.set_text("");
-                save();
-            });
-        }
-        {
-            let save = save.clone();
-            let ui = ui.clone();
-            menu_rename_btn.connect_clicked(move |_| {
-                let name = ui.menu_name.text().to_string();
-                ui.menu_rename(&name);
-                save();
-            });
-        }
-        {
-            let save = save.clone();
-            let ui = ui.clone();
-            menu_up_btn.connect_clicked(move |_| {
-                ui.menu_move(-1);
-                save();
-            });
-        }
-        {
-            let save = save.clone();
-            let ui = ui.clone();
-            menu_down_btn.connect_clicked(move |_| {
-                ui.menu_move(1);
-                save();
-            });
-        }
-        {
-            let save = save.clone();
-            let ui = ui.clone();
-            menu_out_btn.connect_clicked(move |_| {
-                ui.menu_out();
-                save();
-            });
-        }
-        {
-            let save = save.clone();
-            let ui = ui.clone();
-            menu_del_btn.connect_clicked(move |_| {
-                ui.menu_delete();
-                save();
-            });
-        }
-        {
-            let save = save.clone();
-            let ui = ui.clone();
-            menu_reset_btn.connect_clicked(move |_| {
-                ui.menu_reset();
-                save();
-            });
-        }
         hotkey_wire(&ui.hotkey_btn, &ui.hotkey_value, save.clone());
         hotkey_wire(
             &ui.enabled_hotkey_btn,
@@ -681,13 +498,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             ui.unicode_channel.connect_selected_notify(move |_| s());
         }
         // Entries save on Enter or when they lose focus.
-        for entry in [
-            &ui.time_format,
-            &ui.date_format,
-            &ui.commit_interval,
-            &ui.backspace_interval,
-            &ui.post_delay,
-        ] {
+        for entry in [&ui.time_format, &ui.date_format] {
             let s = save.clone();
             entry.connect_activate(move |_| s());
             let s = save.clone();
