@@ -1274,8 +1274,16 @@ fn widgets() -> Rc<Ui> {
     let macro_enabled = switch_row("Gõ tắt", "Khóa mở rộng thành cụm khi hết từ");
     let capitalize_macro = switch_row("Viết hoa gõ tắt", "Khóa viết hoa → nội dung viết hoa theo");
     let macro_in_off_mode = switch_row("Gõ tắt khi OFF", "Vẫn mở rộng khi tiếng Việt đang tắt");
-    let time_format = Entry::builder().width_chars(14).build();
-    let date_format = Entry::builder().width_chars(14).build();
+    // Suffix entries: sized to the format they hold and centered, so the
+    // row reads as one balanced control instead of a wide box on the edge.
+    let time_format = Entry::builder()
+        .width_chars(8)
+        .valign(gtk4::Align::Center)
+        .build();
+    let date_format = Entry::builder()
+        .width_chars(12)
+        .valign(gtk4::Align::Center)
+        .build();
     let macros_list = gtk4::ListBox::new();
     macros_list.add_css_class("boxed-list");
     macros_list.set_selection_mode(gtk4::SelectionMode::None);
