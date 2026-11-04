@@ -20,14 +20,12 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     enabled_hotkey.add_suffix(&ui.enabled_hotkey_edit);
     status.add(&enabled_hotkey);
     page.add(&status);
-    // The recorder captures on the row (GNOME shortcut style) and saves
-    // through the shared funnel handle.
+    // The recorder captures on the edit button (GNOME shortcut style) and
+    // saves through the shared funnel handle.
     {
         let ui = ui.clone();
         let s = ui.save_cb.clone();
-        let row = mode_hotkey.clone();
         hotkey_wire(
-            &row,
             &ui.hotkey_edit,
             &ui.hotkey_label,
             &ui.hotkey_value,
@@ -41,9 +39,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     {
         let ui = ui.clone();
         let s = ui.save_cb.clone();
-        let row = enabled_hotkey.clone();
         hotkey_wire(
-            &row,
             &ui.enabled_hotkey_edit,
             &ui.enabled_hotkey_label,
             &ui.enabled_hotkey_value,
