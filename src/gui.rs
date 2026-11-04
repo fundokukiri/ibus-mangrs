@@ -318,6 +318,9 @@ fn menu_entry_label(group: &str, key: &str) -> String {
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    // Adwaita styles (StyleManager, dark mode, accent color) must be
+    // initialized before any Adw widget exists.
+    libadwaita::init().map_err(|e| format!("libadwaita init failed: {e}"))?;
     // The engine spawns us with `--page=<stack name>` to open a specific
     // page (menu "Mở bảng gõ tắt…"); GTK parses argv itself and rejects
     // these arguments, so read them here and hand GTK an empty argv.
