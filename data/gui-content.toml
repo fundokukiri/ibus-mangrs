@@ -241,6 +241,7 @@ tooltip = "Các app engine đã từng thấy"
 tooltip = "Sao chép tên app đang focus"
 
 [rows.rule_mode]
+title = "Chế độ gõ"
 tooltip = "Chế độ gõ của luật mới"
 
 [rows.rule_up]
@@ -384,7 +385,7 @@ license_value = "GPL — phiên bản 3, chi tiết trong LICENSE"
 credits_title = "Credits"
 credits_value = "Lõi gõ bamboo-core (MIT, bên thứ 3)"
 detail_title = "Giới thiệu chi tiết"
-detail_subtitle = "Hộp thoại about chuẩn GNOME"
+detail_subtitle = ""
 issue_url = "https://github.com/fundokukiri/ibus-mangrs/issues"
 
 # Explanation markers ("?") - the longer text shown on hover or click next
