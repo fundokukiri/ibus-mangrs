@@ -1277,6 +1277,9 @@ fn widgets() -> Rc<Ui> {
         "Bật: từ trong từ điển không bị khôi phục về chuỗi phím (~/.config/ibus-mangrs/dictionary.txt)",
     );
     let dictionary_text = text_view("");
+    // Fixed height so the list cannot stretch (or collapse) the page; the
+    // page's own scroll takes over beyond it.
+    dictionary_text.set_height_request(160);
     // App Rules editor widgets. The rows live in `rules_box`, rebuilt by
     // `fill_rules`; the rest are the fixed helpers around them.
     let rules_box = gtk4::Box::new(Orientation::Vertical, 0);
