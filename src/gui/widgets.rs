@@ -111,17 +111,6 @@ pub(super) fn text_view(content: &str) -> TextView {
     view
 }
 
-/// Wrap a text view in a fixed-height scrolled window so a long list cannot
-/// stretch (or collapse) the whole tab.
-pub(super) fn scrolled(view: &TextView, height: i32) -> gtk4::ScrolledWindow {
-    gtk4::ScrolledWindow::builder()
-        .child(view)
-        .height_request(height)
-        .hexpand(true)
-        .vscrollbar_policy(gtk4::PolicyType::Automatic)
-        .build()
-}
-
 /// A link that opens in the default browser.
 pub(super) fn link_button(label_text: &str, uri: &str) -> gtk4::LinkButton {
     gtk4::LinkButton::builder()
