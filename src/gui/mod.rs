@@ -226,7 +226,7 @@ struct Ui {
     /// is its internal header, so a remove-everything loop would never end.
     macros_list: gtk4::ListBox,
     macros_rows: Rc<RefCell<Vec<MacroRow>>>,
-    dictionary_enabled: Switch,
+    dictionary_enabled: adw::SwitchRow,
     dictionary_text: TextView,
     /// App Rules editor: the row container plus one widget pair per rule.
     /// The rows hold the live values — GObject clones share the object — so
@@ -1272,7 +1272,10 @@ fn widgets() -> Rc<Ui> {
     macros_list.add_css_class("boxed-list");
     macros_list.set_selection_mode(gtk4::SelectionMode::None);
     let macros_rows = Rc::new(RefCell::new(Vec::new()));
-    let dictionary_enabled = Switch::new();
+    let dictionary_enabled = switch_row(
+        "Từ điển của tôi",
+        "Bật: từ trong từ điển không bị khôi phục về chuỗi phím (~/.config/ibus-mangrs/dictionary.txt)",
+    );
     let dictionary_text = text_view("");
     // App Rules editor widgets. The rows live in `rules_box`, rebuilt by
     // `fill_rules`; the rest are the fixed helpers around them.
