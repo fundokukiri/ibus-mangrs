@@ -30,6 +30,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     placeholder.add_css_class("dim-label");
     placeholder.add_css_class("caption");
     placeholder.set_valign(gtk4::Align::Center);
+    // A visible overlay label still targets pointer events and would eat
+    // the first click into the empty editor.
+    placeholder.set_can_target(false);
     let editor = gtk4::Overlay::new();
     editor.set_child(Some(&ui.dictionary_text));
     editor.add_overlay(&placeholder);
