@@ -6,8 +6,9 @@
 //! apply within a second without restarting ibus-daemon.
 //!
 //! Layout: GNOME Settings style — a navigation sidebar on the left, one
-//! preferences page per section on the right. Seven pages: Chung /
-//! Dấu & tự động / Gõ tắt / Dữ liệu / Luật / Tinh chỉnh / Giới thiệu.
+//! preferences page per section on the right. Eight pages: Chung /
+//! Dấu & tự động / Gõ tắt / Từ điển / Luật / Menu panel / Tinh chỉnh /
+//! Giới thiệu.
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;

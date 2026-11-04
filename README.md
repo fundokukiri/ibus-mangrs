@@ -162,7 +162,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | Display mode cycle hotkey | GUI _Kiểu gõ_ tab → _Phím tắt đổi chế độ_ (e.g. `Control+Alt+v`)                       |
 | Quick settings            | menu → _Quick Settings_ (macros, auto-capitalize, abbreviations, foreign-word restore) |
 | Type English / code       | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw         |
-| Per-app display mode      | GUI _Dữ liệu_ tab → _Luật theo ứng dụng_ (see App Rules below)                         |
+| Per-app display mode      | GUI _Luật_ tab → _Luật theo ứng dụng_ (see App Rules below)                            |
 
 ## App Rules (per-app display mode)
 
@@ -170,10 +170,11 @@ A rule forces one display mode for one application and overrides the global
 mode. Rules are evaluated in order and the **first match wins**, so list
 specific patterns above general ones.
 
-**In the settings window:** _Dữ liệu_ tab → _Luật theo ứng dụng_. Pick an app in
-the dropdown, pick a mode, press _Thêm luật_: the rule is appended as a
-`name=mode` line and saved with the rest of the settings (edits made directly
-in the text box save when you click outside it). The dropdown lists
+**In the settings window:** _Luật_ tab → _Luật theo ứng dụng_. Pick an app in
+the dropdown (or copy the focused app), pick a mode, press _Thêm luật_: the
+rule is appended as a `name=mode` line and saved with the rest of the settings
+(patterns are edited directly in the rule's text box, saving on
+focus-leave). The dropdown lists
 only apps the engine has already seen (newest 50, `~/.cache/ibus-mangrs/clients`)
 plus two pseudo-targets: `gnome-shell (app Wayland)` — every Wayland app while
 the focus extension is not installed — and `(app không báo tên)` — apps that
