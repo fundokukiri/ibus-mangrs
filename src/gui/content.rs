@@ -213,9 +213,17 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         });
     }
 
-    // Search lives in the sidebar: the entry (magnifier icon built in)
-    // sits above the page list, always visible; typing overlays the
-    // matching rows over the content, Esc clears the query again.
+    // Search lives in the sidebar, hidden behind a magnifier button: the
+    // click swaps the button for the entry above the page list; typing
+    // overlays the matching rows over the content, Esc (or jumping to a
+    // result) collapses back to the button.
+    let search_btn = gtk4::Button::from_icon_name("system-search-symbolic");
+    search_btn.add_css_class("flat");
+    search_btn.set_tooltip_text(Some(&t("search.tooltip", "Tìm chức năng trong mọi trang")));
+    search_btn.set_halign(gtk4::Align::Start);
+    search_btn.set_margin_top(6);
+    search_btn.set_margin_bottom(6);
+    search_btn.set_margin_start(6);
     let search_entry = gtk4::SearchEntry::new();
     search_entry.set_placeholder_text(Some(&t("search.placeholder", "Tìm chức năng…")));
     search_entry.set_hexpand(true);
@@ -223,7 +231,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     search_entry.set_margin_bottom(6);
     search_entry.set_margin_start(6);
     search_entry.set_margin_end(6);
+    search_entry.set_visible(false);
     let sidebar_box = gtk4::Box::new(Orientation::Vertical, 0);
+    sidebar_box.append(&search_btn);
     sidebar_box.append(&search_entry);
     sidebar_list.set_vexpand(true);
     sidebar_box.append(&sidebar_list);
@@ -244,6 +254,15 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ALL pages, and activating a result jumps to that page through the
     // sidebar (title and selection stay in sync). The index is built once
     // from the finished page trees.
+    {
+        let btn = search_btn.clone();
+        let entry = search_entry.clone();
+        search_btn.connect_clicked(move |_| {
+            btn.set_visible(false);
+            entry.set_visible(true);
+            entry.grab_focus();
+        });
+    }
 
     let results_list = gtk4::ListBox::new();
     results_list.add_css_class("boxed-list");
@@ -357,15 +376,19 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         });
     }
     {
+        let btn = search_btn.clone();
         let entry = search_entry.clone();
         search_entry.connect_stop_search(move |_| {
-            // Esc: leave search mode with the query cleared.
+            // Esc: collapse back to the button with the query cleared.
             entry.set_text("");
+            entry.set_visible(false);
+            btn.set_visible(true);
         });
     }
     {
         let sidebar_list = sidebar_list.clone();
         let entry = search_entry.clone();
+        let btn = search_btn.clone();
         results_list.connect_row_activated(move |_, row| {
             let name = row.widget_name().to_string();
             // Selecting the sidebar row drives stack + title, exactly like a
@@ -379,6 +402,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                 i += 1;
             }
             entry.set_text("");
+            // The jump found the page: collapse back to the magnifier.
+            entry.set_visible(false);
+            btn.set_visible(true);
         });
     }
 
