@@ -136,6 +136,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         }
         let row = gtk4::ListBoxRow::new();
         let h = gtk4::Box::new(Orientation::Horizontal, 12);
+        // A little breathing room: navigation-sidebar's padding alone leaves
+        // the icon glued to the window edge.
+        h.set_margin_start(6);
         h.append(&gtk4::Image::from_icon_name(icon));
         h.append(&gtk4::Label::new(Some(title)));
         row.set_child(Some(&h));
@@ -181,6 +184,172 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     page_overlay.set_child(Some(&toast_overlay));
     page_overlay.add_overlay(&restart_btn);
     let content_toolbar = adw::ToolbarView::new();
+
+    // --- search: one header button, results over every page -----------------
+    // GNOME-Settings-style: the button reveals a search entry; typing shows
+    // a flat list of matching rows across ALL pages, and activating a result
+    // jumps to that page through the sidebar (title and selection stay in
+    // sync). The index is built once from the finished page trees.
+    let search_btn = gtk4::Button::from_icon_name("system-search-symbolic");
+    search_btn.set_tooltip_text(Some("Tìm chức năng trong mọi trang"));
+    header.pack_start(&search_btn);
+
+    let search_entry = gtk4::SearchEntry::new();
+    search_entry.set_placeholder_text(Some("Tìm chức năng…"));
+    search_entry.set_hexpand(true);
+    let search_bar = gtk4::SearchBar::new();
+    search_bar.set_search_mode(false);
+    search_bar.set_child(Some(&search_entry));
+    search_bar.set_show_close_button(true);
+    content_toolbar.add_top_bar(&search_bar);
+
+    let results_list = gtk4::ListBox::new();
+    results_list.add_css_class("boxed-list");
+    results_list.set_selection_mode(gtk4::SelectionMode::None);
+    let no_results = gtk4::Label::new(Some("Không có kết quả"));
+    no_results.add_css_class("dim-label");
+    let results_box = gtk4::Box::new(Orientation::Vertical, 12);
+    // Opaque page background so the results cover the stack underneath.
+    results_box.add_css_class("background");
+    results_box.set_margin_start(12);
+    results_box.set_margin_end(12);
+    results_box.set_margin_top(12);
+    results_box.set_margin_bottom(12);
+    results_box.append(&results_list);
+    results_box.append(&no_results);
+    let results_scroll = gtk4::ScrolledWindow::new();
+    results_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    results_scroll.set_child(Some(&results_box));
+    results_scroll.set_visible(false);
+    page_overlay.add_overlay(&results_scroll);
+
+    // One hit per page (jump target) plus every named row inside it.
+    struct SearchHit {
+        page_name: &'static str,
+        page_title: &'static str,
+        title: String,
+        subtitle: String,
+    }
+    fn collect_rows(
+        w: &gtk4::Widget,
+        page_name: &'static str,
+        page_title: &'static str,
+        out: &mut Vec<SearchHit>,
+    ) {
+        if let Some(row) = w.downcast_ref::<adw::PreferencesRow>() {
+            let title = row.title().to_string();
+            if !title.is_empty() {
+                let subtitle = w
+                    .downcast_ref::<adw::ActionRow>()
+                    .and_then(|r| r.subtitle())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                out.push(SearchHit {
+                    page_name,
+                    page_title,
+                    title,
+                    subtitle,
+                });
+            }
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            collect_rows(&c, page_name, page_title, out);
+            child = c.next_sibling();
+        }
+    }
+    let mut index: Vec<SearchHit> = Vec::new();
+    for ((name, title, _), content) in PAGES.iter().zip(&page_boxes) {
+        index.push(SearchHit {
+            page_name: name,
+            page_title: title,
+            title: (*title).to_string(),
+            subtitle: "Trang".to_string(),
+        });
+        collect_rows(content, name, title, &mut index);
+    }
+
+    {
+        let results_list = results_list.clone();
+        let no_results = no_results.clone();
+        let results_scroll = results_scroll.clone();
+        search_entry.connect_changed(move |entry| {
+            let query = entry.text().trim().to_lowercase();
+            if query.is_empty() {
+                results_scroll.set_visible(false);
+                return;
+            }
+            let hits: Vec<&SearchHit> = index
+                .iter()
+                .filter(|h| {
+                    h.title.to_lowercase().contains(&query)
+                        || h.subtitle.to_lowercase().contains(&query)
+                })
+                .collect();
+            while let Some(row) = results_list.row_at_index(0) {
+                results_list.remove(&row);
+            }
+            for hit in &hits {
+                let row = gtk4::ListBoxRow::new();
+                let b = gtk4::Box::new(Orientation::Horizontal, 12);
+                b.set_margin_start(10);
+                b.set_margin_end(10);
+                b.set_margin_top(6);
+                b.set_margin_bottom(6);
+                let title = gtk4::Label::new(Some(&hit.title));
+                title.set_halign(gtk4::Align::Start);
+                title.set_hexpand(true);
+                title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+                let page = gtk4::Label::new(Some(hit.page_title));
+                page.add_css_class("dim-label");
+                b.append(&title);
+                b.append(&page);
+                row.set_child(Some(&b));
+                // The row carries the page's stack name for the jump.
+                row.set_widget_name(hit.page_name);
+                results_list.append(&row);
+            }
+            results_list.set_visible(!hits.is_empty());
+            no_results.set_visible(hits.is_empty());
+            results_scroll.set_visible(true);
+        });
+    }
+    {
+        let entry = search_entry.clone();
+        search_entry.connect_stop_search(move |_| {
+            // Esc: leave search mode with the query cleared.
+            entry.set_text("");
+        });
+    }
+    {
+        let entry = search_entry.clone();
+        search_btn.connect_clicked(move |_| {
+            let open = !search_bar.is_search_mode();
+            search_bar.set_search_mode(open);
+            if open {
+                entry.grab_focus();
+            }
+        });
+    }
+    {
+        let sidebar_list = sidebar_list.clone();
+        let entry = search_entry.clone();
+        results_list.connect_row_activated(move |_, row| {
+            let name = row.widget_name().to_string();
+            // Selecting the sidebar row drives stack + title, exactly like a
+            // manual page pick.
+            let mut i = 0;
+            while let Some(candidate) = sidebar_list.row_at_index(i) {
+                if candidate.widget_name() == name {
+                    sidebar_list.select_row(Some(&candidate));
+                    break;
+                }
+                i += 1;
+            }
+            entry.set_text("");
+        });
+    }
+
     content_toolbar.add_top_bar(&header);
     content_toolbar.set_content(Some(&page_overlay));
     let content_page = adw::NavigationPage::builder()
