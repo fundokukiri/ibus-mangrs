@@ -121,16 +121,23 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // put the value back on the right.
     let mode_pick = gtk4::DropDown::new(Some(StringList::new(MODES)), gtk4::Expression::NONE);
     mode_pick.set_selected(1);
-    // Fills the row so it reads like the entry row above it.
+    // Flush with the row box (no extra prefix indent) and filling the
+    // height, like the entry row above it — an ActionRow host would add a
+    // prefix indent and shrink the button.
     mode_pick.set_hexpand(true);
+    mode_pick.set_valign(gtk4::Align::Fill);
     mode_pick.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
-    let mode_row = action_row("", "");
-    mode_row.add_prefix(&mode_pick);
     let add_btn = gtk4::Button::with_label(&t("rules.add_button", "Thêm luật"));
     add_btn.add_css_class("suggested-action");
-    add_btn.set_valign(gtk4::Align::Center);
+    add_btn.set_valign(gtk4::Align::Fill);
     add_btn.set_sensitive(false);
-    mode_row.add_suffix(&add_btn);
+    let mode_row = gtk4::Box::new(Orientation::Horizontal, 12);
+    mode_row.set_margin_start(12);
+    mode_row.set_margin_end(12);
+    mode_row.set_margin_top(8);
+    mode_row.set_margin_bottom(8);
+    mode_row.append(&mode_pick);
+    mode_row.append(&add_btn);
     add_group.add(&name_row);
     add_group.add(&mode_row);
     page.add(&add_group);

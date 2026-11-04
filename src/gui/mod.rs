@@ -202,10 +202,8 @@ struct Ui {
     /// clones share the widgets, so reading them reads what the user sees.
     /// The rows live in a plain ListBox — a PreferencesGroup's first_child
     /// is its internal header, so a remove-everything loop would never end.
-    macros_list: gtk4::ListBox,
-    macros_rows: Rc<RefCell<Vec<MacroRow>>>,
-    /// The same list as raw `khóa=nội dung` lines, dictionary-style: bulk
-    /// edits (paste a table) happen here, and every row edit mirrors back.
+    /// The macro table as raw `khóa=nội dung` lines, dictionary-style —
+    /// the only editor for it (a row list would duplicate it).
     macros_text: TextView,
     dictionary_enabled: adw::SwitchRow,
     dictionary_text: TextView,
@@ -249,12 +247,6 @@ struct Ui {
     /// Which folder/radio rows are expanded, by design path — the list is
     /// rebuilt after every edit, so the state must outlive the widgets.
     menu_open: Rc<RefCell<HashSet<Vec<usize>>>>,
-}
-
-/// One macro editor row's widgets.
-struct MacroRow {
-    key: Entry,
-    value: Entry,
 }
 
 /// The save funnel handle shared between `Ui` and the rule-row closures.
@@ -495,11 +487,13 @@ impl Ui {
         let menu = config.menu.clone().unwrap_or_else(|| config.default_menu());
         *self.menu.borrow_mut() = normalize_menu(&menu);
         self.fill_menu_list();
-        self.fill_macros(
+        set_text(
+            &self.macros_text,
             &macros
                 .entries()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect::<Vec<_>>(),
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
         );
         set_text(
             &self.dictionary_text,
@@ -586,139 +580,16 @@ impl Ui {
         config
     }
 
-    /// The macros as the rows currently show them; an empty key or value
-    /// drops the row (the old text list skipped such lines too).
-    fn macros_from_rows(&self) -> Vec<(String, String)> {
-        self.macros_rows
-            .borrow()
-            .iter()
-            .map(|row| {
-                (
-                    row.key.text().trim().to_string(),
-                    row.value.text().trim().to_string(),
-                )
-            })
-            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
-            .collect()
-    }
-
-    // --- macro editor (one boxed row per shortcut) ---
-
-    /// Apply one user edit to the macro list: rebuild the rows, then save
-    /// through the funnel like every other control.
-    fn edit_macros(self: &Rc<Self>, edit: impl FnOnce(&mut Vec<(String, String)>)) {
-        let mut entries = self.macros_from_rows();
-        edit(&mut entries);
-        self.fill_macros(&entries);
-        self.fire_save();
-    }
-
-    /// Rebuild the macro rows from `entries` and mirror them into the raw
-    /// text editor.
-    fn fill_macros(self: &Rc<Self>, entries: &[(String, String)]) {
-        while let Some(child) = self.macros_list.first_child() {
-            self.macros_list.remove(&child);
-        }
-        self.macros_rows.borrow_mut().clear();
-        for (idx, (k, v)) in entries.iter().enumerate() {
-            self.macro_row(idx, k, v);
-        }
-        self.sync_macros_text();
-    }
-
-    /// Mirror the row list into the raw editor. Skipped while the user is
-    /// typing there — their half-typed line must not be clobbered — and
-    /// skipped when the text already matches, so the cursor survives.
-    fn sync_macros_text(&self) {
-        if self.macros_text.has_focus() {
-            return;
-        }
-        let text = self
-            .macros_from_rows()
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        if text_of(&self.macros_text) != text {
-            set_text(&self.macros_text, &text);
-        }
-    }
-
-    /// Parse the raw editor back into entries and rebuild the rows — the
-    /// same save path as every row edit. A no-op when nothing changed, so
-    /// a mere focus-out does not save.
-    fn apply_macros_text(self: &Rc<Self>) {
-        let entries: Vec<(String, String)> = text_of(&self.macros_text)
+    /// The macros as the raw table shows them: one `khóa=nội dung` line
+    /// per pair; an empty key or value drops the pair (the old text list
+    /// skipped such lines too).
+    fn macros_from_text(&self) -> Vec<(String, String)> {
+        text_of(&self.macros_text)
             .lines()
             .filter_map(|line| line.split_once('='))
             .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
             .filter(|(k, v)| !k.is_empty() && !v.is_empty())
-            .collect();
-        if self.macros_from_rows() != entries {
-            self.edit_macros(move |list| *list = entries);
-        }
-    }
-
-    /// One editable macro row: the key entry, the value entry and the
-    /// delete button, hosted in the group's boxed list.
-    fn macro_row(self: &Rc<Self>, idx: usize, key: &str, value: &str) {
-        let h = gtk4::Box::new(Orientation::Horizontal, 8);
-        let key_entry = Entry::builder()
-            .text(key)
-            .width_chars(14)
-            .tooltip_text(t(
-                "rows.macro_key.tooltip",
-                "Khóa gõ tắt (gõ xong sẽ mở rộng)",
-            ))
-            .build();
-        let value_entry = Entry::builder()
-            .text(value)
-            .hexpand(true)
-            .tooltip_text(t(
-                "rows.macro_value.tooltip",
-                "Nội dung mở rộng ($TIME, $DATE)",
-            ))
-            .build();
-        for e in [&key_entry, &value_entry] {
-            let s = self.save_cb.clone();
-            e.connect_activate(move |_| {
-                if let Some(f) = s.borrow().as_ref() {
-                    f();
-                }
-            });
-            let s = self.save_cb.clone();
-            let controller = gtk4::EventControllerFocus::new();
-            controller.connect_leave(move |_| {
-                if let Some(f) = s.borrow().as_ref() {
-                    f();
-                }
-            });
-            e.add_controller(controller);
-        }
-        let del = gtk4::Button::from_icon_name("edit-delete-symbolic");
-        del.set_tooltip_text(Some(&t("rows.macro_delete.tooltip", "Xoá cặp này")));
-        del.add_css_class("destructive-action");
-        {
-            let ui = self.clone();
-            del.connect_clicked(move |_| {
-                ui.edit_macros(|entries| {
-                    if idx < entries.len() {
-                        entries.remove(idx);
-                    }
-                });
-            });
-        }
-        h.append(&key_entry);
-        h.append(&value_entry);
-        h.append(&del);
-        let row = gtk4::ListBoxRow::new();
-        row.set_activatable(false);
-        row.set_child(Some(&h));
-        self.macros_list.append(&row);
-        self.macros_rows.borrow_mut().push(MacroRow {
-            key: key_entry,
-            value: value_entry,
-        });
+            .collect()
     }
 
     // --- panel-menu editor (the design vector is the source of truth) ---
@@ -727,6 +598,19 @@ impl Ui {
     /// round-trip holds without walking the widgets.
     fn read_menu(&self) -> Vec<MenuNode> {
         self.menu.borrow().clone()
+    }
+
+    /// Expand/collapse one folder or radio group and re-render — the arrow
+    /// state is derived from `menu_open`, so the rebuild keeps the other
+    /// blocks as they are. Fired by the arrow button and the row itself.
+    fn menu_toggle_expander(self: &Rc<Self>, path: Vec<usize>) {
+        let now = !self.menu_open.borrow().contains(&path);
+        if now {
+            self.menu_open.borrow_mut().insert(path.clone());
+        } else {
+            self.menu_open.borrow_mut().remove(&path);
+        }
+        self.fill_menu_list();
     }
 
     /// Rebuild the row list from the design vector. Also runs after every
@@ -863,34 +747,18 @@ impl Ui {
         children_row.set_selectable(false);
         children_row.set_child(Some(&child_list));
         children_row.set_visible(expanded);
-        // One toggle for both the arrow and the row itself; the expanded
-        // set lives in the Ui, so a rebuild after a move keeps blocks open.
+        // The arrow and the row body both expand through one Ui call; the
+        // expanded set lives in the Ui, so a rebuild after a move keeps
+        // blocks open. Row activation (click or Enter) is wired on the
+        // list in panel.rs — the row name carries the design path.
+        header.set_widget_name(&menu_path_key(&path));
         let toggle = {
             let ui = self.clone();
             let path = path.clone();
-            let children_row = children_row.clone();
-            let arrow_btn = arrow.clone();
-            move || {
-                let now = !ui.menu_open.borrow().contains(&path);
-                if now {
-                    ui.menu_open.borrow_mut().insert(path.clone());
-                } else {
-                    ui.menu_open.borrow_mut().remove(&path);
-                }
-                children_row.set_visible(now);
-                arrow_btn.set_icon_name(if now {
-                    "pan-down-symbolic"
-                } else {
-                    "pan-end-symbolic"
-                });
-            }
+            move || ui.menu_toggle_expander(path.clone())
         };
         let toggle: Rc<dyn Fn()> = Rc::new(toggle);
         arrow.connect_clicked({
-            let toggle = toggle.clone();
-            move |_| toggle()
-        });
-        header.connect_activate({
             let toggle = toggle.clone();
             move |_| toggle()
         });
@@ -1562,7 +1430,7 @@ impl Ui {
         config.save()?;
 
         let mut macros = Macros::load();
-        macros.set_entries(self.macros_from_rows().into_iter());
+        macros.set_entries(self.macros_from_text().into_iter());
         macros.save()?;
 
         let mut dict = Dictionary::load();
@@ -1731,10 +1599,6 @@ fn widgets() -> Rc<Ui> {
         .width_chars(12)
         .valign(gtk4::Align::Center)
         .build();
-    let macros_list = gtk4::ListBox::new();
-    macros_list.add_css_class("boxed-list");
-    macros_list.set_selection_mode(gtk4::SelectionMode::None);
-    let macros_rows = Rc::new(RefCell::new(Vec::new()));
     let macros_text = text_view("");
     let dictionary_enabled = switch_row(
         &t("rows.dictionary_enabled.title", "Dùng từ điển cá nhân"),
@@ -2032,8 +1896,6 @@ fn widgets() -> Rc<Ui> {
         macro_in_off_mode,
         time_format,
         date_format,
-        macros_list,
-        macros_rows,
         macros_text,
         dictionary_enabled,
         dictionary_text,
@@ -2196,7 +2058,7 @@ mod tests {
             }]
         );
         assert_eq!(
-            ui.macros_from_rows(),
+            ui.macros_from_text(),
             vec![("gs".to_string(), "giờ sáng".to_string())]
         );
         // A set: the order it hands the text view back in is not the input order.

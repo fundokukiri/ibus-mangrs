@@ -1,6 +1,6 @@
 //! Page "Gõ tắt": the macro switches, the $TIME/$DATE formats and the
-//! shortcut list itself (one editable row per entry, plus the raw table
-//! below where new pairs are added).
+//! raw macro table (one `khóa=nội dung` line per pair — the single
+//! editor, a row list would duplicate it).
 
 use super::*;
 
@@ -31,23 +31,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     settings.add(&date);
     page.add(&settings);
 
-    // The list group is the editor: `fill_macros` adds one row per entry
-    // and the add row below appends a pair. The rows live in the shared
-    // ListBox; the group wrapping it is page layout.
-    let list_group = adw::PreferencesGroup::builder()
-        .title(t("groups.macros.list.title", "Bảng gõ tắt"))
-        .description(t(
-            "groups.macros.list.description",
-            "Mỗi cặp: khóa=Nội dung ($TIME, $DATE)",
-        ))
-        .build();
-    list_group.add(&ui.macros_list);
-    page.add(&list_group);
-
     // The raw table, dictionary-style: one `khóa=nội dung` line per pair,
-    // kept in sync with the rows above (a row edit mirrors here, a text
-    // edit rebuilds the rows on focus-out). Bulk edits — pasting a whole
-    // table — happen here instead of one row at a time.
+    // saved straight through the funnel on focus-out. Bulk edits —
+    // pasting a whole table — happen here.
+
     let raw = adw::PreferencesGroup::builder()
         .title(t("groups.macros.raw.title", "Nội dung gõ tắt"))
         .description(t(
