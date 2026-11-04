@@ -75,7 +75,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)",
     )));
     let pick = gtk4::MenuButton::new();
-    pick.set_icon_name("view-more-symbolic");
+    pick.set_icon_name("pan-down-symbolic");
     pick.add_css_class("flat");
     pick.set_tooltip_text(Some(&t(
         "rows.rule_combo.tooltip",
@@ -101,7 +101,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // scrolls inside the popover instead of stretching it.
     let pick_scroll = gtk4::ScrolledWindow::new();
     pick_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    pick_scroll.set_max_content_height(300);
+    // Tall enough that a long seen-apps list barely scrolls.
+    pick_scroll.set_max_content_height(520);
     pick_scroll.set_propagate_natural_height(true);
     pick_scroll.set_child(Some(&pick_list));
     pick_popover.set_child(Some(&pick_scroll));
@@ -120,6 +121,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // put the value back on the right.
     let mode_pick = gtk4::DropDown::new(Some(StringList::new(MODES)), gtk4::Expression::NONE);
     mode_pick.set_selected(1);
+    // Fills the row so it reads like the entry row above it.
+    mode_pick.set_hexpand(true);
     mode_pick.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
     let mode_row = action_row("", "");
     mode_row.add_prefix(&mode_pick);

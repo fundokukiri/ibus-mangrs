@@ -160,11 +160,6 @@ description = "Mở rộng cụm tắt thành câu đầy đủ"
 title = "Bảng gõ tắt"
 description = "Mỗi cặp: khóa=Nội dung ($TIME, $DATE)"
 
-[groups.macros.add]
-title = "Thêm cặp mới"
-subtitle = "Khóa và nội dung trống — điền ngay sau khi thêm"
-button = "Thêm gõ tắt"
-
 [groups.macros.raw]
 title = "Nội dung gõ tắt"
 description = "Mỗi dòng một cặp khóa=nội dung ($TIME, $DATE)"
@@ -385,6 +380,7 @@ source_title = "Mã nguồn GitHub"
 source_url = "https://github.com/fundokukiri/ibus-mangrs"
 author_title = "Tác giả"
 author_value = "Phùng Đức Tùng (Fundoku)"
+author_url = "https://fundoku.io.vn"
 homepage_title = "Trang chủ"
 homepage_url = "https://mangrs.fundoku.io.vn"
 license_title = "Giấy phép mã nguồn mở"
