@@ -1098,7 +1098,8 @@ impl Ui {
                 ui.update_rule_preview();
             });
         }
-        let up = gtk4::Button::with_label("▲");
+        let up = gtk4::Button::from_icon_name("go-up-symbolic");
+        up.add_css_class("flat");
         up.set_tooltip_text(Some("Lên — luật trước thắng"));
         {
             let ui = self.clone();
@@ -1110,7 +1111,8 @@ impl Ui {
                 });
             });
         }
-        let down = gtk4::Button::with_label("▼");
+        let down = gtk4::Button::from_icon_name("go-down-symbolic");
+        down.add_css_class("flat");
         down.set_tooltip_text(Some("Xuống"));
         {
             let ui = self.clone();
@@ -1122,9 +1124,10 @@ impl Ui {
                 });
             });
         }
-        let del = gtk4::Button::with_label("✕");
-        del.set_tooltip_text(Some("Xoá luật này"));
+        let del = gtk4::Button::from_icon_name("edit-delete-symbolic");
+        del.add_css_class("flat");
         del.add_css_class("destructive-action");
+        del.set_tooltip_text(Some("Xoá luật này"));
         {
             let ui = self.clone();
             del.connect_clicked(move |_| {
