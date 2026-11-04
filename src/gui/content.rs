@@ -1,11 +1,12 @@
-//! The window content: pages, header, and the wiring between them.
-//! Transitional shell — the pages are still plain gtk boxes.
+//! The window shell: the Adwaita navigation split view (sidebar + content),
+//! the restart banner and toasts, page accelerators, and the wiring between
+//! every control and the save funnel. The page contents themselves still
+//! live here and move to `pages/*.rs` one commit at a time.
 
 use super::*;
 
 #[allow(deprecated)]
-pub(super) fn build(app: &Application, initial_page: Option<&str>) {
-    ROWS.with(|r| r.borrow_mut().clear());
+pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     COLLAPSIBLES.with(|c| c.borrow_mut().clear());
 
     let config = Config::load();
@@ -563,69 +564,158 @@ pub(super) fn build(app: &Application, initial_page: Option<&str>) {
         stack.add_titled(&scroll, Some(name), title);
     }
 
-    // Search bar (toggled by the magnifier on the left of the header).
-    let search_entry = gtk4::SearchEntry::new();
-    search_entry.set_placeholder_text(Some("Tìm cài đặt…"));
-    search_entry.set_width_chars(32);
-    let search_bar = gtk4::SearchBar::new();
-    search_bar.set_child(Some(&search_entry));
-    search_bar.connect_entry(&search_entry);
-    search_entry.connect_search_changed(|entry| {
-        let q = entry.text().to_lowercase();
-        ROWS.with(|rows| {
-            for (text, widget) in rows.borrow().iter() {
-                widget.set_visible(q.is_empty() || text.contains(&q));
-            }
-        });
-        // Rows inside a collapsed section can never be seen, so a search
-        // opens every collapsible and an empty query restores them closed.
-        COLLAPSIBLES.with(|c| {
-            for (revealer, arrow) in c.borrow().iter() {
-                revealer.set_reveal_child(!q.is_empty());
-                arrow.set_text(if q.is_empty() { "▸" } else { "▼" });
-            }
-        });
-    });
+    // --- Adwaita shell: sidebar + content -----------------------------------
+    // GNOME Settings layout: a navigation sidebar picks the page, the
+    // content toolbar view holds the header (dynamic title), the restart
+    // banner and the stack. Toasts overlay the content.
+    let split_view = adw::NavigationSplitView::new();
+    split_view.set_sidebar_width_fraction(0.28);
 
-    let content = gtk4::Box::new(Orientation::Vertical, 0);
-    content.append(&search_bar);
-    content.append(&stack);
-
-    // The floating restart button. It stays hidden until a change is saved:
+    // The restart banner replaces the floating button: it stays visible
+    // under the header until the restart happens (or the user closes it) —
     // every control already writes straight to config.toml, so the only
-    // thing left for the user to do is restart IBus (a new engine binary or
-    // component XML needs it; plain settings changes apply within a second).
-    let restart_btn = gtk4::Button::new();
-    {
-        let b = gtk4::Box::new(Orientation::Horizontal, 8);
-        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
-        b.append(&gtk4::Label::new(Some("Khởi động lại IBus")));
-        restart_btn.set_child(Some(&b));
+    // thing left for the user to do is restart IBus.
+    let restart_banner = adw::Banner::builder()
+        .title("Đã lưu — khởi động lại IBus để áp dụng toàn bộ?")
+        .button_label("Khởi động lại IBus")
+        .revealed(false)
+        .build();
+
+    let title_label = gtk4::Label::new(Some("Chung"));
+    title_label.add_css_class("title");
+    let header = adw::HeaderBar::new();
+    header.set_title_widget(Some(&title_label));
+    let sidebar_btn = gtk4::Button::from_icon_name("sidebar-show-symbolic");
+    sidebar_btn.set_visible(false);
+    header.pack_start(&sidebar_btn);
+
+    // Sidebar rows in GNOME Settings groups: the everyday pages, then the
+    // advanced ones, then About — separated by non-selectable rows.
+    let sidebar_list = gtk4::ListBox::new();
+    sidebar_list.add_css_class("navigation-sidebar");
+    let mut page_rows: Vec<(String, gtk4::ListBoxRow)> = Vec::new();
+    for (name, title, icon) in PAGES {
+        if name == "rules" || name == "about" {
+            let sep_row = gtk4::ListBoxRow::new();
+            sep_row.set_selectable(false);
+            sep_row.set_activatable(false);
+            let sep = gtk4::Box::new(Orientation::Vertical, 0);
+            sep.set_margin_top(6);
+            sep.set_margin_bottom(6);
+            sep.append(&gtk4::Separator::new(Orientation::Horizontal));
+            sep_row.set_child(Some(&sep));
+            sidebar_list.append(&sep_row);
+        }
+        let row = gtk4::ListBoxRow::new();
+        let h = gtk4::Box::new(Orientation::Horizontal, 12);
+        h.append(&gtk4::Image::from_icon_name(icon));
+        h.append(&gtk4::Label::new(Some(title)));
+        row.set_child(Some(&h));
+        // The row carries its stack name; the selection handler reads it.
+        row.set_widget_name(name);
+        sidebar_list.append(&row);
+        page_rows.push((name.to_string(), row.clone()));
     }
-    restart_btn.add_css_class("suggested-action");
-    restart_btn.add_css_class("pill");
-    restart_btn.set_halign(gtk4::Align::Center);
-    restart_btn.set_valign(gtk4::Align::End);
-    restart_btn.set_margin_bottom(18);
-    restart_btn.set_visible(false);
+    {
+        let stack = stack.clone();
+        let title_label = title_label.clone();
+        let split_view = split_view.clone();
+        sidebar_list.connect_row_selected(move |_, some_row| {
+            let Some(row) = some_row else {
+                return;
+            };
+            let name = row.widget_name().to_string();
+            let title = PAGES
+                .iter()
+                .find(|(n, _, _)| *n == name)
+                .map(|(_, t, _)| *t)
+                .unwrap_or("MăngRS");
+            stack.set_visible_child_name(&name);
+            title_label.set_text(title);
+            // Picking a page while collapsed shows the content again, like
+            // GNOME Settings on a phone-shaped window.
+            if split_view.is_collapsed() {
+                split_view.set_show_content(true);
+            }
+        });
+    }
 
-    // The overlay floats the restart button over the page, bottom center.
-    let overlay = gtk4::Overlay::new();
-    overlay.set_child(Some(&content));
-    overlay.add_overlay(&restart_btn);
+    let sidebar_header = adw::HeaderBar::new();
+    let sidebar_title = gtk4::Label::new(Some("MăngRS"));
+    sidebar_title.add_css_class("title");
+    sidebar_header.set_title_widget(Some(&sidebar_title));
+    let sidebar_box = gtk4::Box::new(Orientation::Vertical, 0);
+    sidebar_box.append(&sidebar_header);
+    sidebar_box.append(&sidebar_list);
+    let sidebar_page = adw::NavigationPage::builder()
+        .title("MăngRS")
+        .child(&sidebar_box)
+        .build();
 
-    let window = ApplicationWindow::builder()
+    let toast_overlay = adw::ToastOverlay::new();
+    toast_overlay.set_child(Some(&stack));
+    let content_toolbar = adw::ToolbarView::new();
+    content_toolbar.add_top_bar(&header);
+    content_toolbar.add_top_bar(&restart_banner);
+    content_toolbar.set_content(Some(&toast_overlay));
+    let content_page = adw::NavigationPage::builder()
+        .title("MăngRS")
+        .child(&content_toolbar)
+        .build();
+
+    split_view.set_sidebar(Some(&sidebar_page));
+    split_view.set_content(Some(&content_page));
+
+    let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("MăngRS")
-        // Wide enough that all seven pill tabs fit the header without
-        // squeezing.
-        .default_width(900)
-        .default_height(700)
-        .child(&overlay)
+        .default_width(980)
+        .default_height(720)
+        .content(&split_view)
         .build();
     // X11/XWayland reads the icon from the window; Wayland derives it from
     // the app id and the installed desktop file instead.
     window.set_icon_name(Some("ibus-mangrs"));
+
+    // Collapse the sidebar into an overlay pattern on narrow widths: the
+    // toggle button (visible only while collapsed) flips between the page
+    // and the sidebar list. NavigationSplitView has no manual show-sidebar —
+    // collapsed mode is managed through show-content.
+    let bp = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
+        adw::BreakpointConditionLengthType::MaxWidth,
+        700.0,
+        adw::LengthUnit::Px,
+    ));
+    bp.add_setter(&split_view, "collapsed", Some(&true.to_value()));
+    bp.add_setter(&split_view, "show-content", Some(&true.to_value()));
+    bp.add_setter(&sidebar_btn, "visible", Some(&true.to_value()));
+    window.add_breakpoint(bp);
+    {
+        let split_view = split_view.clone();
+        sidebar_btn.connect_clicked(move |_| {
+            split_view.set_show_content(!split_view.shows_content());
+        });
+    }
+
+    // Keyboard: close and quit, plus Alt+1..7 to jump straight to a page.
+    app.set_accels_for_action("window.close", &["<Control>w"]);
+    let quit = gtk4::gio::SimpleAction::new("quit", None);
+    {
+        let app = app.clone();
+        quit.connect_activate(move |_, _| app.quit());
+    }
+    app.add_action(&quit);
+    app.set_accels_for_action("app.quit", &["<Control>q"]);
+    for (i, (_, row)) in page_rows.iter().enumerate() {
+        let action = gtk4::gio::SimpleAction::new(&format!("page-{}", i + 1), None);
+        {
+            let list = sidebar_list.clone();
+            let row = row.clone();
+            action.connect_activate(move |_, _| list.select_row(Some(&row)));
+        }
+        window.add_action(&action);
+        app.set_accels_for_action(&format!("win.page-{}", i + 1), &[&format!("<Alt>{i}")]);
+    }
 
     // The focused-app chip refreshes when the window loses focus: at that
     // moment the app the user switched to becomes focused, and that is the
@@ -640,62 +730,6 @@ pub(super) fn build(app: &Application, initial_page: Option<&str>) {
         window.add_controller(controller);
     }
 
-    // Header: [search] ... [pill tabs] ... [close]. Window controls are
-    // replaced by our own round close button.
-    let header = gtk4::HeaderBar::new();
-    header.set_show_title_buttons(false);
-
-    let search_btn = gtk4::ToggleButton::new();
-    search_btn.set_icon_name("system-search-symbolic");
-    search_btn.add_css_class("flat");
-    search_btn.add_css_class("circular");
-    search_btn
-        .bind_property("active", &search_bar, "search-mode-enabled")
-        .bidirectional()
-        .sync_create()
-        .build();
-    header.pack_start(&search_btn);
-
-    let close_btn = gtk4::Button::from_icon_name("window-close-symbolic");
-    close_btn.add_css_class("circular");
-    close_btn.add_css_class("close-btn");
-    {
-        let window = window.clone();
-        close_btn.connect_clicked(move |_| window.close());
-    }
-    header.pack_end(&close_btn);
-
-    let pillbar = gtk4::Box::new(Orientation::Horizontal, 4);
-    pillbar.set_halign(gtk4::Align::Center);
-    let mut pills: Vec<(String, gtk4::ToggleButton)> = Vec::new();
-    let mut group: Option<gtk4::ToggleButton> = None;
-    for (name, title, icon) in PAGES {
-        let pill = gtk4::ToggleButton::new();
-        pill.set_has_frame(false);
-        let h = gtk4::Box::new(Orientation::Horizontal, 8);
-        h.set_halign(gtk4::Align::Center);
-        h.append(&gtk4::Image::from_icon_name(icon));
-        h.append(&gtk4::Label::new(Some(title)));
-        pill.set_child(Some(&h));
-        pill.add_css_class("nav-pill");
-        // Radio behaviour: exactly one pill active.
-        match &group {
-            Some(first) => pill.set_group(Some(first)),
-            None => group = Some(pill.clone()),
-        }
-        let stack = stack.clone();
-        let target = name.to_string();
-        pill.connect_toggled(move |pill| {
-            if pill.is_active() {
-                stack.set_visible_child_name(&target);
-            }
-        });
-        pills.push((name.to_string(), pill.clone()));
-        pillbar.append(&pill);
-    }
-    header.set_title_widget(Some(&pillbar));
-    window.set_titlebar(Some(&header));
-
     // Open a specific page when spawned with `--page=<name>` (menu items).
     // Old page names from earlier layouts are mapped onto the current ones.
     let wanted = match initial_page {
@@ -705,22 +739,19 @@ pub(super) fn build(app: &Application, initial_page: Option<&str>) {
         Some("apps") => "rules",
         Some(other) => other,
     };
-    let (_, pill) = pills.iter().find(|(n, _)| n == wanted).unwrap_or(&pills[0]);
-    pill.set_active(true);
+    let (_, wanted_row) = page_rows
+        .iter()
+        .find(|(n, _)| n == wanted)
+        .unwrap_or(&page_rows[0]);
+    sidebar_list.select_row(Some(wanted_row));
 
-    // Grouped-card look, theme-agnostic (alpha over currentColor adapts to
-    // light/dark without libadwaita).
+    // Transitional CSS for the pages that are still plain gtk boxes (the
+    // group-card look). It dies with the last page conversion; the shell
+    // itself uses only libadwaita styling.
     let css = gtk4::CssProvider::new();
     css.load_from_data(
-        "window { font-family: \"Adwaita Sans\", \"Cantarell\", sans-serif; } \
-         headerbar { background: none; box-shadow: none; border: none; padding: 8px 12px 4px 12px; } \
-         .group-card { background: alpha(currentColor, 0.06); border-radius: 14px; padding: 2px 0; } \
+        ".group-card { background: alpha(currentColor, 0.06); border-radius: 14px; padding: 2px 0; } \
          .group-card separator { background: alpha(currentColor, 0.08); min-height: 1px; } \
-         .nav-pill { border-radius: 10px; padding: 8px 14px; min-height: 0; background: none; margin: 0 1px; } \
-         .nav-pill:checked { background: alpha(currentColor, 0.10); } \
-         .nav-pill label { font-weight: bold; font-size: 16px; } \
-         .nav-pill image { -gtk-icon-size: 16px; opacity: 0.75; } \
-         .close-btn { background: alpha(currentColor, 0.10); } \
          .group-card textview, .group-card textview text, .group-card scrolledwindow { background-color: transparent; } \
          dropdown button, dropdown button:hover { background: none; box-shadow: none; border: none; } \
          .app-icon { border-radius: 32px; padding: 10px; background: alpha(currentColor, 0.06); } \
@@ -744,13 +775,13 @@ pub(super) fn build(app: &Application, initial_page: Option<&str>) {
     {
         let window_for_save = window.clone();
         let ui_for_save = ui.clone();
-        let restart_for_save = restart_btn.clone();
+        let banner_for_save = restart_banner.clone();
         let save = move || {
             match ui_for_save.save_all() {
-                // Every saved change floats the restart button up: the
-                // settings are already on disk, the button is only there so
-                // a restart is one click away.
-                Ok(()) => restart_for_save.set_visible(true),
+                // Every saved change raises the restart banner: the settings
+                // are already on disk, the button is only there so a restart
+                // is one click away.
+                Ok(()) => banner_for_save.set_revealed(true),
                 Err(e) => alert(&window_for_save, &e.to_string()),
             }
         };
@@ -985,7 +1016,7 @@ pub(super) fn build(app: &Application, initial_page: Option<&str>) {
     {
         let ui = ui.clone();
         let window = window.clone();
-        let restart_for_import = restart_btn.clone();
+        let banner_for_import = restart_banner.clone();
         import_btn.connect_clicked(move |_| {
             let dialog = gtk4::FileDialog::builder()
                 .title("Nhập cấu hình")
@@ -993,7 +1024,7 @@ pub(super) fn build(app: &Application, initial_page: Option<&str>) {
                 .build();
             let ui = ui.clone();
             let callback_window = window.clone();
-            let restart_for_import = restart_for_import.clone();
+            let banner_for_import = banner_for_import.clone();
             dialog.open(
                 Some(&window),
                 gtk4::gio::Cancellable::NONE,
@@ -1002,8 +1033,8 @@ pub(super) fn build(app: &Application, initial_page: Option<&str>) {
                     if let Ok(file) = result {
                         match import_json(file.path(), &ui) {
                             // An import rewrites config.toml wholesale — the
-                            // restart button applies to it like any save.
-                            Ok(()) => restart_for_import.set_visible(true),
+                            // restart banner applies to it like any save.
+                            Ok(()) => banner_for_import.set_revealed(true),
                             Err(e) => alert(&callback_window, &e),
                         }
                     }
@@ -1014,11 +1045,15 @@ pub(super) fn build(app: &Application, initial_page: Option<&str>) {
 
     {
         let window = window.clone();
-        let btn = restart_btn.clone();
-        restart_btn.connect_clicked(move |_| {
+        let banner = restart_banner.clone();
+        let toast_overlay = toast_overlay.clone();
+        restart_banner.connect_button_clicked(move |_| {
             // User-initiated only — the engine never restarts IBus itself.
             match std::process::Command::new("ibus").arg("restart").spawn() {
-                Ok(_) => btn.set_visible(false),
+                Ok(_) => {
+                    banner.set_revealed(false);
+                    toast_overlay.add_toast(adw::Toast::new("Đã khởi động lại IBus"));
+                }
                 Err(e) => alert(&window, &format!("Không khởi động lại được IBus: {e}")),
             }
         });

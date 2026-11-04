@@ -35,9 +35,8 @@ gui = ["dep:gtk4", "dep:libadwaita"]
 version = "0.9"
 optional = true
 # v4_6: gdk Texture::from_bytes for the embedded logo on the About page.
-# v4_8: CheckButton::set_child for the pill navigation in the header bar.
-# v4_10: AlertDialog to surface save/import failures inside the window.
-features = ["v4_6", "v4_8", "v4_10"]
+# v4_10: gtk::FileDialog for the JSON import/export pickers.
+features = ["v4_6", "v4_10"]
 
 [dependencies.libadwaita]
 version = "0.7"
