@@ -241,7 +241,6 @@ tooltip = "Các app engine đã từng thấy"
 tooltip = "Sao chép tên app đang focus"
 
 [rows.rule_mode]
-title = "Chế độ gõ"
 tooltip = "Chế độ gõ của luật mới"
 
 [rows.rule_up]
