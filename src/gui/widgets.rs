@@ -248,6 +248,11 @@ pub(super) fn row_impl(
     h
 }
 
+/// Icon + title + subtitle, no control — feature/project lists on About.
+pub(super) fn info_row(icon: &str, title: &str, subtitle: &str) -> gtk4::Box {
+    row_impl(Some(icon), title, subtitle, None)
+}
+
 /// A settings row: title + small dim subtitle on the left, control right.
 pub(super) fn pref_row(title: &str, subtitle: &str, widget: &impl IsA<gtk4::Widget>) -> gtk4::Box {
     row_impl(None, title, subtitle, Some(widget.upcast_ref()))
