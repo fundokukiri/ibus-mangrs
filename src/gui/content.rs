@@ -80,20 +80,29 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
 
     // --- Adwaita shell: sidebar + content -----------------------------------
     // GNOME Settings layout: a navigation sidebar picks the page, the
-    // content toolbar view holds the header (dynamic title), the restart
-    // banner and the stack. Toasts overlay the content.
+    // content toolbar view holds the header (dynamic title) and the stack.
+    // Toasts overlay the content, and the restart button floats over it at
+    // the bottom center.
     let split_view = adw::NavigationSplitView::new();
-    split_view.set_sidebar_width_fraction(0.28);
+    split_view.set_sidebar_width_fraction(0.24);
 
-    // The restart banner replaces the floating button: it stays visible
-    // under the header until the restart happens (or the user closes it) —
+    // The floating restart button. It stays hidden until a change is saved:
     // every control already writes straight to config.toml, so the only
-    // thing left for the user to do is restart IBus.
-    let restart_banner = adw::Banner::builder()
-        .title("Đã lưu — khởi động lại IBus để áp dụng toàn bộ?")
-        .button_label("Khởi động lại IBus")
-        .revealed(false)
-        .build();
+    // thing left for the user to do is restart IBus (a new engine binary or
+    // component XML needs it; plain settings changes apply within a second).
+    let restart_btn = gtk4::Button::new();
+    {
+        let b = gtk4::Box::new(Orientation::Horizontal, 8);
+        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
+        b.append(&gtk4::Label::new(Some("Khởi động lại IBus")));
+        restart_btn.set_child(Some(&b));
+    }
+    restart_btn.add_css_class("suggested-action");
+    restart_btn.add_css_class("pill");
+    restart_btn.set_halign(gtk4::Align::Center);
+    restart_btn.set_valign(gtk4::Align::End);
+    restart_btn.set_margin_bottom(18);
+    restart_btn.set_visible(false);
 
     let title_label = gtk4::Label::new(Some("Chung"));
     title_label.add_css_class("title");
@@ -154,24 +163,21 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         });
     }
 
-    let sidebar_header = adw::HeaderBar::new();
-    let sidebar_title = gtk4::Label::new(Some("MăngRS"));
-    sidebar_title.add_css_class("title");
-    sidebar_header.set_title_widget(Some(&sidebar_title));
-    let sidebar_box = gtk4::Box::new(Orientation::Vertical, 0);
-    sidebar_box.append(&sidebar_header);
-    sidebar_box.append(&sidebar_list);
     let sidebar_page = adw::NavigationPage::builder()
         .title("MăngRS")
-        .child(&sidebar_box)
+        .child(&sidebar_list)
         .build();
 
+    // Toasts sit over the stack; the restart button floats over everything
+    // at the bottom center of the page.
     let toast_overlay = adw::ToastOverlay::new();
     toast_overlay.set_child(Some(&stack));
+    let page_overlay = gtk4::Overlay::new();
+    page_overlay.set_child(Some(&toast_overlay));
+    page_overlay.add_overlay(&restart_btn);
     let content_toolbar = adw::ToolbarView::new();
     content_toolbar.add_top_bar(&header);
-    content_toolbar.add_top_bar(&restart_banner);
-    content_toolbar.set_content(Some(&toast_overlay));
+    content_toolbar.set_content(Some(&page_overlay));
     let content_page = adw::NavigationPage::builder()
         .title("MăngRS")
         .child(&content_toolbar)
@@ -262,13 +268,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     {
         let window_for_save = window.clone();
         let ui_for_save = ui.clone();
-        let banner_for_save = restart_banner.clone();
+        let restart_for_save = restart_btn.clone();
         let save = move || {
             match ui_for_save.save_all() {
                 // Every saved change raises the restart banner: the settings
                 // are already on disk, the button is only there so a restart
                 // is one click away.
-                Ok(()) => banner_for_save.set_revealed(true),
+                Ok(()) => restart_for_save.set_visible(true),
                 Err(e) => alert(&window_for_save, &e.to_string()),
             }
         };
@@ -382,7 +388,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     {
         let ui = ui.clone();
         let window = window.clone();
-        let banner_for_import = restart_banner.clone();
+        let restart_for_import = restart_btn.clone();
         import_btn.connect_clicked(move |_| {
             let dialog = gtk4::FileDialog::builder()
                 .title("Nhập cấu hình")
@@ -390,7 +396,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                 .build();
             let ui = ui.clone();
             let callback_window = window.clone();
-            let banner_for_import = banner_for_import.clone();
+            let restart_for_import = restart_for_import.clone();
             dialog.open(
                 Some(&window),
                 gtk4::gio::Cancellable::NONE,
@@ -400,7 +406,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                         match import_json(file.path(), &ui) {
                             // An import rewrites config.toml wholesale — the
                             // restart banner applies to it like any save.
-                            Ok(()) => banner_for_import.set_revealed(true),
+                            Ok(()) => restart_for_import.set_visible(true),
                             Err(e) => alert(&callback_window, &e),
                         }
                     }
@@ -411,13 +417,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
 
     {
         let window = window.clone();
-        let banner = restart_banner.clone();
+        let btn = restart_btn.clone();
         let toast_overlay = toast_overlay.clone();
-        restart_banner.connect_button_clicked(move |_| {
+        restart_btn.connect_clicked(move |_| {
             // User-initiated only — the engine never restarts IBus itself.
             match std::process::Command::new("ibus").arg("restart").spawn() {
                 Ok(_) => {
-                    banner.set_revealed(false);
+                    btn.set_visible(false);
                     toast_overlay.add_toast(adw::Toast::new("Đã khởi động lại IBus"));
                 }
                 Err(e) => alert(&window, &format!("Không khởi động lại được IBus: {e}")),
