@@ -1,9 +1,10 @@
 //! Page "Gõ tắt": the macro switches, the $TIME/$DATE formats and the
-//! shortcut list itself (one editable row per entry).
+//! shortcut list itself (one editable row per entry, plus the raw table
+//! below where new pairs are added).
 
 use super::*;
 
-pub(crate) fn build(ui: &Rc<Ui>) -> (adw::PreferencesPage, gtk4::Button) {
+pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
     let settings = adw::PreferencesGroup::builder()
@@ -42,19 +43,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> (adw::PreferencesPage, gtk4::Button) {
         .build();
     list_group.add(&ui.macros_list);
     page.add(&list_group);
-    let add_group = adw::PreferencesGroup::new();
-    let add_btn = gtk4::Button::with_label(&t("groups.macros.add.button", "Thêm gõ tắt"));
-    let add_row = action_row(
-        &t("groups.macros.add.title", "Thêm cặp mới"),
-        &t(
-            "groups.macros.add.subtitle",
-            "Khóa và nội dung trống — điền ngay sau khi thêm",
-        ),
-    );
-    add_btn.add_css_class("flat");
-    add_row.add_suffix(&add_btn);
-    add_group.add(&add_row);
-    page.add(&add_group);
 
     // The raw table, dictionary-style: one `khóa=nội dung` line per pair,
     // kept in sync with the rows above (a row edit mirrors here, a text
@@ -77,5 +65,5 @@ pub(crate) fn build(ui: &Rc<Ui>) -> (adw::PreferencesPage, gtk4::Button) {
     raw.add(&scroll);
     page.add(&raw);
 
-    (page, add_btn)
+    page
 }

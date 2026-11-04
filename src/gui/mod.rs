@@ -11,6 +11,7 @@
 //! Giới thiệu.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -245,6 +246,9 @@ struct Ui {
     /// level at most, matching `config::MenuNode`.
     menu: Rc<RefCell<Vec<MenuNode>>>,
     menu_box: gtk4::ListBox,
+    /// Which folder/radio rows are expanded, by design path — the list is
+    /// rebuilt after every edit, so the state must outlive the widgets.
+    menu_open: Rc<RefCell<HashSet<Vec<usize>>>>,
 }
 
 /// One macro editor row's widgets.
@@ -830,14 +834,19 @@ impl Ui {
         subtitle: &str,
         children: Vec<gtk4::Widget>,
     ) -> Vec<gtk4::Widget> {
+        // Activatable: clicking the row itself expands, like the arrow.
         let header = adw::ActionRow::builder()
             .title(title)
             .subtitle(subtitle)
-            .activatable(false)
             .build();
         header.add_prefix(&self.menu_lead(path.clone(), kind));
         let more = self.menu_more_button(path.clone(), kind);
-        let arrow = gtk4::Button::from_icon_name("pan-end-symbolic");
+        let expanded = self.menu_open.borrow().contains(&path);
+        let arrow = gtk4::Button::from_icon_name(if expanded {
+            "pan-down-symbolic"
+        } else {
+            "pan-end-symbolic"
+        });
         arrow.add_css_class("flat");
         arrow.set_valign(gtk4::Align::Center);
         arrow.set_tooltip_text(Some(&t("panel.expand_tooltip", "Mở rộng / thu gọn")));
@@ -853,23 +862,38 @@ impl Ui {
         children_row.set_activatable(false);
         children_row.set_selectable(false);
         children_row.set_child(Some(&child_list));
-        children_row.set_visible(false);
-        let open = Rc::new(Cell::new(false));
-        {
-            let open = open.clone();
+        children_row.set_visible(expanded);
+        // One toggle for both the arrow and the row itself; the expanded
+        // set lives in the Ui, so a rebuild after a move keeps blocks open.
+        let toggle = {
+            let ui = self.clone();
+            let path = path.clone();
             let children_row = children_row.clone();
             let arrow_btn = arrow.clone();
-            arrow.connect_clicked(move |_| {
-                let now = !open.get();
-                open.set(now);
+            move || {
+                let now = !ui.menu_open.borrow().contains(&path);
+                if now {
+                    ui.menu_open.borrow_mut().insert(path.clone());
+                } else {
+                    ui.menu_open.borrow_mut().remove(&path);
+                }
                 children_row.set_visible(now);
                 arrow_btn.set_icon_name(if now {
                     "pan-down-symbolic"
                 } else {
                     "pan-end-symbolic"
                 });
-            });
-        }
+            }
+        };
+        let toggle: Rc<dyn Fn()> = Rc::new(toggle);
+        arrow.connect_clicked({
+            let toggle = toggle.clone();
+            move |_| toggle()
+        });
+        header.connect_activate({
+            let toggle = toggle.clone();
+            move |_| toggle()
+        });
         header.add_suffix(&arrow);
         header.add_suffix(&more);
         self.menu_drop_target(&header, path);
@@ -1840,6 +1864,7 @@ fn widgets() -> Rc<Ui> {
     let menu_box = gtk4::ListBox::new();
     menu_box.add_css_class("boxed-list");
     menu_box.set_selection_mode(gtk4::SelectionMode::None);
+    let menu_open = Rc::new(RefCell::new(HashSet::new()));
 
     // The tips are row tooltips now — no icon button at the row end;
     // hovering the row itself shows the longer explanation, whose text
@@ -2030,6 +2055,7 @@ fn widgets() -> Rc<Ui> {
         unicode_channel,
         menu,
         menu_box,
+        menu_open,
     })
 }
 // --- backup / restore (Giai đoạn 11) ---

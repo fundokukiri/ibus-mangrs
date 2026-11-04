@@ -30,7 +30,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     let tone_page = pages::tone::build(&ui);
 
     // ===== Page 3: Gõ tắt — switches, formats and the macro editor.
-    let (macro_page, macro_add_btn) = pages::macros::build(&ui);
+    let macro_page = pages::macros::build(&ui);
 
     // ===== Page 4: Từ điển — the personal dictionary (text area).
     let data_page = pages::data::build(&ui);
@@ -509,13 +509,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         // The rule rows are created by `refresh`, so they save through this
         // handle instead of a closure captured at build time.
         *ui.save_cb.borrow_mut() = Some(Rc::new(save.clone()));
-        // The macro add row appends an empty pair the user fills in.
-        {
-            let ui = ui.clone();
-            macro_add_btn.connect_clicked(move |_| {
-                ui.edit_macros(|entries| entries.push((String::new(), String::new())));
-            });
-        }
         macro_rules! on_change {
             ($w:expr) => {{
                 let s = save.clone();
