@@ -276,17 +276,20 @@ pseudo_none = "(app không báo tên)"
 
 [groups.panel.menu]
 title = "Menu trên panel"
-description = "Tự thiết kế menu popup — Bảng mã / Kiểu gõ / Chế độ gõ cũng chỉnh được mục bên trong"
-rename_tooltip = "Nhấp đôi hoặc giữ chuột vào thư mục (cấp đầu) để đổi tên"
+description = "Tùy chỉnh menu popup trên panel IBus."
 
 [panel]
-add_button = "Thêm"
-column_kind = "Loại"
-column_name = "Tên"
-up_tooltip = "Lên — đổi thứ tự mục đang chọn"
-down_tooltip = "Xuống"
-out_tooltip = "Ra ngoài thư mục (chỉ con của thư mục)"
-delete_tooltip = "Xoá mục đang chọn (thư mục phải rỗng)"
+add_button = "Thêm mục"
+add_tooltip = "Thêm mục vào cuối menu"
+add_here = "Thêm vào đây…"
+row_menu_tooltip = "Thao tác với mục này"
+move_up = "Lên"
+move_down = "Xuống"
+move_out = "Đưa ra khỏi thư mục"
+item_delete = "Xóa"
+reset_button = "Đặt lại"
+reset_heading = "Đặt lại menu?"
+reset_body = "Mọi thay đổi thiết kế hiện tại sẽ mất."
 reset_tooltip = "Đặt lại menu về thiết kế mặc định"
 rename_heading = "Đổi tên thư mục"
 rename_body = "Nhập tên mới cho thư mục đang chọn"
@@ -312,6 +315,7 @@ kind_radios = "Nhóm chọn"
 kind_action = "Chức năng"
 kind_sep = "Gạch ngang"
 kind_folder = "Thư mục"
+kind_entry = "Mục chọn"
 
 # --- page Tinh chỉnh --------------------------------------------------------
 

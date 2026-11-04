@@ -13,15 +13,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
 
     let ui = widgets();
     ui.refresh(&config, &macros, &dictionary);
-    // The type picker follows the editor selection: a radio group offers its
-    // own entries, anything else the generic items.
-    ui.menu_fill_picker();
-    {
-        let ui = ui.clone();
-        ui.menu_view.selection().connect_changed(move |_| {
-            ui.menu_fill_picker();
-        });
-    }
 
     // --- pages: grouped-card settings style (section header + cards) ---
 
