@@ -1,38 +1,39 @@
-//! Page "Giới thiệu": feature highlights, project links and the standard
-//! GNOME about dialog. The logo itself comes from the installed hicolor
-//! icon (`ibus-mangrs`, the same logo.png install.sh ships) — an embedded
-//! copy would only duplicate it.
+//! Page "Giới thiệu": the logo hero, project links and the standard GNOME
+//! about dialog. The hero uses the embedded logo (the same logo.png that
+//! install.sh ships into hicolor); the dialog shows the installed icon.
 
 use super::*;
 
 pub(crate) fn build() -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
-    let features = adw::PreferencesGroup::builder()
-        .title("Đặc điểm nổi bật")
-        .description("Bộ gõ tiếng Việt cho lập trình viên và mọi ứng dụng — Rust + bamboo-core")
-        .build();
-    features.add(&feature_row(
-        "input-keyboard-symbolic",
-        "10 chế độ hiển thị",
-        "Preedit, Non-preedit, Surrounding + 3 mode uinput + 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
-    ));
-    features.add(&feature_row(
-        "network-workgroup-symbolic",
-        "URL thông minh",
-        "Từ ngay sau / : @ . _ ~ = # & % ? giữ nguyên, không thêm dấu",
-    ));
-    features.add(&feature_row(
-        "applications-system-symbolic",
-        "App Rules theo ứng dụng",
-        "Mỗi ứng dụng một chế độ — đổi bằng menu, hotkey hoặc cửa sổ này",
-    ));
-    features.add(&feature_row(
-        "insert-text-symbolic",
-        "Gõ tắt & macro",
-        "$TIME/$DATE, viết hoa thông minh, không kích hoạt nhầm từ Việt thật",
-    ));
-    page.add(&features);
+    // The hero lives in a title-less group so the page keeps its centered
+    // column; the boxed look around it matches the GNOME About layout.
+    let hero_group = adw::PreferencesGroup::new();
+    let hero = gtk4::Box::new(Orientation::Vertical, 6);
+    hero.set_halign(gtk4::Align::Center);
+    hero.set_margin_top(18);
+    hero.set_margin_bottom(6);
+    const LOGO: &[u8] = include_bytes!("../../../data/logo.png");
+    if let Ok(texture) = gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(LOGO)) {
+        let image = gtk4::Image::from_paintable(Some(&texture));
+        image.set_pixel_size(128);
+        hero.append(&image);
+    }
+    let name = gtk4::Label::new(Some("MăngRS IBus"));
+    name.add_css_class("title-1");
+    name.set_halign(gtk4::Align::Center);
+    hero.append(&name);
+    let version = gtk4::Label::new(Some(concat!(
+        "Phiên bản ",
+        env!("CARGO_PKG_VERSION"),
+        " • Rust + bamboo-core"
+    )));
+    version.add_css_class("dim-label");
+    version.set_halign(gtk4::Align::Center);
+    hero.append(&version);
+    hero_group.add(&hero);
+    page.add(&hero_group);
 
     let project = adw::PreferencesGroup::builder()
         .title("Thông tin dự án")
