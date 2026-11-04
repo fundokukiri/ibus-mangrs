@@ -1,5 +1,5 @@
 //! The window shell: the Adwaita navigation split view (sidebar + content),
-//! the restart banner and toasts, page accelerators, and the wiring between
+//! the floating restart button, page accelerators, and the wiring between
 //! every control and the save funnel. The page contents themselves still
 //! live here and move to `pages/*.rs` one commit at a time.
 
@@ -118,8 +118,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // --- Adwaita shell: sidebar + content -----------------------------------
     // GNOME Settings layout: a navigation sidebar picks the page, the
     // content toolbar view holds the header (dynamic title) and the stack.
-    // Toasts overlay the content, and the restart button floats over it at
-    // the bottom center.
+    // The restart button floats over the content at the bottom center.
     let split_view = adw::NavigationSplitView::new();
     split_view.set_sidebar_width_fraction(0.24);
 
@@ -219,12 +218,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         .child(&sidebar_list)
         .build();
 
-    // Toasts sit over the stack; the restart button floats over everything
-    // at the bottom center of the page.
-    let toast_overlay = adw::ToastOverlay::new();
-    toast_overlay.set_child(Some(&stack));
+    // The restart button floats over everything at the bottom center of
+    // the page.
     let page_overlay = gtk4::Overlay::new();
-    page_overlay.set_child(Some(&toast_overlay));
+    page_overlay.set_child(Some(&stack));
     page_overlay.add_overlay(&restart_btn);
     let content_toolbar = adw::ToolbarView::new();
 
@@ -630,17 +627,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     {
         let window = window.clone();
         let btn = restart_btn.clone();
-        let toast_overlay = toast_overlay.clone();
         restart_btn.connect_clicked(move |_| {
             // User-initiated only — the engine never restarts IBus itself.
             match std::process::Command::new("ibus").arg("restart").spawn() {
-                Ok(_) => {
-                    btn.set_visible(false);
-                    toast_overlay.add_toast(adw::Toast::new(&t(
-                        "misc.restart_toast",
-                        "Đã khởi động lại IBus",
-                    )));
-                }
+                Ok(_) => btn.set_visible(false),
                 Err(e) => alert(&window, &format!("Không khởi động lại được IBus: {e}")),
             }
         });
