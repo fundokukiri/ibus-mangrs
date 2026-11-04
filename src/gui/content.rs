@@ -37,14 +37,14 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 3: Gõ tắt — switches, formats and the macro editor.
     let (macro_page, macro_add_btn) = pages::macros::build(&ui);
 
-    // ===== Page 4: Dữ liệu — dictionary (text area) and JSON backup.
-    let data_page = pages::data::build(&ui, &export_btn, &import_btn);
+    // ===== Page 4: Từ điển — the personal dictionary (text area).
+    let data_page = pages::data::build(&ui);
 
     // ===== Page 5: Luật — chip, quick-add, list editor, preview.
     let rules_page = pages::rules::build(&ui);
 
-    // ===== Page 6: Tinh chỉnh — menu editor, uinput pacing, X11/XIM, log.
-    let advanced_page = pages::advanced::build(&ui);
+    // ===== Page 6: Tinh chỉnh — uinput pacing, X11/XIM, backup, log.
+    let advanced_page = pages::advanced::build(&ui, &export_btn, &import_btn);
 
     // ===== Page 7: Giới thiệu — feature highlights + the about dialog.
     let about_page = pages::about::build();
@@ -59,7 +59,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         ("typing", "Chung", "input-keyboard-symbolic"),
         ("tone", "Dấu & tự động", "tools-check-spelling-symbolic"),
         ("macros", "Gõ tắt", "insert-text-symbolic"),
-        ("data", "Dữ liệu", "folder-documents-symbolic"),
+        ("data", "Từ điển", "accessories-dictionary-symbolic"),
         ("rules", "Luật", "view-list-symbolic"),
         ("panel", "Menu panel", "document-edit-symbolic"),
         ("advanced", "Tinh chỉnh", "emblem-system-symbolic"),

@@ -1,10 +1,14 @@
 //! Page "Tinh chỉnh": the set-once technical settings — the uinput
-//! pacing, the X11/XIM workarounds and the debug-log switch. The panel
-//! menu editor has its own page (see panel.rs).
+//! pacing, the X11/XIM workarounds, the JSON backup and the debug-log
+//! switch. The panel menu editor has its own page (see panel.rs).
 
 use super::*;
 
-pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
+pub(crate) fn build(
+    ui: &Rc<Ui>,
+    export_btn: &gtk4::Button,
+    import_btn: &gtk4::Button,
+) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
     // The uinput pacing applies to Smooth / Super Smooth / Select only; the
@@ -34,6 +38,18 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     xim.add(&ui.x11_delete);
     xim.add(&ui.preedit_xim);
     page.add(&xim);
+
+    let backup = adw::PreferencesGroup::builder()
+        .title("Sao lưu & khôi phục")
+        .description("Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng")
+        .build();
+    let export = action_row("Xuất cấu hình ra JSON", "Lưu ra file để mang đi");
+    export.add_suffix(export_btn);
+    backup.add(&export);
+    let import = action_row("Nhập cấu hình từ JSON", "Đọc lại từ file đã xuất");
+    import.add_suffix(import_btn);
+    backup.add(&import);
+    page.add(&backup);
 
     let diagnostics = adw::PreferencesGroup::builder()
         .title("Chẩn đoán")
