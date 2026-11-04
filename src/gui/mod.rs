@@ -203,6 +203,9 @@ struct Ui {
     /// is its internal header, so a remove-everything loop would never end.
     macros_list: gtk4::ListBox,
     macros_rows: Rc<RefCell<Vec<MacroRow>>>,
+    /// The same list as raw `khóa=nội dung` lines, dictionary-style: bulk
+    /// edits (paste a table) happen here, and every row edit mirrors back.
+    macros_text: TextView,
     dictionary_enabled: adw::SwitchRow,
     dictionary_text: TextView,
     /// App Rules editor: one boxed-list row per rule. The rows hold the
@@ -595,7 +598,8 @@ impl Ui {
         self.fire_save();
     }
 
-    /// Rebuild the macro rows from `entries`.
+    /// Rebuild the macro rows from `entries` and mirror them into the raw
+    /// text editor.
     fn fill_macros(self: &Rc<Self>, entries: &[(String, String)]) {
         while let Some(child) = self.macros_list.first_child() {
             self.macros_list.remove(&child);
@@ -603,6 +607,40 @@ impl Ui {
         self.macros_rows.borrow_mut().clear();
         for (idx, (k, v)) in entries.iter().enumerate() {
             self.macro_row(idx, k, v);
+        }
+        self.sync_macros_text();
+    }
+
+    /// Mirror the row list into the raw editor. Skipped while the user is
+    /// typing there — their half-typed line must not be clobbered — and
+    /// skipped when the text already matches, so the cursor survives.
+    fn sync_macros_text(&self) {
+        if self.macros_text.has_focus() {
+            return;
+        }
+        let text = self
+            .macros_from_rows()
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if text_of(&self.macros_text) != text {
+            set_text(&self.macros_text, &text);
+        }
+    }
+
+    /// Parse the raw editor back into entries and rebuild the rows — the
+    /// same save path as every row edit. A no-op when nothing changed, so
+    /// a mere focus-out does not save.
+    fn apply_macros_text(self: &Rc<Self>) {
+        let entries: Vec<(String, String)> = text_of(&self.macros_text)
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+            .collect();
+        if self.macros_from_rows() != entries {
+            self.edit_macros(move |list| *list = entries);
         }
     }
 
@@ -731,8 +769,10 @@ impl Ui {
                         .build();
                     let icon = gtk4::Image::from_icon_name("radio-checked-symbolic");
                     icon.add_css_class("dim-label");
-                    entry.add_prefix(&icon);
-                    entry.add_prefix(&self.menu_drag_handle(&child_path));
+                    let lead = gtk4::Box::new(Orientation::Horizontal, 6);
+                    lead.append(&self.menu_drag_handle(&child_path));
+                    lead.append(&icon);
+                    entry.add_prefix(&lead);
                     entry.add_suffix(&self.menu_more_button(child_path, "entry"));
                     exp.add_row(&entry);
                 }
@@ -763,19 +803,21 @@ impl Ui {
         if let Some(icon) = &icon {
             icon.add_css_class("dim-label");
         }
+        // One leading box (handle, then type icon) so ActionRows and
+        // ExpanderRows place the handle at the same spot — their
+        // add_prefix insert orders differ.
         let handle = self.menu_drag_handle(&path);
         let more = self.menu_more_button(path.clone(), &kind);
+        let lead = gtk4::Box::new(Orientation::Horizontal, 6);
+        lead.append(&handle);
+        if let Some(icon) = &icon {
+            lead.append(icon);
+        }
         if let Some(action) = widget.downcast_ref::<adw::ActionRow>() {
-            if let Some(icon) = &icon {
-                action.add_prefix(icon);
-            }
-            action.add_prefix(&handle);
+            action.add_prefix(&lead);
             action.add_suffix(&more);
         } else if let Some(exp) = widget.downcast_ref::<adw::ExpanderRow>() {
-            if let Some(icon) = &icon {
-                exp.add_prefix(icon);
-            }
-            exp.add_prefix(&handle);
+            exp.add_prefix(&lead);
             exp.add_suffix(&more);
         }
         // The row itself accepts its siblings' payloads (same parent only).
@@ -974,7 +1016,8 @@ impl Ui {
         }
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-        scroll.set_max_content_height(300);
+        // Tall enough that the generic item list barely scrolls.
+        scroll.set_max_content_height(520);
         scroll.set_propagate_natural_height(true);
         scroll.set_child(Some(&list));
         scroll.upcast::<gtk4::Widget>()
@@ -1608,6 +1651,7 @@ fn widgets() -> Rc<Ui> {
     macros_list.add_css_class("boxed-list");
     macros_list.set_selection_mode(gtk4::SelectionMode::None);
     let macros_rows = Rc::new(RefCell::new(Vec::new()));
+    let macros_text = text_view("");
     let dictionary_enabled = switch_row(
         &t("rows.dictionary_enabled.title", "Dùng từ điển cá nhân"),
         &t(
@@ -1737,131 +1781,140 @@ fn widgets() -> Rc<Ui> {
     menu_box.add_css_class("boxed-list");
     menu_box.set_selection_mode(gtk4::SelectionMode::None);
 
-    // The "(?)" markers: hover or click for the longer explanation, text
-    // from the content file. Applied here so every page gets them for
-    // free; page-added suffixes (hotkey buttons, format entries) land to
-    // the right of them.
-    macro_rules! info {
+    // The tips are row tooltips now — no icon button at the row end;
+    // hovering the row itself shows the longer explanation, whose text
+    // still comes from the content file.
+    macro_rules! tip {
         ($row:expr, $key:expr, $default:expr) => {
-            attach_info(&$row, &t($key, $default));
+            $row.set_tooltip_text(Some(&t($key, $default)));
         };
     }
-    info!(
+    tip!(
         enabled,
-        "tips.enabled", "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
+        "tips.enabled",
+        "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
     );
-    info!(
+    tip!(
         method,
         "tips.method",
         "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
     );
-    info!(
+    tip!(
         mode,
         "tips.mode",
         "Cách hiển thị chữ đang gõ: preedit (gạch chân) dùng được ở mọi app, các mode uinput gửi phím thật nhưng có thể lệch app."
     );
-    info!(
+    tip!(
         charset,
         "tips.charset",
         "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
     );
-    info!(
+    tip!(
         modern,
-        "tips.modern", "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."
+        "tips.modern",
+        "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."
     );
-    info!(
+    tip!(
         free,
-        "tips.free", "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên âm gần nhất."
+        "tips.free",
+        "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên âm gần nhất."
     );
-    info!(
+    tip!(
         auto_correct,
         "tips.auto_correct",
         "Âm tiết không có trong từ điển tiếng Việt sẽ trả về đúng chuỗi phím đã bấm."
     );
-    info!(
+    tip!(
         auto_restore,
         "tips.auto_restore",
         "Từ nước ngoài (english, hello) gõ xong tự trả về chuỗi phím gốc thay vì giữ nguyên."
     );
-    info!(
+    tip!(
         abbrev,
-        "tips.abbrev", "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
+        "tips.abbrev",
+        "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
     );
-    info!(
+    tip!(
         bypass_url,
         "tips.bypass_url",
         "Từ ngay sau URL/email/path không được thêm dấu, tránh làm hỏng liên kết khi soạn chat."
     );
-    info!(
+    tip!(
         w2u,
-        "tips.w2u", "Gõ w nhận ư: w = ư, wa = ưa... tiện cho bàn phím không có sẵn ư."
+        "tips.w2u",
+        "Gõ w nhận ư: w = ư, wa = ưa... tiện cho bàn phím không có sẵn ư."
     );
-    info!(
+    tip!(
         bracket,
-        "tips.bracket", "Gõ [ và ] nhận ơ và ư theo vị trí trong từ."
+        "tips.bracket",
+        "Gõ [ và ] nhận ơ và ư theo vị trí trong từ."
     );
-    info!(
+    tip!(
         em_dash,
-        "tips.em_dash", "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
+        "tips.em_dash",
+        "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
     );
-    info!(
+    tip!(
         auto_capitalize,
-        "tips.auto_capitalize", "Tự viết hoa chữ cái đầu câu sau dấu chấm, !, ? hoặc Enter."
+        "tips.auto_capitalize",
+        "Tự viết hoa chữ cái đầu câu sau dấu chấm, !, ? hoặc Enter."
     );
-    info!(
+    tip!(
         double_space,
         "tips.double_space",
         "Nhấn hai dấu cách liên tiếp thành dấu chấm + khoảng cách (thử nghiệm)."
     );
-    info!(
+    tip!(
         macro_enabled,
         "tips.macro_enabled",
         "Bật bảng gõ tắt: chuỗi khóa được mở rộng thành nội dung khi gõ xong từ."
     );
-    info!(
+    tip!(
         capitalize_macro,
-        "tips.capitalize_macro", "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo."
+        "tips.capitalize_macro",
+        "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo."
     );
-    info!(
+    tip!(
         macro_in_off_mode,
-        "tips.macro_in_off_mode", "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
+        "tips.macro_in_off_mode",
+        "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
     );
-    info!(
+    tip!(
         hide_underline,
         "tips.hide_underline",
         "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
     );
-    info!(
+    tip!(
         debug_log,
         "tips.debug_log",
         "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
     );
-    info!(
+    tip!(
         x11_delete,
         "tips.x11_delete",
         "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."
     );
-    info!(
+    tip!(
         preedit_xim,
         "tips.preedit_xim",
         "Dùng cửa sổ preedit riêng cho app XIM (Java/JetBrains) vốn không hỗ trợ preedit của IBus."
     );
-    info!(
+    tip!(
         commit_interval,
         "tips.commit_interval",
         "Nhịp gửi từng chữ ở mode uinput — giảm nếu app bị mất chữ, tăng nếu bị đơ."
     );
-    info!(
+    tip!(
         backspace_interval,
         "tips.backspace_interval",
         "Nhịp gửi Backspace ở mode uinput — giảm nếu xoá chậm, tăng nếu app xử lý không kịp."
     );
-    info!(
+    tip!(
         post_delay,
         "tips.post_delay",
         "Chờ sau khi viết lại cả từ trước khi gõ chữ tiếp, dành cho app xử lý phím chậm."
     );
-    info!(
+    tip!(
         unicode_channel,
         "tips.unicode_channel",
         "Cách gửi từ có ký tự đặc biệt: CommitText là an toàn; Clipboard dùng Ctrl+V, tạm đè clipboard."
@@ -1896,6 +1949,7 @@ fn widgets() -> Rc<Ui> {
         date_format,
         macros_list,
         macros_rows,
+        macros_text,
         dictionary_enabled,
         dictionary_text,
         rules_box,

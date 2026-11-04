@@ -16,8 +16,12 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
 
     // --- pages: grouped-card settings style (section header + cards) ---
 
+    // Flat: a boxed labeled button in a row suffix reads as a chunky
+    // foreign control (owner feedback).
     let export_btn = gtk4::Button::with_label(&t("misc.export_button", "Xuất…"));
+    export_btn.add_css_class("flat");
     let import_btn = gtk4::Button::with_label(&t("misc.import_button", "Nhập…"));
+    import_btn.add_css_class("flat");
 
     // ===== Page 1: Chung — the everyday page, on its own preferences file.
     let typing_page = pages::typing::build(&ui);
@@ -568,12 +572,21 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             controller.connect_leave(move |_| s());
             entry.add_controller(controller);
         }
-        // Text views save when focus leaves the window's text area.
+        // Text views save when focus leaves the window's text area. The
+        // raw macro editor additionally rebuilds the row list from its
+        // lines (the dictionary text saves straight through the funnel).
         {
             let s = save.clone();
             let controller = gtk4::EventControllerFocus::new();
             controller.connect_leave(move |_| s());
             ui.dictionary_text.add_controller(controller);
+        }
+        {
+            let ui = ui.clone();
+            let view = ui.macros_text.clone();
+            let controller = gtk4::EventControllerFocus::new();
+            controller.connect_leave(move |_| ui.apply_macros_text());
+            view.add_controller(controller);
         }
     }
 

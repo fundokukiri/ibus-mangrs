@@ -17,35 +17,15 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     dictionary.add(&ui.dictionary_enabled);
     page.add(&dictionary);
 
-    // The word list is one text file in a card; the page scroll takes over
-    // beyond 240 px. The editor drops its own .view background — it would
-    // paint over the card's rounded corners, and the card bg is the same
-    // color in both themes.
-    ui.dictionary_text.remove_css_class("view");
-    ui.dictionary_text.set_vexpand(true);
-    let placeholder = gtk4::Label::new(Some(&t(
-        "groups.data.words.placeholder",
-        "Mỗi dòng một từ — danh sách đang trống",
-    )));
-    placeholder.add_css_class("dim-label");
-    placeholder.add_css_class("caption");
-    placeholder.set_valign(gtk4::Align::Center);
-    // A visible overlay label still targets pointer events and would eat
-    // the first click into the empty editor.
-    placeholder.set_can_target(false);
-    let editor = gtk4::Overlay::new();
-    editor.set_child(Some(&ui.dictionary_text));
-    editor.add_overlay(&placeholder);
-    {
-        let buf = ui.dictionary_text.buffer();
-        placeholder.set_visible(buf.char_count() == 0);
-        buf.connect_changed(move |b| placeholder.set_visible(b.char_count() == 0));
-    }
-    let scroll = gtk4::ScrolledWindow::new();
-    scroll.add_css_class("card");
-    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    scroll.set_min_content_height(240);
-    scroll.set_child(Some(&editor));
+    // The word list is one text file in a card; the page scroll takes
+    // over beyond 240 px (see card_text_editor for the shared shell).
+    let scroll = card_text_editor(
+        &ui.dictionary_text,
+        &t(
+            "groups.data.words.placeholder",
+            "Mỗi dòng một từ — danh sách đang trống",
+        ),
+    );
 
     let words = adw::PreferencesGroup::builder()
         .title(t("groups.data.words.title", "Danh sách từ"))

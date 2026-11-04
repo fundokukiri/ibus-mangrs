@@ -42,7 +42,6 @@ import_button = "Nhập…"
 dbus_error = "Không nối được D-Bus: {e}"
 focus_ext_error = "Không hỏi được extension MăngRS Focus (data/gnome-shell-extension)"
 focus_none = "Không có cửa sổ nào đang focus"
-info_ok = "Đã hiểu"
 
 # --- page Chung -------------------------------------------------------------
 
@@ -165,6 +164,11 @@ description = "Mỗi cặp: khóa=Nội dung ($TIME, $DATE)"
 title = "Thêm cặp mới"
 subtitle = "Khóa và nội dung trống — điền ngay sau khi thêm"
 button = "Thêm gõ tắt"
+
+[groups.macros.raw]
+title = "Nội dung gõ tắt"
+description = "Mỗi dòng một cặp khóa=nội dung ($TIME, $DATE)"
+placeholder = "khóa=nội dung — mỗi dòng một cặp"
 
 [rows.time_format]
 title = "Định dạng giờ ($TIME)"
