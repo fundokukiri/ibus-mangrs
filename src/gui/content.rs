@@ -114,37 +114,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 3: Gõ tắt — switches, formats and the macro editor.
     let (macro_page, macro_add_btn) = pages::macros::build(&ui);
 
-    // ===== Page 4: Dữ liệu =====
-    let data_box = gtk4::Box::new(Orientation::Vertical, 6);
-    section(
-        &data_box,
-        "Từ điển của tôi",
-        "Từ trong từ điển không bị khôi phục về chuỗi phím",
-    );
-    data_box.append(&card(vec![pref_row(
-        "Từ điển của tôi",
-        "Bật: từ trong từ điển không bị khôi phục về chuỗi phím (~/.config/ibus-mangrs/dictionary.txt)",
-        &ui.dictionary_enabled,
-    )]));
-    data_box.append(&card_widget(&scrolled(&ui.dictionary_text, 160)));
-
-    section(
-        &data_box,
-        "Sao lưu & khôi phục",
-        "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng",
-    );
-    data_box.append(&card(vec![
-        pref_row(
-            "Xuất cấu hình ra JSON",
-            "Lưu ra file để mang đi",
-            &export_btn,
-        ),
-        pref_row(
-            "Nhập cấu hình từ JSON",
-            "Đọc lại từ file đã xuất",
-            &import_btn,
-        ),
-    ]));
+    // ===== Page 4: Dữ liệu — dictionary (text area) and JSON backup.
+    let data_page = pages::data::build(&ui, &export_btn, &import_btn);
 
     // ===== Page 5: Luật =====
     // A whole page for the per-app rules: the editor needs the room, the
@@ -389,14 +360,14 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         typing_page.upcast_ref(),
         tone_page.upcast_ref(),
         macro_page.upcast_ref(),
-        data_box.upcast_ref(),
+        data_page.upcast_ref(),
         rules_page.upcast_ref(),
         advanced.upcast_ref(),
         about.upcast_ref(),
     ];
     // Pages already on adw::PreferencesPage scroll internally; the plain gtk
     // boxes keep the width-clamped scroll wrapper until they convert.
-    const ADW_PAGES: [&str; 3] = ["typing", "tone", "macros"];
+    const ADW_PAGES: [&str; 4] = ["typing", "tone", "macros", "data"];
     let stack = gtk4::Stack::new();
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
     stack.set_vexpand(true);
