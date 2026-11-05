@@ -6,6 +6,25 @@ use super::*;
 impl Engine {
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
+        // Emoji shortcode candidate: a word glued directly after ':' types
+        // raw (the URL bypass shape) and the closing ':' rewrites it. Runs
+        // even with Vietnamese processing off — shortcodes are not marks,
+        // they are replacements, like macros in Off mode.
+        if !self.emoji_word
+            && self.emoji_enabled
+            && !self.wrapper.has_composition()
+            && self.last_char == Some(':')
+        {
+            self.emoji_word = true;
+            // The opening ':' is already committed text; tracking it makes
+            // the rewrite delete exactly what the application holds, even
+            // after backspaces ate part of the shortcode.
+            self.tail.push(':');
+        }
+        if self.emoji_word {
+            return self.process_char_emoji(c);
+        }
+
         if !self.wrapper.is_enabled() || self.effective_mode() == Mode::Off {
             return self.process_char_off(c);
         }
@@ -141,6 +160,78 @@ impl Engine {
                 actions
             }
         }
+    }
+
+    /// The emoji shortcode word: every key is forwarded raw and tracked in
+    /// `tail`, so the application shows exactly what the user types. The
+    /// closing ':' looks the name up — macros first, then the emoji tables —
+    /// and rewrites `:name:` through the same delete+commit machinery as the
+    /// macro expansion. Any other terminator, or a name that matches
+    /// nothing, ends the state and leaves the text as typed. Nothing about
+    /// the typed text is logged (engine rule).
+    fn process_char_emoji(&mut self, c: char) -> Vec<Action> {
+        let mut actions = Vec::new();
+        if self.preedit_visible {
+            self.preedit_visible = false;
+            actions.push(Action::HidePreedit);
+        }
+        if c == ':' {
+            // `tail` holds ":name" — the closing ':' below is not in the
+            // application yet, so the rewrite replaces exactly the shown text.
+            let typed = std::mem::take(&mut self.tail);
+            self.emoji_word = false;
+            let name = typed.strip_prefix(':').unwrap_or("").to_lowercase();
+            // A user macro keyed ":name:" wins over the emoji table, the
+            // same precedence macros have over every other replacement.
+            let replacement = self
+                .macros
+                .expand(
+                    &format!(":{name}:"),
+                    false,
+                    &self.time_format,
+                    &self.date_format,
+                )
+                .or_else(|| self.emojis.lookup(&name).map(str::to_string));
+            let Some(replacement) = replacement else {
+                self.note_char(c);
+                actions.push(Action::Forward);
+                return actions;
+            };
+            debug_log::log("emoji shortcode: matched");
+            let mode = self.effective_mode();
+            if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+                let mut actions = self.smooth_rewrite(mode, &typed, &replacement);
+                // smooth_rewrite's trailing Forward delivers the word-end
+                // terminator; the closing ':' is part of the shortcode and
+                // must not reach the application.
+                actions.retain(|a| !matches!(a, Action::Forward));
+                return actions;
+            }
+            if self.deletes_allowed() || forwards_delete(mode) {
+                actions.push(self.delete_action(
+                    mode,
+                    typed.chars().count() as u32,
+                    replacement.chars().count(),
+                ));
+                actions.push(Action::Commit(replacement));
+            } else {
+                // No delete transport: the rewrite would duplicate the
+                // replacement over the raw text, so the shortcode stays
+                // literal — the ':' still reaches the application.
+                actions.push(Action::Forward);
+            }
+            self.note_char(c);
+            return actions;
+        }
+        if crate::bamboo_wrapper::is_word_terminator(c) {
+            self.emoji_word = false;
+            self.tail.clear();
+        } else {
+            self.tail.push(c);
+        }
+        self.note_char(c);
+        actions.push(Action::Forward);
+        actions
     }
 
     /// Clamp a delete count to what the client's last surrounding-text report

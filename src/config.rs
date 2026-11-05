@@ -67,6 +67,10 @@ pub struct Config {
     /// Hotkey opening the emoji picker. Reserved the same way; empty =
     /// unassigned.
     pub emoji_hotkey: String,
+    /// Typing `:name:` rewrites the shortcode to its emoji. Off by default:
+    /// a word glued directly after `:` stays raw while it is on (the URL
+    /// bypass behavior), so the user opts in.
+    pub emoji_enabled: bool,
     /// Send preedit without the underline attribute (app support permitting).
     pub hide_underline: bool,
     /// Uinput pacing: gap between injected text/commit steps (ms).
@@ -685,6 +689,7 @@ impl Default for Config {
             enabled_hotkey: String::new(),
             app_rule_hotkey: String::new(),
             emoji_hotkey: String::new(),
+            emoji_enabled: false,
             hide_underline: false,
             commit_interval_ms: 20,
             backspace_interval_ms: 5,

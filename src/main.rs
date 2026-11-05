@@ -1,7 +1,8 @@
 //! Entry point for the IBus engine daemon.
 //!
 //! Started by ibus-daemon via the component XML, or by hand for debugging.
-//! `-gui` launches the GTK4 settings window instead (built with `--features gui`).
+//! `-gui` launches the GTK4 settings window instead (built with `--features gui`),
+//! `-emoji` the emoji picker window.
 
 use std::sync::{Arc, Mutex};
 
@@ -13,6 +14,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "-gui" || a == "--gui") {
         return run_gui();
+    }
+    if args.iter().any(|a| a == "-emoji" || a == "--emoji") {
+        return run_emoji_picker();
     }
 
     let config = Config::load();
@@ -60,7 +64,17 @@ fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     ibus_mangrs::gui::run()
 }
 
+#[cfg(feature = "gui")]
+fn run_emoji_picker() -> Result<(), Box<dyn std::error::Error>> {
+    ibus_mangrs::gui::run_emoji_picker()
+}
+
 #[cfg(not(feature = "gui"))]
 fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
+    Err("this build has no GUI; rebuild with --features gui".into())
+}
+
+#[cfg(not(feature = "gui"))]
+fn run_emoji_picker() -> Result<(), Box<dyn std::error::Error>> {
     Err("this build has no GUI; rebuild with --features gui".into())
 }
