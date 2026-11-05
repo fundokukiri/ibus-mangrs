@@ -287,6 +287,17 @@ pub enum MethodConfig {
     Viqr,
     /// Microsoft layout preset (`đ` on `d` twice, marks on 1..9).
     Microsoft,
+    /// Telex with `[`/`]` typing the horn vowels (ơ/ư) like the Microsoft
+    /// layout, so bracket keys reach bamboo-core even with brackets off.
+    Telex2,
+    /// Telex marks and VNI digits both type accents.
+    TelexVni,
+    /// Telex marks, VNI digits and VIQR punctuation all type accents.
+    TelexVniViqr,
+    /// VNI for AZERTY/French physical layouts.
+    VniFrench,
+    /// Telex with `w` as the mark key and `z` removing the tone.
+    TelexW,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -371,6 +382,11 @@ impl From<MethodConfig> for Method {
             MethodConfig::Vni => Method::Vni,
             MethodConfig::Viqr => Method::Viqr,
             MethodConfig::Microsoft => Method::MsLayout,
+            MethodConfig::Telex2 => Method::Telex2,
+            MethodConfig::TelexVni => Method::TelexVni,
+            MethodConfig::TelexVniViqr => Method::TelexVniViqr,
+            MethodConfig::VniFrench => Method::VniFrench,
+            MethodConfig::TelexW => Method::TelexW,
         }
     }
 }
@@ -453,15 +469,31 @@ impl MethodConfig {
             MethodConfig::Vni => "vni",
             MethodConfig::Viqr => "viqr",
             MethodConfig::Microsoft => "microsoft",
+            MethodConfig::Telex2 => "telex2",
+            MethodConfig::TelexVni => "telexvni",
+            MethodConfig::TelexVniViqr => "telexvniviqr",
+            MethodConfig::VniFrench => "vnifrench",
+            MethodConfig::TelexW => "telexw",
         }
     }
 
     pub fn from_key(key: &str) -> Option<Self> {
+        // Aliases mirror bamboo-core's `InputMethodPreset::from_str` so a
+        // hand-edited or migrated file using its spellings still loads.
         Some(match key {
             "telex" => MethodConfig::Telex,
             "vni" => MethodConfig::Vni,
             "viqr" => MethodConfig::Viqr,
-            "microsoft" => MethodConfig::Microsoft,
+            "microsoft" | "microsoft layout" | "microsoft_layout" => MethodConfig::Microsoft,
+            "telex2" | "telex 2" | "telex_2" => MethodConfig::Telex2,
+            "telexvni" | "telex+vni" | "telex + vni" | "telex_vni" => MethodConfig::TelexVni,
+            "telexvniviqr" | "telex+vni+viqr" | "telex + vni + viqr" | "telex_vni_viqr" => {
+                MethodConfig::TelexVniViqr
+            }
+            "vnifrench" | "vni french" | "vni_french" | "vni ban phim tieng phap" => {
+                MethodConfig::VniFrench
+            }
+            "telexw" | "telex w" | "telex_w" => MethodConfig::TelexW,
             _ => return None,
         })
     }
@@ -1024,5 +1056,42 @@ children = ["preedit", "smooth"]
         let b = c.bamboo_config();
         assert_eq!(b.w2u_mode, bamboo_core::W2uMode::Everywhere);
         assert_eq!(b.bracket_mode, bamboo_core::BracketMode::NonStart);
+    }
+
+    #[test]
+    fn new_method_keys_round_trip_with_aliases() {
+        for (key, m) in [
+            ("telex2", MethodConfig::Telex2),
+            ("telexvni", MethodConfig::TelexVni),
+            ("telexvniviqr", MethodConfig::TelexVniViqr),
+            ("vnifrench", MethodConfig::VniFrench),
+            ("telexw", MethodConfig::TelexW),
+        ] {
+            let c: Config = toml::from_str(&format!("method = \"{key}\"")).unwrap();
+            assert_eq!(c.method, m, "{key}");
+            assert_eq!(m.key(), key);
+            assert_eq!(MethodConfig::from_key(key), Some(m));
+        }
+        // bamboo-core preset spellings load too, so a hand-edited file
+        // using them still works.
+        assert_eq!(
+            MethodConfig::from_key("telex+vni+viqr"),
+            Some(MethodConfig::TelexVniViqr)
+        );
+        assert_eq!(
+            MethodConfig::from_key("vni french"),
+            Some(MethodConfig::VniFrench)
+        );
+        assert_eq!(
+            MethodConfig::from_key("telex w"),
+            Some(MethodConfig::TelexW)
+        );
+        // The four shipped keys keep their exact spelling.
+        assert_eq!(MethodConfig::from_key("telex"), Some(MethodConfig::Telex));
+        assert_eq!(
+            MethodConfig::from_key("microsoft"),
+            Some(MethodConfig::Microsoft)
+        );
+        assert_eq!(MethodConfig::from_key("nope"), None);
     }
 }

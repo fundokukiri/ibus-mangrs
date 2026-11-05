@@ -30,6 +30,11 @@ pub enum Method {
     Vni,
     Viqr,
     MsLayout,
+    Telex2,
+    TelexVni,
+    TelexVniViqr,
+    VniFrench,
+    TelexW,
 }
 
 impl Method {
@@ -39,6 +44,11 @@ impl Method {
             Method::Vni => InputMethod::vni(),
             Method::Viqr => InputMethod::viqr(),
             Method::MsLayout => InputMethod::microsoft_layout(),
+            Method::Telex2 => InputMethod::telex_2(),
+            Method::TelexVni => InputMethod::telex_vni(),
+            Method::TelexVniViqr => InputMethod::telex_vni_viqr(),
+            Method::VniFrench => InputMethod::vni_french_layout(),
+            Method::TelexW => InputMethod::telex_w(),
         }
     }
 }
@@ -262,20 +272,42 @@ impl BambooWrapper {
             && self.config.bracket_mode != bamboo_core::BracketMode::Disabled;
         // Digits end the word for methods that do not use them as marks.
         // (bamboo-core clears its whole composition on a digit in Telex —
-        // feeding it there deleted the word in the application.) The same
-        // holds for `_`, which no method uses as a mark.
-        let digit_key = c.is_ascii_digit() && matches!(self.method, Method::Telex | Method::Viqr);
+        // feeding it there deleted the word in the application. The Telex 2,
+        // Telex W and French-VNI presets clear the same way.) The VNI-based
+        // presets keep every digit in the composition — marks there, literal
+        // else — so they must all reach bamboo-core.
+        let digit_key = c.is_ascii_digit()
+            && matches!(
+                self.method,
+                Method::Telex | Method::Viqr | Method::Telex2 | Method::VniFrench | Method::TelexW
+            );
         // VIQR marks are punctuation keys: they must reach bamboo-core
         // instead of ending the word (unikey convention). `0` is VIQR's
         // remove-tone key — the only digit the method uses as a mark, so it
         // is exempt from the digit terminator too.
-        let viqr_mark_key = self.method == Method::Viqr
-            && (matches!(c, '\'' | '`' | '?' | '~' | '.' | '^' | '+' | '*' | '(') || c == '0');
+        let viqr_mark_key = match self.method {
+            Method::Viqr => {
+                matches!(c, '\'' | '`' | '?' | '~' | '.' | '^' | '+' | '*' | '(') || c == '0'
+            }
+            // The combined preset drops `+` (literal there, probed) and marks
+            // `.` (nặng) — which pure Telex keeps as a sentence separator.
+            Method::TelexVniViqr => matches!(c, '\'' | '`' | '?' | '~' | '.' | '^' | '*' | '('),
+            // The French-layout VNI preset marks on the AZERTY digit row
+            // characters it actually implements: huyền hỏi ngã nặng.
+            Method::VniFrench => matches!(c, '"' | '\'' | '(' | '-'),
+            _ => false,
+        };
         // The Microsoft layout types ư/ơ only through the bracket keys, so
         // they must reach bamboo-core for this method regardless of the
         // bracket option.
         let ms_bracket_key = self.method == Method::MsLayout && matches!(c, '[' | ']' | '{' | '}');
-        if (is_word_terminator(c) || digit_key) && !bracket_key && !viqr_mark_key && !ms_bracket_key
+        // Telex 2 is the same idea with only `[`/`]` (its `}` stays a brace).
+        let telex2_bracket_key = self.method == Method::Telex2 && matches!(c, '[' | ']');
+        if (is_word_terminator(c) || digit_key)
+            && !bracket_key
+            && !viqr_mark_key
+            && !ms_bracket_key
+            && !telex2_bracket_key
         {
             // The visible composition, not bamboo's internal string: after an
             // undone mark its state is poisoned ("tool" is "toool" inside)
@@ -863,6 +895,76 @@ mod tests {
         // Microsoft layout appends marked vowels: 3=ê, 8=sắc.
         type_str(&mut w, "ti3ng8");
         assert_eq!(w.output(), "tiếng");
+    }
+
+    fn out(m: Method, keys: &str) -> String {
+        let mut w = wrapper(m);
+        type_str(&mut w, keys);
+        w.output()
+    }
+
+    /// Does the wrapper end the word at `c` (all methods type `a` first)?
+    fn word_ended_at(m: Method, c: char) -> bool {
+        let mut w = wrapper(m);
+        type_str(&mut w, "a");
+        matches!(w.process_char(c), Outcome::Finish { .. })
+    }
+
+    #[test]
+    fn telex2_horn_brackets_reach_bamboo() {
+        // The preset's own horn keys reach bamboo-core even with the bracket
+        // option off (ms-layout behaviour).
+        assert_eq!(out(Method::Telex2, "t["), "tơ");
+        assert_eq!(out(Method::Telex2, "t]"), "tư");
+        assert_eq!(out(Method::Telex2, "tieengs"), "tiếng");
+        assert_eq!(out(Method::Telex2, "window"), "window");
+    }
+
+    #[test]
+    fn digit_terminators_per_method() {
+        // Presets whose composition a digit clears must end the word first
+        // (the VNI-based presets keep every digit in the composition).
+        for m in [
+            Method::Telex,
+            Method::Viqr,
+            Method::Telex2,
+            Method::VniFrench,
+            Method::TelexW,
+        ] {
+            assert!(word_ended_at(m, '1'), "{m:?}");
+        }
+        for m in [Method::Vni, Method::TelexVni, Method::TelexVniViqr] {
+            assert!(!word_ended_at(m, '1'), "{m:?}");
+        }
+    }
+
+    #[test]
+    fn combined_presets_route_marks_and_literals() {
+        assert_eq!(out(Method::TelexVni, "aa1"), "ấ");
+        assert_eq!(out(Method::TelexVni, "d9"), "đ");
+        assert_eq!(out(Method::TelexVniViqr, "a'"), "á");
+        assert_eq!(out(Method::TelexVniViqr, "a."), "ạ");
+        assert_eq!(out(Method::TelexVniViqr, "oo*"), "ơ");
+        assert_eq!(out(Method::TelexVniViqr, "as0"), "a");
+        // `+` is literal in the combined preset, so it ends the word.
+        assert!(word_ended_at(Method::TelexVniViqr, '+'));
+    }
+
+    #[test]
+    fn vni_french_marks_on_azerty_row() {
+        assert_eq!(out(Method::VniFrench, "a\""), "à");
+        assert_eq!(out(Method::VniFrench, "a'"), "ả");
+        assert_eq!(out(Method::VniFrench, "a("), "ã");
+        assert_eq!(out(Method::VniFrench, "a-"), "ạ");
+        // The preset transforms nothing else — plain Telex keys stay raw.
+        assert_eq!(out(Method::VniFrench, "tieengs"), "tieengs");
+    }
+
+    #[test]
+    fn telex_w_z_removes_tone() {
+        assert_eq!(out(Method::TelexW, "asz"), "a");
+        assert_eq!(out(Method::TelexW, "tieengs"), "tiếng");
+        assert_eq!(out(Method::TelexW, "ew"), "ew");
     }
 
     #[test]
