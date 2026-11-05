@@ -155,12 +155,27 @@ fn forward_select(s: &mut common::Sess) {
         keys.iter().any(|(_, state, _)| *state == 1),
         "a press carries the shift: {keys:x?}"
     );
+    // The erase: ONE forwarded Backspace after the selection — a CommitText
+    // does not replace an application-side selection, so the selection is
+    // deleted with a Backspace (the select-then-erase fix).
     assert!(
-        sigs.iter().all(|sig| !matches!(
+        sigs.iter().any(|sig| matches!(
             sig,
-            Sig::ForwardKeyEvent { keyval, .. } if *keyval == BACKSPACE_KEYVAL
+            Sig::ForwardKeyEvent { keyval, state: 0, .. } if *keyval == BACKSPACE_KEYVAL
         )),
-        "II must not fall back to forwarded Backspace: {sigs:?}"
+        "the selection must be erased with a forwarded Backspace: {sigs:?}"
+    );
+    // The rewrite commits ride the pacing window (the delete keys and the
+    // commit left in one batch and apps applied them out of order — every
+    // word lost the character before its accented vowel); pump past the
+    // window and check they still land.
+    // The rewrite commits land within the per-key pumps — deferred by the
+    // pacing window (Engine::defer_commit_timed, the engine log shows
+    // "defer commit 30ms" then the timed flush), but they must land.
+    let all_commits = commits(&sigs);
+    assert!(
+        all_commits.contains(&"ê") && all_commits.contains(&"ếng"),
+        "the rewrite commits land: {sigs:?}"
     );
 }
 
