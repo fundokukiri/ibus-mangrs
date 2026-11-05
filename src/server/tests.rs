@@ -1121,8 +1121,8 @@ fn the_select_rewrite_defers_its_commit_by_the_pacing_window() {
         e.ms_until_tick().is_some(),
         "the loop wakes for the deadline"
     );
-    // Defaults: 20ms commit interval + (2+1) * 5ms backspace gap = 35ms.
-    std::thread::sleep(std::time::Duration::from_millis(60));
+    // Defaults: 20ms + (2+1) * 5ms = 35ms, floored at the 50ms XIM window.
+    std::thread::sleep(std::time::Duration::from_millis(80));
     let actions = e.tick();
     assert_eq!(
         actions,
@@ -1151,7 +1151,7 @@ fn the_select_rewrite_defers_its_commit_by_the_pacing_window() {
         "the macro rewrite's commit waits for its deletes on mode I too"
     );
     assert!(e.has_deferred());
-    std::thread::sleep(std::time::Duration::from_millis(60));
+    std::thread::sleep(std::time::Duration::from_millis(80));
     assert_eq!(
         e.tick(),
         vec![Action::Commit("Tùng".into())],
@@ -1229,7 +1229,7 @@ fn a_bursts_next_commit_queues_behind_the_paced_rewrite() {
         "the burst commit must not overtake the rewrite"
     );
     // Past the window: the rewrite lands first, then the burst's letter.
-    std::thread::sleep(std::time::Duration::from_millis(60));
+    std::thread::sleep(std::time::Duration::from_millis(80));
     assert_eq!(
         e.tick(),
         vec![Action::Commit("ào".into()), Action::Commit("c".into())],

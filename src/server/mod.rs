@@ -553,9 +553,16 @@ const LEFT_KEYCODE: u32 = 105;
 /// app has already acted on the press); ibus-bamboo's ForwardKeyEvent modes
 /// send the same pair.
 /// The pacing window for a forwarded rewrite's commit: the same shape the
-/// uinput modes pace with, from the user's own timing config.
+/// uinput modes pace with, from the user's own timing config. The floor
+/// outlasts the XIM forward round trip (JetBrains' -Dawt.toolkit.name
+/// =XToolkit bridge drops a commit that arrives while its synchronous
+/// key forward is still in flight — every n=1 edit at the 25ms formula
+/// lost its ị/ỉ there).
+const FORWARD_PACING_FLOOR_MS: u64 = 50;
+
 fn pacing_delay(engine: &Engine, keys: u32) -> u64 {
-    engine.commit_interval_ms() + u64::from(keys) * engine.backspace_interval_ms()
+    (engine.commit_interval_ms() + u64::from(keys) * engine.backspace_interval_ms())
+        .max(FORWARD_PACING_FLOOR_MS)
 }
 
 fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u32) {
