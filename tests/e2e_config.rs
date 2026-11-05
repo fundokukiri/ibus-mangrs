@@ -183,14 +183,33 @@ fn app_rule_picker(s: &mut common::Sess) {
     // picks it, the popup closes, the rule lands in config.toml.
     s.focus(CAPS_BOTH, "gtk4-im:e2epicktest");
     s.drain();
-    assert!(s.key(0x70, common::CONTROL | common::ALT), "hotkey consumed");
+    assert!(
+        s.key(0x70, common::CONTROL | common::ALT),
+        "hotkey consumed"
+    );
     s.pump(PUMP_MS);
     let sigs = s.drain();
     assert!(
         has_member(&sigs, "UpdateLookupTable"),
         "the picker must show at the caret: {sigs:?}"
     );
+    // Releasing the combo keys (the moment the menu opens) must NOT close
+    // it — releases are swallowed whole while the picker is up.
+    let release = 1u32 << 30;
+    for kv in [0x70, 0xffe5, 0xffe9] {
+        assert!(
+            s.key(kv, common::CONTROL | common::ALT | release),
+            "release consumed"
+        );
+    }
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        !has_member(&sigs, "HideLookupTable"),
+        "releases must keep the menu open: {sigs:?}"
+    );
     assert!(s.key(65364, 0), "Down consumed by the picker");
+    assert!(s.key(65364, 0 | release), "Down release swallowed");
     assert!(s.key(65293, 0), "Return consumed by the picker");
     s.pump(PUMP_MS);
     let sigs = s.drain();

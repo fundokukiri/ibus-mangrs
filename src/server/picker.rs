@@ -98,6 +98,12 @@ impl EngineHandler {
                 })
                 .or_else(|| engine.client().and_then(client_prgname))
         };
+        // Second press of the hotkey while the menu is up closes it — the
+        // combo is a toggle, like bamboo's.
+        if self.picker.take().is_some() {
+            out.push(signal("HideLookupTable"));
+            return;
+        }
         let Some(target) = target.filter(|t| !t.is_empty()) else {
             // No name, no rule that could ever match: stay closed.
             debug_log::log("picker hotkey: focused app unnamed, staying closed");
@@ -124,12 +130,19 @@ impl EngineHandler {
 
     /// Handle a key while the picker is open. Returns whether the key was
     /// consumed; `Ignore` closes the picker first so the key types on.
-    pub(super) fn picker_key(&mut self, keyval: u32, out: &mut Vec<Message>) -> bool {
+    pub(super) fn picker_key(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
+        // Releases never act: the combo's own keys are released the moment
+        // the menu opens (which used to close it instantly), and a Down
+        // release would double-step the cursor. Swallow them.
+        if state & keymap::RELEASE_MASK != 0 {
+            return true;
+        }
         let len = picker_entries().len();
-        let Some(state) = self.picker.as_ref() else {
-            return false;
+        let action = match self.picker.as_ref() {
+            Some(p) => p.on_key(keyval, len),
+            None => return false,
         };
-        match state.on_key(keyval, len) {
+        match action {
             PickerKey::Down => {
                 if let Some(state) = self.picker.as_mut() {
                     state.step(1, len);
