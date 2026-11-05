@@ -22,7 +22,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.mode.title", "Chế độ gõ"),
         &t(
             "rows.mode.subtitle",
-            "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF, Gõ mặc định",
+            "Tự động, Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF",
         ),
         MODES,
     );

@@ -101,6 +101,38 @@ fn refresh_round_trips_every_widget() {
     };
     ui.refresh(&config, &macros, &dictionary);
 
+    // The mode combo must render the config's mode under the right label:
+    // the display list and the index mappers once drifted (the list kept
+    // the removed "Gõ mặc định" and missed "Tự động", so Preedit showed as
+    // Surrounding text) and the round-trip below could not see it because
+    // it only walks the mappers, never the labels.
+    assert_eq!(MODES[0], "Tự động", "auto must lead the mode list");
+    assert!(
+        !MODES.contains(&"Gõ mặc định"),
+        "the removed mode must not linger in the list"
+    );
+    for m in [
+        ModeConfig::Auto,
+        ModeConfig::NonPreedit,
+        ModeConfig::Preedit,
+        ModeConfig::Surrounding,
+        ModeConfig::Smooth,
+        ModeConfig::SuperSmooth,
+        ModeConfig::Select,
+        ModeConfig::ForwardKeyEvent,
+        ModeConfig::ForwardSelect,
+        ModeConfig::Off,
+    ] {
+        let i = mode_index(m) as usize;
+        assert!(i < MODES.len(), "{m:?} index {i} outside the list");
+        assert_eq!(mode_at(i as u32), m, "index round-trip for {m:?}");
+    }
+    assert_eq!(
+        ui.mode.selected(),
+        mode_index(ModeConfig::Select),
+        "refresh must place the config's mode at the right list position"
+    );
+
     assert_eq!(ui.read(), config);
     assert_eq!(
         ui.read().app_rules,

@@ -118,7 +118,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // No title: the dropdown's own value text sits at the row start, and
     // both controls expand evenly so the row reads balanced.
     let mode_pick = gtk4::DropDown::new(Some(StringList::new(MODES)), gtk4::Expression::NONE);
-    mode_pick.set_selected(1);
+    // Preedit is the default rule mode (index of "Gạch chân (preedit)").
+    mode_pick.set_selected(mode_index(ModeConfig::Preedit));
     mode_pick.set_hexpand(true);
     mode_pick.set_valign(gtk4::Align::Fill);
     mode_pick.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
