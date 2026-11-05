@@ -2817,3 +2817,24 @@ fn backspaces_inside_the_shortcode_keep_the_rewrite_in_range() {
     assert_eq!(text, "😄");
     assert!(!out_of_range, "the rewrite may not ask for more than shown");
 }
+
+#[test]
+fn emoji_pick_after_a_colon_disarms_the_shortcode_branch() {
+    // The pickers commit through note_committed; the engine's last-char
+    // bookkeeping must follow, or a pick right after a literal ':' leaves
+    // the shortcode branch armed and the next word types raw.
+    let mut e = with_emoji(
+        Mode::NonPreedit,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    type_str(&mut e, ":");
+    e.note_committed("😄");
+    let actions = e.process_char('l');
+    assert!(
+        actions.contains(&Action::Commit("l".into())),
+        "the next word must compose normally: {actions:?}"
+    );
+}

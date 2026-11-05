@@ -1190,6 +1190,17 @@ impl Engine {
         actions
     }
 
+    /// Bookkeeping for text the server commits outside the key path (the
+    /// pickers' insertions): `last_char` and the capitalize window must
+    /// follow what the application received, or the next word mis-reads
+    /// the context — a pick right after a literal ':' would leave the emoji
+    /// shortcode branch armed and the next word would type raw.
+    pub fn note_committed(&mut self, text: &str) {
+        if let Some(c) = text.chars().last() {
+            self.note_char(c);
+        }
+    }
+
     /// The client `Reset` method. GTK fires it when the user clicks in a text
     /// field and on focus changes. The preedit is sent with
     /// `IBUS_ENGINE_PREEDIT_COMMIT`, so GTK has already committed the pending

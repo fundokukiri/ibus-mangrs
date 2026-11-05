@@ -26,7 +26,6 @@ use gtk4::{Entry, Orientation, StringList, TextView};
 use libadwaita as adw;
 
 mod content;
-mod emoji_picker;
 mod hotkey;
 mod pages;
 mod text;
@@ -70,12 +69,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
     app.run_with_args::<&str>(&[]);
     Ok(())
-}
-
-/// The `-emoji` picker window — its own GApplication id, it must never
-/// wake the settings window.
-pub fn run_emoji_picker() -> Result<(), Box<dyn std::error::Error>> {
-    emoji_picker::run()
 }
 
 const METHODS: &[&str] = &[

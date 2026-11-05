@@ -62,19 +62,20 @@ pub fn embedded_names() -> &'static HashMap<String, String> {
     })
 }
 
-/// A merged row for the picker: the embedded entry with the user's glyph,
-/// or a user-only entry with no keywords (search falls back to the name).
-pub struct PickerEntry {
+/// One searchable row of the picker: name, glyph and the folded search
+/// blob (name + aliases + keywords, lowercase, diacritics folded).
+pub struct SearchRow {
     pub name: String,
     pub glyph: String,
-    pub keywords: Vec<String>,
+    pub blob: String,
 }
 
-/// The full picker list: the embedded table in its order, then user-only
+/// The picker's search list: the embedded table in its order (so the
+/// common smileys lead when nothing was picked yet), then user-only
 /// names, with user glyphs applied — by row name or by any of its aliases
 /// (`smile = "🙂"` overrides the grinning-face row).
-pub fn picker_entries(user: &BTreeMap<String, String>) -> Vec<PickerEntry> {
-    let mut out: Vec<PickerEntry> = embedded()
+pub fn search_rows(user: &BTreeMap<String, String>) -> Vec<SearchRow> {
+    let mut rows: Vec<(String, String, Vec<String>)> = embedded()
         .iter()
         .map(|row| {
             let glyph = user
@@ -82,23 +83,109 @@ pub fn picker_entries(user: &BTreeMap<String, String>) -> Vec<PickerEntry> {
                 .or_else(|| row.aliases.iter().find_map(|a| user.get(a)))
                 .cloned()
                 .unwrap_or_else(|| row.glyph.clone());
-            PickerEntry {
-                glyph,
-                name: row.name.clone(),
-                keywords: row.keywords.clone(),
-            }
+            let mut keywords = row.keywords.clone();
+            keywords.extend(row.aliases.iter().cloned());
+            (row.name.clone(), glyph, keywords)
         })
         .collect();
     for (name, glyph) in user {
-        if !out.iter().any(|e| &e.name == name) {
-            out.push(PickerEntry {
-                name: name.clone(),
-                glyph: glyph.clone(),
-                keywords: Vec::new(),
-            });
+        if !rows.iter().any(|(n, _, _)| n == name) {
+            rows.push((name.clone(), glyph.clone(), Vec::new()));
         }
     }
-    out
+    rows.into_iter()
+        .map(|(name, glyph, keywords)| {
+            let mut blob = fold_ascii(&name);
+            for keyword in keywords {
+                for word in fold_ascii(&keyword).split_whitespace() {
+                    blob.push(' ');
+                    blob.push_str(word);
+                }
+            }
+            SearchRow { name, glyph, blob }
+        })
+        .collect()
+}
+
+/// Fold Vietnamese diacritics to their ASCII base and lowercase. The
+/// picker's search runs on what the user types — bare letter keys — so
+/// `cuoi` must find "cười".
+pub fn fold_ascii(s: &str) -> String {
+    fn fold(c: char) -> char {
+        match c {
+            'à' | 'á' | 'ả' | 'ã' | 'ạ' | 'ă' | 'ằ' | 'ắ' | 'ẳ' | 'ẵ' | 'ặ' | 'â' | 'ầ' | 'ấ'
+            | 'ẩ' | 'ẫ' | 'ậ' => 'a',
+            'è' | 'é' | 'ẻ' | 'ẽ' | 'ẹ' | 'ê' | 'ề' | 'ế' | 'ể' | 'ễ' | 'ệ' => {
+                'e'
+            }
+            'ì' | 'í' | 'ỉ' | 'ĩ' | 'ị' => 'i',
+            'ò' | 'ó' | 'ỏ' | 'õ' | 'ọ' | 'ô' | 'ồ' | 'ố' | 'ổ' | 'ỗ' | 'ộ' | 'ơ' | 'ờ' | 'ớ'
+            | 'ở' | 'ỡ' | 'ợ' => 'o',
+            'ù' | 'ú' | 'ủ' | 'ũ' | 'ụ' | 'ư' | 'ừ' | 'ứ' | 'ử' | 'ữ' | 'ự' => {
+                'u'
+            }
+            'ỳ' | 'ý' | 'ỷ' | 'ỹ' | 'ỵ' => 'y',
+            'đ' => 'd',
+            _ => c,
+        }
+    }
+    s.to_lowercase().chars().map(fold).collect()
+}
+
+/// The emoji recently picked through the picker, newest first — its first
+/// page. One name per line in `~/.config/ibus-mangrs/emoji_recent.txt`
+/// (names, not glyphs: a later user-table override keeps applying).
+pub struct RecentEmoji {
+    names: Vec<String>,
+}
+
+/// How many picks the recents list remembers — one picker page.
+pub const RECENT_CAP: usize = 10;
+
+impl RecentEmoji {
+    pub(crate) fn path() -> Option<PathBuf> {
+        dirs::config_dir().map(|d| d.join("ibus-mangrs").join("emoji_recent.txt"))
+    }
+
+    pub fn load() -> Self {
+        let names = Self::path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|text| {
+                text.lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .take(RECENT_CAP)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self { names }
+    }
+
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    /// Record a pick: to the front, deduped, capped, then saved (best
+    /// effort — a failed write only loses the recency order).
+    pub fn push(name: &str) {
+        let mut list = Self::load().names;
+        push_name(&mut list, name);
+        if let Some(path) = Self::path() {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(path, list.join("\n"));
+        }
+    }
+}
+
+/// The pure part of `push`, seam for the tests: the developer's real
+/// recents file must never be touched by a test run.
+fn push_name(list: &mut Vec<String>, name: &str) {
+    list.retain(|n| n != name);
+    list.insert(0, name.to_string());
+    list.truncate(RECENT_CAP);
 }
 
 /// The user's own table, `~/.config/ibus-mangrs/emoji.toml` — the same
@@ -188,17 +275,40 @@ mod tests {
     #[test]
     fn picker_merges_user_rows() {
         let u = user(&[("smile", "🙂"), ("vnu", "🇻🇳 custom")]);
-        let entries = picker_entries(&u.map);
-        // An alias override lands on its canonical row; the keywords of the
-        // embedded row survive (the search keeps working).
-        let smile = entries
+        let rows = search_rows(&u.map);
+        // An alias override lands on its canonical row.
+        let smile = rows
             .iter()
-            .find(|e| e.name == "grinning_face_with_smiling_eyes")
+            .find(|r| r.name == "grinning_face_with_smiling_eyes")
             .unwrap();
         assert_eq!(smile.glyph, "🙂");
-        assert!(!smile.keywords.is_empty(), "keywords survive the override");
-        let vnu = entries.iter().find(|e| e.name == "vnu").unwrap();
+        assert!(smile.blob.contains("smile"), "aliases join the blob");
+        // The Vietnamese keywords are folded into the blob: bare keys find
+        // accented words.
+        assert!(smile.blob.contains("cuoi"), "{}", smile.blob);
+        // A user-only row searches by its name.
+        let vnu = rows.iter().find(|r| r.name == "vnu").unwrap();
         assert_eq!(vnu.glyph, "🇻🇳 custom");
-        assert!(vnu.keywords.is_empty(), "user-only rows search by name");
+    }
+
+    #[test]
+    fn fold_ascii_strips_vietnamese_diacritics() {
+        assert_eq!(fold_ascii("Cười"), "cuoi");
+        assert_eq!(fold_ascii("đặt"), "dat");
+        assert_eq!(fold_ascii("Fire!"), "fire!");
+    }
+
+    #[test]
+    fn recents_dedupe_and_cap() {
+        let mut list: Vec<String> = Vec::new();
+        push_name(&mut list, "fire");
+        push_name(&mut list, "smile");
+        push_name(&mut list, "fire");
+        assert_eq!(list, vec!["fire".to_string(), "smile".to_string()]);
+        for i in 0..(RECENT_CAP + 3) {
+            push_name(&mut list, &format!("e{i}"));
+        }
+        assert_eq!(list.len(), RECENT_CAP);
+        assert_eq!(list[0], "e12");
     }
 }
