@@ -28,12 +28,20 @@ const CASES: &[Case] = &[
         f: off_macro,
     },
     Case {
-        name: "default typing is fully inert",
-        cfg: &[("mode", "\"defaulttyping\"")],
+        name: "auto mode picks preedit for a capable client",
+        cfg: &[("mode", "\"auto\"")],
         macros: &[],
         raw: "",
         dict: "",
-        f: default_typing,
+        f: auto_capable,
+    },
+    Case {
+        name: "auto mode picks a forward transport for an XIM client",
+        cfg: &[("mode", "\"auto\"")],
+        macros: &[],
+        raw: "",
+        dict: "",
+        f: auto_xim,
     },
     Case {
         name: "forwardkeyevent deletes with forwarded Backspace keys",
@@ -156,14 +164,29 @@ fn forward_select(s: &mut common::Sess) {
     );
 }
 
-fn default_typing(s: &mut common::Sess) {
+fn auto_capable(s: &mut common::Sess) {
+    // A client that renders preedit and reports surrounding text: the
+    // ladder's first rung — the everyday preedit path.
     s.focus(CAPS_BOTH, "gtk4-im:test");
     s.drain();
-    let (buf, sigs) = s.type_buffered("x1 ");
-    assert_eq!(buf, "x1 ", "everything forwarded");
+    let sigs = s.type_plain("tieengs ");
+    assert_eq!(commits(&sigs), ["tiếng"], "{sigs:?}");
     assert!(
-        commits(&sigs).is_empty() && preedits(&sigs).is_empty() && deletes(&sigs).is_empty(),
-        "Default Typing must emit no signals at all: {sigs:?}"
+        !preedits(&sigs).is_empty(),
+        "capable client under auto must compose as preedit: {sigs:?}"
+    );
+}
+
+fn auto_xim(s: &mut common::Sess) {
+    // A real XIM context reports no capabilities at all (caps 0): the
+    // Shift+Left transport, not the ladder's inert fallback.
+    s.focus(0, "xim");
+    s.drain();
+    let sigs = s.type_plain("tieengs");
+    assert!(
+        sigs.iter()
+            .any(|s| matches!(s, Sig::ForwardKeyEvent { .. })),
+        "xim under auto must resolve to ForwardSelect: {sigs:?}"
     );
 }
 
