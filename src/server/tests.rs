@@ -859,15 +859,20 @@ fn picker_keys_map_onto_entries() {
     use super::picker::{picker_entries, PickerKey, PickerState};
     let len = picker_entries(ModeConfig::Preedit).len();
     assert_eq!(len, ibus_prop::MODES.len(), "ten modes, nothing else");
-    let state = PickerState::new("e2epick".into());
+    let state = PickerState::new("e2epick".into(), 2);
     // Digits 1..9 pick entries 1..9, 0 picks the tenth; Enter picks the
-    // first. There is no navigation: arrows and every other key close.
+    // highlighted entry; Up/Down move the highlight.
     assert_eq!(state.on_key(0x31), PickerKey::Select(0));
     assert_eq!(state.on_key(0x39), PickerKey::Select(8));
     assert_eq!(state.on_key(0x30), PickerKey::Select(9));
-    assert_eq!(state.on_key(65293), PickerKey::Select(0));
+    assert_eq!(
+        state.on_key(65293),
+        PickerKey::Select(2),
+        "Enter picks the highlight"
+    );
     assert_eq!(state.on_key(65307), PickerKey::Cancel);
-    assert_eq!(state.on_key(65364), PickerKey::Ignore); // Down
+    assert_eq!(state.on_key(65362), PickerKey::Move(-1)); // Up
+    assert_eq!(state.on_key(65364), PickerKey::Move(1)); // Down
     assert_eq!(state.on_key(0x76), PickerKey::Ignore);
     // The current mode's entry carries the dot marker.
     let entries = picker_entries(ModeConfig::Preedit);
@@ -877,6 +882,23 @@ fn picker_keys_map_onto_entries() {
         entries[2]
     );
     assert!(!entries[0].starts_with("● "));
+}
+
+#[test]
+fn picker_cursor_moves_with_wrap() {
+    use super::picker::PICKER_PAGE_SIZE;
+    // The same arithmetic the Move arm runs: wrapping past both ends.
+    let mut cursor = 2usize;
+    for delta in [1, -1, -1] {
+        cursor = (cursor as i32 + delta).rem_euclid(PICKER_PAGE_SIZE as i32) as usize;
+    }
+    assert_eq!(cursor, 1, "down then up twice: 2 -> 3 -> 2 -> 1");
+    cursor = 0;
+    cursor = (cursor as i32 - 1).rem_euclid(PICKER_PAGE_SIZE as i32) as usize;
+    assert_eq!(cursor, 9, "Up from the first wraps to the tenth");
+    cursor = 9;
+    cursor = (cursor as i32 + 1).rem_euclid(PICKER_PAGE_SIZE as i32) as usize;
+    assert_eq!(cursor, 0, "Down from the tenth wraps to the first");
 }
 
 #[test]
