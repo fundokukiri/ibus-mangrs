@@ -725,6 +725,23 @@ impl Config {
         std::fs::write(path, text)
     }
 
+    /// Overwrite the file with this config verbatim — no merge. The
+    /// restore-defaults button needs it: `save` merges, so an old `menu`
+    /// design and keys this version no longer knows would survive a reset.
+    pub fn save_fresh(&self) -> std::io::Result<()> {
+        let Some(path) = Self::path() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no config dir",
+            ));
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
+        std::fs::write(path, text)
+    }
+
     /// Translate to the subset of bamboo-core options this engine exposes.
     pub fn bamboo_config(&self) -> bamboo_core::Config {
         bamboo_core::Config::builder()
