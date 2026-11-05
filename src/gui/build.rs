@@ -204,6 +204,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     let rule_focus_value = Rc::new(RefCell::new(String::new()));
     let rules_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
+    let suppress_save = Cell::new(false);
     let hide_underline = switch_row(
         &t("rows.hide_underline.title", "Ẩn gạch chân"),
         &t(
@@ -452,6 +453,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         rules_status,
         rules_loading,
         save_cb,
+        suppress_save,
         rule_preview_input,
         rule_preview,
         rule_focus,

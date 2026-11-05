@@ -498,6 +498,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         let ui_for_save = ui.clone();
         let restart_for_save = restart_btn.clone();
         let save = move || {
+            // Programmatic widget updates (external_reload) fire the same
+            // handlers; saving then would write back what we just read.
+            if ui_for_save.suppress_save.get() {
+                return;
+            }
             match ui_for_save.save_all() {
                 // Every saved change raises the restart banner: the settings
                 // are already on disk, the button is only there so a restart
@@ -651,5 +656,30 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         });
     }
 
+    // Live reload: the engine's hotkeys (and any other writer) change the
+    // files under this window. Poll the mtime cheaply and re-read into the
+    // widgets; without it the next user edit would save the stale values
+    // over the change. The engine does the same from its key path.
+    {
+        let watch_ui = ui.clone();
+        let watch_mtime = Cell::new(config_mtime());
+        gtk4::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+            let m = config_mtime();
+            if m != watch_mtime.get() {
+                watch_mtime.set(m);
+                watch_ui.external_reload();
+            }
+            gtk4::glib::ControlFlow::Continue
+        });
+    }
+
     window.present();
+}
+
+/// mtime of config.toml, `None` while it does not exist yet — the watch
+/// baseline for the live-reload poll.
+fn config_mtime() -> Option<std::time::SystemTime> {
+    Config::path()
+        .and_then(|p| std::fs::metadata(p).ok())
+        .and_then(|m| m.modified().ok())
 }

@@ -155,6 +155,11 @@ struct Ui {
     /// created in `refresh`, so they fire edits through this instead of a
     /// closure captured at build time. `None` in headless tests.
     save_cb: SharedSave,
+    /// Blocks the save funnel while `external_reload` pushes fresh file
+    /// contents into the widgets: the programmatic updates fire the same
+    /// change handlers a user edit does, and saving them would write the
+    /// half-updated state back over the change being picked up.
+    suppress_save: Cell<bool>,
     /// "Thử luật" input and its verdict row.
     rule_preview_input: adw::EntryRow,
     rule_preview: adw::ActionRow,
@@ -440,6 +445,9 @@ impl Ui {
 
     /// Run the save funnel if the window wired it (headless tests skip it).
     fn fire_save(&self) {
+        if self.suppress_save.get() {
+            return;
+        }
         let save = self.save_cb.borrow().clone();
         if let Some(save) = save {
             save();
@@ -458,6 +466,20 @@ impl Ui {
         dict.set_words(self.read_dictionary().into_iter());
         dict.save()?;
         Ok(())
+    }
+
+    /// Re-read every settings file and push its contents into the widgets
+    /// without saving. Called when the files changed under the window —
+    /// the engine's hotkey toggles write config.toml directly. Without
+    /// this the stale widget values would be saved back over the change
+    /// on the next user edit.
+    pub(super) fn external_reload(self: &Rc<Self>) {
+        self.suppress_save.set(true);
+        let config = Config::load();
+        let macros = Macros::load();
+        let dictionary = Dictionary::load();
+        self.refresh(&config, &macros, &dictionary);
+        self.suppress_save.set(false);
     }
 }
 

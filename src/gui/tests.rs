@@ -150,3 +150,23 @@ fn hotkey_recorder_lives_on_the_edit_button() {
     assert!(edit.is_sensitive(), "the recorder disabled the edit button");
     assert_eq!(label.text(), "Nhấn tổ hợp phím… (Esc hủy)");
 }
+#[test]
+fn external_reload_refreshes_without_saving() {
+    if gtk4::init().is_err() {
+        eprintln!("gui: SKIP (no display)");
+        return;
+    }
+    let ui = widgets();
+    let calls = Rc::new(Cell::new(0u32));
+    {
+        let calls = calls.clone();
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || calls.set(calls.get() + 1)));
+    }
+    ui.fire_save();
+    assert_eq!(calls.get(), 1, "the funnel saves when not suppressed");
+    // Pushes fresh file contents through the same change handlers a user
+    // edit fires; none of them may reach the save funnel.
+    ui.external_reload();
+    assert_eq!(calls.get(), 1, "external_reload must not save");
+    assert!(!ui.suppress_save.get(), "the flag must be cleared after");
+}
