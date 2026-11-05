@@ -552,19 +552,6 @@ const LEFT_KEYCODE: u32 = 105;
 /// One forwarded key as press + release. The release carries no modifier (the
 /// app has already acted on the press); ibus-bamboo's ForwardKeyEvent modes
 /// send the same pair.
-/// The pacing window for a forwarded rewrite's commit: the same shape the
-/// uinput modes pace with, from the user's own timing config. The floor
-/// outlasts the XIM forward round trip (JetBrains' -Dawt.toolkit.name
-/// =XToolkit bridge drops a commit that arrives while its synchronous
-/// key forward is still in flight — every n=1 edit at the 25ms formula
-/// lost its ị/ỉ there).
-const FORWARD_PACING_FLOOR_MS: u64 = 50;
-
-fn pacing_delay(engine: &Engine, keys: u32) -> u64 {
-    (engine.commit_interval_ms() + u64::from(keys) * engine.backspace_interval_ms())
-        .max(FORWARD_PACING_FLOOR_MS)
-}
-
 fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u32) {
     out.push(
         signal("ForwardKeyEvent")
@@ -748,35 +735,16 @@ fn emit_with(
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
     let mut delete_failed = false;
-    // The select-and-erase rewrite's paired commit waits out a short
-    // pacing window (see `Engine::defer_commit_timed`): the Shift+Left and
-    // Backspace keys go out at once, the commit lands when the window
-    // passes. Set in that arm when a Commit follows.
-    let mut paced_commit: Option<u64> = None;
-    for (idx, action) in actions.iter().enumerate() {
+    for action in actions {
         match action {
-            Action::Commit(text) => {
-                if let Some(delay) = paced_commit.take() {
-                    engine.defer_commit_timed(delay, text.clone());
-                    continue;
-                }
-                if engine.timed_commit_pending() {
-                    // A paced rewrite commit is still waiting: this commit —
-                    // the next word's first letter in a burst — must not
-                    // overtake it, or it lands at the pre-rewrite caret and
-                    // the words interleave.
-                    engine.queue_commit_behind_timed(text.clone());
-                    continue;
-                }
-                push_commit(
-                    engine,
-                    out,
-                    text.clone(),
-                    &mut delete_failed,
-                    &mut nav_since_commit,
-                    &mut injected_since_commit,
-                )
-            }
+            Action::Commit(text) => push_commit(
+                engine,
+                out,
+                text.clone(),
+                &mut delete_failed,
+                &mut nav_since_commit,
+                &mut injected_since_commit,
+            ),
             Action::DeleteBefore(n) if inject => {
                 // No usable protocol delete here; press real Backspace keys
                 // at the cursor instead. If the device cannot be opened
@@ -931,20 +899,16 @@ fn emit_with(
             // like real presses. They ride the same connection as the Commit
             // that follows, which keeps them ordered; no echo comes back
             // (the key goes to the application, not to the engine).
-            // Both Forward modes pace the paired commit (see
-            // `Engine::defer_commit_timed`): a macro's rewrite left the app
-            // as [commit, Backspace x k] — the deletes ate the tail of the
-            // just-committed expansion ("ttlt" expanded to
-            // "ttltTôi tên là  ", the expansion's Tùng eaten). Vietnamese
-            // typing without macros is unaffected: the words commit
-            // per-key, and only rewrite-shaped actions defer here.
+            // ForwardKeyEvent (mode I) commits with its deletes in one
+            // batch, as shipped: pacing here made JetBrains' XIM bridge
+            // apply the commit into a stale view (the mark-coded vowel
+            // vanished from screen yet Backspace revealed it — the buffer
+            // and the display desynced). The pacing stays on the
+            // select-and-erase mode only.
             Action::ForwardBackspaces(n) => {
                 debug_log::log(&format!("forward-backspaces n={n}"));
                 for _ in 0..*n {
                     push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
-                }
-                if matches!(actions.get(idx + 1), Some(Action::Commit(_))) {
-                    paced_commit = Some(pacing_delay(engine, *n));
                 }
             }
             // ForwardSelect: Shift+Left moves the application's own selection
@@ -961,9 +925,6 @@ fn emit_with(
                     push_forward_keys(out, keymap::LEFT, LEFT_KEYCODE, keymap::SHIFT_MASK);
                 }
                 push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
-                if matches!(actions.get(idx + 1), Some(Action::Commit(_))) {
-                    paced_commit = Some(pacing_delay(engine, *n + 1));
-                }
             }
             Action::SelectLeft(n) => {
                 if (t.select_left)(*n, bs_gap) {
