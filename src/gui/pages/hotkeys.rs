@@ -67,6 +67,71 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     group.add(&emoji_hotkey);
     page.add(&group);
 
+    // Custom shortcuts: one row per assignment (spec + function), the add
+    // row captures a combo through its own recorder and appends. The
+    // design vector lives in Ui; rows rebuild on every edit.
+    let custom_group = adw::PreferencesGroup::builder()
+        .title(t("groups.hotkeys.custom.title", "Phím tắt riêng"))
+        .description(t(
+            "groups.hotkeys.custom.description",
+            "Gán thêm phím tắt cho cùng chức năng — 4 phím ở trên là mặc định",
+        ))
+        .build();
+    custom_group.add(&ui.custom_box);
+
+    // The add row: plain widgets in one line — [function] [pencil+combo]
+    // [Thêm]. It reads like a form, not a settings row.
+    let add_line = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let entry_pill = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    entry_pill.add_css_class("card");
+    entry_pill.set_margin_start(6);
+    entry_pill.set_margin_end(6);
+    entry_pill.set_margin_top(6);
+    entry_pill.set_margin_bottom(6);
+    entry_pill.set_valign(gtk4::Align::Center);
+    ui.custom_action.set_valign(gtk4::Align::Center);
+    entry_pill.append(&ui.custom_edit);
+    entry_pill.append(&ui.custom_label);
+    entry_pill.append(&ui.custom_action);
+    add_line.append(&entry_pill);
+    ui.custom_add.set_valign(gtk4::Align::Center);
+    add_line.append(&ui.custom_add);
+    {
+        let ui = ui.clone();
+        let add_button = ui.custom_add.clone();
+        add_button.connect_clicked(move |_| {
+            let spec = ui.custom_value.borrow().clone();
+            if spec.is_empty() {
+                return;
+            }
+            let action = crate::config::CUSTOM_HOTKEY_ACTIONS
+                .get(ui.custom_action.selected() as usize)
+                .unwrap_or(&"enabled")
+                .to_string();
+            ui.custom.borrow_mut().push((spec, action));
+            *ui.custom_value.borrow_mut() = String::new();
+            ui.custom_label.set_text(&t("misc.unassigned", "Chưa gán"));
+            ui.fill_custom();
+            ui.fire_save();
+        });
+    }
+    // The recorder fills the dim label; capturing must not save (the Thêm
+    // button does), but it enables/disables Thêm.
+    {
+        let value = ui.custom_value.clone();
+        let add = ui.custom_add.clone();
+        hotkey_wire(
+            &ui.custom_edit,
+            &ui.custom_label,
+            &ui.custom_value,
+            move || {
+                add.set_sensitive(!value.borrow().is_empty());
+            },
+        );
+    }
+    custom_group.add(&add_line);
+    page.add(&custom_group);
+
     // The recorders capture on the edit button (GNOME shortcut style) and
     // save through the shared funnel handle.
     {

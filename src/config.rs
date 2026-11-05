@@ -102,6 +102,10 @@ pub struct Config {
     pub preedit_for_xim: bool,
     /// Per-application display mode overrides (phase 9).
     pub app_rules: Vec<AppRule>,
+    /// Shortcuts the user assigned beyond the four built-in hotkeys (those
+    /// are the defaults). Unknown actions or unusable specs are skipped
+    /// when the engine builds its shortcut registry.
+    pub custom_hotkeys: Vec<CustomHotkey>,
     /// Which toggles the panel popup shows, in order — the keys of
     /// `ibus_prop::QUICK_TOGGLES`. Unknown keys are skipped when building the
     /// menu, so a hand edit or an older file cannot break the panel.
@@ -207,6 +211,19 @@ pub struct AppRule {
     pub pattern: String,
     pub mode: ModeConfig,
 }
+
+/// One user-assigned shortcut: a `parse_hotkey` spec and the action key it
+/// fires (`CUSTOM_HOTKEY_ACTIONS`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CustomHotkey {
+    pub spec: String,
+    pub action: String,
+}
+
+/// The functions a custom shortcut can be assigned to, by action key. The
+/// engine maps the key onto its registry actions; the GUI builds the
+/// picker dropdown from it (labels come from gui-content.toml).
+pub const CUSTOM_HOTKEY_ACTIONS: &[&str] = &["enabled", "mode", "rule", "emoji"];
 
 /// One rule pattern against one rule target (`app_name` when present, else
 /// the IBus client string, `None` when the client has neither) — the shared
@@ -699,6 +716,7 @@ impl Default for Config {
             x11_delete_without_report: false,
             preedit_for_xim: false,
             app_rules: default_app_rules(),
+            custom_hotkeys: Vec::new(),
             quick_menu: default_quick_menu(),
             menu_modes: default_menu_modes(),
             menu: None,

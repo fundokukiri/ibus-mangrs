@@ -169,6 +169,32 @@ pub(super) fn widgets() -> Rc<Ui> {
     emoji_hotkey_edit.set_tooltip_text(Some(&capture_tooltip));
     let emoji_hotkey_value = Rc::new(RefCell::new(String::new()));
     let emoji_text = text_view("");
+
+    // Custom shortcuts: the list view plus the add row (function dropdown,
+    // pencil recorder, add button). The design vector lives in Ui.
+    let custom_box = gtk4::ListBox::new();
+    custom_box.add_css_class("boxed-list");
+    custom_box.set_selection_mode(gtk4::SelectionMode::None);
+    let custom_action_labels: Vec<String> = CUSTOM_ACTION_KEYS
+        .iter()
+        .zip(CUSTOM_ACTION_DEFAULTS)
+        .map(|(key, fallback)| t(key.1, fallback))
+        .collect();
+    let custom_action = gtk4::DropDown::from_strings(
+        &custom_action_labels
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+    );
+    let custom_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
+    custom_edit.add_css_class("flat");
+    custom_edit.set_tooltip_text(Some(&capture_tooltip));
+    let custom_label = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
+    custom_label.add_css_class("dim-label");
+    let custom_value = Rc::new(RefCell::new(String::new()));
+    let custom_add = gtk4::Button::with_label(&t("misc.custom_add", "Thêm"));
+    custom_add.add_css_class("suggested-action");
+    custom_add.set_sensitive(false);
     let dictionary_enabled = switch_row(
         &t("rows.dictionary_enabled.title", "Dùng từ điển cá nhân"),
         &t(
@@ -493,6 +519,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         emoji_hotkey_edit,
         emoji_hotkey_value,
         emoji_text,
+        custom: Rc::new(RefCell::new(Vec::new())),
+        custom_box,
+        custom_action,
+        custom_edit,
+        custom_label,
+        custom_value,
+        custom_add,
         dictionary_enabled,
         dictionary_text,
         rules_box,

@@ -4,9 +4,11 @@
 use super::*;
 
 /// Canonical combo string: modifiers first (Shift/Control/Alt/Super), then
-/// the key name when one is given. Matches `server::parse_hotkey`.
+/// the key name when one is given — joined, so a modifier-only combo has
+/// no trailing separator ("Shift+Control", not "Shift+Control+" which the
+/// parser rejects). Matches `server::parse_hotkey`.
 pub(super) fn hotkey_spec(full: gtk4::gdk::ModifierType, key_name: Option<String>) -> String {
-    let mut spec = String::new();
+    let mut mods: Vec<&str> = Vec::new();
     for (mask, name) in [
         (gtk4::gdk::ModifierType::SHIFT_MASK, "Shift"),
         (gtk4::gdk::ModifierType::CONTROL_MASK, "Control"),
@@ -15,12 +17,15 @@ pub(super) fn hotkey_spec(full: gtk4::gdk::ModifierType, key_name: Option<String
         (gtk4::gdk::ModifierType::HYPER_MASK, "Super"),
         (gtk4::gdk::ModifierType::META_MASK, "Super"),
     ] {
-        if full.contains(mask) && !spec.contains(&format!("{name}+")) {
-            spec.push_str(name);
-            spec.push('+');
+        if full.contains(mask) && !mods.contains(&name) {
+            mods.push(name);
         }
     }
+    let mut spec = mods.join("+");
     if let Some(k) = key_name {
+        if !spec.is_empty() {
+            spec.push('+');
+        }
         spec.push_str(&k);
     }
     spec
@@ -129,7 +134,15 @@ pub(super) fn hotkey_wire(
             }
             let spec = hotkey_spec(
                 gtk4::gdk::ModifierType::from_bits_truncate(pending.get() | held.bits()),
-                Some(key.name().unwrap_or_default().to_string()),
+                // Punctuation keys are the ones people actually want
+                // (Shift+~, Ctrl+~): their GDK names are words like
+                // "asciitilde" which the parser cannot read, so a key that
+                // maps to a printable ASCII character is recorded as that
+                // character instead.
+                key.to_unicode()
+                    .filter(|c| c.is_ascii_graphic())
+                    .map(|c| c.to_string())
+                    .or_else(|| key.name().map(|n| n.to_string())),
             );
             // Rejected combos keep the recorder open: the engine's parser
             // would silently drop them, so try another key instead.

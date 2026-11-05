@@ -110,6 +110,22 @@ const CHARSETS: &[&str] = &[
 const ON_OFF_MODES: &[&str] = &["Tắt", "Trừ đầu từ", "Mọi vị trí"];
 const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
 
+/// The custom-shortcut functions, in `config::CUSTOM_HOTKEY_ACTIONS` order:
+/// (action key, gui-content key) plus the code fallback labels — the
+/// add-row dropdown and the row subtitles read these.
+const CUSTOM_ACTION_KEYS: &[(&str, &str)] = &[
+    ("enabled", "actions.hotkey_enabled"),
+    ("mode", "actions.hotkey_mode"),
+    ("rule", "actions.hotkey_rule"),
+    ("emoji", "actions.hotkey_emoji"),
+];
+const CUSTOM_ACTION_DEFAULTS: &[&str] = &[
+    "Bật/tắt tiếng Việt",
+    "Đổi chế độ gõ",
+    "Chọn luật theo app",
+    "Mở bảng emoji",
+];
+
 struct Ui {
     enabled: adw::SwitchRow,
     method: adw::ComboRow,
@@ -151,6 +167,17 @@ struct Ui {
     emoji_hotkey_edit: gtk4::Button,
     emoji_hotkey_value: Rc<RefCell<String>>,
     emoji_text: TextView,
+    /// Custom shortcuts ("Phím tắt" page): the design vector is the source
+    /// of truth (spec, action key), the boxed list is its view, rebuilt on
+    /// every edit — the menu editor's shape. The add row captures the spec
+    /// through its own recorder into `custom_value`.
+    custom: Rc<RefCell<Vec<(String, String)>>>,
+    custom_box: gtk4::ListBox,
+    custom_action: gtk4::DropDown,
+    custom_edit: gtk4::Button,
+    custom_label: gtk4::Label,
+    custom_value: Rc<RefCell<String>>,
+    custom_add: gtk4::Button,
     /// Macro editor: one boxed-list row per entry (key, value); GObject
     /// clones share the widgets, so reading them reads what the user sees.
     /// The rows live in a plain ListBox — a PreferencesGroup's first_child
@@ -384,6 +411,12 @@ impl Ui {
                 .join("\n"),
         );
         self.fill_rules(&config.app_rules);
+        *self.custom.borrow_mut() = config
+            .custom_hotkeys
+            .iter()
+            .map(|c| (c.spec.clone(), c.action.clone()))
+            .collect();
+        self.fill_custom();
         self.hide_underline.set_active(config.hide_underline);
         // A field added to Config and Ui but forgotten here would leave a
         // stale widget that the next save writes back (the import bug).
@@ -469,6 +502,15 @@ impl Ui {
         // everything it just pushed into the widgets, and the rule rows are
         // among those widgets.
         config.app_rules = self.rules_from_rows();
+        config.custom_hotkeys = self
+            .custom
+            .borrow()
+            .iter()
+            .map(|(spec, action)| crate::config::CustomHotkey {
+                spec: spec.clone(),
+                action: action.clone(),
+            })
+            .collect();
         config
     }
 
@@ -493,6 +535,44 @@ impl Ui {
             .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
             .filter(|(k, v)| !k.is_empty() && !v.is_empty())
             .collect()
+    }
+
+    // --- custom shortcuts ("Phím tắt" page) ---
+
+    /// Rebuild the custom-shortcut rows from the design vector. Rows read
+    /// the live vector through their index at click time; every edit
+    /// refills, so the indices stay valid.
+    fn fill_custom(self: &Rc<Self>) {
+        while let Some(row) = self.custom_box.row_at_index(0) {
+            self.custom_box.remove(&row);
+        }
+        for (i, (spec, action)) in self.custom.borrow().iter().enumerate() {
+            let label = crate::config::CUSTOM_HOTKEY_ACTIONS
+                .iter()
+                .position(|k| k == action)
+                .map(|idx| t(CUSTOM_ACTION_KEYS[idx].1, CUSTOM_ACTION_DEFAULTS[idx]))
+                .unwrap_or_else(|| action.clone());
+            let row = action_row(spec, &label);
+            row.set_tooltip_text(Some(&t(
+                "tips.custom_hotkey_row",
+                "Phím tắt riêng — bấm thùng rác để xóa",
+            )));
+            let trash = gtk4::Button::from_icon_name("user-trash-symbolic");
+            trash.add_css_class("flat");
+            trash.set_tooltip_text(Some(&t("rows.rule_delete.tooltip", "Xóa")));
+            trash.set_valign(gtk4::Align::Center);
+            let ui = self.clone();
+            trash.connect_clicked(move |_| {
+                ui.custom.borrow_mut().remove(i);
+                ui.fill_custom();
+                ui.fire_save();
+            });
+            row.add_suffix(&trash);
+            self.custom_box.append(&row);
+        }
+        // Nothing to add until a combo is captured.
+        self.custom_add
+            .set_sensitive(!self.custom_value.borrow().is_empty());
     }
 
     // --- panel-menu editor (the design vector is the source of truth) ---
