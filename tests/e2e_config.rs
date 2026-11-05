@@ -31,6 +31,14 @@ const CASES: &[Case] = &[
         f: cycle_hotkey,
     },
     Case {
+        name: "toggle hotkey flips enabled and updates the panel",
+        cfg: &[("enabled_hotkey", "\"Control+Alt+h\"")],
+        macros: &[],
+        raw: "",
+        dict: "",
+        f: toggle_hotkey,
+    },
+    Case {
         name: "app rules: a config rule overrides the default mode",
         cfg: &[],
         macros: &[],
@@ -125,7 +133,11 @@ fn cycle_hotkey(s: &mut common::Sess) {
         "the cycle hotkey must be consumed"
     );
     s.pump(PUMP_MS);
-    s.drain();
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "UpdateProperty"),
+        "the hotkey must push the panel update like a click does: {sigs:?}"
+    );
     let text = std::fs::read_to_string(s.config_path()).expect("config");
     assert!(
         text.contains("mode = \"surrounding\""),
@@ -133,6 +145,28 @@ fn cycle_hotkey(s: &mut common::Sess) {
     );
     let (buf, _) = s.type_reported("tieengs ");
     assert_eq!(buf, "tiếng ", "buffer after the cycle");
+}
+
+fn toggle_hotkey(s: &mut common::Sess) {
+    s.focus(CAPS_BOTH, "gtk4-im:test");
+    s.drain();
+    assert!(
+        s.key(0x68, common::CONTROL | common::ALT),
+        "the toggle hotkey must be consumed"
+    );
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "UpdateProperty"),
+        "no panel update after the toggle: {sigs:?}"
+    );
+    let text = std::fs::read_to_string(s.config_path()).expect("config");
+    assert!(
+        text.contains("enabled = false"),
+        "the toggle must persist: {text:.300}"
+    );
+    let (buf, _) = s.type_reported("tieengs ");
+    assert_eq!(buf, "tieengs ", "Vietnamese must be off after the toggle");
 }
 
 fn app_rule(s: &mut common::Sess) {

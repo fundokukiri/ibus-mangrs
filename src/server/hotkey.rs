@@ -32,7 +32,7 @@ impl EngineHandler {
     /// Returns whether the key was consumed.
     /// Flip Vietnamese on/off when `keyval` with the configured modifiers
     /// matches `enabled_hotkey`. Same plumbing as the mode-cycle hotkey:
-    /// save, apply, re-register the panel so the check mark follows.
+    /// save, apply, then the per-item panel update so the check mark follows.
     fn try_toggle_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
         let Some((mods, expected)) = self.enabled_hotkey else {
             return false;
@@ -64,7 +64,7 @@ impl EngineHandler {
         self.last_config_mtime = Config::path()
             .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
-        register_properties(&config, out);
+        update_property_group(&config, ibus_prop::KEY_ENABLED, out);
         true
     }
 
@@ -110,7 +110,7 @@ impl EngineHandler {
         self.last_config_mtime = Config::path()
             .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
-        register_properties(&config, out);
+        update_property_group(&config, "display", out);
         true
     }
 
