@@ -1196,3 +1196,44 @@ fn a_focus_change_flushes_the_paced_commit() {
     assert_eq!(flushed, vec!["x".to_string()]);
     assert!(!e.has_deferred());
 }
+
+#[test]
+fn a_bursts_next_commit_queues_behind_the_paced_rewrite() {
+    // The intermittent corruption: the next keystroke of a fast burst
+    // committed before the previous word's paced rewrite landed, and the
+    // words interleaved at the displaced caret. Every commit queues behind
+    // the pending rewrite; the tick flushes in queue order.
+    let t = Transports {
+        backspaces: &|_, _| true,
+        keys: &|_, _| true,
+        select_left: &|_, _| true,
+        paste: &|_| false,
+    };
+    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+    e.set_client(Some("gtk4-im:test".into()));
+    let mut out = Vec::new();
+    emit_with(
+        &mut e,
+        &[Action::ForwardSelectLeft(2), Action::Commit("ào".into())],
+        &mut out,
+        &t,
+    );
+    assert!(e.timed_commit_pending(), "the rewrite commit paces");
+    // The burst's next keystroke commits while the window is open.
+    emit_with(&mut e, &[Action::Commit("c".into())], &mut out, &t);
+    assert_eq!(
+        out.iter()
+            .filter(|m| m.member().unwrap() == "CommitText")
+            .count(),
+        0,
+        "the burst commit must not overtake the rewrite"
+    );
+    // Past the window: the rewrite lands first, then the burst's letter.
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    assert_eq!(
+        e.tick(),
+        vec![Action::Commit("ào".into()), Action::Commit("c".into())],
+        "queue order: rewrite first, then the burst's letter"
+    );
+    assert!(!e.timed_commit_pending());
+}
