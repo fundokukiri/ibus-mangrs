@@ -1,11 +1,40 @@
-//! Hotkey parsing and matching, the two hotkey actions in the key path
-//! (toggle Vietnamese, cycle mode), and the config mtime reload gate.
+//! Hotkey parsing and matching, the shortcut registry with its actions in
+//! the key path (toggle Vietnamese, cycle mode), and the config mtime
+//! reload gate.
 
 use super::*;
 
+/// What a keyboard shortcut does. One row in the "Phím tắt" settings page
+/// and one entry in the registry each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum HotkeyAction {
+    /// Flip `config.enabled` — the Vietnamese on/off switch.
+    ToggleEnabled,
+    /// Cycle the display mode list.
+    CycleMode,
+}
+
+/// A parsed shortcut: modifier mask, keysym, action.
+pub(super) type HotkeyBinding = (u32, u32, HotkeyAction);
+
+/// The shortcut registry from a config: one row per assigned hotkey, in
+/// page order. New shortcuts add a config field, a row here and a GUI row.
+pub(super) fn hotkey_registry(config: &Config) -> Vec<HotkeyBinding> {
+    let mut out = Vec::new();
+    if let Some((mods, key)) = parse_hotkey(&config.enabled_hotkey).filter(|(mods, _)| *mods != 0) {
+        out.push((mods, key, HotkeyAction::ToggleEnabled));
+    }
+    if let Some((mods, key)) =
+        parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0)
+    {
+        out.push((mods, key, HotkeyAction::CycleMode));
+    }
+    out
+}
+
 impl EngineHandler {
-    /// `ProcessKeyEvent`: hot-reload the config, check the mode-cycle hotkey,
-    /// then feed the key to the engine. Signals go into `out`.
+    /// `ProcessKeyEvent`: hot-reload the config, check the shortcut
+    /// registry, then feed the key to the engine. Signals go into `out`.
     pub(super) fn process_key_call(&mut self, msg: &Message, out: &mut Vec<Message>) -> Message {
         let Ok((keyval, _keycode, state)) = msg.read3::<u32, u32, u32>() else {
             return msg.method_return().append1(false);
@@ -13,12 +42,9 @@ impl EngineHandler {
 
         self.maybe_reload_config(out);
 
-        // The mode-cycle hotkey is handled before any typing: it changes the
-        // config and refreshes the panel menu.
-        if self.try_toggle_hotkey(keyval, state, out) {
-            return msg.method_return().append1(true);
-        }
-        if self.try_cycle_hotkey(keyval, state, out) {
+        // Shortcuts are handled before any typing: they change the config
+        // and refresh the panel state.
+        if self.try_hotkey(keyval, state, out) {
             return msg.method_return().append1(true);
         }
 
@@ -27,33 +53,44 @@ impl EngineHandler {
         msg.method_return().append1(consumed)
     }
 
-    /// Cycle NonPreedit -> Preedit -> Surrounding -> NonPreedit when `keyval`
-    /// with the configured modifiers matches `cycle_mode_hotkey`.
-    /// Returns whether the key was consumed.
-    /// Flip Vietnamese on/off when `keyval` with the configured modifiers
-    /// matches `enabled_hotkey`. Same plumbing as the mode-cycle hotkey:
-    /// save, apply, then the per-item panel update so the check mark follows.
-    fn try_toggle_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
-        let Some((mods, expected)) = self.enabled_hotkey else {
+    /// Run the first registry entry matching this key event. Returns
+    /// whether the key was consumed.
+    fn try_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
+        let Some(&(_, _, action)) = self
+            .hotkeys
+            .iter()
+            .find(|(mods, key, _)| hotkey_matches(*mods, *key, keyval, state))
+        else {
             return false;
         };
-        if !hotkey_matches(mods, expected, keyval, state) {
-            return false;
-        }
-
+        // Autorepeat of the combo key: consume, do nothing (a deliberate
+        // second press is never this fast).
         let now = Instant::now();
         if self
-            .last_toggle_fire
-            .is_some_and(|t| now.duration_since(t) < HOTKEY_REPEAT_GAP)
+            .last_fire
+            .iter()
+            .any(|(a, t)| *a == action && now.duration_since(*t) < HOTKEY_REPEAT_GAP)
         {
-            return true; // autorepeat of the combo key: consume, do nothing
+            return true;
         }
-        self.last_toggle_fire = Some(now);
+        match self.last_fire.iter_mut().find(|(a, _)| *a == action) {
+            Some((_, t)) => *t = now,
+            None => self.last_fire.push((action, now)),
+        }
+        match action {
+            HotkeyAction::ToggleEnabled => self.toggle_enabled(out),
+            HotkeyAction::CycleMode => self.cycle_mode(out),
+        }
+        true
+    }
 
+    /// Flip Vietnamese on/off: save, apply, then the per-item panel update
+    /// so the check mark follows.
+    fn toggle_enabled(&mut self, out: &mut Vec<Message>) {
         let mut config = Config::load();
         config.enabled = !config.enabled;
         if config.save().is_err() {
-            return true; // consumed anyway; do not type with a hotkey press
+            return; // consumed anyway; do not type with a hotkey press
         }
         {
             let mut engine = lock_engine(&self.engine);
@@ -61,30 +98,12 @@ impl EngineHandler {
             engine.set_enabled(config.enabled);
             emit(&mut engine, &actions, out);
         }
-        self.last_config_mtime = Config::path()
-            .and_then(|p| std::fs::metadata(&p).ok())
-            .and_then(|m| m.modified().ok());
+        self.rebaseline_config_mtime();
         update_property_group(&config, ibus_prop::KEY_ENABLED, out);
-        true
     }
 
-    fn try_cycle_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
-        let Some((mods, expected)) = self.cycle_hotkey else {
-            return false;
-        };
-        if !hotkey_matches(mods, expected, keyval, state) {
-            return false;
-        }
-
-        let now = Instant::now();
-        if self
-            .last_cycle_fire
-            .is_some_and(|t| now.duration_since(t) < HOTKEY_REPEAT_GAP)
-        {
-            return true; // autorepeat of the combo key: consume, do nothing
-        }
-        self.last_cycle_fire = Some(now);
-
+    /// Cycle the display mode list: save, apply, per-item panel update.
+    fn cycle_mode(&mut self, out: &mut Vec<Message>) {
         let mut config = Config::load();
         config.mode = match config.mode {
             ModeConfig::NonPreedit => ModeConfig::Preedit,
@@ -99,7 +118,7 @@ impl EngineHandler {
             ModeConfig::DefaultTyping => ModeConfig::NonPreedit,
         };
         if config.save().is_err() {
-            return true; // consumed anyway; do not type with a hotkey press
+            return; // consumed anyway; do not type with a hotkey press
         }
         {
             let mut engine = lock_engine(&self.engine);
@@ -107,17 +126,23 @@ impl EngineHandler {
             engine.set_enabled(config.enabled);
             emit(&mut engine, &actions, out);
         }
+        self.rebaseline_config_mtime();
+        update_property_group(&config, "display", out);
+    }
+
+    /// The engine's own save must not look like an external edit to the
+    /// mtime watcher.
+    fn rebaseline_config_mtime(&mut self) {
         self.last_config_mtime = Config::path()
             .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
-        update_property_group(&config, "display", out);
-        true
     }
 
-    /// Re-parse the cycle hotkey from an already-loaded config.
+    /// Rebuild the shortcut registry from an already-loaded config. The
+    /// debounce history goes too: the specs may have changed.
     pub(super) fn refresh_hotkey_cache(&mut self, config: &Config) {
-        self.cycle_hotkey = parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
-        self.enabled_hotkey = parse_hotkey(&config.enabled_hotkey).filter(|(mods, _)| *mods != 0);
+        self.hotkeys = hotkey_registry(config);
+        self.last_fire.clear();
     }
 
     /// The focused window's WM_CLASS from the focus extension. The

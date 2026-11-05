@@ -29,7 +29,7 @@ pub(super) fn activate_property(
         return;
     }
     if name == ibus_prop::KEY_SHORTCUTS {
-        open_settings("general");
+        open_settings("hotkeys");
         return;
     }
 
