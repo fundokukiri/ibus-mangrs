@@ -262,6 +262,18 @@ impl Engine {
     pub(super) fn delete_action(&mut self, mode: Mode, n: u32, insert_len: usize) -> Action {
         match mode {
             Mode::ForwardKeyEvent => Action::ForwardBackspaces(n),
+            // ForwardSelect selects the tail with forwarded Shift+Left — but
+            // the shift does not survive the forwarding into every client:
+            // the caret just moves (the ST reports on the owner's apps show
+            // len unchanged across the arrow presses), so the Backspace ate
+            // one raw char and the commit landed at the displaced caret —
+            // every word lost the character before its accented vowel.
+            // Clients that report their buffer take the plain Backspace
+            // transport, proven to land there (their ForwardKeyEvent typing
+            // works); clients without a report — the XIM class this mode
+            // was built for, where a forwarded Backspace misbehaves — keep
+            // the selection.
+            Mode::ForwardSelect if self.surrounding_data_ok() => Action::ForwardBackspaces(n),
             Mode::ForwardSelect => Action::ForwardSelectLeft(n),
             _ => self.tracked_delete(n, insert_len),
         }

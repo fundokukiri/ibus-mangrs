@@ -2838,3 +2838,38 @@ fn emoji_pick_after_a_colon_disarms_the_shortcode_branch() {
         "the next word must compose normally: {actions:?}"
     );
 }
+
+#[test]
+fn forwardselect_takes_the_backspace_transport_for_clients_that_report() {
+    // The forwarded Shift+Left loses its shift in ST-reporting clients
+    // (caret moves without selecting; the Backspace then ate one raw char
+    // and the commit landed at the displaced caret — "chao" became
+    // "càoao"). With a report on file the mode takes the plain Backspace
+    // transport, which provably lands there (mode I's typing works).
+    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding("xin ".to_string(), 4);
+    let actions: Vec<Action> = "chaof".chars().flat_map(|c| e.process_char(c)).collect();
+    assert!(
+        actions.contains(&Action::ForwardBackspaces(2)),
+        "the mark edit deletes with forwarded Backspaces: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardSelectLeft(_))),
+        "no Shift+Left selection for a reporting client: {actions:?}"
+    );
+
+    // Without a report (the XIM class this mode was built for) the
+    // selection transport stays.
+    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+    e.set_client(Some("xim".into()));
+    e.set_capabilities(0);
+    let actions: Vec<Action> = "chaof".chars().flat_map(|c| e.process_char(c)).collect();
+    assert!(
+        actions.contains(&Action::ForwardSelectLeft(2)),
+        "the XIM class keeps the selection transport: {actions:?}"
+    );
+}
