@@ -1189,6 +1189,10 @@ impl Engine {
     /// (see `awaiting_delete_proof`). Pure deletions (no paired insert)
     /// cannot be told apart from a stale report, so they stay untracked.
     fn tracked_delete(&mut self, n: u32, insert_len: usize) -> Action {
+        // Hard rule (see `delete_count`): never ask for more characters than
+        // the last report says sit before the caret. An out-of-range delete
+        // aborts mutter (`before >= start`) and hangs the desktop.
+        let n = self.clamp_delete(n);
         if insert_len == 0 {
             return Action::DeleteBefore(n);
         }
@@ -1222,10 +1226,12 @@ impl Engine {
                             ));
                         }
                         actions.push(Action::Commit(exp.clone()));
-                        self.tail = exp.clone();
+                        // Word ended: drop the tracked tail (same reason as
+                        // `on_finish`).
                         if let Some(c) = exp.chars().last() {
                             self.note_char(c);
                         }
+                        self.tail.clear();
                         actions.push(Action::Forward);
                         return actions;
                     }
@@ -1463,10 +1469,15 @@ impl Engine {
                     ));
                 }
                 actions.push(Action::Commit(exp.clone()));
-                self.tail = exp;
-                if let Some(c) = self.tail.chars().last() {
+                // The word ended and its terminator is forwarded next, so
+                // nothing of ours sits before the caret any more. Keeping the
+                // expansion here made the next macro rewrite delete it a
+                // second time — a stale, too-long delete that reached past the
+                // text the client held (mutter aborts on that).
+                if let Some(c) = exp.chars().last() {
                     self.note_char(c);
                 }
+                self.tail.clear();
                 self.release_word_mode();
                 actions.push(Action::Forward);
                 return actions;
@@ -1490,10 +1501,12 @@ impl Engine {
                 ));
             }
             actions.push(Action::Commit(raw.clone()));
-            self.tail = raw;
-            if let Some(c) = self.tail.chars().last() {
+            // Word ended (see the macro branch above): the forwarded terminator
+            // is not ours, so the tracked tail must go.
+            if let Some(c) = raw.chars().last() {
                 self.note_char(c);
             }
+            self.tail.clear();
             self.release_word_mode();
             actions.push(Action::Forward);
             return actions;
@@ -1751,7 +1764,14 @@ impl Engine {
             }
             return None;
         }
-        let edit = self.wrapper.backspace()?;
+        let Some(edit) = self.wrapper.backspace() else {
+            // Nothing composed: the application deletes one of its own
+            // characters, so the tracked tail has to shrink with it. Left
+            // stale, the next macro rewrite deleted more characters than the
+            // client held (an out-of-range delete, mutter aborts on it).
+            self.tail = replace_tail(&self.tail, 1, "");
+            return None;
+        };
         if !self.wrapper.has_composition() {
             self.release_word_mode();
         }
@@ -2110,6 +2130,50 @@ mod tests {
     /// applies the emitted commit/delete actions.
     fn type_replay(e: &mut Engine, s: &str) -> String {
         type_replay_with_reports(e, s, true)
+    }
+
+    /// Like `type_replay`, with `\u{8}` meaning Backspace, and reporting
+    /// whether any delete asked for more characters than the buffer held —
+    /// the out-of-range delete that aborts mutter and hangs the desktop.
+    fn type_replay_backspaces(e: &mut Engine, script: &str) -> (String, bool) {
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        let mut buf: Vec<char> = Vec::new();
+        let mut out_of_range = false;
+        for step in script.chars() {
+            let actions = if step == '\u{8}' {
+                match e.backspace() {
+                    Some(actions) => actions,
+                    None => {
+                        buf.pop();
+                        e.set_surrounding(buf.iter().collect(), buf.len() as u32);
+                        continue;
+                    }
+                }
+            } else {
+                e.process_char(step)
+            };
+            let forwarded = actions.contains(&Action::Forward);
+            for action in &actions {
+                match action {
+                    Action::DeleteBefore(n) | Action::DeleteSurrounding { n, .. } => {
+                        out_of_range |= *n as usize > buf.len();
+                        buf.truncate(buf.len().saturating_sub(*n as usize));
+                    }
+                    Action::ForwardBackspaces(n) => {
+                        out_of_range |= *n as usize > buf.len();
+                        buf.truncate(buf.len().saturating_sub(*n as usize));
+                    }
+                    Action::Commit(text) => buf.extend(text.chars()),
+                    _ => {}
+                }
+            }
+            if forwarded {
+                buf.push(step);
+            }
+            e.set_surrounding(buf.iter().collect(), buf.len() as u32);
+        }
+        (buf.into_iter().collect(), out_of_range)
     }
 
     /// Same, with `reports = false` for the no-transport environment
@@ -3565,6 +3629,48 @@ mod tests {
         e.macros
             .set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
         assert_eq!(type_replay(&mut e, "gs "), "gs ");
+    }
+
+    #[test]
+    fn macro_rewrite_never_deletes_past_the_text() {
+        // `ttlt` → "Tôi tên là Tùng": the expansion used to stay in `tail`
+        // after the word ended, so backspacing part of it and typing the key
+        // again made the next word end ask the client to delete more
+        // characters than it held — mutter aborts on that ("before >= start")
+        // and the desktop hangs until a hard reset.
+        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+            let mut e = engine(mode, Config::default());
+            e.macros
+                .set_entries([("ttlt".to_string(), "Tôi tên là Tùng".to_string())].into_iter());
+            let (text, out_of_range) = type_replay_backspaces(&mut e, "ttlt \u{8}\u{8}ttlt ");
+            assert!(!out_of_range, "{mode:?}: delete past the text that exists");
+            assert_eq!(text, "Tôi tên là TùnTôi tên là Tùng ", "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn protocol_delete_is_clamped_to_the_last_report() {
+        // Hard rule: a protocol delete may never reach past what the last
+        // SetSurroundingText says exists, whatever the engine believes.
+        let mut e = engine(Mode::NonPreedit, Config::default());
+        e.macros
+            .set_entries([("ttlt".to_string(), "Tôi tên là Tùng".to_string())].into_iter());
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        for c in "ttlt".chars() {
+            e.process_char(c);
+        }
+        // The client only reports two characters before the caret.
+        e.set_surrounding("tt".into(), 2);
+        let actions = e.process_char(' ');
+        let deletes: Vec<u32> = actions
+            .iter()
+            .filter_map(|a| match a {
+                Action::DeleteBefore(n) => Some(*n),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(deletes, vec![2], "{actions:?}");
     }
 
     #[test]
