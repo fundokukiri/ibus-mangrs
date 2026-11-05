@@ -821,10 +821,12 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
 
 #[test]
 fn hotkey_registry_maps_assigned_specs_in_page_order() {
-    let mut config = Config::default();
-    config.enabled_hotkey = "Control+Alt+h".into();
-    config.cycle_mode_hotkey = "Control+Alt+v".into();
-    config.app_rule_hotkey = "Control+Alt+p".into();
+    let mut config = Config {
+        enabled_hotkey: "Control+Alt+h".into(),
+        cycle_mode_hotkey: "Control+Alt+v".into(),
+        app_rule_hotkey: "Control+Alt+p".into(),
+        ..Config::default()
+    };
     let reg = hotkey_registry(&config);
     assert_eq!(reg.len(), 3);
     assert_eq!(reg[0].2, HotkeyAction::ToggleEnabled);
