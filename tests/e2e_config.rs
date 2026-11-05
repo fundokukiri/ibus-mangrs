@@ -282,23 +282,33 @@ fn app_rule_picker(s: &mut common::Sess) {
         "the mouse pick must update the winning rule in place: {text:.400}"
     );
 
-    // Arrow keys are not menu keys: with the menu up, one closes it and the
-    // key reaches the application unconsumed.
+    // Arrow navigation: the highlight starts on the mode in force (the
+    // mouse pick above left the app on surrounding, index 3), Down moves
+    // it (the table re-renders with the new cursor), Enter picks it.
     std::thread::sleep(std::time::Duration::from_millis(
         300, // past the hotkey repeat gap: a deliberate second press
     ));
     assert!(s.key(0x70, common::CONTROL | common::ALT), "hotkey reopens");
     s.pump(PUMP_MS);
     s.drain();
+    assert!(s.key(65364, 0), "Down is consumed by the menu");
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
     assert!(
-        !s.key(65364, 0),
-        "Down closes the picker and reaches the app"
+        !has_member(&sigs, "HideLookupTable") && has_member(&sigs, "UpdateLookupTable"),
+        "Down must move the highlight, not close the menu: {sigs:?}"
     );
+    assert!(s.key(65293, 0), "Enter picks the highlighted entry");
     s.pump(PUMP_MS);
     let sigs = s.drain();
     assert!(
         has_member(&sigs, "HideLookupTable"),
-        "the arrow must have closed the menu: {sigs:?}"
+        "the pick closes the menu: {sigs:?}"
+    );
+    let text = std::fs::read_to_string(s.config_path()).expect("config");
+    assert!(
+        text.contains("pattern = \"e2epicktest\"") && text.contains("mode = \"smooth\""),
+        "Enter must apply the entry the highlight moved to (index 4 = smooth): {text:.400}"
     );
     // Second hotkey press while the menu is up toggles it closed.
     std::thread::sleep(std::time::Duration::from_millis(300));

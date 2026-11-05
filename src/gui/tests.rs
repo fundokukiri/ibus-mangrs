@@ -16,6 +16,7 @@ fn gtk_widget_scenarios() {
     refresh_round_trips_every_widget();
     hotkey_recorder_lives_on_the_edit_button();
     external_reload_refreshes_without_saving();
+    row_texts_render_as_plain_text();
 }
 
 /// B3 regression: the import path pushes a config into every widget through
@@ -212,12 +213,7 @@ fn external_reload_refreshes_without_saving() {
 /// rule's subtitle carries a bare `&`, which failed to parse and rendered
 /// as nothing. The row builders switch markup off — assert one row per
 /// builder, plus the subtitle data of the reported row.
-#[test]
 fn row_texts_render_as_plain_text() {
-    if gtk4::init().is_err() {
-        eprintln!("gui: SKIP (no display)");
-        return;
-    }
     let ui = widgets();
     for markup_off in [
         !ui.bypass_url.uses_markup(),
