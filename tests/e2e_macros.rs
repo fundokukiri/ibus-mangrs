@@ -30,6 +30,14 @@ const CASES: &[Case] = &[
         dict: "",
         f: time_date,
     },
+    Case {
+        name: "the macro rewrite erases its key on the forwarded modes",
+        cfg: &[("mode", "\"forwardkeyevent\"")],
+        macros: &[("ttlt", "Tôi tên là Tùng")],
+        raw: "",
+        dict: "",
+        f: forwarded_macro,
+    },
 ];
 
 fn expansion(s: &mut common::Sess) {
@@ -43,6 +51,26 @@ fn expansion(s: &mut common::Sess) {
     );
     let sigs = s.type_plain(" ");
     assert_eq!(commits(&sigs), ["giờ sáng"], "{sigs:?}");
+}
+
+fn forwarded_macro(s: &mut common::Sess) {
+    // The race the owner hit on the forwarded modes: the expansion's
+    // commit landed before the erase keys and the deletes ate the
+    // expansion's tail ("ttltTôi tên là  " — Tùng gone, two spaces). The
+    // paired commit now waits out the pacing window, so the buffer holds
+    // the expansion alone.
+    s.focus(CAPS_BOTH, "gtk4-im:test");
+    s.drain();
+    let (buf, sigs) = s.type_buffered("ttlt ");
+    assert_eq!(
+        buf, "Tôi tên là Tùng ",
+        "the deletes must erase the raw key before the expansion lands: {sigs:?}"
+    );
+    assert_eq!(
+        commits(&sigs),
+        ["t", "t", "l", "t", "Tôi tên là Tùng"],
+        "{sigs:?}"
+    );
 }
 
 fn capitalization(s: &mut common::Sess) {

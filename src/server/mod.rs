@@ -916,13 +916,20 @@ fn emit_with(
             // like real presses. They ride the same connection as the Commit
             // that follows, which keeps them ordered; no echo comes back
             // (the key goes to the application, not to the engine).
-            // ForwardKeyEvent (mode I) stays unbatched-batch: the owner
-            // confirmed its Vietnamese typing works as shipped — only the
-            // select-and-erase mode below needed the pacing.
+            // Both Forward modes pace the paired commit (see
+            // `Engine::defer_commit_timed`): a macro's rewrite left the app
+            // as [commit, Backspace x k] — the deletes ate the tail of the
+            // just-committed expansion ("ttlt" expanded to
+            // "ttltTôi tên là  ", the expansion's Tùng eaten). Vietnamese
+            // typing without macros is unaffected: the words commit
+            // per-key, and only rewrite-shaped actions defer here.
             Action::ForwardBackspaces(n) => {
                 debug_log::log(&format!("forward-backspaces n={n}"));
                 for _ in 0..*n {
                     push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
+                }
+                if matches!(actions.get(idx + 1), Some(Action::Commit(_))) {
+                    paced_commit = Some(pacing_delay(engine, *n));
                 }
             }
             // ForwardSelect: Shift+Left moves the application's own selection
