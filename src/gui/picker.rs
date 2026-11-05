@@ -34,12 +34,6 @@ fn build_window(app: &adw::Application, app_target: Option<String>) {
     let current = app_rule_mode(&config.app_rules, Some(&target));
     let has_rule = current.is_some();
 
-    let window = adw::ApplicationWindow::builder()
-        .application(app)
-        .title("MăngRS — luật theo app")
-        .default_width(440)
-        .build();
-
     let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     let header = gtk4::HeaderBar::new();
     root.append(&header);
@@ -49,6 +43,17 @@ fn build_window(app: &adw::Application, app_target: Option<String>) {
     content.set_margin_start(18);
     content.set_margin_end(18);
     root.append(&content);
+
+    // `content` is the Adwaita window's own property: its gtk-level
+    // set_child is overridden to abort ("not supported for
+    // AdwApplicationWindow"), which is exactly the flash-and-die the first
+    // picker version shipped.
+    let window = adw::ApplicationWindow::builder()
+        .application(app)
+        .title("MăngRS — luật theo app")
+        .default_width(440)
+        .content(&root)
+        .build();
 
     let heading = gtk4::Label::builder().wrap(true).xalign(0.0).build();
     if known {
@@ -141,6 +146,5 @@ fn build_window(app: &adw::Application, app_target: Option<String>) {
     row.append(&apply_btn);
     content.append(&row);
 
-    window.set_child(Some(&root));
     window.present();
 }
