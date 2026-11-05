@@ -410,8 +410,13 @@ impl EngineHandler {
                 msg.method_return()
             }
             "FocusOut" | "Disable" | "FocusOutId" => {
-                // The candidate popup belongs to the old input context.
-                self.picker = None;
+                // The candidate popup belongs to the old input context: hide
+                // it, or it lingers over the next window. (Direct field access:
+                // the engine guard below holds a borrow of self.)
+                if self.picker.take().is_some() {
+                    out.push(signal("HideLookupTable"));
+                    out.push(signal("HideAuxiliaryText"));
+                }
                 // Commits still waiting for their Backspace echoes: echoes will
                 // not follow a focus change, so deliver them now (late but not
                 // never).
@@ -454,8 +459,13 @@ impl EngineHandler {
                 msg.method_return()
             }
             "Reset" => {
-                // A client reset (click, button press) closes the popup.
-                self.picker = None;
+                // A client reset (click, button press) closes the popup —
+                // this is what makes a click elsewhere dismiss the menu.
+                // (Direct field access: the engine guard holds a borrow.)
+                if self.picker.take().is_some() {
+                    out.push(signal("HideLookupTable"));
+                    out.push(signal("HideAuxiliaryText"));
+                }
                 // The preedit is sent with IBUS_ENGINE_PREEDIT_COMMIT, so the
                 // client has already committed the word by the time this
                 // arrives (GTK sends it on a mouse click, a focus change and a

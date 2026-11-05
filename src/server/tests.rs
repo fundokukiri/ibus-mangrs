@@ -854,30 +854,26 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
 #[test]
 fn picker_keys_map_onto_entries() {
     use super::picker::{picker_entries, PickerKey, PickerState};
-    let len = picker_entries().len();
-    assert_eq!(
-        len,
-        ibus_prop::MODES.len() + 1,
-        "modes plus the removal entry"
+    let len = picker_entries(ModeConfig::Preedit).len();
+    assert_eq!(len, ibus_prop::MODES.len(), "ten modes, nothing else");
+    let state = PickerState::new("e2epick".into());
+    // Digits 1..9 pick entries 1..9, 0 picks the tenth; Enter picks the
+    // first. There is no navigation: arrows and every other key close.
+    assert_eq!(state.on_key(0x31), PickerKey::Select(0));
+    assert_eq!(state.on_key(0x39), PickerKey::Select(8));
+    assert_eq!(state.on_key(0x30), PickerKey::Select(9));
+    assert_eq!(state.on_key(65293), PickerKey::Select(0));
+    assert_eq!(state.on_key(65307), PickerKey::Cancel);
+    assert_eq!(state.on_key(65364), PickerKey::Ignore); // Down
+    assert_eq!(state.on_key(0x76), PickerKey::Ignore);
+    // The current mode's entry carries the dot marker.
+    let entries = picker_entries(ModeConfig::Preedit);
+    assert!(
+        entries[2].starts_with("● "),
+        "preedit is the default: {}",
+        entries[2]
     );
-    let mut state = PickerState::new("e2epick".into());
-    // Down/Up walk with wrap-around (round = true).
-    state.step(1, len);
-    assert_eq!(state.cursor, 1);
-    state.step(-1, len);
-    state.step(-1, len);
-    assert_eq!(state.cursor, len - 1, "wraps below zero to the last entry");
-    // Enter selects the cursor; digits select within the current page.
-    state.cursor = 0;
-    assert_eq!(state.on_key(65293, len), PickerKey::Select(0));
-    assert_eq!(state.on_key(0x31, len), PickerKey::Select(0));
-    assert_eq!(state.on_key(0x39, len), PickerKey::Select(8));
-    assert_eq!(state.on_key(65364, len), PickerKey::Down);
-    assert_eq!(state.on_key(65307, len), PickerKey::Cancel);
-    // Any other key closes and types on; a digit past the list ignores.
-    state.cursor = 0;
-    assert_eq!(state.on_key(0x39 + 1, len), PickerKey::Ignore);
-    assert_eq!(state.on_key(0x76, len), PickerKey::Ignore);
+    assert!(!entries[0].starts_with("● "));
 }
 
 #[test]
