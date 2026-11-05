@@ -414,7 +414,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         emoji_hotkey_edit,
         "tips.emoji_hotkey",
-        "Phím tắt mở bảng chọn emoji (cửa sổ tìm kiếm, click để copy)."
+        "Phím tắt mở menu chọn emoji kiểu ibus-bamboo: bảng ứng viên hiện ngay tại con trỏ, gõ chữ để tìm, phím số chọn, Esc hoặc click ra chỗ khác đóng."
     );
     tip!(
         hide_underline,

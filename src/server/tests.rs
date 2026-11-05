@@ -111,6 +111,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
         hotkeys: Vec::new(),
         last_fire: Vec::new(),
         picker: None,
+        emoji_picker: None,
         focus_ext: None,
     };
     let press = |handler: &mut EngineHandler, keyval: u32| {
@@ -884,4 +885,128 @@ fn lookup_table_variant_has_the_wire_signature() {
     // popup refuses to render anything else.
     let table = ibus_prop::lookup_table_variant(9, 2, &["a".into(), "b".into()]);
     assert_eq!(table.0.signature(), "(sa{sv}uubbiavav)");
+}
+
+// --- emoji picker state machine ---
+
+/// Twelve fake rows: enough for two pages, blobs fold diacritics away.
+fn emoji_rows() -> Vec<crate::emoji::SearchRow> {
+    const BASE: [(&str, &str, &str); 12] = [
+        ("smile", "😄", "vui cuoi face"),
+        ("fire", "🔥", "lua hot"),
+        ("turtle", "🐢", "rua"),
+        ("cat", "🐱", "meo"),
+        ("dog", "🐶", "cho puppy"),
+        ("rocket", "🚀", "ten lua"),
+        ("heart", "❤️", "tim yeu"),
+        ("star", "⭐", "ngoi sao"),
+        ("pizza", "🍕", "banh"),
+        ("coffee", "☕", "ca phe"),
+        ("moon", "🌙", "mat trang"),
+        ("sun", "☀️", "mat troi"),
+    ];
+    BASE.into_iter()
+        .map(|(name, glyph, keywords)| crate::emoji::SearchRow {
+            name: name.into(),
+            glyph: glyph.into(),
+            blob: crate::emoji::fold_ascii(&format!("{name} {keywords}")),
+        })
+        .collect()
+}
+
+#[test]
+fn emoji_menu_opens_on_the_recents_page() {
+    use super::emoji_picker::EmojiPickerState;
+    // No recents: the table head leads (the common smileys).
+    let empty = EmojiPickerState::with(emoji_rows(), Vec::new());
+    let labels = empty.page_labels();
+    assert_eq!(labels.len(), 10, "one flat page of ten");
+    assert!(labels[0].starts_with("😄"), "{labels:?}");
+    // With recents: the picks lead, newest first.
+    let state = EmojiPickerState::with(
+        emoji_rows(),
+        vec![("fire".into(), "🔥".into()), ("smile".into(), "😄".into())],
+    );
+    let labels = state.page_labels();
+    assert_eq!(labels[0], "🔥 fire", "{labels:?}");
+    assert_eq!(labels[1], "😄 smile", "{labels:?}");
+}
+
+#[test]
+fn emoji_menu_search_folds_diacritics() {
+    use super::emoji_picker::EmojiPickerState;
+    let mut state = EmojiPickerState::with(emoji_rows(), Vec::new());
+    for c in "lua".chars() {
+        state.query.push(c);
+    }
+    state.page = 0;
+    let labels = state.page_labels();
+    // fire ("lua hot") and rocket ("ten lua") both carry the word.
+    assert_eq!(
+        labels,
+        vec!["🔥 fire".to_string(), "🚀 rocket".to_string()],
+        "lua finds both lua rows"
+    );
+    // The query keeps what the user typed for the auxiliary line.
+    assert!(state.auxiliary().contains("\"lua\""));
+}
+
+#[test]
+fn emoji_menu_pages_and_picks() {
+    use super::emoji_picker::EmojiPickerState;
+    let mut state = EmojiPickerState::with(emoji_rows(), Vec::new());
+    assert_eq!(state.page_labels().len(), 10);
+    assert_eq!(
+        state.pick(9).map(|(_, g)| g),
+        Some("☕".into()),
+        "0 picks the tenth entry"
+    );
+    assert_eq!(state.pick(10), None, "only ten per page");
+    state.page_down();
+    assert_eq!(state.page_labels().len(), 2, "twelve rows, second page two");
+    assert_eq!(state.pick(0).map(|(_, g)| g), Some("🌙".into()));
+    state.page_down();
+    assert_eq!(state.page_labels().len(), 2, "the last page stays");
+    state.page_up();
+    state.page_up();
+    state.page_up();
+    assert!(state.page_labels().len() == 10, "back at the first page");
+    // A fresh query resets the page.
+    state.page_down();
+    state.query.push('r');
+    state.page = 0;
+    assert!(state.page_labels().len() >= 2, "filtered rows");
+}
+
+#[test]
+fn emoji_menu_backspace_returns_to_the_recents() {
+    use super::emoji_picker::EmojiPickerState;
+    let mut state = EmojiPickerState::with(emoji_rows(), vec![("fire".into(), "🔥".into())]);
+    state.query.push('x');
+    state.query.pop();
+    // The query is empty again: the recents page is back.
+    assert_eq!(state.page_labels(), vec!["🔥 fire".to_string()]);
+}
+
+#[test]
+fn emoji_menu_keys_map_onto_actions() {
+    use super::emoji_picker::{EmojiKey, EmojiPickerState};
+    let state = EmojiPickerState::with(emoji_rows(), Vec::new());
+    let map = |kv| state.on_key(kv);
+    assert_eq!(map(0x31), EmojiKey::Select(0), "'1' picks the first");
+    assert_eq!(map(0x39), EmojiKey::Select(8));
+    assert_eq!(map(0x30), EmojiKey::Select(9), "'0' picks the tenth");
+    assert_eq!(map(0xffb1), EmojiKey::Select(0), "KP_1 picks the first");
+    assert_eq!(map(0xffb0), EmojiKey::Select(9), "KP_0 picks the tenth");
+    assert_eq!(map(65293), EmojiKey::Select(0), "Enter picks the first");
+    assert_eq!(map(65421), EmojiKey::Select(0), "KP_Enter too");
+    assert_eq!(map(65307), EmojiKey::Cancel);
+    assert_eq!(map(65288), EmojiKey::Backspace);
+    assert_eq!(map(65365), EmojiKey::PageUp);
+    assert_eq!(map(65366), EmojiKey::PageDown);
+    assert_eq!(map(0x61), EmojiKey::Query('a'), "letters search");
+    assert_eq!(map(0x20), EmojiKey::Query(' '), "space searches");
+    assert_eq!(map(0x5f), EmojiKey::Query('_'), "underscore searches");
+    assert_eq!(map(0x3b), EmojiKey::Ignore, "punctuation closes");
+    assert_eq!(map(0xff51), EmojiKey::Ignore, "arrows close");
 }

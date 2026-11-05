@@ -41,9 +41,11 @@ mod x11;
 mod tests;
 
 // The GUI hotkey recorder validates specs through crate::server::parse_hotkey;
+mod emoji_picker;
 mod picker;
 
 // the lib build resolves the name inside hotkey itself, hence the allow.
+use self::emoji_picker::EmojiPickerState;
 #[allow(unused_imports)]
 pub(crate) use self::hotkey::parse_hotkey;
 use self::hotkey::{hotkey_registry, HotkeyAction, HotkeyBinding};
@@ -110,6 +112,7 @@ impl Server {
             hotkeys: Vec::new(),
             last_fire: Vec::new(),
             picker: None,
+            emoji_picker: None,
             focus_ext: None,
         };
         handler.last_config_mtime = Config::path()
@@ -227,6 +230,10 @@ struct EngineHandler {
     /// the caret; see picker.rs). Keys route here first, so nothing types
     /// while the menu is up.
     picker: Option<PickerState>,
+    /// The emoji picker while it is open (an IBus lookup table at the
+    /// caret; see emoji_picker.rs) — the same menu shape, digits pick,
+    /// typing searches.
+    emoji_picker: Option<EmojiPickerState>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
 }
@@ -307,10 +314,31 @@ impl EngineHandler {
             // A mouse click on a picker entry (GNOME's candidate popup
             // forwards it here): same as pressing the entry's digit. Handled
             // before the engine lock — the apply locks by itself.
+            if self.emoji_picker.is_some() {
+                if let Ok((index, _button, _state)) = msg.read3::<u32, u32, u32>() {
+                    self.apply_emoji_pick(index as usize, out);
+                }
+                return msg.method_return();
+            }
             if self.picker.is_some() {
                 if let Ok((index, _button, _state)) = msg.read3::<u32, u32, u32>() {
                     self.apply_picker_entry(index as usize, out);
                 }
+            }
+            return msg.method_return();
+        }
+        if member == "PageUp" || member == "PageDown" {
+            // The candidate popup's pager buttons; only the emoji menu has
+            // more than one page. Handled before the engine lock.
+            if self.emoji_picker.is_some() {
+                if let Some(picker) = self.emoji_picker.as_mut() {
+                    if member == "PageDown" {
+                        picker.page_down();
+                    } else {
+                        picker.page_up();
+                    }
+                }
+                self.emit_emoji_table(out);
             }
             return msg.method_return();
         }
@@ -424,7 +452,9 @@ impl EngineHandler {
                 // The candidate popup belongs to the old input context: hide
                 // it, or it lingers over the next window. (Direct field access:
                 // the engine guard below holds a borrow of self.)
-                if self.picker.take().is_some() {
+                let had_menu = self.picker.take().is_some();
+                let had_menu = had_menu || self.emoji_picker.take().is_some();
+                if had_menu {
                     out.push(signal("HideLookupTable"));
                     out.push(signal("HideAuxiliaryText"));
                 }
@@ -473,7 +503,9 @@ impl EngineHandler {
                 // A client reset (click, button press) closes the popup —
                 // this is what makes a click elsewhere dismiss the menu.
                 // (Direct field access: the engine guard holds a borrow.)
-                if self.picker.take().is_some() {
+                let had_menu = self.picker.take().is_some();
+                let had_menu = had_menu || self.emoji_picker.take().is_some();
+                if had_menu {
                     out.push(signal("HideLookupTable"));
                     out.push(signal("HideAuxiliaryText"));
                 }

@@ -47,6 +47,14 @@ const CASES: &[Case] = &[
         f: app_rule_picker,
     },
     Case {
+        name: "emoji picker: lookup table at the caret commits the pick",
+        cfg: &[("emoji_hotkey", "\"Control+Alt+e\"")],
+        macros: &[],
+        raw: "",
+        dict: "",
+        f: emoji_picker,
+    },
+    Case {
         name: "app rules: a config rule overrides the default mode",
         cfg: &[],
         macros: &[],
@@ -353,6 +361,96 @@ fn debug_log(s: &mut common::Sess) {
     assert!(
         !text.is_empty(),
         "debug.log must exist and record decisions"
+    );
+}
+
+fn emoji_picker(s: &mut common::Sess) {
+    // The bamboo-style menu: one flat page at the caret, releases keep it
+    // open, the hotkey pressed again toggles it closed (never a second
+    // popup), letters search, a digit commits the glyph straight into the
+    // application - no clipboard - and Escape closes.
+    s.focus(CAPS_BOTH, "gtk4-im:e2emoji");
+    s.drain();
+    assert!(
+        s.key(0x65, common::CONTROL | common::ALT),
+        "hotkey consumed"
+    );
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "UpdateLookupTable") && has_member(&sigs, "UpdateAuxiliaryText"),
+        "the menu must show at the caret: {sigs:?}"
+    );
+    let release = 1u32 << 30;
+    for kv in [0x65, 0xffe5, 0xffe9] {
+        assert!(
+            s.key(kv, common::CONTROL | common::ALT | release),
+            "release consumed"
+        );
+    }
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        !has_member(&sigs, "HideLookupTable"),
+        "releases must keep the menu open: {sigs:?}"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(common::SETTLE_MS));
+    assert!(
+        s.key(0x65, common::CONTROL | common::ALT),
+        "hotkey pressed again"
+    );
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "HideLookupTable") && !has_member(&sigs, "UpdateLookupTable"),
+        "the second press must close the menu, not open another: {sigs:?}"
+    );
+    // Reopen and search: letters build the query, a digit commits the glyph.
+    std::thread::sleep(std::time::Duration::from_millis(common::SETTLE_MS));
+    assert!(s.key(0x65, common::CONTROL | common::ALT), "hotkey reopens");
+    s.pump(PUMP_MS);
+    s.drain();
+    for kv in [0x66, 0x69, 0x72, 0x65] {
+        assert!(s.key(kv, 0), "query letter consumed by the menu");
+    }
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "UpdateAuxiliaryText"),
+        "the query shows in the auxiliary line: {sigs:?}"
+    );
+    assert!(s.key(0x31, 0), "digit 1 picks");
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    let commit = commits(&sigs);
+    assert_eq!(
+        commit.len(),
+        1,
+        "exactly one CommitText - the glyph: {sigs:?}"
+    );
+    assert!(
+        !commit[0].is_ascii(),
+        "the commit must be the emoji glyph itself, not a rewrite: {sigs:?}"
+    );
+    assert!(
+        has_member(&sigs, "HideLookupTable") && has_member(&sigs, "HideAuxiliaryText"),
+        "the pick closes the menu: {sigs:?}"
+    );
+    // The client runs the default Preedit mode: the word commits at the
+    // trailing space.
+    let (buf, all) = s.type_reported(" l ");
+    assert_eq!(buf, " l ", "typing must work right after the pick: {all:?}");
+    // Escape closes a reopened menu.
+    std::thread::sleep(std::time::Duration::from_millis(common::SETTLE_MS));
+    assert!(s.key(0x65, common::CONTROL | common::ALT), "hotkey reopens");
+    s.pump(PUMP_MS);
+    s.drain();
+    assert!(s.key(0xff1b, 0), "Escape consumed by the menu");
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "HideLookupTable"),
+        "Escape closes the menu: {sigs:?}"
     );
 }
 
