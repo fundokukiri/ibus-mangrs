@@ -75,7 +75,7 @@ subtitle = "Telex, VNI, VIQR, Microsoft layout"
 
 [rows.mode]
 title = "Chế độ gõ"
-subtitle = "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF, Gõ mặc định"
+subtitle = "Tự động, Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF"
 
 [rows.charset]
 title = "Bảng mã"
