@@ -1,15 +1,27 @@
 use super::*;
 
-/// B3 regression: the import path pushes a config into every widget through
-/// `refresh`, so a widget `refresh` forgets keeps its old value and the next
-/// save writes that stale value back over the imported settings. Needs a
-/// display; skips where GTK cannot start.
+/// GTK initializes once per process and only ever on the thread that did
+/// it, while libtest hands every `#[test]` its own thread — separate GTK
+/// tests flake with "Attempted to initialize GTK from two different
+/// threads" depending on the scheduler. One test runs every widget
+/// scenario sequentially on the one thread that initialized GTK; each
+/// scenario keeps its own assertions. Needs a display; skips where GTK
+/// cannot start.
 #[test]
-fn refresh_round_trips_every_widget() {
+fn gtk_widget_scenarios() {
     if gtk4::init().is_err() {
         eprintln!("gui: SKIP (no display)");
         return;
     }
+    refresh_round_trips_every_widget();
+    hotkey_recorder_lives_on_the_edit_button();
+    external_reload_refreshes_without_saving();
+}
+
+/// B3 regression: the import path pushes a config into every widget through
+/// `refresh`, so a widget `refresh` forgets keeps its old value and the next
+/// save writes that stale value back over the imported settings.
+fn refresh_round_trips_every_widget() {
     let ui = widgets();
     let mut macros = Macros::load();
     macros.set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
@@ -110,14 +122,8 @@ fn refresh_round_trips_every_widget() {
 /// pressed keys. Regression for the row-anchored recorder whose
 /// focus-leave handler cancelled the capture before any key arrived —
 /// with the controllers on the row and the button disabled on click,
-/// assigning a hotkey did nothing. Needs a display; skips where GTK
-/// cannot start.
-#[test]
+/// assigning a hotkey did nothing.
 fn hotkey_recorder_lives_on_the_edit_button() {
-    if gtk4::init().is_err() {
-        eprintln!("gui: SKIP (no display)");
-        return;
-    }
     let kinds = |w: &gtk4::Widget| -> Vec<String> {
         let list = w.observe_controllers();
         (0..list.n_items())
@@ -150,12 +156,10 @@ fn hotkey_recorder_lives_on_the_edit_button() {
     assert!(edit.is_sensitive(), "the recorder disabled the edit button");
     assert_eq!(label.text(), "Nhấn tổ hợp phím… (Esc hủy)");
 }
-#[test]
+
+/// The live-reload path pushes fresh file contents through the same change
+/// handlers a user edit fires; none of them may reach the save funnel.
 fn external_reload_refreshes_without_saving() {
-    if gtk4::init().is_err() {
-        eprintln!("gui: SKIP (no display)");
-        return;
-    }
     let ui = widgets();
     let calls = Rc::new(Cell::new(0u32));
     {
@@ -164,8 +168,6 @@ fn external_reload_refreshes_without_saving() {
     }
     ui.fire_save();
     assert_eq!(calls.get(), 1, "the funnel saves when not suppressed");
-    // Pushes fresh file contents through the same change handlers a user
-    // edit fires; none of them may reach the save funnel.
     ui.external_reload();
     assert_eq!(calls.get(), 1, "external_reload must not save");
     assert!(!ui.suppress_save.get(), "the flag must be cleared after");

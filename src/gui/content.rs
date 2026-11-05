@@ -22,6 +22,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     export_btn.add_css_class("flat");
     let import_btn = gtk4::Button::with_label(&t("misc.import_button", "Nhập…"));
     import_btn.add_css_class("flat");
+    let extension_btn = gtk4::Button::with_label(&t("misc.extension_button", "Cài đặt"));
+    extension_btn.add_css_class("flat");
+    let reset_defaults_btn = gtk4::Button::with_label(&t("misc.reset_button", "Khôi phục"));
+    reset_defaults_btn.add_css_class("flat");
+    reset_defaults_btn.add_css_class("destructive-action");
 
     // ===== Page 1: Chung — the everyday page, on its own preferences file.
     let typing_page = pages::typing::build(&ui);
@@ -39,7 +44,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     let rules_page = pages::rules::build(&ui);
 
     // ===== Page 6: Tinh chỉnh — uinput pacing, X11/XIM, backup, log.
-    let advanced_page = pages::advanced::build(&ui, &export_btn, &import_btn);
+    let other_page = pages::other::build(
+        &ui,
+        &export_btn,
+        &import_btn,
+        &extension_btn,
+        &reset_defaults_btn,
+    );
 
     // ===== Page 7: Giới thiệu — feature highlights + the about dialog.
     let about_page = pages::about::build();
@@ -78,9 +89,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             "document-edit-symbolic",
         ),
         (
-            "advanced",
-            t("pages.advanced", "Tinh chỉnh"),
-            "emblem-system-symbolic",
+            "other",
+            t("pages.other", "Cài đặt khác"),
+            "preferences-other-symbolic",
         ),
         (
             "about",
@@ -99,7 +110,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         data_page.upcast_ref(),
         rules_page.upcast_ref(),
         panel_page.upcast_ref(),
-        advanced_page.upcast_ref(),
+        other_page.upcast_ref(),
         about_page.upcast_ref(),
     ];
     let stack = gtk4::Stack::new();
@@ -641,6 +652,60 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                     }
                 },
             );
+        });
+    }
+
+    {
+        let window = window.clone();
+        extension_btn.connect_clicked(move |_| match install_focus_extension() {
+            Ok(msg) => {
+                let dialog = adw::AlertDialog::builder()
+                    .heading(t("other.extension_heading", "Extension MăngRS Focus"))
+                    .body(msg)
+                    .build();
+                dialog.add_response("ok", "OK");
+                dialog.set_default_response(Some("ok"));
+                dialog.set_close_response("ok");
+                dialog.present(Some(&window));
+            }
+            Err(e) => alert(&window, &e),
+        });
+    }
+    {
+        let ui = ui.clone();
+        let window = window.clone();
+        let restart_for_reset = restart_btn.clone();
+        reset_defaults_btn.connect_clicked(move |btn| {
+            // Destructive: every config key goes back to the default, so it
+            // confirms like the panel-menu reset does.
+            let dialog = adw::AlertDialog::builder()
+                .heading(t("other.reset_heading", "Khôi phục mặc định?"))
+                .body(t(
+                    "other.reset_body",
+                    "Mọi tùy chỉnh cấu hình (kể cả menu panel, luật theo app, phím tắt) sẽ về mặc định. Gõ tắt và từ điển giữ nguyên.",
+                ))
+                .build();
+            dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
+            dialog.add_response("apply", &t("other.reset_apply", "Khôi phục"));
+            dialog.set_response_appearance("apply", adw::ResponseAppearance::Destructive);
+            dialog.set_close_response("cancel");
+            {
+                let ui = ui.clone();
+                let window = window.clone();
+                let restart = restart_for_reset.clone();
+                dialog.connect_response(Some("apply"), move |_, _| {
+                    if let Err(e) = Config::default().save_fresh() {
+                        alert(&window, &format!("Không ghi được cấu hình mặc định: {e}"));
+                        return;
+                    }
+                    let config = Config::load();
+                    let macros = Macros::load();
+                    let dictionary = Dictionary::load();
+                    ui.refresh(&config, &macros, &dictionary);
+                    restart.set_visible(true);
+                });
+            }
+            dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
         });
     }
 
