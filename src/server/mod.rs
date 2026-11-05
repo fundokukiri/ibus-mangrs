@@ -753,6 +753,14 @@ fn emit_with(
                     engine.defer_commit_timed(delay, text.clone());
                     continue;
                 }
+                if engine.timed_commit_pending() {
+                    // A paced rewrite commit is still waiting: this commit —
+                    // the next word's first letter in a burst — must not
+                    // overtake it, or it lands at the pre-rewrite caret and
+                    // the words interleave.
+                    engine.queue_commit_behind_timed(text.clone());
+                    continue;
+                }
                 push_commit(
                     engine,
                     out,
