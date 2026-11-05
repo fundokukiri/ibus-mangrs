@@ -56,7 +56,7 @@ impl EngineHandler {
 
         // While the app-rule picker is up, every key belongs to the menu:
         // navigate, pick, or close-and-type-on.
-        if self.picker.is_some() && self.picker_key(keyval, out) {
+        if self.picker.is_some() && self.picker_key(keyval, state, out) {
             return msg.method_return().append1(true);
         }
 
