@@ -55,7 +55,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         &reset_defaults_btn,
     );
 
-    // ===== Page 7: Giới thiệu — feature highlights + the about dialog.
+    // ===== Page 7: Tinh chỉnh — uinput pacing + X11/XIM workarounds.
+    let tune_page = pages::tune::build(&ui);
+
+    // ===== Page 8: Giới thiệu — feature highlights + the about dialog.
     let about_page = pages::about::build();
 
     // ===== Page 6: Menu panel — the popup designer.
@@ -65,7 +68,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // Content: one page per section, crossfading. Stack names are stable —
     // the engine opens pages with `--page=<name>`.
     // (stack name, sidebar label, symbolic icon from the icon theme)
-    let pages: [(&str, String, &str); 10] = [
+    let pages: [(&str, String, &str); 11] = [
         (
             "typing",
             t("pages.typing", "Chung"),
@@ -104,16 +107,21 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             "preferences-other-symbolic",
         ),
         (
+            "tune",
+            t("pages.tune", "Tinh chỉnh"),
+            "preferences-system-symbolic",
+        ),
+        (
             "about",
             t("pages.about", "Giới thiệu"),
             "help-about-symbolic",
         ),
     ];
-    let pages_refs: [(&str, &str, &str); 10] = std::array::from_fn(|i| {
+    let pages_refs: [(&str, &str, &str); 11] = std::array::from_fn(|i| {
         let (name, title, icon) = &pages[i];
         (*name, title.as_str(), *icon)
     });
-    let page_boxes: [&gtk4::Widget; 10] = [
+    let page_boxes: [&gtk4::Widget; 11] = [
         typing_page.upcast_ref(),
         tone_page.upcast_ref(),
         macro_page.upcast_ref(),
@@ -123,6 +131,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         panel_page.upcast_ref(),
         hotkeys_page.upcast_ref(),
         other_page.upcast_ref(),
+        tune_page.upcast_ref(),
         about_page.upcast_ref(),
     ];
     let stack = gtk4::Stack::new();
@@ -504,6 +513,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // Old page names from earlier layouts are mapped onto the current ones.
     let wanted = match initial_page {
         Some("general") | None => "typing",
+        // The technical page's own name, for completeness.
+        Some("tune") => "tune",
         Some("hotkeys") | Some("shortcuts") => "hotkeys",
         Some("dictionary") | Some("backup") => "data",
         // The old "apps" page was the app rules page.
