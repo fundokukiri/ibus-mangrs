@@ -2,12 +2,14 @@
 //! the ibus-bamboo Shift+` flow, no GTK window involved. The engine opens
 //! it on the app-rule hotkey with the rule target it resolved at press
 //! time (once the popup is up, the focused "app" would be the app itself).
-//! One flat page of the ten display modes — the entry currently in force
-//! carries a dot marker and the auxiliary line names the app and its mode;
-//! a digit 1..9/0 applies that mode; Escape, an arrow or any other key
-//! closes the menu. Clicking elsewhere resets the client, which closes it
-//! too. The choice updates the highest-priority rule the app currently
-//! rides on (`Config::set_rule_mode_for_target`).
+//! One flat page of the ten display modes: the highlight starts on the
+//! mode in force — GNOME draws the lookup-table cursor as the blue hover —
+//! and the auxiliary line names the app and its mode. Up/Down move the
+//! highlight, Enter picks it, a digit 1..9/0 picks that entry directly,
+//! Escape or any other key closes the menu (other keys type on). Clicking
+//! elsewhere resets the client, which closes it too. The choice updates
+//! the highest-priority rule the app currently rides on
+//! (`Config::set_rule_mode_for_target`).
 
 use super::hotkey::client_prgname;
 use super::*;
@@ -34,6 +36,8 @@ pub(super) fn picker_entries(current: ModeConfig) -> Vec<String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PickerKey {
     Select(usize),
+    /// Move the highlight by this many entries (wrapping).
+    Move(i32),
     Cancel,
     /// Any other key: close the picker and let the key reach the engine.
     Ignore,
@@ -43,21 +47,26 @@ pub(super) struct PickerState {
     /// The rule pattern the choice applies to — the focused app's bare
     /// class name (transport prefix stripped, like the GUI adds rules).
     pub target: String,
+    /// The highlighted entry. Starts on the mode in force (the popup's
+    /// blue hover marks the current choice), Up/Down move it, Enter picks
+    /// it; digits still select their entry directly.
+    pub(super) cursor: usize,
 }
 
 impl PickerState {
-    pub fn new(target: String) -> Self {
-        Self { target }
+    pub fn new(target: String, cursor: usize) -> Self {
+        Self { target, cursor }
     }
 
     /// Map one key event onto the picker. Pure, so tests can drive it.
-    /// Digits 1..9 pick entries 1..9 and 0 picks the tenth; Enter picks the
-    /// highlighted (first) entry. There is no navigation — the menu is one
-    /// flat page by owner decision.
+    /// Digits 1..9 pick entries 1..9 and 0 picks the tenth; Enter picks
+    /// the highlighted entry; Up/Down move the highlight.
     pub fn on_key(&self, keyval: u32) -> PickerKey {
         match keyval {
-            65293 | 65421 => PickerKey::Select(0), // Return / KP_Enter
-            65307 => PickerKey::Cancel,            // Escape
+            65293 | 65421 => PickerKey::Select(self.cursor), // Return / KP_Enter
+            65307 => PickerKey::Cancel,                      // Escape
+            65362 => PickerKey::Move(-1),                    // Up
+            65364 => PickerKey::Move(1),                     // Down
             k @ 0x31..=0x39 => PickerKey::Select((k - 0x31) as usize),
             0x30 => PickerKey::Select(9), // 0 picks the tenth entry
             _ => PickerKey::Ignore,
@@ -102,7 +111,17 @@ impl EngineHandler {
             let actions = engine.end_word_for_picker();
             emit(&mut engine, &actions, out);
         }
-        self.picker = Some(PickerState::new(target));
+        // The highlight starts on the mode in force: GNOME draws the
+        // lookup-table cursor as the blue hover, so the current choice is
+        // visible the moment the menu opens.
+        let config = Config::load();
+        let current =
+            crate::config::app_rule_mode(&config.app_rules, Some(&target)).unwrap_or(config.mode);
+        let cursor = ibus_prop::MODES
+            .iter()
+            .position(|(key, _)| ModeConfig::from_key(key) == Some(current))
+            .unwrap_or(0);
+        self.picker = Some(PickerState::new(target, cursor));
         self.emit_picker_table(out);
     }
 
@@ -121,13 +140,11 @@ impl EngineHandler {
             .find(|(key, _)| ModeConfig::from_key(key) == Some(current))
             .map(|(_, label)| label.to_string())
             .unwrap_or_default();
-        let table = ibus_prop::lookup_table_variant(PICKER_PAGE_SIZE, 0, &entries);
+        let table =
+            ibus_prop::lookup_table_variant(PICKER_PAGE_SIZE, state.cursor as u32, &entries);
         out.push(signal("UpdateLookupTable").append2(table, true));
         out.push(signal("UpdateAuxiliaryText").append2(
-            crate::ibus_text::plain_text(&format!(
-                "Chế độ gõ cho {} — hiện tại: {}",
-                state.target, current_label
-            )),
+            crate::ibus_text::plain_text(&format!("{} — {}", state.target, current_label)),
             true,
         ));
     }
@@ -147,6 +164,15 @@ impl EngineHandler {
         match action {
             PickerKey::Select(i) => {
                 self.apply_picker_entry(i, out);
+                true
+            }
+            PickerKey::Move(delta) => {
+                if let Some(p) = self.picker.as_mut() {
+                    p.cursor =
+                        (p.cursor as i32 + delta).rem_euclid(PICKER_PAGE_SIZE as i32) as usize;
+                }
+                // Re-render so the popup's highlight follows the cursor.
+                self.emit_picker_table(out);
                 true
             }
             PickerKey::Cancel => {
