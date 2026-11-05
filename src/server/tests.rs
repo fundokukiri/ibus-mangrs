@@ -110,6 +110,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
         last_config_mtime: None,
         hotkeys: Vec::new(),
         last_fire: Vec::new(),
+        picker: None,
         focus_ext: None,
     };
     let press = |handler: &mut EngineHandler, keyval: u32| {
@@ -848,4 +849,41 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
         hotkey_registry(&config).is_empty(),
         "parse_hotkey rejects these"
     );
+}
+
+#[test]
+fn picker_keys_map_onto_entries() {
+    use super::picker::{picker_entries, PickerKey, PickerState};
+    let len = picker_entries().len();
+    assert_eq!(
+        len,
+        ibus_prop::MODES.len() + 1,
+        "modes plus the removal entry"
+    );
+    let mut state = PickerState::new("e2epick".into());
+    // Down/Up walk with wrap-around (round = true).
+    state.step(1, len);
+    assert_eq!(state.cursor, 1);
+    state.step(-1, len);
+    state.step(-1, len);
+    assert_eq!(state.cursor, len - 1, "wraps below zero to the last entry");
+    // Enter selects the cursor; digits select within the current page.
+    state.cursor = 0;
+    assert_eq!(state.on_key(65293, len), PickerKey::Select(0));
+    assert_eq!(state.on_key(0x31, len), PickerKey::Select(0));
+    assert_eq!(state.on_key(0x39, len), PickerKey::Select(8));
+    assert_eq!(state.on_key(65364, len), PickerKey::Down);
+    assert_eq!(state.on_key(65307, len), PickerKey::Cancel);
+    // Any other key closes and types on; a digit past the list ignores.
+    state.cursor = 0;
+    assert_eq!(state.on_key(0x39 + 1, len), PickerKey::Ignore);
+    assert_eq!(state.on_key(0x76, len), PickerKey::Ignore);
+}
+
+#[test]
+fn lookup_table_variant_has_the_wire_signature() {
+    // Captured from libibus 1.5.34's own serialization (GI): the candidate
+    // popup refuses to render anything else.
+    let table = ibus_prop::lookup_table_variant(9, 2, &["a".into(), "b".into()]);
+    assert_eq!(table.0.signature(), "(sa{sv}uubbiavav)");
 }
