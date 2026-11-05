@@ -53,13 +53,16 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     group.add(&app_rule_hotkey);
     let emoji_hotkey = action_row(
         &t("rows.hotkey_emoji.title", "Phím tắt mở bảng emoji"),
-        &t("rows.hotkey_emoji.subtitle", "Mở cửa sổ tìm và copy emoji"),
+        &t(
+            "rows.hotkey_emoji.subtitle",
+            "Mở menu chọn emoji tại con trỏ: 1-9/0 chọn, gõ chữ để tìm",
+        ),
     );
     emoji_hotkey.add_suffix(&ui.emoji_hotkey_label);
     emoji_hotkey.add_suffix(&ui.emoji_hotkey_edit);
     emoji_hotkey.set_tooltip_text(Some(&t(
         "tips.emoji_hotkey",
-        "Gán phím mở bảng chọn emoji (cửa sổ tìm kiếm, click để copy). Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
+        "Gán phím mở menu chọn emoji kiểu ibus-bamboo: bảng ứng viên hiện ngay tại con trỏ, gõ chữ để tìm, phím số chọn, Esc hoặc click ra chỗ khác đóng. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
     )));
     group.add(&emoji_hotkey);
     page.add(&group);
