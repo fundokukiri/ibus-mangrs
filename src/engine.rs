@@ -254,8 +254,10 @@ const FALLBACK_NO_DELETE_SURROUNDING: &[&str] = &[
 
 /// A word typed directly after one of these characters is part of a URL,
 /// email address, file path or code (`example.com`, `a@site`, `/etc/hosts`,
-/// `get_user_id`) and must stay raw. `-` is deliberately excluded: it would
-/// break the `--` → em-dash feature.
+/// `get_user_id`) and must stay raw. `-` is deliberately excluded from
+/// starting a bypass: it would break the `--` → em-dash feature. Once a
+/// bypass is running, `-` and `+` keep it alive so `vi-mangrs.com` is not
+/// composed as Vietnamese after the hyphen.
 const URL_CONTEXT_CHARS: &[char] = &['/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?'];
 
 impl Engine {
@@ -1023,7 +1025,9 @@ impl Engine {
                 self.preedit_visible = false;
                 actions.push(Action::HidePreedit);
             }
-            if crate::bamboo_wrapper::is_word_terminator(c) {
+            // `-`/`+` stay inside the URL: the next segment still belongs to
+            // the address, so it must not be composed as a Vietnamese word.
+            if crate::bamboo_wrapper::is_word_terminator(c) && !matches!(c, '-' | '+') {
                 self.url_word = false;
                 self.tail.clear();
             } else {
@@ -4127,6 +4131,39 @@ mod tests {
         // ("nhieeuf" → "nhiều" — huyền from the f).
         let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
         assert_eq!(type_replay(&mut e, "x.tieeng nhieeuf "), "x.tieeng nhiều ");
+    }
+
+    #[test]
+    fn url_bypass_spans_hyphenated_segments() {
+        // The segment after the hyphen used to be composed as Vietnamese, so
+        // a Telex mark key there stuck: "alo-tungf" → "alo-tùng",
+        // "vi-mangrs" → "vi-máng". The address stays raw.
+        for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+            assert_eq!(
+                typed(mode, "https://alo-tungf.com "),
+                "https://alo-tungf.com ",
+                "{mode:?}"
+            );
+            assert_eq!(
+                typed(mode, "https://vi-mangrs.com "),
+                "https://vi-mangrs.com ",
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn url_bypass_keeps_the_em_dash_outside_urls() {
+        // `-` does not start a bypass, so `--` in normal text still becomes
+        // one em dash.
+        let mut e = engine(
+            Mode::NonPreedit,
+            Config {
+                em_dash: true,
+                ..Config::default()
+            },
+        );
+        assert_eq!(type_replay(&mut e, "a--b "), "a—b ");
     }
 
     #[test]
