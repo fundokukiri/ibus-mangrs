@@ -275,6 +275,111 @@ const MS_LAYOUT: &[(&str, &str)] = &[
     ("toi", "toi"),
 ];
 
+/// Telex 2: Telex marks, `[`/`]` type the horn vowels, digits terminate
+/// (the preset clears its composition on them). Every row probed against
+/// bamboo-core 0.5.3. The bracket rows are not here because the preset
+/// inserts a fixed-case `ơ`/`ư` that does not follow the UPPER variant —
+/// the matrix runs them in every display mode instead.
+#[cfg(test)]
+const TELEX2: &[(&str, &str)] = &[
+    ("tieengs", "tiếng"),
+    ("uoow", "uơ"),
+    ("dd", "đ"),
+    ("toio", "tôi"),
+    ("aw", "ă"),
+    ("w", "ư"),
+    ("x1", "x1"),
+    ("to1", "to1"),
+    ("a~", "a~"),
+    ("que", "que"),
+    ("gie", "gie"),
+    ("hoangf", "hoàng"),
+    ("nuwocs", "nước"),
+    ("window", "window"),
+];
+
+/// Telex + VNI: Telex marks and VNI digits both type accents, every digit
+/// reaches bamboo-core (mark there, literal else).
+#[cfg(test)]
+const TELEX_VNI: &[(&str, &str)] = &[
+    ("tieengs", "tiếng"),
+    ("tie6ng1", "tiếng"),
+    ("a1", "á"),
+    ("aa1", "ấ"),
+    ("a6", "â"),
+    ("a8", "ă"),
+    ("d9", "đ"),
+    ("x1", "x1"),
+    ("a0", "a0"),
+    ("to1", "tó"),
+    ("thien2", "thièn"),
+    ("a'", "a'"),
+    ("uoow", "uơ"),
+    ("que", "que"),
+    ("gie", "gie"),
+    ("dd", "đ"),
+];
+
+/// Telex + VNI + VIQR: digits and the VIQR mark punctuation bamboo-core
+/// implements all reach the engine (`+` is literal there, probed).
+#[cfg(test)]
+const TELEX_VNI_VIQR: &[(&str, &str)] = &[
+    ("tieengs", "tiếng"),
+    ("a1", "á"),
+    ("aa1", "ấ"),
+    ("a'", "á"),
+    ("a.", "ạ"),
+    ("a~", "ã"),
+    ("hoi?", "hỏi"),
+    ("a^", "â"),
+    ("a(", "ă"),
+    ("oo*", "ơ"),
+    ("u*", "ư"),
+    ("a*", "a*"),
+    ("a+", "a+"),
+    ("x1", "x1"),
+    ("d9", "đ"),
+    ("dd", "đ"),
+];
+
+/// VNI for French (AZERTY) layouts: bamboo-core marks huyền hỏi ngã nặng
+/// on `" ' ( -`; digits terminate like in Telex (the preset clears).
+#[cfg(test)]
+const VNI_FRENCH: &[(&str, &str)] = &[
+    ("a\"", "à"),
+    ("a'", "ả"),
+    ("a(", "ã"),
+    ("a-", "ạ"),
+    ("tieengs", "tieengs"),
+    ("dd", "dd"),
+    ("x1", "x1"),
+    ("a&", "a&"),
+    ("aé", "aé"),
+    ("az", "az"),
+    ("t[", "t["),
+    ("nam", "nam"),
+];
+
+/// Telex W: the Telex mark set with `z` removing the tone; digits and the
+/// VIQR punctuation terminate like in Telex.
+#[cfg(test)]
+const TELEX_W: &[(&str, &str)] = &[
+    ("tieengs", "tiếng"),
+    ("asz", "a"),
+    ("aw", "ă"),
+    ("ow", "ơ"),
+    ("uow", "uơ"),
+    ("dd", "đ"),
+    ("w", "ư"),
+    ("ew", "ew"),
+    ("x1", "x1"),
+    ("a'", "a'"),
+    ("tieenw", "tieenw"),
+    ("hoangf", "hoàng"),
+    ("nuwocs", "nước"),
+    ("que", "que"),
+];
+
 /// Feed the keystrokes to the engine, simulating the application buffer: a
 /// key whose actions contain `Forward` inserts the raw character.
 #[cfg(test)]
@@ -688,6 +793,21 @@ mod matrix {
         ("viqr", "a^ s ", "â s "),
         ("ms", "ti3ng8 ", "tiếng "),
         ("ms", "t[ ", "tư "),
+        ("telex2", "tieengs ", "tiếng "),
+        ("telex2", "t[ ", "tơ "),
+        ("telex2", "x1 ", "x1 "),
+        ("telexvni", "a1 ", "á "),
+        ("telexvni", "d9 ", "đ "),
+        ("telexvni", "x1 ", "x1 "),
+        ("telexvniviqr", "a' ", "á "),
+        ("telexvniviqr", "a1 ", "á "),
+        ("telexvniviqr", "a+ ", "a+ "),
+        ("vnifrench", "a' ", "ả "),
+        ("vnifrench", "a\" ", "à "),
+        ("vnifrench", "tieengs ", "tieengs "),
+        ("telexw", "tieengs ", "tiếng "),
+        ("telexw", "asz ", "a "),
+        ("telexw", "x1 ", "x1 "),
     ];
 
     fn method_of(name: &str) -> Method {
@@ -695,6 +815,12 @@ mod matrix {
             "telex" => Method::Telex,
             "vni" => Method::Vni,
             "viqr" => Method::Viqr,
+            "ms" => Method::MsLayout,
+            "telex2" => Method::Telex2,
+            "telexvni" => Method::TelexVni,
+            "telexvniviqr" => Method::TelexVniViqr,
+            "vnifrench" => Method::VniFrench,
+            "telexw" => Method::TelexW,
             _ => Method::MsLayout,
         }
     }
@@ -710,6 +836,11 @@ mod matrix {
             Method::Vni => &[("tie6ng1 ", "tiếng "), ("a6 s ", "â s ")],
             Method::Viqr => &[("hoi? ", "hỏi "), ("a^ s ", "â s ")],
             Method::MsLayout => &[("ti3ng8 ", "tiếng "), ("t[ ", "tư ")],
+            Method::Telex2 => &[("tieengs ", "tiếng "), ("t[ ", "tơ "), ("x1 ", "x1 ")],
+            Method::TelexVni => &[("a1 ", "á "), ("d9 ", "đ "), ("x1 ", "x1 ")],
+            Method::TelexVniViqr => &[("a' ", "á "), ("a1 ", "á "), ("a+ ", "a+ ")],
+            Method::VniFrench => &[("a' ", "ả "), ("a\" ", "à "), ("tieengs ", "tieengs ")],
+            Method::TelexW => &[("tieengs ", "tiếng "), ("asz ", "a "), ("x1 ", "x1 ")],
         };
         table.iter().find(|(k, _)| *k == keys).map(|(_, w)| *w)
     }
@@ -1090,6 +1221,61 @@ mod tests {
     #[test]
     fn microsoft_golden() {
         let failures = run_table(Method::MsLayout, MS_LAYOUT, false);
+        assert!(
+            failures.is_empty(),
+            "{} failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn telex2_golden() {
+        let failures = run_table(Method::Telex2, TELEX2, true);
+        assert!(
+            failures.is_empty(),
+            "{} failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn telex_vni_golden() {
+        let failures = run_table(Method::TelexVni, TELEX_VNI, true);
+        assert!(
+            failures.is_empty(),
+            "{} failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn telex_vni_viqr_golden() {
+        let failures = run_table(Method::TelexVniViqr, TELEX_VNI_VIQR, true);
+        assert!(
+            failures.is_empty(),
+            "{} failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn vni_french_golden() {
+        let failures = run_table(Method::VniFrench, VNI_FRENCH, true);
+        assert!(
+            failures.is_empty(),
+            "{} failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn telex_w_golden() {
+        let failures = run_table(Method::TelexW, TELEX_W, true);
         assert!(
             failures.is_empty(),
             "{} failures:\n{}",

@@ -73,7 +73,12 @@ pub const CHARSETS: &[(&str, &str)] = &[
 /// (menu key, label) for every input method.
 pub const METHODS: &[(&str, &str)] = &[
     ("telex", "Telex"),
+    ("telex2", "Telex 2"),
+    ("telexw", "Telex W"),
+    ("telexvni", "Telex + VNI"),
+    ("telexvniviqr", "Telex + VNI + VIQR"),
     ("vni", "VNI"),
+    ("vnifrench", "VNI bàn phím Pháp"),
     ("viqr", "VIQR"),
     ("microsoft", "Microsoft layout"),
 ];

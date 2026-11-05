@@ -71,7 +71,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-const METHODS: &[&str] = &["Telex", "VNI", "VIQR", "Microsoft layout"];
+const METHODS: &[&str] = &[
+    "Telex",
+    "Telex 2",
+    "Telex W",
+    "Telex + VNI",
+    "Telex + VNI + VIQR",
+    "VNI",
+    "VNI bàn phím Pháp",
+    "VIQR",
+    "Microsoft layout",
+];
 const MODES: &[&str] = &[
     "Không gạch chân",
     "Gạch chân (preedit)",
@@ -192,9 +202,14 @@ type SharedSave = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
 fn method_index(m: MethodConfig) -> u32 {
     match m {
         MethodConfig::Telex => 0,
-        MethodConfig::Vni => 1,
-        MethodConfig::Viqr => 2,
-        MethodConfig::Microsoft => 3,
+        MethodConfig::Telex2 => 1,
+        MethodConfig::TelexW => 2,
+        MethodConfig::TelexVni => 3,
+        MethodConfig::TelexVniViqr => 4,
+        MethodConfig::Vni => 5,
+        MethodConfig::VniFrench => 6,
+        MethodConfig::Viqr => 7,
+        MethodConfig::Microsoft => 8,
     }
 }
 
