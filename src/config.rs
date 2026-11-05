@@ -239,17 +239,24 @@ pub fn app_rule_mode(rules: &[AppRule], target: Option<&str>) -> Option<ModeConf
 }
 
 impl Config {
-    /// Point the user's rule for `pattern` at `mode`: rules matching the
-    /// pattern (case-insensitively, like `app_rule_matches`) are removed and
-    /// the new rule goes to the top, so an explicit choice outranks both the
-    /// built-in safety net and earlier rules. Used by the app-rule picker.
-    pub fn upsert_app_rule(&mut self, pattern: &str, mode: ModeConfig) {
-        let lower = pattern.to_lowercase();
-        self.app_rules.retain(|r| r.pattern.to_lowercase() != lower);
+    /// Apply a picker choice: the highest-priority rule matching `target`
+    /// (same predicate the engine uses) gets `mode` in place — an app may
+    /// match several patterns (`chrome` and `chromium`), and the pick must
+    /// change the rule it currently rides on, not pile a new one on top.
+    /// Only an app no rule covers gets a fresh rule, at the top.
+    pub fn set_rule_mode_for_target(&mut self, target: &str, mode: ModeConfig) {
+        if let Some(rule) = self
+            .app_rules
+            .iter_mut()
+            .find(|r| app_rule_matches(&r.pattern, Some(target)))
+        {
+            rule.mode = mode;
+            return;
+        }
         self.app_rules.insert(
             0,
             AppRule {
-                pattern: pattern.to_string(),
+                pattern: target.to_string(),
                 mode,
             },
         );
@@ -1164,48 +1171,53 @@ children = ["preedit", "smooth"]
     }
 
     #[test]
-    fn app_rule_upsert_and_remove() {
+    fn picker_choice_updates_the_winning_rule() {
         let mut c = Config::default();
-        // The built-in safety net ships with rules; upserting one of its
-        // patterns must REPLACE every match, not add a duplicate, and land
-        // on top so the explicit choice outranks the net.
-        let chrome = crate::config::app_rule_mode(&c.app_rules, Some("wayland:chrome"));
-        assert_eq!(chrome, Some(ModeConfig::Preedit));
-        c.upsert_app_rule("chrome", ModeConfig::Off);
+        // The net covers chrome with Preedit; a pick for a chrome target
+        // must flip THAT rule in place.
+        assert_eq!(
+            crate::config::app_rule_mode(&c.app_rules, Some("wayland:chrome")),
+            Some(ModeConfig::Preedit)
+        );
+        c.set_rule_mode_for_target("chrome", ModeConfig::Off);
         assert_eq!(
             crate::config::app_rule_mode(&c.app_rules, Some("wayland:chrome")),
             Some(ModeConfig::Off)
         );
+        // Substring overlap: "chromium" matches the "chromium" rule first —
+        // the pick must update the winning one, not the "chrome" prefix rule.
+        c.set_rule_mode_for_target("chromium", ModeConfig::Auto);
+        let chromium = c
+            .app_rules
+            .iter()
+            .find(|r| r.pattern == "chromium")
+            .expect("net rule");
+        assert_eq!(chromium.mode, ModeConfig::Auto);
+        let chrome = c
+            .app_rules
+            .iter()
+            .find(|r| r.pattern == "chrome")
+            .expect("net rule");
         assert_eq!(
-            c.app_rules
-                .iter()
-                .filter(|r| r.pattern.to_lowercase() == "chrome")
-                .count(),
-            1,
-            "upsert replaces, never duplicates"
+            chrome.mode,
+            ModeConfig::Off,
+            "the chrome rule stays untouched"
         );
-        // Top of the list: first-match-wins gives the explicit rule priority.
-        assert_eq!(c.app_rules[0].pattern, "chrome");
-        // Case-insensitive replace, matching app_rule_matches.
-        c.upsert_app_rule("Chrome", ModeConfig::Preedit);
-        assert_eq!(
-            c.app_rules
-                .iter()
-                .filter(|r| r.pattern.to_lowercase() == "chrome")
-                .count(),
-            1
-        );
-        // Remove clears every case variant.
-        c.remove_app_rule("CHROME");
-        assert!(crate::config::app_rule_mode(&c.app_rules, Some("chrome")).is_none());
-        // A brand-new pattern lands first too.
-        c.upsert_app_rule("e2epick", ModeConfig::Auto);
+        // An app no rule covers gets a fresh rule at the top.
+        let before = c.app_rules.len();
+        c.set_rule_mode_for_target("e2epick", ModeConfig::Surrounding);
+        assert_eq!(c.app_rules.len(), before + 1);
         assert_eq!(c.app_rules[0].pattern, "e2epick");
-        assert_eq!(c.app_rules[0].mode, ModeConfig::Auto);
-        c.remove_app_rule("e2epick");
-        assert!(
-            c.app_rules.iter().all(|r| r.pattern != "e2epick"),
-            "remove clears the rule"
+        assert_eq!(
+            crate::config::app_rule_mode(&c.app_rules, Some("e2epick")),
+            Some(ModeConfig::Surrounding)
+        );
+        // Re-picking updates in place instead of stacking.
+        c.set_rule_mode_for_target("e2epick", ModeConfig::Off);
+        assert_eq!(c.app_rules.len(), before + 1);
+        assert_eq!(
+            crate::config::app_rule_mode(&c.app_rules, Some("e2epick")),
+            Some(ModeConfig::Off)
         );
     }
 

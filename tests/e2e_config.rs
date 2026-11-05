@@ -179,8 +179,9 @@ fn toggle_hotkey(s: &mut common::Sess) {
 
 fn app_rule_picker(s: &mut common::Sess) {
     // The picker targets the client's prgname (the e2e has no focus
-    // extension): Down moves to the second entry (nonpreedit), Return
-    // picks it, the popup closes, the rule lands in config.toml.
+    // extension): one flat page of the ten modes — the auxiliary line names
+    // the app and its current mode, digit 2 applies the second entry
+    // (nonpreedit), and the popup closes.
     s.focus(CAPS_BOTH, "gtk4-im:e2epicktest");
     s.drain();
     assert!(
@@ -192,6 +193,10 @@ fn app_rule_picker(s: &mut common::Sess) {
     assert!(
         has_member(&sigs, "UpdateLookupTable"),
         "the picker must show at the caret: {sigs:?}"
+    );
+    assert!(
+        has_member(&sigs, "UpdateAuxiliaryText"),
+        "the auxiliary line must name the app and its mode: {sigs:?}"
     );
     // Releasing the combo keys (the moment the menu opens) must NOT close
     // it — releases are swallowed whole while the picker is up.
@@ -208,19 +213,52 @@ fn app_rule_picker(s: &mut common::Sess) {
         !has_member(&sigs, "HideLookupTable"),
         "releases must keep the menu open: {sigs:?}"
     );
-    assert!(s.key(65364, 0), "Down consumed by the picker");
-    assert!(s.key(65364, 0 | release), "Down release swallowed");
-    assert!(s.key(65293, 0), "Return consumed by the picker");
+    // Digit 2 applies the second entry and closes the popup.
+    assert!(s.key(0x32, 0), "digit consumed by the picker");
     s.pump(PUMP_MS);
     let sigs = s.drain();
     assert!(
-        has_member(&sigs, "HideLookupTable"),
+        has_member(&sigs, "HideLookupTable") && has_member(&sigs, "HideAuxiliaryText"),
         "the picker closes after the pick: {sigs:?}"
     );
     let text = std::fs::read_to_string(s.config_path()).expect("config");
     assert!(
-        text.contains("pattern = \"e2epicktest\""),
+        text.contains("pattern = \"e2epicktest\"") && text.contains("mode = \"nonpreedit\""),
         "the pick must land as the client's rule: {text:.400}"
+    );
+    // Arrow keys are not menu keys: with the menu up, one closes it and the
+    // key reaches the application unconsumed.
+    std::thread::sleep(std::time::Duration::from_millis(
+        300, // past the hotkey repeat gap: a deliberate second press
+    ));
+    assert!(s.key(0x70, common::CONTROL | common::ALT), "hotkey reopens");
+    s.pump(PUMP_MS);
+    s.drain();
+    assert!(
+        !s.key(65364, 0),
+        "Down closes the picker and reaches the app"
+    );
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "HideLookupTable"),
+        "the arrow must have closed the menu: {sigs:?}"
+    );
+    // Second hotkey press while the menu is up toggles it closed.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(
+        s.key(0x70, common::CONTROL | common::ALT),
+        "hotkey opens again"
+    );
+    s.pump(PUMP_MS);
+    s.drain();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(s.key(0x70, common::CONTROL | common::ALT), "hotkey toggles");
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "HideLookupTable"),
+        "the toggle press must close the menu: {sigs:?}"
     );
 }
 

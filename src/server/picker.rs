@@ -1,37 +1,38 @@
 //! The per-app rule picker, shown as an IBus lookup table at the caret —
 //! the ibus-bamboo Shift+` flow, no GTK window involved. The engine opens
 //! it on the app-rule hotkey with the rule target it resolved at press
-//! time (once the popup is up, the focused "app" would be the app itself);
-//! arrow keys navigate, Enter or a digit picks, Escape or any other key
-//! closes it. The choice upserts an `[[app_rules]]` entry for the target
-//! and the engine applies it immediately.
+//! time (once the popup is up, the focused "app" would be the app itself).
+//! One flat page of the ten display modes — the entry currently in force
+//! carries a dot marker and the auxiliary line names the app and its mode;
+//! a digit 1..9/0 applies that mode; Escape, an arrow or any other key
+//! closes the menu. Clicking elsewhere resets the client, which closes it
+//! too. The choice updates the highest-priority rule the app currently
+//! rides on (`Config::set_rule_mode_for_target`).
 
 use super::hotkey::client_prgname;
 use super::*;
 
-/// Lookup-table page size: GNOME draws the candidate bar compactly and the
-/// number keys 1..9 must reach every entry of a page.
-pub(super) const PICKER_PAGE_SIZE: u32 = 9;
+/// One page holds every mode: the menu is static, selection is by digit.
+pub(super) const PICKER_PAGE_SIZE: u32 = 10;
 
-/// The entries the picker offers, in panel-menu mode order, plus the rule
-/// removal entry. Index `i < len-1` selects `MODES[i]`; the last entry
-/// clears the target's rule.
-pub(super) fn picker_entries() -> Vec<String> {
-    let mut entries: Vec<String> = ibus_prop::MODES
+/// The picker's entries: the display modes in panel-menu order, the entry
+/// currently in force for the target prefixed with a dot marker.
+pub(super) fn picker_entries(current: ModeConfig) -> Vec<String> {
+    ibus_prop::MODES
         .iter()
-        .map(|(_, label)| label.to_string())
-        .collect();
-    entries.push("— Xóa luật của app này —".to_string());
-    entries
+        .map(|(key, label)| {
+            if ModeConfig::from_key(key) == Some(current) {
+                format!("● {label}")
+            } else {
+                label.to_string()
+            }
+        })
+        .collect()
 }
 
 /// Keys the picker consumes while open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PickerKey {
-    Down,
-    Up,
-    PageDown,
-    PageUp,
     Select(usize),
     Cancel,
     /// Any other key: close the picker and let the key reach the engine.
@@ -42,42 +43,25 @@ pub(super) struct PickerState {
     /// The rule pattern the choice applies to — the focused app's bare
     /// class name (transport prefix stripped, like the GUI adds rules).
     pub target: String,
-    pub cursor: usize,
 }
 
 impl PickerState {
     pub fn new(target: String) -> Self {
-        Self { target, cursor: 0 }
+        Self { target }
     }
 
     /// Map one key event onto the picker. Pure, so tests can drive it.
-    pub fn on_key(&self, keyval: u32, len: usize) -> PickerKey {
+    /// Digits 1..9 pick entries 1..9 and 0 picks the tenth; Enter picks the
+    /// highlighted (first) entry. There is no navigation — the menu is one
+    /// flat page by owner decision.
+    pub fn on_key(&self, keyval: u32) -> PickerKey {
         match keyval {
-            65364 => PickerKey::Down, // Down
-            65362 => PickerKey::Up,   // Up
-            65366 => PickerKey::PageDown,
-            65365 => PickerKey::PageUp,
-            65293 | 65421 => PickerKey::Select(self.cursor), // Return / KP_Enter
-            65307 => PickerKey::Cancel,                      // Escape
-            k @ 0x31..=0x39 => {
-                // A digit selects the entry at that position of the current
-                // page, exactly what the label numbering shows.
-                let page_first =
-                    (self.cursor / PICKER_PAGE_SIZE as usize) * PICKER_PAGE_SIZE as usize;
-                let idx = page_first + (k - 0x31) as usize;
-                if idx < len {
-                    PickerKey::Select(idx)
-                } else {
-                    PickerKey::Ignore
-                }
-            }
+            65293 | 65421 => PickerKey::Select(0), // Return / KP_Enter
+            65307 => PickerKey::Cancel,            // Escape
+            k @ 0x31..=0x39 => PickerKey::Select((k - 0x31) as usize),
+            0x30 => PickerKey::Select(9), // 0 picks the tenth entry
             _ => PickerKey::Ignore,
         }
-    }
-
-    pub(super) fn step(&mut self, delta: isize, len: usize) {
-        let len = len.max(1);
-        self.cursor = (self.cursor as isize + delta).rem_euclid(len as isize) as usize;
     }
 }
 
@@ -86,6 +70,13 @@ impl EngineHandler {
     /// string the rules will match against: the focus extension/xprop name
     /// (`wayland:<class>`, prefix stripped here) or the client's prgname.
     pub(super) fn open_app_rule_picker(&mut self, out: &mut Vec<Message>) {
+        // Second press of the hotkey while the menu is up closes it — the
+        // combo is a toggle, like bamboo's.
+        if self.picker.take().is_some() {
+            out.push(signal("HideLookupTable"));
+            out.push(signal("HideAuxiliaryText"));
+            return;
+        }
         let target = {
             let engine = lock_engine(&self.engine);
             engine
@@ -98,12 +89,6 @@ impl EngineHandler {
                 })
                 .or_else(|| engine.client().and_then(client_prgname))
         };
-        // Second press of the hotkey while the menu is up closes it — the
-        // combo is a toggle, like bamboo's.
-        if self.picker.take().is_some() {
-            out.push(signal("HideLookupTable"));
-            return;
-        }
         let Some(target) = target.filter(|t| !t.is_empty()) else {
             // No name, no rule that could ever match: stay closed.
             debug_log::log("picker hotkey: focused app unnamed, staying closed");
@@ -113,64 +98,45 @@ impl EngineHandler {
         self.emit_picker_table(out);
     }
 
-    /// Push the lookup table reflecting the current cursor.
+    /// Push the lookup table plus the auxiliary line naming the app and the
+    /// mode it currently rides on.
     fn emit_picker_table(&self, out: &mut Vec<Message>) {
-        let entries: Vec<String> = ibus_prop::MODES
+        let Some(state) = self.picker.as_ref() else {
+            return;
+        };
+        let config = Config::load();
+        let current = crate::config::app_rule_mode(&config.app_rules, Some(&state.target))
+            .unwrap_or(config.mode);
+        let entries = picker_entries(current);
+        let current_label = ibus_prop::MODES
             .iter()
-            .map(|(_, l)| l.to_string())
-            .chain(std::iter::once("— Xóa luật của app này —".to_string()))
-            .collect();
-        let table = ibus_prop::lookup_table_variant(
-            PICKER_PAGE_SIZE,
-            self.picker.as_ref().map_or(0, |p| p.cursor as u32),
-            &entries,
-        );
+            .find(|(key, _)| ModeConfig::from_key(key) == Some(current))
+            .map(|(_, label)| label.to_string())
+            .unwrap_or_default();
+        let table = ibus_prop::lookup_table_variant(PICKER_PAGE_SIZE, 0, &entries);
         out.push(signal("UpdateLookupTable").append2(table, true));
+        out.push(signal("UpdateAuxiliaryText").append2(
+            crate::ibus_text::plain_text(&format!(
+                "Chế độ gõ cho {} — hiện tại: {}",
+                state.target, current_label
+            )),
+            true,
+        ));
     }
 
     /// Handle a key while the picker is open. Returns whether the key was
     /// consumed; `Ignore` closes the picker first so the key types on.
     pub(super) fn picker_key(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
         // Releases never act: the combo's own keys are released the moment
-        // the menu opens (which used to close it instantly), and a Down
-        // release would double-step the cursor. Swallow them.
+        // the menu opens (which used to close it instantly). Swallow them.
         if state & keymap::RELEASE_MASK != 0 {
             return true;
         }
-        let len = picker_entries().len();
         let action = match self.picker.as_ref() {
-            Some(p) => p.on_key(keyval, len),
+            Some(p) => p.on_key(keyval),
             None => return false,
         };
         match action {
-            PickerKey::Down => {
-                if let Some(state) = self.picker.as_mut() {
-                    state.step(1, len);
-                }
-                self.emit_picker_table(out);
-                true
-            }
-            PickerKey::Up => {
-                if let Some(state) = self.picker.as_mut() {
-                    state.step(-1, len);
-                }
-                self.emit_picker_table(out);
-                true
-            }
-            PickerKey::PageDown => {
-                if let Some(state) = self.picker.as_mut() {
-                    state.step(PICKER_PAGE_SIZE as isize, len);
-                }
-                self.emit_picker_table(out);
-                true
-            }
-            PickerKey::PageUp => {
-                if let Some(state) = self.picker.as_mut() {
-                    state.step(-(PICKER_PAGE_SIZE as isize), len);
-                }
-                self.emit_picker_table(out);
-                true
-            }
             PickerKey::Select(i) => {
                 self.apply_picker_entry(i, out);
                 true
@@ -186,30 +152,24 @@ impl EngineHandler {
         }
     }
 
-    /// Write the chosen entry as the target's rule and apply it at once.
+    /// Write the chosen mode into the rule the app currently rides on and
+    /// apply it at once.
     fn apply_picker_entry(&mut self, index: usize, out: &mut Vec<Message>) {
         let Some(state) = self.picker.take() else {
             return;
         };
-        let entries = picker_entries();
+        let Some((key, _)) = ibus_prop::MODES.get(index) else {
+            return;
+        };
+        let Some(mode) = ModeConfig::from_key(key) else {
+            return;
+        };
+        debug_log::log(&format!("picker: {} → {}", state.target, mode.key()));
         let mut config = Config::load();
-        if index + 1 < entries.len() {
-            // A mode entry: upsert on top so the explicit choice outranks
-            // the built-in safety net.
-            let Some((key, _)) = ibus_prop::MODES.get(index) else {
-                return;
-            };
-            let Some(mode) = ModeConfig::from_key(key) else {
-                return;
-            };
-            debug_log::log(&format!("picker: rule {} → {}", state.target, mode.key()));
-            config.upsert_app_rule(&state.target, mode);
-        } else {
-            debug_log::log(&format!("picker: rule {} removed", state.target));
-            config.remove_app_rule(&state.target);
-        }
+        config.set_rule_mode_for_target(&state.target, mode);
         if config.save().is_err() {
             out.push(signal("HideLookupTable"));
+            out.push(signal("HideAuxiliaryText"));
             return;
         }
         {
@@ -222,12 +182,14 @@ impl EngineHandler {
             .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
         out.push(signal("HideLookupTable"));
+        out.push(signal("HideAuxiliaryText"));
     }
 
     /// Close the picker without writing anything.
     pub(super) fn close_picker(&mut self, out: &mut Vec<Message>) {
         if self.picker.take().is_some() {
             out.push(signal("HideLookupTable"));
+            out.push(signal("HideAuxiliaryText"));
         }
     }
 }
