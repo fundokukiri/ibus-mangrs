@@ -56,6 +56,7 @@ impl Ui {
     fn rule_row(self: &Rc<Self>, idx: usize, total: usize, pattern: &str, mode: ModeConfig) {
         let row = adw::ComboRow::builder()
             .title(pattern)
+            .use_markup(false) // the title is a user-typed app id
             .use_subtitle(true)
             .model(&StringList::new(MODES))
             .selected(mode_index(mode))

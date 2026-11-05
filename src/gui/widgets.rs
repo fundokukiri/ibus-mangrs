@@ -71,11 +71,14 @@ pub(super) fn refresh_focused_app(label: &gtk4::Label, value: &Rc<RefCell<String
 }
 
 /// A boxed-list boolean row (title + dim subtitle). Replaces the plain
-/// Switch + pref_row pair of the old pages.
+/// Switch + pref_row pair of the old pages. Every row builder switches
+/// markup off: Adw rows parse Pango markup in title/subtitle by default,
+/// and a bare `&` in a text (the URL rule's subtitle) blanked it.
 pub(super) fn switch_row(title: &str, subtitle: &str) -> adw::SwitchRow {
     adw::SwitchRow::builder()
         .title(title)
         .subtitle(subtitle)
+        .use_markup(false)
         .build()
 }
 
@@ -84,6 +87,7 @@ pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::Com
     adw::ComboRow::builder()
         .title(title)
         .subtitle(subtitle)
+        .use_markup(false)
         .model(&StringList::new(items))
         .selected(0)
         .build()
@@ -96,6 +100,7 @@ pub(super) fn spin_row(title: &str, subtitle: &str, min: f64, max: f64, step: f6
     adw::SpinRow::builder()
         .title(title)
         .subtitle(subtitle)
+        .use_markup(false)
         .adjustment(&adjustment)
         .build()
 }
@@ -107,6 +112,7 @@ pub(super) fn action_row(title: &str, subtitle: &str) -> adw::ActionRow {
     adw::ActionRow::builder()
         .title(title)
         .subtitle(subtitle)
+        .use_markup(false)
         .activatable(false)
         .build()
 }
