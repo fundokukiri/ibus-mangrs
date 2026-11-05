@@ -407,6 +407,33 @@ fn radio_items(
         .collect()
 }
 
+/// The serialized `IBusLookupTable` for the per-app rule picker, ready for
+/// a `v` slot. Signature `(sa{sv}uubbiavav)` — type tag, properties,
+/// page size, cursor, cursor visible, round, orientation, candidates
+/// (IBusText), labels — captured from libibus 1.5.34's own serialization
+/// (`IBus.LookupTable` via GI). The engine shows it at the caret the way
+/// ibus-bamboo's Shift+` menu does.
+pub fn lookup_table_variant(
+    page_size: u32,
+    cursor: u32,
+    candidates: &[String],
+) -> Variant<Box<dyn RefArg>> {
+    Variant(Box::new((
+        "IBusLookupTable".to_string(),
+        crate::ibus_text::Props::new(),
+        page_size,
+        cursor,
+        true, // cursor visible
+        true, // round: wrap around at the ends
+        2i32, // vertical orientation
+        candidates
+            .iter()
+            .map(|c| crate::ibus_text::plain_text(c))
+            .collect::<Vec<_>>(),
+        Vec::<Variant<Box<dyn RefArg>>>::new(), // default 1..n labels
+    )) as Box<dyn RefArg>)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -633,31 +660,4 @@ mod tests {
             "(sa{sv}av)"
         );
     }
-}
-
-/// The serialized `IBusLookupTable` for the per-app rule picker, ready for
-/// a `v` slot. Signature `(sa{sv}uubbiavav)` — type tag, properties,
-/// page size, cursor, cursor visible, round, orientation, candidates
-/// (IBusText), labels — captured from libibus 1.5.34's own serialization
-/// (`IBus.LookupTable` via GI). The engine shows it at the caret the way
-/// ibus-bamboo's Shift+` menu does.
-pub fn lookup_table_variant(
-    page_size: u32,
-    cursor: u32,
-    candidates: &[String],
-) -> Variant<Box<dyn RefArg>> {
-    Variant(Box::new((
-        "IBusLookupTable".to_string(),
-        crate::ibus_text::Props::new(),
-        page_size,
-        cursor,
-        true, // cursor visible
-        true, // round: wrap around at the ends
-        2i32, // vertical orientation
-        candidates
-            .iter()
-            .map(|c| crate::ibus_text::plain_text(c))
-            .collect::<Vec<_>>(),
-        Vec::<Variant<Box<dyn RefArg>>>::new(), // default 1..n labels
-    )) as Box<dyn RefArg>)
 }
