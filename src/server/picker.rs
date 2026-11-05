@@ -94,6 +94,14 @@ impl EngineHandler {
             debug_log::log("picker hotkey: focused app unnamed, staying closed");
             return;
         };
+        // The in-flight word ends here, before the menu shows: a pick must
+        // never apply_config over a live composition (that desynced the
+        // tail and the wrapper — the lost-letters/duplicated-word report).
+        {
+            let mut engine = lock_engine(&self.engine);
+            let actions = engine.end_word_for_picker();
+            emit(&mut engine, &actions, out);
+        }
         self.picker = Some(PickerState::new(target));
         self.emit_picker_table(out);
     }
@@ -154,7 +162,7 @@ impl EngineHandler {
 
     /// Write the chosen mode into the rule the app currently rides on and
     /// apply it at once.
-    fn apply_picker_entry(&mut self, index: usize, out: &mut Vec<Message>) {
+    pub(super) fn apply_picker_entry(&mut self, index: usize, out: &mut Vec<Message>) {
         let Some(state) = self.picker.take() else {
             return;
         };

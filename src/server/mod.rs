@@ -303,6 +303,17 @@ impl EngineHandler {
         if member == "ProcessKeyEvent" {
             return self.process_key_call(msg, out);
         }
+        if member == "CandidateClicked" {
+            // A mouse click on a picker entry (GNOME's candidate popup
+            // forwards it here): same as pressing the entry's digit. Handled
+            // before the engine lock — the apply locks by itself.
+            if self.picker.is_some() {
+                if let Ok((index, _button, _state)) = msg.read3::<u32, u32, u32>() {
+                    self.apply_picker_entry(index as usize, out);
+                }
+            }
+            return msg.method_return();
+        }
 
         // The extension round trip must not run under the engine mutex; the
         // naming step below decides whether the answer is actually used.

@@ -226,6 +226,54 @@ fn app_rule_picker(s: &mut common::Sess) {
         text.contains("pattern = \"e2epicktest\"") && text.contains("mode = \"nonpreedit\""),
         "the pick must land as the client's rule: {text:.400}"
     );
+    // Mid-word pick: a composed word is still on the wire (preedit) when
+    // the menu opens — the flush must commit exactly what is shown, and
+    // typing after the pick must keep working (the lost-letters report).
+    // A fresh client: the previous section pinned e2epicktest to
+    // nonpreedit, where no preedit composes.
+    s.focus(CAPS_BOTH, "gtk4-im:e2emidword");
+    s.drain();
+    let (_buf, preedit_sigs) = s.type_buffered("tieengs"); // composes, no terminator yet
+    s.drain();
+    assert!(
+        !preedit_sigs.is_empty(),
+        "the fresh client must compose as preedit: {preedit_sigs:?}"
+    );
+    assert!(
+        s.key(0x70, common::CONTROL | common::ALT),
+        "hotkey mid-word"
+    );
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        commits(&sigs).contains(&"tiếng"),
+        "opening the menu commits the composed word: {sigs:?}"
+    );
+    assert!(s.key(0x31, 0), "digit 1 applies auto");
+    s.pump(PUMP_MS);
+    s.drain();
+    let (buf, _) = s.type_reported(" x tieengs ");
+    assert_eq!(buf, " x tiếng ", "typing must work after a mid-word pick");
+
+    // Mouse pick: GNOME's candidate popup forwards CandidateClicked; the
+    // pick updates the rule the app already rides on.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(s.key(0x70, common::CONTROL | common::ALT), "hotkey reopens");
+    s.pump(PUMP_MS);
+    s.drain();
+    s.call_engine(common::engine_msg("CandidateClicked").append3(3u32, 1u32, 0u32));
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "HideLookupTable"),
+        "the mouse pick closes the menu: {sigs:?}"
+    );
+    let text = std::fs::read_to_string(s.config_path()).expect("config");
+    assert!(
+        text.contains("pattern = \"e2epicktest\"") && text.contains("mode = \"surrounding\""),
+        "the mouse pick must update the winning rule in place: {text:.400}"
+    );
+
     // Arrow keys are not menu keys: with the menu up, one closes it and the
     // key reaches the application unconsumed.
     std::thread::sleep(std::time::Duration::from_millis(
