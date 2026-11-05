@@ -179,6 +179,11 @@ struct Ui {
     rule_focus_value: Rc<RefCell<String>>,
     hide_underline: adw::SwitchRow,
     debug_log: adw::SwitchRow,
+    /// App-grid icon visibility ("Cài đặt khác"). Filesystem state, not a
+    /// config key: the override file under ~/.local/share/applications.
+    desktop_icon: adw::SwitchRow,
+    /// Guards the programmatic `desktop_icon` state set in `refresh`.
+    desktop_icon_loading: Rc<RefCell<bool>>,
     x11_delete: adw::SwitchRow,
     preedit_xim: adw::SwitchRow,
     commit_interval: adw::SpinRow,
@@ -321,6 +326,12 @@ impl Ui {
         self.dictionary_enabled
             .set_active(config.dictionary_enabled);
         self.debug_log.set_active(config.debug_log);
+        // Not a config key: the app-grid override file on disk decides.
+        *self.desktop_icon_loading.borrow_mut() = true;
+        self.desktop_icon.set_active(!desktop_icon_hidden());
+        *self.desktop_icon_loading.borrow_mut() = false;
+        self.desktop_icon
+            .set_sensitive(system_desktop_entry_exists());
         self.x11_delete.set_active(config.x11_delete_without_report);
         self.preedit_xim.set_active(config.preedit_for_xim);
         self.commit_interval
@@ -362,10 +373,15 @@ impl Ui {
         let mut config = Config::load();
         config.enabled = self.enabled.is_active();
         config.method = match self.method.selected() {
-            1 => MethodConfig::Vni,
-            2 => MethodConfig::Viqr,
-            3 => MethodConfig::Microsoft,
-            _ => MethodConfig::Telex,
+            0 => MethodConfig::Telex,
+            1 => MethodConfig::Telex2,
+            2 => MethodConfig::TelexW,
+            3 => MethodConfig::TelexVni,
+            4 => MethodConfig::TelexVniViqr,
+            5 => MethodConfig::Vni,
+            6 => MethodConfig::VniFrench,
+            7 => MethodConfig::Viqr,
+            _ => MethodConfig::Microsoft,
         };
         config.mode = mode_at(self.mode.selected());
         config.charset = match self.charset.selected() {
@@ -496,6 +512,108 @@ impl Ui {
         self.refresh(&config, &macros, &dictionary);
         self.suppress_save.set(false);
     }
+}
+
+/// The shipped focus extension, embedded so the install button works on a
+/// dev run and needs no separate data file next to the binary.
+const FOCUS_EXTENSION_JS: &str =
+    include_str!("../../data/gnome-shell-extension/mangrs-focus@fundokukiri/extension.js");
+const FOCUS_EXTENSION_META: &str =
+    include_str!("../../data/gnome-shell-extension/mangrs-focus@fundokukiri/metadata.json");
+const FOCUS_EXT_DIR: &str = "gnome-shell/extensions/mangrs-focus@fundokukiri";
+
+/// Copy the embedded focus extension into the user extension directory and
+/// try to enable it. GNOME 45+ caches extension ES modules, so a fresh copy
+/// only loads after logout/login — every outcome says so.
+pub(super) fn install_focus_extension() -> Result<String, String> {
+    use std::fmt::Write as _;
+    let Some(base) = dirs::data_dir() else {
+        return Err("Không tìm thấy thư mục dữ liệu người dùng (~/.local/share)".into());
+    };
+    let dir = base.join(FOCUS_EXT_DIR);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Không tạo được {}: {e}", dir.display()))?;
+    for (name, body) in [
+        ("extension.js", FOCUS_EXTENSION_JS),
+        ("metadata.json", FOCUS_EXTENSION_META),
+    ] {
+        std::fs::write(dir.join(name), body)
+            .map_err(|e| format!("Không ghi được {}: {e}", name))?;
+    }
+    let mut note = String::from("Đã cài extension vào ~/.local/share/gnome-shell/extensions. ");
+    match std::process::Command::new("gnome-extensions")
+        .args(["enable", "mangrs-focus@fundokukiri"])
+        .status()
+    {
+        Ok(s) if s.success() => {
+            let _ = writeln!(
+                note,
+                "Đã bật. Đăng xuất rồi đăng nhập lại để nó chạy (GNOME giữ module cũ trong bộ nhớ)."
+            );
+        }
+        _ => {
+            let _ = writeln!(
+                note,
+                "Chưa bật được từ đây — đăng xuất/đăng nhập rồi bật trong ứng dụng Extensions, hoặc chạy: gnome-extensions enable mangrs-focus@fundokukiri"
+            );
+        }
+    }
+    Ok(note)
+}
+
+const DESKTOP_ENTRY: &str = include_str!("../../data/org.freedesktop.IBus.mangrs.desktop");
+
+/// The user-level override that hides the settings app from the grid.
+fn desktop_override_path() -> Option<PathBuf> {
+    dirs::data_dir().map(|d| d.join("applications/org.freedesktop.IBus.mangrs.desktop"))
+}
+
+fn desktop_icon_hidden() -> bool {
+    desktop_override_path().is_some_and(|p| p.exists())
+}
+
+/// Is the desktop entry installed system-wide? A dev run without
+/// `install.sh` has nothing to override, so the row goes insensitive.
+fn system_desktop_entry_exists() -> bool {
+    ["/usr/share/applications", "/usr/local/share/applications"]
+        .iter()
+        .any(|d| {
+            std::path::Path::new(d)
+                .join("org.freedesktop.IBus.mangrs.desktop")
+                .exists()
+        })
+}
+
+/// Hide/show "MăngRS Cấu hình" in the application grid by writing or
+/// removing a user-level override of the installed desktop entry. The
+/// override is a full copy plus `Hidden=true` — the highest-priority entry
+/// file replaces the system one, the spec does not merge keys.
+fn set_desktop_icon_hidden(hide: bool) -> Result<(), String> {
+    let Some(path) = desktop_override_path() else {
+        return Err("Không tìm thấy thư mục ~/.local/share/applications".into());
+    };
+    let outcome = if hide {
+        let mut text = DESKTOP_ENTRY.to_string();
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str("Hidden=true\n");
+        std::fs::write(&path, text).map_err(|e| e.to_string())
+    } else {
+        match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    };
+    outcome.map_err(|e| format!("Không ghi được file override: {e}"))?;
+    // Best effort: gio keeps a per-directory desktop-file cache.
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+        let _ = std::process::Command::new("update-desktop-database")
+            .arg(parent)
+            .spawn();
+    }
+    Ok(())
 }
 
 fn text_of(view: &TextView) -> String {

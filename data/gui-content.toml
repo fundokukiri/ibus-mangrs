@@ -19,7 +19,7 @@ macros = "Gõ tắt"
 data = "Từ điển"
 rules = "App rules"
 panel = "Menu panel"
-advanced = "Tinh chỉnh"
+other = "Cài đặt khác"
 about = "Giới thiệu"
 
 [search]
@@ -39,6 +39,10 @@ export_dialog = "Xuất cấu hình"
 import_dialog = "Nhập cấu hình"
 export_button = "Xuất…"
 import_button = "Nhập…"
+extension_button = "Cài đặt"
+reset_button = "Khôi phục"
+other_icon_toast_hidden = "Đã ẩn khỏi menu ứng dụng"
+other_icon_toast_shown = "Đã hiện lại trong menu ứng dụng"
 dbus_error = "Không nối được D-Bus: {e}"
 focus_ext_error = "Không hỏi được extension MăngRS Focus (data/gnome-shell-extension)"
 focus_none = "Không có cửa sổ nào đang focus"
@@ -314,15 +318,15 @@ kind_entry = "Mục chọn"
 
 # --- page Tinh chỉnh --------------------------------------------------------
 
-[groups.advanced.pacing]
+[groups.other.pacing]
 title = "Tốc độ gõ (uinput)"
 description = "Chỉ áp dụng cho Smooth / Super Smooth / Select"
 
-[groups.advanced.xim]
+[groups.other.xim]
 title = "Tương thích X11/XIM"
 description = "Cho app X11 trực tiếp và app XIM (Java/JetBrains)"
 
-[groups.advanced.backup]
+[groups.other.backup]
 title = "Sao lưu & khôi phục"
 description = "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng"
 
@@ -334,9 +338,31 @@ subtitle = "Lưu ra file để mang đi"
 title = "Nhập cấu hình từ JSON"
 subtitle = "Đọc lại từ file đã xuất"
 
-[groups.advanced.diagnostics]
+[groups.other.diagnostics]
 title = "Chẩn đoán"
 description = "Ghi lại quyết định của engine để gỡ lỗi"
+
+[groups.other.interface]
+title = "Giao diện"
+
+[groups.other.extension]
+title = "GNOME Shell extension"
+description = "Cần cho luật theo app trên Wayland (tên cửa sổ đang focus)"
+
+[groups.other.reset]
+title = "Khôi phục"
+
+[rows.desktop_icon]
+title = "Hiện trong menu ứng dụng"
+subtitle = "Icon MăngRS Cấu hình trong lưới ứng dụng của GNOME"
+
+[rows.focus_extension]
+title = "Extension MăngRS Focus"
+subtitle = "Cài vào ~/.local/share/gnome-shell/extensions và bật"
+
+[rows.reset_defaults]
+title = "Khôi phục mặc định"
+subtitle = "Cấu hình về mặc định; gõ tắt và từ điển giữ nguyên"
 
 [rows.debug_log]
 title = "Ghi log gỡ lỗi"

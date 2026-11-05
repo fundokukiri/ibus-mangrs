@@ -203,6 +203,14 @@ pub(super) fn widgets() -> Rc<Ui> {
     )));
     let rule_focus_value = Rc::new(RefCell::new(String::new()));
     let rules_loading = Rc::new(RefCell::new(false));
+    let desktop_icon = switch_row(
+        &t("rows.desktop_icon.title", "Hiện trong menu ứng dụng"),
+        &t(
+            "rows.desktop_icon.subtitle",
+            "Icon MăngRS Cấu hình trong lưới ứng dụng của GNOME",
+        ),
+    );
+    let desktop_icon_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
     let suppress_save = Cell::new(false);
     let hide_underline = switch_row(
@@ -452,6 +460,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         rules_box,
         rules_status,
         rules_loading,
+        desktop_icon,
+        desktop_icon_loading,
         save_cb,
         suppress_save,
         rule_preview_input,
