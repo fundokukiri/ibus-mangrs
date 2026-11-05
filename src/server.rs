@@ -1229,14 +1229,20 @@ fn emit_with(
                     push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
                 }
             }
-            // ForwardSelect: Shift+Left moves the app's own selection over the
-            // raw tail; the Commit that follows replaces it, so no Backspace
-            // handling is needed in the app at all.
+            // ForwardSelect: Shift+Left moves the application's own selection
+            // over the raw tail, then one forwarded Backspace erases it.
+            // A CommitText does NOT replace an application-side selection (the
+            // selection lives in the widget, the commit goes through the input
+            // context), so without the erase the raw keys stayed and the word
+            // was duplicated ("chao" + "chào" = "chàoao"). Backspace over a
+            // selection deletes the selection in every toolkit, and it is the
+            // transport already proven to land in these clients.
             Action::ForwardSelectLeft(n) => {
-                debug_log::log(&format!("forward-select-left n={n}"));
+                debug_log::log(&format!("forward-select-left n={n} + erase"));
                 for _ in 0..*n {
                     push_forward_keys(out, keymap::LEFT, LEFT_KEYCODE, keymap::SHIFT_MASK);
                 }
+                push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
             }
             Action::SelectLeft(n) => {
                 if (t.select_left)(*n, bs_gap) {
@@ -2041,9 +2047,11 @@ mod tests {
     }
 
     #[test]
-    fn forward_select_emits_shift_left_press_and_plain_release() {
+    fn forward_select_selects_then_erases() {
         // ForwardKeyEvent II's wire shape: Left with the shift held on the
-        // press, plain release, scancode 105 (clients add 8 themselves).
+        // press, plain release (scancode 105; clients add 8 themselves), then
+        // one Backspace that erases the selection the Left keys made — the
+        // commit alone does not replace an application-side selection.
         let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
         e.set_client(Some("xim".into()));
         let mut out = Vec::new();
@@ -2058,25 +2066,36 @@ mod tests {
             .filter(|m| m.member().map(|x| x == "ForwardKeyEvent").unwrap_or(false))
             .filter_map(|m| m.read3::<u32, u32, u32>().ok())
             .collect();
-        assert_eq!(keys.len(), 4, "press and release per Left: {keys:?}");
+        assert_eq!(keys.len(), 6, "two Lefts plus the erase: {keys:?}");
+        let lefts: Vec<_> = keys
+            .iter()
+            .filter(|(keyval, _, _)| *keyval == 0xff51)
+            .collect();
+        assert_eq!(lefts.len(), 4, "press and release per Left: {keys:?}");
         assert!(
-            keys.iter()
-                .all(|(keyval, keycode, _)| *keyval == 0xff51 && *keycode == 105),
+            lefts.iter().all(|(_, keycode, _)| *keycode == 105),
             "Left keyval with its scancode: {keys:?}"
+        );
+        assert_eq!(
+            keys.iter()
+                .filter(|(keyval, _, _)| *keyval == 0xff08)
+                .count(),
+            2,
+            "one Backspace press and release erases the selection: {keys:?}"
         );
         assert_eq!(
             keys.iter()
                 .filter(|(_, _, state)| *state == keymap::SHIFT_MASK)
                 .count(),
             2,
-            "the presses carry the shift: {keys:?}"
+            "only the Left presses carry the shift: {keys:?}"
         );
         assert_eq!(
             keys.iter()
                 .filter(|(_, _, state)| *state == keymap::RELEASE_MASK)
                 .count(),
-            2,
-            "the releases are plain: {keys:?}"
+            3,
+            "three plain releases (two Lefts, one Backspace): {keys:?}"
         );
     }
 
