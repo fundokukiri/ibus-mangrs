@@ -211,7 +211,15 @@ pub struct AppRule {
 /// (`wayland:Firefox` → `Firefox`); the special pattern `none` matches only
 /// a client with no name at all, the only way to target one.
 pub fn app_rule_matches(pattern: &str, target: Option<&str>) -> bool {
-    let pattern = pattern.to_lowercase();
+    // A pattern may carry the transport prefix the focus extension adds
+    // (`wayland:foo` / `x11:foo`) — targets are matched bare (the prefix is
+    // stripped below), so strip it from the pattern too or such a rule can
+    // never fire.
+    let pattern = pattern
+        .strip_prefix("wayland:")
+        .or_else(|| pattern.strip_prefix("x11:"))
+        .unwrap_or(pattern)
+        .to_lowercase();
     if pattern == "none" {
         return target.is_none();
     }
@@ -1199,5 +1207,14 @@ children = ["preedit", "smooth"]
             c.app_rules.iter().all(|r| r.pattern != "e2epick"),
             "remove clears the rule"
         );
+    }
+
+    #[test]
+    fn rule_patterns_tolerate_transport_prefixes() {
+        // The app-rule picker once saved patterns with the focus
+        // extension's transport prefix; those rules must still fire.
+        assert!(app_rule_matches("wayland:chrome", Some("wayland:chrome")));
+        assert!(app_rule_matches("x11:chrome", Some("x11:chrome")));
+        assert!(app_rule_matches("chrome", Some("wayland:chrome")));
     }
 }

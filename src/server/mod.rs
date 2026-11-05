@@ -41,10 +41,13 @@ mod x11;
 mod tests;
 
 // The GUI hotkey recorder validates specs through crate::server::parse_hotkey;
+mod picker;
+
 // the lib build resolves the name inside hotkey itself, hence the allow.
 #[allow(unused_imports)]
 pub(crate) use self::hotkey::parse_hotkey;
 use self::hotkey::{hotkey_registry, HotkeyAction, HotkeyBinding};
+use self::picker::PickerState;
 
 use self::prop::*;
 use self::x11::*;
@@ -106,6 +109,7 @@ impl Server {
             last_config_mtime: None,
             hotkeys: Vec::new(),
             last_fire: Vec::new(),
+            picker: None,
             focus_ext: None,
         };
         handler.last_config_mtime = Config::path()
@@ -219,6 +223,10 @@ struct EngineHandler {
     /// Last fire per action: autorepeat of the combo key would re-trigger
     /// it tens of times a second while held.
     last_fire: Vec<(HotkeyAction, Instant)>,
+    /// The per-app rule picker while it is open (an IBus lookup table at
+    /// the caret; see picker.rs). Keys route here first, so nothing types
+    /// while the menu is up.
+    picker: Option<PickerState>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
 }
@@ -402,6 +410,8 @@ impl EngineHandler {
                 msg.method_return()
             }
             "FocusOut" | "Disable" | "FocusOutId" => {
+                // The candidate popup belongs to the old input context.
+                self.picker = None;
                 // Commits still waiting for their Backspace echoes: echoes will
                 // not follow a focus change, so deliver them now (late but not
                 // never).
@@ -444,6 +454,8 @@ impl EngineHandler {
                 msg.method_return()
             }
             "Reset" => {
+                // A client reset (click, button press) closes the popup.
+                self.picker = None;
                 // The preedit is sent with IBUS_ENGINE_PREEDIT_COMMIT, so the
                 // client has already committed the word by the time this
                 // arrives (GTK sends it on a mouse click, a focus change and a

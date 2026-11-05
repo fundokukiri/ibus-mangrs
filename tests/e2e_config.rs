@@ -39,6 +39,14 @@ const CASES: &[Case] = &[
         f: toggle_hotkey,
     },
     Case {
+        name: "app rule picker: lookup table opens and writes the rule",
+        cfg: &[("app_rule_hotkey", "\"Control+Alt+p\"")],
+        macros: &[],
+        raw: "",
+        dict: "",
+        f: app_rule_picker,
+    },
+    Case {
         name: "app rules: a config rule overrides the default mode",
         cfg: &[],
         macros: &[],
@@ -167,6 +175,34 @@ fn toggle_hotkey(s: &mut common::Sess) {
     );
     let (buf, _) = s.type_reported("tieengs ");
     assert_eq!(buf, "tieengs ", "Vietnamese must be off after the toggle");
+}
+
+fn app_rule_picker(s: &mut common::Sess) {
+    // The picker targets the client's prgname (the e2e has no focus
+    // extension): Down moves to the second entry (nonpreedit), Return
+    // picks it, the popup closes, the rule lands in config.toml.
+    s.focus(CAPS_BOTH, "gtk4-im:e2epicktest");
+    s.drain();
+    assert!(s.key(0x70, common::CONTROL | common::ALT), "hotkey consumed");
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "UpdateLookupTable"),
+        "the picker must show at the caret: {sigs:?}"
+    );
+    assert!(s.key(65364, 0), "Down consumed by the picker");
+    assert!(s.key(65293, 0), "Return consumed by the picker");
+    s.pump(PUMP_MS);
+    let sigs = s.drain();
+    assert!(
+        has_member(&sigs, "HideLookupTable"),
+        "the picker closes after the pick: {sigs:?}"
+    );
+    let text = std::fs::read_to_string(s.config_path()).expect("config");
+    assert!(
+        text.contains("pattern = \"e2epicktest\""),
+        "the pick must land as the client's rule: {text:.400}"
+    );
 }
 
 fn app_rule(s: &mut common::Sess) {
