@@ -83,6 +83,7 @@ const METHODS: &[&str] = &[
     "Microsoft layout",
 ];
 const MODES: &[&str] = &[
+    "Tự động",
     "Không gạch chân",
     "Gạch chân (preedit)",
     "Surrounding text",
@@ -92,7 +93,6 @@ const MODES: &[&str] = &[
     "ForwardKeyEvent (Backspace)",
     "ForwardKeyEvent II (Shift+Left)",
     "OFF",
-    "Gõ mặc định",
 ];
 const CHARSETS: &[&str] = &[
     "Unicode",
