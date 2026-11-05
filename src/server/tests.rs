@@ -1088,10 +1088,11 @@ fn emoji_menu_keys_map_onto_actions() {
 fn the_select_rewrite_defers_its_commit_by_the_pacing_window() {
     // The race that corrupted every accented word on Sublime/GNOME Text
     // Editor: the delete keys and the paired commit left in one batch and
-    // the apps applied them out of order. The select-and-erase rewrite's
-    // commit now waits out the pacing window while the keys go out at once.
-    // ForwardKeyEvent (mode I) is deliberately left as shipped — the owner
-    // confirmed its typing works.
+    // the apps applied them out of order. Both forwarded rewrites'
+    // commits now wait out the pacing window while the keys go out at
+    // once — mode I's macro raced the same way (its deletes ate the
+    // expansion's tail) and plain typing is untouched (no rewrite, no
+    // deferral).
     let t = Transports {
         backspaces: &|_, _| true,
         keys: &|_, _| true,
@@ -1130,7 +1131,9 @@ fn the_select_rewrite_defers_its_commit_by_the_pacing_window() {
     );
     assert!(!e.has_deferred());
 
-    // Mode I keeps the shipped batch shape: its commit leaves at once.
+    // Mode I's macro rewrite rides the same window: its deletes and commit
+    // raced the same way (the expansion's tail was eaten — "ttltTôi tên
+    // là  ").
     let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
     e.set_client(Some("gtk4-im:test".into()));
     let mut out = Vec::new();
@@ -1144,10 +1147,16 @@ fn the_select_rewrite_defers_its_commit_by_the_pacing_window() {
         out.iter()
             .filter(|m| m.member().unwrap() == "CommitText")
             .count(),
-        1,
-        "ForwardKeyEvent commits are not delayed"
+        0,
+        "the macro rewrite's commit waits for its deletes on mode I too"
     );
-    assert!(!e.has_deferred());
+    assert!(e.has_deferred());
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    assert_eq!(
+        e.tick(),
+        vec![Action::Commit("Tùng".into())],
+        "the commit lands when the window passes"
+    );
 
     // A commit NOT paired with a forwarded delete still leaves at once.
     let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
