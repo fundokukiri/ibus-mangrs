@@ -15,4 +15,5 @@ pub(super) mod other;
 pub(super) mod panel;
 pub(super) mod rules;
 pub(super) mod tone;
+pub(super) mod tune;
 pub(super) mod typing;
