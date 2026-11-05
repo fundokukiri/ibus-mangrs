@@ -37,6 +37,20 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         "Gán phím bật/tắt tiếng Việt nhanh. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
     )));
     group.add(&enabled_hotkey);
+    let app_rule_hotkey = action_row(
+        &t("rows.hotkey_app_rule.title", "Phím tắt chọn luật theo app"),
+        &t(
+            "rows.hotkey_app_rule.subtitle",
+            "Mở cửa sổ chọn chế độ cho app đang focus",
+        ),
+    );
+    app_rule_hotkey.add_suffix(&ui.app_rule_hotkey_label);
+    app_rule_hotkey.add_suffix(&ui.app_rule_hotkey_edit);
+    app_rule_hotkey.set_tooltip_text(Some(&t(
+        "tips.hotkey_app_rule",
+        "Gán phím mở cửa sổ chọn chế độ gõ cho app đang focus (kiểu Shift + ` của ibus-bamboo). Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
+    )));
+    group.add(&app_rule_hotkey);
     page.add(&group);
 
     // The recorders capture on the edit button (GNOME shortcut style) and
@@ -62,6 +76,20 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             &ui.enabled_hotkey_edit,
             &ui.enabled_hotkey_label,
             &ui.enabled_hotkey_value,
+            move || {
+                if let Some(save) = s.borrow().as_ref() {
+                    save();
+                }
+            },
+        );
+    }
+    {
+        let ui = ui.clone();
+        let s = ui.save_cb.clone();
+        hotkey_wire(
+            &ui.app_rule_hotkey_edit,
+            &ui.app_rule_hotkey_label,
+            &ui.app_rule_hotkey_value,
             move || {
                 if let Some(save) = s.borrow().as_ref() {
                     save();

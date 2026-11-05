@@ -89,6 +89,10 @@ subtitle = "Ví dụ: Control+Alt+v"
 title = "Phím tắt bật/tắt tiếng Việt"
 subtitle = "Ví dụ: Control+Alt+space"
 
+[rows.hotkey_app_rule]
+title = "Phím tắt chọn luật theo app"
+subtitle = "Mở cửa sổ chọn chế độ cho app đang focus"
+
 [rows.hide_underline]
 title = "Ẩn gạch chân"
 subtitle = "Chữ đang gõ không có gạch chân (tùy app)"

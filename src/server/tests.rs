@@ -823,24 +823,27 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
     let mut config = Config::default();
     config.enabled_hotkey = "Control+Alt+h".into();
     config.cycle_mode_hotkey = "Control+Alt+v".into();
+    config.app_rule_hotkey = "Control+Alt+p".into();
     let reg = hotkey_registry(&config);
-    assert_eq!(reg.len(), 2);
+    assert_eq!(reg.len(), 3);
     assert_eq!(reg[0].2, HotkeyAction::ToggleEnabled);
     assert_eq!(reg[0].0, keymap::CONTROL_MASK | keymap::MOD1_MASK);
     assert_eq!(reg[0].1, 0x68); // 'h'
     assert_eq!(reg[1].2, HotkeyAction::CycleMode);
-    // A same-combo collision keeps both entries; the first match wins.
+    assert_eq!(reg[2].2, HotkeyAction::AppRulePicker);
+    // A same-combo collision keeps every entry; the first match wins.
     config.cycle_mode_hotkey = "Control+Alt+h".into();
     let reg = hotkey_registry(&config);
     assert_eq!(
         reg.len(),
-        2,
+        3,
         "the registry does not dedupe - page order rules"
     );
     // Unassigned or unusable specs register nothing.
     assert!(hotkey_registry(&Config::default()).is_empty());
     config.enabled_hotkey = "Control".into();
     config.cycle_mode_hotkey = "Shift+x".into();
+    config.app_rule_hotkey = String::new();
     assert!(
         hotkey_registry(&config).is_empty(),
         "parse_hotkey rejects these"

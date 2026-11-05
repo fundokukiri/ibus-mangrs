@@ -47,6 +47,12 @@ pub(super) fn widgets() -> Rc<Ui> {
     enabled_hotkey_edit.add_css_class("flat");
     enabled_hotkey_edit.set_tooltip_text(Some(&capture_tooltip));
     let enabled_hotkey_value = Rc::new(RefCell::new(String::new()));
+    let app_rule_hotkey_label = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
+    app_rule_hotkey_label.add_css_class("dim-label");
+    let app_rule_hotkey_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
+    app_rule_hotkey_edit.add_css_class("flat");
+    app_rule_hotkey_edit.set_tooltip_text(Some(&capture_tooltip));
+    let app_rule_hotkey_value = Rc::new(RefCell::new(String::new()));
     let modern = switch_row(
         &t("rows.modern.title", "Kiểu dấu mới"),
         &t(
@@ -438,6 +444,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         enabled_hotkey_label,
         enabled_hotkey_edit,
         enabled_hotkey_value,
+        app_rule_hotkey_label,
+        app_rule_hotkey_edit,
+        app_rule_hotkey_value,
         modern,
         free,
         auto_correct,
