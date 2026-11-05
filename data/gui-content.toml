@@ -16,6 +16,7 @@ name = "MăngRS"
 typing = "Chung"
 tone = "Dấu & tự động"
 macros = "Gõ tắt"
+emoji = "Emoji"
 data = "Từ điển"
 rules = "App rules"
 panel = "Menu panel"
@@ -189,6 +190,33 @@ subtitle = "Khóa viết hoa → nội dung viết hoa theo"
 [rows.macro_in_off_mode]
 title = "Gõ tắt khi tắt tiếng việt"
 subtitle = "Vẫn mở rộng khi tiếng Việt đang tắt"
+
+[rows.emoji_enabled]
+title = "Gõ tắt emoji"
+subtitle = "Gõ :ten: kèm dấu hai chấm sẽ thành emoji khi hết từ"
+
+[rows.hotkey_emoji]
+title = "Phím tắt mở bảng emoji"
+subtitle = "Mở cửa sổ tìm và copy emoji"
+
+[groups.emoji.settings]
+title = "Emoji"
+description = "Gõ :ten: kèm hai dấu hai chấm sẽ thành emoji khi hết từ"
+
+[groups.emoji.raw]
+title = "Bảng emoji riêng"
+description = "Mỗi dòng một cặp ten=emoji — ghi đè hoặc thêm shortcode (chữ thường)"
+placeholder = "ten=emoji — mỗi dòng một cặp"
+
+[groups.emoji.note]
+text = "Phím tắt mở bảng chọn emoji gán ở trang Phím tắt."
+
+[emoji]
+title = "Emoji — MăngRS"
+search = "Tìm emoji (từ khóa Việt/Anh)…"
+none = "Không có emoji nào khớp"
+copied = "Đã copy — dán bằng Ctrl+V"
+copy_failed = "Không copy được (cần wl-copy hoặc xclip)"
 
 [rows.macro_key]
 tooltip = "Khóa gõ tắt (gõ xong sẽ mở rộng)"
@@ -446,6 +474,8 @@ double_space = "Nhấn hai dấu cách liên tiếp thành dấu chấm + khoả
 macro_enabled = "Bật bảng gõ tắt: chuỗi khóa được mở rộng thành nội dung khi gõ xong từ."
 capitalize_macro = "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo."
 macro_in_off_mode = "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
+emoji_enabled = "Gõ :smile: thành emoji. Từ dán ngay sau dấu hai chấm không được thêm dấu khi tính năng này bật (như quy tắc bỏ qua URL); tắt đi nếu bạn thường viết kiểu :từ_viết."
+emoji_hotkey = "Phím tắt mở bảng chọn emoji (cửa sổ tìm kiếm, click để copy)."
 dictionary_enabled = "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc."
 debug_log = "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
 x11_delete = "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."

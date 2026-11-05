@@ -155,6 +155,20 @@ pub(super) fn widgets() -> Rc<Ui> {
         .valign(gtk4::Align::Center)
         .build();
     let macros_text = text_view("");
+    let emoji_enabled = switch_row(
+        &t("rows.emoji_enabled.title", "Gõ tắt emoji"),
+        &t(
+            "rows.emoji_enabled.subtitle",
+            "Gõ :ten: kèm dấu hai chấm sẽ thành emoji khi hết từ",
+        ),
+    );
+    let emoji_hotkey_label = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
+    emoji_hotkey_label.add_css_class("dim-label");
+    let emoji_hotkey_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
+    emoji_hotkey_edit.add_css_class("flat");
+    emoji_hotkey_edit.set_tooltip_text(Some(&capture_tooltip));
+    let emoji_hotkey_value = Rc::new(RefCell::new(String::new()));
+    let emoji_text = text_view("");
     let dictionary_enabled = switch_row(
         &t("rows.dictionary_enabled.title", "Dùng từ điển cá nhân"),
         &t(
@@ -393,6 +407,16 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
     );
     tip!(
+        emoji_enabled,
+        "tips.emoji_enabled",
+        "Gõ :smile: thành emoji. Từ dán ngay sau dấu hai chấm không được thêm dấu khi tính năng này bật (như quy tắc bỏ qua URL); tắt đi nếu bạn thường viết kiểu :từ_viết."
+    );
+    tip!(
+        emoji_hotkey_edit,
+        "tips.emoji_hotkey",
+        "Phím tắt mở bảng chọn emoji (cửa sổ tìm kiếm, click để copy)."
+    );
+    tip!(
         hide_underline,
         "tips.hide_underline",
         "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
@@ -464,6 +488,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         time_format,
         date_format,
         macros_text,
+        emoji_enabled,
+        emoji_hotkey_label,
+        emoji_hotkey_edit,
+        emoji_hotkey_value,
+        emoji_text,
         dictionary_enabled,
         dictionary_text,
         rules_box,

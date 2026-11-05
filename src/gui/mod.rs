@@ -26,6 +26,7 @@ use gtk4::{Entry, Orientation, StringList, TextView};
 use libadwaita as adw;
 
 mod content;
+mod emoji_picker;
 mod hotkey;
 mod pages;
 mod text;
@@ -69,6 +70,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
     app.run_with_args::<&str>(&[]);
     Ok(())
+}
+
+/// The `-emoji` picker window — its own GApplication id, it must never
+/// wake the settings window.
+pub fn run_emoji_picker() -> Result<(), Box<dyn std::error::Error>> {
+    emoji_picker::run()
 }
 
 const METHODS: &[&str] = &[
@@ -143,6 +150,14 @@ struct Ui {
     macro_in_off_mode: adw::SwitchRow,
     time_format: Entry,
     date_format: Entry,
+    /// Emoji shortcodes ("Emoji" tab): the on/off switch, the picker
+    /// hotkey (the row itself lives on "Phím tắt", one row per shortcut)
+    /// and the raw user table `name=glyph` lines of `emoji.toml`.
+    emoji_enabled: adw::SwitchRow,
+    emoji_hotkey_label: gtk4::Label,
+    emoji_hotkey_edit: gtk4::Button,
+    emoji_hotkey_value: Rc<RefCell<String>>,
+    emoji_text: TextView,
     /// Macro editor: one boxed-list row per entry (key, value); GObject
     /// clones share the widgets, so reading them reads what the user sees.
     /// The rows live in a plain ListBox — a PreferencesGroup's first_child
@@ -328,6 +343,9 @@ impl Ui {
         self.macro_in_off_mode.set_active(config.macro_in_off_mode);
         self.time_format.set_text(&config.time_format);
         self.date_format.set_text(&config.date_format);
+        self.emoji_enabled.set_active(config.emoji_enabled);
+        *self.emoji_hotkey_value.borrow_mut() = config.emoji_hotkey.clone();
+        render_hotkey(&self.emoji_hotkey_label, &config.emoji_hotkey);
         self.dictionary_enabled
             .set_active(config.dictionary_enabled);
         self.debug_log.set_active(config.debug_log);
@@ -363,6 +381,14 @@ impl Ui {
         set_text(
             &self.dictionary_text,
             &dictionary.words().collect::<Vec<_>>().join("\n"),
+        );
+        set_text(
+            &self.emoji_text,
+            &crate::emoji::UserEmoji::load()
+                .entries()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
         );
         self.fill_rules(&config.app_rules);
         self.hide_underline.set_active(config.hide_underline);
@@ -433,6 +459,8 @@ impl Ui {
         config.macro_in_off_mode = self.macro_in_off_mode.is_active();
         config.time_format = self.time_format.text().trim().to_string();
         config.date_format = self.date_format.text().trim().to_string();
+        config.emoji_enabled = self.emoji_enabled.is_active();
+        config.emoji_hotkey = self.emoji_hotkey_value.borrow().clone();
         config.dictionary_enabled = self.dictionary_enabled.is_active();
         config.commit_interval_ms = self.commit_interval.value() as u64;
         config.backspace_interval_ms = self.backspace_interval.value() as u64;
@@ -456,6 +484,17 @@ impl Ui {
     /// skipped such lines too).
     fn macros_from_text(&self) -> Vec<(String, String)> {
         text_of(&self.macros_text)
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+            .collect()
+    }
+
+    /// The emoji user table as the raw editor shows it: one `name=glyph`
+    /// line per pair, empty names or glyphs dropped (the macros rule).
+    fn emoji_from_text(&self) -> Vec<(String, String)> {
+        text_of(&self.emoji_text)
             .lines()
             .filter_map(|line| line.split_once('='))
             .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
@@ -502,6 +541,10 @@ impl Ui {
         let mut dict = Dictionary::load();
         dict.set_words(self.read_dictionary().into_iter());
         dict.save()?;
+
+        let mut emoji = crate::emoji::UserEmoji::load();
+        emoji.set_entries(self.emoji_from_text().into_iter());
+        emoji.save()?;
         Ok(())
     }
 

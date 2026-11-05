@@ -8,6 +8,7 @@ use super::*;
 
 pub(super) mod about;
 pub(super) mod data;
+pub(super) mod emoji;
 pub(super) mod hotkeys;
 pub(super) mod macros;
 pub(super) mod other;

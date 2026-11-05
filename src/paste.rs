@@ -105,6 +105,12 @@ pub fn paste_and_restore(text: &str, ctrl_v: &dyn Fn() -> bool) -> bool {
     paste_with(text, ctrl_v, &write_clipboard)
 }
 
+/// Set the clipboard without the paste/restore machinery — the emoji
+/// picker's copy button. False when no session tool is available.
+pub fn copy_to_clipboard(text: &str) -> bool {
+    write_clipboard(text)
+}
+
 /// `write` is a seam for the tests: the real clipboard is the session's.
 fn paste_with(text: &str, ctrl_v: &dyn Fn() -> bool, write: &dyn Fn(&str) -> bool) -> bool {
     // Snapshot the user's clipboard once per burst (before our first write).

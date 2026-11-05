@@ -51,6 +51,17 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         "Gán phím mở cửa sổ chọn chế độ gõ cho app đang focus (kiểu Shift + ` của ibus-bamboo). Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
     )));
     group.add(&app_rule_hotkey);
+    let emoji_hotkey = action_row(
+        &t("rows.hotkey_emoji.title", "Phím tắt mở bảng emoji"),
+        &t("rows.hotkey_emoji.subtitle", "Mở cửa sổ tìm và copy emoji"),
+    );
+    emoji_hotkey.add_suffix(&ui.emoji_hotkey_label);
+    emoji_hotkey.add_suffix(&ui.emoji_hotkey_edit);
+    emoji_hotkey.set_tooltip_text(Some(&t(
+        "tips.emoji_hotkey",
+        "Gán phím mở bảng chọn emoji (cửa sổ tìm kiếm, click để copy). Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa.",
+    )));
+    group.add(&emoji_hotkey);
     page.add(&group);
 
     // The recorders capture on the edit button (GNOME shortcut style) and
@@ -90,6 +101,20 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             &ui.app_rule_hotkey_edit,
             &ui.app_rule_hotkey_label,
             &ui.app_rule_hotkey_value,
+            move || {
+                if let Some(save) = s.borrow().as_ref() {
+                    save();
+                }
+            },
+        );
+    }
+    {
+        let ui = ui.clone();
+        let s = ui.save_cb.clone();
+        hotkey_wire(
+            &ui.emoji_hotkey_edit,
+            &ui.emoji_hotkey_label,
+            &ui.emoji_hotkey_value,
             move || {
                 if let Some(save) = s.borrow().as_ref() {
                     save();
