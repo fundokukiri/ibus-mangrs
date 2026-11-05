@@ -74,8 +74,9 @@ pub enum Mode {
     /// Vietnamese processing off; macros still run, auto-capitalize does
     /// not (the gap analysis documented this drift — keep the comment true).
     Off,
-    /// The engine is inert: every key is forwarded untouched.
-    DefaultTyping,
+    /// Not a mode of its own: resolve the real mode per client from what
+    /// it reports (see `auto_mode`). App rules still win over the ladder.
+    Auto,
 }
 
 /// One thing the server must tell IBus to do.
@@ -853,6 +854,11 @@ impl Engine {
         let can_preedit = self.caps & CAP_PREEDIT_TEXT != 0;
         let ruled = self.client_rule_mode();
         let requested = ruled.unwrap_or(self.mode);
+        // Auto resolves straight from the client's signals — the ladder
+        // below never needs a delete transport it cannot have.
+        if requested == Mode::Auto {
+            return self.auto_mode(can_preedit);
+        }
         // Preedit is unusable when the client cannot render it — except for
         // XIM clients, which report no preedit capability even though the XIM
         // server draws the preedit itself (`XIMPreeditPosition`: ibus-x11
@@ -915,6 +921,37 @@ impl Engine {
         requested
     }
 
+    /// The Auto ladder: the display mode this client handles best, from the
+    /// capabilities it declares. Ordered so no step needs a channel the
+    /// client cannot have:
+    /// 1. renders preedit (the XIM opt-in counts — the XIM server draws the
+    ///    preedit itself) → Preedit. Preedit needs no delete transport at
+    ///    all, so it is right for healthy and delete-dropping clients alike;
+    /// 2. XIM (no capabilities reported at all) → ForwardSelect, the mode
+    ///    built for them: a forwarded Backspace misbehaves there, Shift+Left
+    ///    selection does not;
+    /// 3. reports surrounding text → Surrounding (its reports are the only
+    ///    repair channel needed);
+    /// 4. a mutter relay or a known delete-dropper → ForwardKeyEvent (no
+    ///    report needed, works on Wayland);
+    /// 5. anything else → NonPreedit — inert rather than guessing a
+    ///    transport an unknown client may not have.
+    fn auto_mode(&self, can_preedit: bool) -> Mode {
+        if can_preedit || (self.preedit_for_xim && self.client_name_is_opaque()) {
+            return Mode::Preedit;
+        }
+        if self.client_name_is_opaque() {
+            return Mode::ForwardSelect;
+        }
+        if self.caps & CAP_SURROUNDING_TEXT != 0 {
+            return Mode::Surrounding;
+        }
+        if self.relay_context() || self.client_cannot_delete_surrounding() {
+            return Mode::ForwardKeyEvent;
+        }
+        Mode::NonPreedit
+    }
+
     /// Mode for the current keystroke: the word-locked mode when a word is in
     /// flight, else the freshly resolved one (and lock it for this word).
     fn key_mode(&mut self) -> Mode {
@@ -947,7 +984,7 @@ impl Engine {
             self.effective_mode()
         };
         // Vietnamese processing is off; the app owns the Backspace.
-        if mode == Mode::Off || mode == Mode::DefaultTyping {
+        if mode == Mode::Off {
             return None;
         }
         // uinput modes: the application owns the on-screen text — the
@@ -983,8 +1020,9 @@ impl Engine {
                     Some(vec![Action::UpdatePreedit { text, cursor }])
                 }
             }
-            // Gated above (returns None); keeps the match exhaustive.
-            Mode::Off | Mode::DefaultTyping => None,
+            // Off is gated above; Auto never escapes effective_mode. Keeps
+            // the match exhaustive.
+            Mode::Off | Mode::Auto => None,
             Mode::Smooth | Mode::SuperSmooth | Mode::Select => None,
             Mode::NonPreedit | Mode::Surrounding | Mode::ForwardKeyEvent | Mode::ForwardSelect => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {

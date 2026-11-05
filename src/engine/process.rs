@@ -6,11 +6,6 @@ use super::*;
 impl Engine {
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
-        if self.effective_mode() == Mode::DefaultTyping {
-            // Fully inert: the key belongs to the application, nothing is
-            // composed, nothing is remembered.
-            return vec![Action::Forward];
-        }
         if !self.wrapper.is_enabled() || self.effective_mode() == Mode::Off {
             return self.process_char_off(c);
         }

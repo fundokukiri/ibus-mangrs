@@ -1073,7 +1073,6 @@ mod matrix {
             Mode::Preedit,
             Mode::Surrounding,
             Mode::Off,
-            Mode::DefaultTyping,
             Mode::Smooth,
             Mode::SuperSmooth,
             Mode::Select,

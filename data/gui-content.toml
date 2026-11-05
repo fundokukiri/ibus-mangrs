@@ -63,7 +63,7 @@ title = "Hiển thị"
 description = "Hình thức của chữ đang gõ"
 
 [groups.hotkeys.cycle_note]
-text = "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF → Gõ mặc định."
+text = "Thứ tự phím tắt đổi chế độ: Tự động → Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF."
 
 [rows.enabled]
 title = "Bật tiếng Việt"
