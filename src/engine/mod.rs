@@ -25,6 +25,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
 use crate::config::{AppRule, Config, UnicodeChannel};
 use crate::debug_log::{self, brief};
+use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
 
 mod helpers;
@@ -239,6 +240,16 @@ pub struct Engine {
     url_word: bool,
     /// Keep words raw after URL/email/path characters (`bypass_url`).
     bypass_url: bool,
+    /// Emoji shortcodes on: a word glued directly after `:` stays raw and a
+    /// closing `:` rewrites `:name:` to the emoji (see `process_char_emoji`).
+    emoji_enabled: bool,
+    /// The word being typed is an emoji shortcode candidate (`:name:`). The
+    /// state starts at the first key after the opening `:` and ends at the
+    /// closing one — or at any other terminator, which leaves the text raw.
+    emoji_word: bool,
+    /// The user's emoji table, reloaded by mtime like the macros.
+    emojis: UserEmoji,
+    emoji_mtime: Option<SystemTime>,
     /// The app appended suggestion text after the caret mid-word (Chrome's
     /// inline autocomplete). Its rewrite delete is dropped and repairs crash
     /// mutter, so show the following words as preedit — no delete needed.
@@ -318,6 +329,10 @@ impl Engine {
             word_mode: None,
             url_word: false,
             bypass_url: true,
+            emoji_enabled: false,
+            emoji_word: false,
+            emojis: UserEmoji::load(),
+            emoji_mtime: None,
             suggestions: false,
             capitalize_next: false,
             cap_word: false,
@@ -399,7 +414,14 @@ impl Engine {
         self.post_delay_ms = config.post_delay_ms;
         self.unicode_channel = config.unicode_channel;
         self.bypass_url = config.bypass_url;
+        self.emoji_enabled = config.emoji_enabled;
+        self.emoji_word = false;
         self.url_word = false;
+        let emoji_time = file_time(UserEmoji::path().as_deref());
+        if emoji_time != self.emoji_mtime {
+            self.emojis = UserEmoji::load();
+            self.emoji_mtime = emoji_time;
+        }
         self.set_mode(mode);
         self.set_charset(config.charset.into());
         actions
@@ -1001,6 +1023,10 @@ impl Engine {
             self.wrapper.backspace();
             if !self.wrapper.has_composition() {
                 self.release_word_mode();
+                // Nothing composed: the application deletes one of its own
+                // characters — the raw forwarders (URL/emoji bypass) track
+                // the screen in `tail`, so it has to shrink with the text.
+                self.tail = replace_tail(&self.tail, 1, "");
             }
             return None;
         }
@@ -1141,6 +1167,7 @@ impl Engine {
         self.repair_delete = None;
         self.release_word_mode();
         self.url_word = false;
+        self.emoji_word = false;
         actions
     }
 

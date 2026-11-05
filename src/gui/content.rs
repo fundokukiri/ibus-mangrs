@@ -37,6 +37,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 3: Gõ tắt — switches, formats and the macro editor.
     let macro_page = pages::macros::build(&ui);
 
+    // ===== Page 3b: Emoji — shortcode typing and the user's own table.
+    let emoji_page = pages::emoji::build(&ui);
+
     // ===== Page 4: Từ điển — the personal dictionary (text area).
     let data_page = pages::data::build(&ui);
 
@@ -62,7 +65,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // Content: one page per section, crossfading. Stack names are stable —
     // the engine opens pages with `--page=<name>`.
     // (stack name, sidebar label, symbolic icon from the icon theme)
-    let pages: [(&str, String, &str); 9] = [
+    let pages: [(&str, String, &str); 10] = [
         (
             "typing",
             t("pages.typing", "Chung"),
@@ -78,6 +81,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             t("pages.macros", "Gõ tắt"),
             "insert-text-symbolic",
         ),
+        ("emoji", t("pages.emoji", "Emoji"), "face-smile-symbolic"),
         (
             "data",
             t("pages.data", "Từ điển"),
@@ -105,14 +109,15 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             "help-about-symbolic",
         ),
     ];
-    let pages_refs: [(&str, &str, &str); 9] = std::array::from_fn(|i| {
+    let pages_refs: [(&str, &str, &str); 10] = std::array::from_fn(|i| {
         let (name, title, icon) = &pages[i];
         (*name, title.as_str(), *icon)
     });
-    let page_boxes: [&gtk4::Widget; 9] = [
+    let page_boxes: [&gtk4::Widget; 10] = [
         typing_page.upcast_ref(),
         tone_page.upcast_ref(),
         macro_page.upcast_ref(),
+        emoji_page.upcast_ref(),
         data_page.upcast_ref(),
         rules_page.upcast_ref(),
         panel_page.upcast_ref(),
@@ -552,6 +557,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         on_change!(ui.macro_enabled);
         on_change!(ui.capitalize_macro);
         on_change!(ui.macro_in_off_mode);
+        on_change!(ui.emoji_enabled);
         on_change!(ui.dictionary_enabled);
         on_change!(ui.debug_log);
         on_change!(ui.x11_delete);
@@ -601,6 +607,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         {
             let s = save.clone();
             let view = ui.macros_text.clone();
+            let controller = gtk4::EventControllerFocus::new();
+            controller.connect_leave(move |_| s());
+            view.add_controller(controller);
+        }
+        {
+            let s = save.clone();
+            let view = ui.emoji_text.clone();
             let controller = gtk4::EventControllerFocus::new();
             controller.connect_leave(move |_| s());
             view.add_controller(controller);

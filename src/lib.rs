@@ -13,6 +13,7 @@ pub mod backup;
 pub mod bamboo_wrapper;
 pub mod config;
 pub mod debug_log;
+pub mod emoji;
 pub mod engine;
 #[cfg(test)]
 mod golden;

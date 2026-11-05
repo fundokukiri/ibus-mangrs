@@ -14,6 +14,8 @@ pub(super) enum HotkeyAction {
     CycleMode,
     /// Open the per-app rule picker for the focused application.
     AppRulePicker,
+    /// Open the emoji picker window (`-emoji`).
+    OpenEmoji,
 }
 
 /// A parsed shortcut: modifier mask, keysym, action.
@@ -34,6 +36,9 @@ pub(super) fn hotkey_registry(config: &Config) -> Vec<HotkeyBinding> {
     if let Some((mods, key)) = parse_hotkey(&config.app_rule_hotkey).filter(|(mods, _)| *mods != 0)
     {
         out.push((mods, key, HotkeyAction::AppRulePicker));
+    }
+    if let Some((mods, key)) = parse_hotkey(&config.emoji_hotkey).filter(|(mods, _)| *mods != 0) {
+        out.push((mods, key, HotkeyAction::OpenEmoji));
     }
     out
 }
@@ -93,6 +98,7 @@ impl EngineHandler {
             HotkeyAction::ToggleEnabled => self.toggle_enabled(out),
             HotkeyAction::CycleMode => self.cycle_mode(out),
             HotkeyAction::AppRulePicker => self.open_app_rule_picker(out),
+            HotkeyAction::OpenEmoji => self.open_emoji_picker(),
         }
         true
     }
@@ -113,6 +119,14 @@ impl EngineHandler {
         }
         self.rebaseline_config_mtime();
         update_property_group(&config, ibus_prop::KEY_ENABLED, out);
+    }
+
+    /// Spawn the emoji picker window detached from the engine (the settings
+    /// window's same transport: it must survive an `ibus restart`).
+    fn open_emoji_picker(&self) {
+        if let Ok(exe) = std::env::current_exe() {
+            spawn_detached(&exe, &["-emoji"]);
+        }
     }
 
     /// Cycle the display mode list: save, apply, per-item panel update.

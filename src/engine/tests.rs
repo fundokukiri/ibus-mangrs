@@ -2673,3 +2673,147 @@ fn app_rule_wins_over_auto() {
         "a pinned rule must bypass the auto ladder: {actions:?}"
     );
 }
+
+// --- emoji shortcodes ---
+
+/// Emoji tests must not depend on the developer's own `emoji.toml`: clear
+/// the user table the engine loaded at startup.
+fn with_emoji(mode: Mode, config: Config) -> Engine {
+    let mut e = engine(mode, config);
+    e.emojis.set_entries(std::iter::empty());
+    e
+}
+
+#[test]
+fn emoji_shortcode_rewrites_in_the_three_core_modes() {
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = with_emoji(
+            mode,
+            Config {
+                emoji_enabled: true,
+                ..Config::default()
+            },
+        );
+        assert_eq!(
+            type_replay(&mut e, ":smile:"),
+            "😄",
+            "{mode:?}: the closing ':' rewrites :name:"
+        );
+    }
+}
+
+#[test]
+fn emoji_rewrite_in_smooth_injects_backspaces_without_the_closing_colon() {
+    let mut e = with_emoji(
+        Mode::Smooth,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, ":smile");
+    let actions = e.process_char(':');
+    assert!(
+        actions.contains(&Action::InjectBackspaces(6)),
+        "the smooth rewrite erases ':smile': {actions:?}"
+    );
+    assert!(
+        actions.contains(&Action::Commit("😄".into())),
+        "{actions:?}"
+    );
+    assert!(
+        !actions.contains(&Action::Forward),
+        "the closing ':' belongs to the shortcode, it must not reach the app: {actions:?}"
+    );
+}
+
+#[test]
+fn emoji_unknown_name_stays_literal() {
+    let mut e = with_emoji(
+        Mode::NonPreedit,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    assert_eq!(type_replay(&mut e, ":nope:"), ":nope:");
+}
+
+#[test]
+fn emoji_word_ends_at_a_space_without_a_rewrite() {
+    let mut e = with_emoji(
+        Mode::NonPreedit,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    assert_eq!(type_replay(&mut e, ":smile x"), ":smile x");
+}
+
+#[test]
+fn digits_after_a_colon_stay_raw() {
+    let mut e = with_emoji(
+        Mode::NonPreedit,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    assert_eq!(type_replay(&mut e, "3:30"), "3:30");
+}
+
+#[test]
+fn macro_wins_over_the_emoji_table() {
+    let mut e = with_emoji(
+        Mode::NonPreedit,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    e.macros
+        .set_entries([(":smile:".to_string(), "macro wins".to_string())].into_iter());
+    assert_eq!(type_replay(&mut e, ":smile:"), "macro wins");
+}
+
+#[test]
+fn user_emoji_table_overrides_the_embedded_one() {
+    let mut e = with_emoji(
+        Mode::NonPreedit,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    e.emojis
+        .set_entries([("smile".to_string(), "🙂".to_string())].into_iter());
+    assert_eq!(type_replay(&mut e, ":smile:"), "🙂");
+    // Embedded names the user did not list still resolve (one replay, so
+    // the app buffer the helper tracks holds both results).
+    assert_eq!(type_replay(&mut e, ":smile: :fire:"), "🙂 🔥");
+}
+
+#[test]
+fn emoji_disabled_keeps_the_url_bypass_behavior() {
+    // Config::default() has emoji_enabled = false: ':smile:' types literally.
+    let mut e = with_emoji(Mode::NonPreedit, Config::default());
+    assert_eq!(type_replay(&mut e, ":smile:"), ":smile:");
+}
+
+#[test]
+fn backspaces_inside_the_shortcode_keep_the_rewrite_in_range() {
+    let mut e = with_emoji(
+        Mode::NonPreedit,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    // ':smil' minus two keys, then 'ile:' — the tracked tail must shrink
+    // with the backspaces or the rewrite deletes past the typed text.
+    let (text, out_of_range) = type_replay_backspaces(&mut e, ":smil\u{8}\u{8}ile:");
+    assert_eq!(text, "😄");
+    assert!(!out_of_range, "the rewrite may not ask for more than shown");
+}

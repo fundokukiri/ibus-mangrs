@@ -5,6 +5,14 @@
 IBus component registration, installed to `/usr/share/ibus/component/` by
 `scripts/install.sh`.
 
+## `emoji.toml`
+
+The embedded emoji shortcode table (about 1940 entries with Vietnamese and
+English keywords), compiled into the binary with `include_str!`. Generated
+once by a one-off local script from the CLDR annotations (vi + en) — do not
+edit by hand; regenerate instead. Users add or override entries in
+`~/.config/ibus-mangrs/emoji.toml`, which wins over this table.
+
 ## `gnome-shell-extension/`
 
 Companion GNOME Shell extension "MăngRS Focus" (`mangrs-focus@fundokukiri`):
