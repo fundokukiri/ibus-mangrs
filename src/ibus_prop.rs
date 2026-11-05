@@ -356,7 +356,7 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                 MenuNode::Action { key } => match key.as_str() {
                     "macro_editor" => Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"),
                     "settings" => {
-                        let mut p = Prop::normal(KEY_SHORTCUTS, "Cấu hình");
+                        let mut p = Prop::normal(KEY_SHORTCUTS, "Cài đặt");
                         p.tooltip = "Mở cửa sổ cấu hình MăngRS".into();
                         p
                     }
