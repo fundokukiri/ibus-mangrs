@@ -198,9 +198,6 @@ pub struct Engine {
     last_nav_inject: Option<Instant>,
     /// Commits waiting for injected nav-key echoes to be forwarded.
     nav_deferred: Vec<(usize, String)>,
-    /// Commits waiting out a short pacing window after forwarded key
-    /// deletes (see `defer_commit_timed`).
-    timed_deferred: Vec<(Instant, String)>,
     // --- settings, mirrors of the config file ---
     app_rules: Vec<AppRule>,
     auto_restore: bool,
@@ -329,7 +326,6 @@ impl Engine {
             pending_nav: Vec::new(),
             last_nav_inject: None,
             nav_deferred: Vec::new(),
-            timed_deferred: Vec::new(),
             word_mode: None,
             url_word: false,
             bypass_url: true,
@@ -643,44 +639,6 @@ impl Engine {
         self.deferred.push((threshold, text));
     }
 
-    /// Queue `text` to be committed when `delay_ms` has passed. The
-    /// forwarded key deletes of the two ForwardKeyEvent modes travel
-    /// through the daemon's forwarding path while the paired commit goes
-    /// straight over D-Bus — apps that queue the synthetic key events
-    /// applied the delete keys and the commit out of order, and every
-    /// rewrite ate the character before its replacement (each word lost
-    /// the character before its accented vowel). The deadline scales with
-    /// the uinput pacing config — bamboo's select-then-commit gap.
-    pub fn defer_commit_timed(&mut self, delay_ms: u64, text: String) {
-        debug_log::log(&format!("defer commit {}ms: {:?}", delay_ms, brief(&text)));
-        self.timed_deferred
-            .push((Instant::now() + Duration::from_millis(delay_ms), text));
-    }
-
-    /// Whether a paced rewrite commit is still waiting — subsequent commits
-    /// queue behind it (see `queue_commit_behind_timed`).
-    pub fn timed_commit_pending(&self) -> bool {
-        !self.timed_deferred.is_empty()
-    }
-
-    /// Queue `text` after the pending paced commit(s): a burst's next
-    /// keystroke must not overtake the previous word's rewrite, or it lands
-    /// at the pre-rewrite caret and the words interleave (the intermittent
-    /// corruption report). The tick flushes due entries in queue order, so
-    /// the rewrite commit goes out first.
-    pub fn queue_commit_behind_timed(&mut self, text: String) {
-        debug_log::log(&format!(
-            "queue commit behind paced rewrite: {:?}",
-            brief(&text)
-        ));
-        let deadline = self
-            .timed_deferred
-            .last()
-            .map(|(d, _)| *d)
-            .unwrap_or_else(Instant::now);
-        self.timed_deferred.push((deadline, text));
-    }
-
     /// Record that one injected backspace was forwarded; returns commits whose
     /// Backspaces have all been delivered, in order.
     pub fn note_echo_forwarded(&mut self) -> Vec<String> {
@@ -720,20 +678,11 @@ impl Engine {
             ));
             text
         }));
-        all.extend(self.timed_deferred.drain(..).map(|(_, text)| {
-            debug_log::log(&format!(
-                "flush deferred commit (timed, forced): {:?}",
-                brief(&text)
-            ));
-            text
-        }));
         all
     }
 
     pub fn has_deferred(&self) -> bool {
-        !self.deferred.is_empty()
-            || !self.nav_deferred.is_empty()
-            || !self.timed_deferred.is_empty()
+        !self.deferred.is_empty() || !self.nav_deferred.is_empty()
     }
 
     /// Whether the server can inject keys (called once at startup).
@@ -1277,9 +1226,7 @@ impl Engine {
 
     /// Server-loop tick: flush deferred commits whose injected-key echoes
     /// never came back — the uinput rewrite's commit would otherwise never
-    /// land when the user simply stops typing (the word stays raw latin) —
-    /// and the timed commits whose pacing window has passed (the forwarded
-    /// modes' commit, see `defer_commit_timed`).
+    /// land when the user simply stops typing (the word stays raw latin).
     pub fn tick(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
         if self.take_stale_injection(Self::ECHO_STALE) {
@@ -1287,31 +1234,15 @@ impl Engine {
                 actions.push(Action::Commit(text));
             }
         }
-        let now = Instant::now();
-        let mut pending = Vec::new();
-        for (deadline, text) in self.timed_deferred.drain(..) {
-            if deadline <= now {
-                debug_log::log(&format!(
-                    "flush deferred commit (timed): {:?}",
-                    brief(&text)
-                ));
-                actions.push(Action::Commit(text));
-            } else {
-                pending.push((deadline, text));
-            }
-        }
-        self.timed_deferred = pending;
         actions
     }
 
     /// Milliseconds the main loop should wait before the next `tick` — the
-    /// lost-echo stale window, the earliest pacing deadline, or None when
-    /// nothing is pending (the loop falls back to its 1 s poll).
+    /// lost-echo stale window, or None when nothing is pending (the loop
+    /// falls back to its 1 s poll).
     pub fn ms_until_tick(&self) -> Option<u64> {
-        let now = Instant::now();
-        // Both echo kinds share the stale window; the earliest deadline
-        // (echoes or pacing) wins.
-        let echo_deadlines = [
+        // Both echo kinds share the stale window; the earliest deadline wins.
+        [
             (self.pending_injected > 0)
                 .then_some(self.last_inject)
                 .flatten(),
@@ -1324,12 +1255,9 @@ impl Engine {
         .map(|t| {
             Self::ECHO_STALE.as_millis() as u64
                 - t.elapsed().as_millis().min(Self::ECHO_STALE.as_millis()) as u64
-        });
-        let pacing = self
-            .timed_deferred
-            .iter()
-            .map(|(deadline, _)| deadline.saturating_duration_since(now).as_millis() as u64);
-        echo_deadlines.chain(pacing).min().map(|ms| ms.max(1))
+        })
+        .min()
+        .map(|ms| ms.max(1))
     }
 
     fn hide_if_visible(&mut self) -> Vec<Action> {

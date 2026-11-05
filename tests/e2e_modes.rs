@@ -59,14 +59,6 @@ const CASES: &[Case] = &[
         dict: "",
         f: forward_select,
     },
-    Case {
-        name: "forwardkeyevent II takes plain backspaces when the client reports",
-        cfg: &[("mode", "\"forwardselect\"")],
-        macros: &[],
-        raw: "",
-        dict: "",
-        f: forward_select_reporting,
-    },
 ];
 
 fn off_forwards(s: &mut common::Sess) {
@@ -184,45 +176,6 @@ fn forward_select(s: &mut common::Sess) {
     assert!(
         all_commits.contains(&"ê") && all_commits.contains(&"ếng"),
         "the rewrite commits land: {sigs:?}"
-    );
-}
-
-fn forward_select_reporting(s: &mut common::Sess) {
-    // A client that reports its buffer: the forwarded Shift+Left loses its
-    // shift there (the caret moves without selecting, so the erase ate one
-    // raw char per rewrite), and the mode takes the plain Backspace
-    // transport — the shape provably landing in reporting clients.
-    s.focus(CAPS_BOTH, "gtk4-im:test");
-    s.drain();
-    // type_reported: the reports on file are what switches the transport.
-    let (buf, sigs) = s.type_reported("tieengs ");
-    assert_eq!(
-        buf, "tiếng ",
-        "the rewrite must land with plain backspaces: {sigs:?}"
-    );
-    let lefts = sigs.iter().filter(|sig| {
-        matches!(
-            sig,
-            Sig::ForwardKeyEvent { keyval, .. } if *keyval == LEFT_KEYVAL
-        )
-    });
-    assert!(
-        lefts.count() == 0,
-        "no Shift+Left selection for a reporting client: {sigs:?}"
-    );
-    let backspaces = sigs.iter().filter(|sig| {
-        matches!(
-            sig,
-            Sig::ForwardKeyEvent { keyval, state: 0, .. } if *keyval == BACKSPACE_KEYVAL
-        )
-    });
-    assert!(
-        backspaces.count() >= 1,
-        "the mark edits delete with forwarded Backspaces: {sigs:?}"
-    );
-    assert!(
-        deletes(&sigs).is_empty(),
-        "no DeleteSurroundingText in ForwardSelect: {sigs:?}"
     );
 }
 
