@@ -28,6 +28,7 @@ use libadwaita as adw;
 mod content;
 mod hotkey;
 mod pages;
+mod picker;
 mod text;
 mod widgets;
 
@@ -45,6 +46,8 @@ mod tests;
 
 use self::build::*;
 use self::menu_editor::*;
+
+pub use picker::run_picker;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Adwaita styles (StyleManager, dark mode, accent color) must be
@@ -124,6 +127,9 @@ struct Ui {
     enabled_hotkey_label: gtk4::Label,
     enabled_hotkey_edit: gtk4::Button,
     enabled_hotkey_value: Rc<RefCell<String>>,
+    app_rule_hotkey_label: gtk4::Label,
+    app_rule_hotkey_edit: gtk4::Button,
+    app_rule_hotkey_value: Rc<RefCell<String>>,
     modern: adw::SwitchRow,
     free: adw::SwitchRow,
     auto_correct: adw::SwitchRow,
@@ -299,6 +305,8 @@ impl Ui {
         render_hotkey(&self.hotkey_label, &config.cycle_mode_hotkey);
         *self.enabled_hotkey_value.borrow_mut() = config.enabled_hotkey.clone();
         render_hotkey(&self.enabled_hotkey_label, &config.enabled_hotkey);
+        *self.app_rule_hotkey_value.borrow_mut() = config.app_rule_hotkey.clone();
+        render_hotkey(&self.app_rule_hotkey_label, &config.app_rule_hotkey);
         self.modern.set_active(config.modern_tone_style);
         self.free.set_active(config.free_tone_marking);
         self.auto_correct.set_active(config.auto_correct);
@@ -399,6 +407,7 @@ impl Ui {
         };
         config.cycle_mode_hotkey = self.hotkey_value.borrow().clone();
         config.enabled_hotkey = self.enabled_hotkey_value.borrow().clone();
+        config.app_rule_hotkey = self.app_rule_hotkey_value.borrow().clone();
         config.debug_log = self.debug_log.is_active();
         config.x11_delete_without_report = self.x11_delete.is_active();
         config.preedit_for_xim = self.preedit_xim.is_active();

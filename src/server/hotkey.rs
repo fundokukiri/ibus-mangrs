@@ -12,6 +12,8 @@ pub(super) enum HotkeyAction {
     ToggleEnabled,
     /// Cycle the display mode list.
     CycleMode,
+    /// Open the per-app rule picker for the focused application.
+    AppRulePicker,
 }
 
 /// A parsed shortcut: modifier mask, keysym, action.
@@ -28,6 +30,10 @@ pub(super) fn hotkey_registry(config: &Config) -> Vec<HotkeyBinding> {
         parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0)
     {
         out.push((mods, key, HotkeyAction::CycleMode));
+    }
+    if let Some((mods, key)) = parse_hotkey(&config.app_rule_hotkey).filter(|(mods, _)| *mods != 0)
+    {
+        out.push((mods, key, HotkeyAction::AppRulePicker));
     }
     out
 }
@@ -80,8 +86,30 @@ impl EngineHandler {
         match action {
             HotkeyAction::ToggleEnabled => self.toggle_enabled(out),
             HotkeyAction::CycleMode => self.cycle_mode(out),
+            HotkeyAction::AppRulePicker => self.open_app_rule_picker(),
         }
         true
+    }
+
+    /// Spawn the per-app rule picker with the target the rules will match
+    /// against: the focus-extension/xprop name when the engine has one,
+    /// else the client's prgname. The engine must hand it over now — once
+    /// the picker opens, GetFocusedWindow would answer with the picker
+    /// itself. An unnamed target still opens the picker (it explains what
+    /// is missing and disables its controls).
+    fn open_app_rule_picker(&mut self) {
+        let target = {
+            let engine = lock_engine(&self.engine);
+            engine
+                .app_name()
+                .map(str::to_string)
+                .or_else(|| engine.client().and_then(client_prgname))
+        };
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let arg = format!("--app={}", target.unwrap_or_default());
+        spawn_detached(&exe, &["-picker", &arg]);
     }
 
     /// Flip Vietnamese on/off: save, apply, then the per-item panel update
@@ -276,4 +304,11 @@ pub(super) fn hotkey_matches(mods: u32, key: u32, keyval: u32, state: u32) -> bo
         // uppercase ('Z' vs the stored 'z').
         keymap::keyval_to_lower(keyval) == keymap::keyval_to_lower(key) && held == mods
     }
+}
+
+/// The prgname part of a client id (`gtk4-im:chrome` → `chrome`). Fixed ids
+/// without a prgname (`xim`, `fake`) return None — the picker then shows
+/// the unnamed state.
+fn client_prgname(client: &str) -> Option<String> {
+    client.split_once(':').map(|(_, p)| p.to_string())
 }

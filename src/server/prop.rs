@@ -122,32 +122,33 @@ fn push_update(prop: &Prop, out: &mut Vec<Message>) {
 
 /// The "Phím tắt" item opens the GTK4 settings window, same as `-gui`.
 fn open_settings(page: &str) {
-    use std::os::unix::process::CommandExt;
-    let Ok(exe) = std::env::current_exe() else {
+    let Some(exe) = std::env::current_exe().ok() else {
         return;
     };
     let page = format!("--page={page}");
-    // ibus-daemon runs as the systemd user unit
-    // org.freedesktop.IBus.session.GNOME.service, and an `ibus restart`
-    // tears that whole cgroup down (KillMode=control-group) — every process
-    // the engine ever spawned dies with it, process groups notwithstanding.
-    // The window is therefore started as a transient user service: systemd
-    // owns it in its own cgroup, so it survives the restart (its restart
-    // button depends on that). Plain spawn for sessions without a systemd
-    // user manager; its own process group is all that can be done there.
+    spawn_detached(&exe, &["-gui", &page]);
+}
+
+/// Spawn one of this binary's GUI front-ends detached from the engine. The
+/// window must survive `ibus restart`: ibus-daemon runs as the systemd user
+/// unit org.freedesktop.IBus.session.GNOME.service and the restart tears
+/// that whole cgroup down (KillMode=control-group), so the child starts as a
+/// transient user service in its own cgroup. Plain spawn for sessions
+/// without a systemd user manager; its own process group is all that can be
+/// done there.
+pub(super) fn spawn_detached(exe: &std::path::Path, args: &[&str]) {
+    use std::os::unix::process::CommandExt;
     let spawned = std::process::Command::new("systemd-run")
         .args(["--user", "--quiet"])
-        .arg(&exe)
-        .arg("-gui")
-        .arg(&page)
+        .arg(exe)
+        .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
     if spawned.is_err() {
         let _ = std::process::Command::new(exe)
-            .arg("-gui")
-            .arg(page)
+            .args(args)
             .process_group(0)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
