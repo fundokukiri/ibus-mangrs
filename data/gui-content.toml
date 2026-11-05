@@ -36,6 +36,7 @@ page_kind = "Trang"
 
 [misc]
 unassigned = "Chưa gán"
+custom_add = "Thêm"
 capture_prompt = "Nhấn tổ hợp phím… (Esc hủy)"
 capture_bad_key = "Phím này không dùng được — thử phím khác"
 capture_tooltip = "Gán lại: nhấn tổ hợp phím mới. Esc hủy, Backspace xóa."
@@ -66,6 +67,10 @@ description = "Kiểu gõ, bảng mã và chế độ gõ"
 [groups.typing.display]
 title = "Hiển thị"
 description = "Hình thức của chữ đang gõ"
+
+[groups.hotkeys.custom]
+title = "Phím tắt riêng"
+description = "Gán thêm phím tắt cho cùng chức năng — 4 phím ở trên là mặc định"
 
 [groups.hotkeys.cycle_note]
 text = "Thứ tự phím tắt đổi chế độ: Tự động → Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF."
@@ -449,6 +454,12 @@ issue_url = "https://github.com/fundokukiri/ibus-mangrs/issues"
 
 # Explanation markers ("?") - the longer text shown on hover or click next
 # to each feature title.
+[actions]
+hotkey_enabled = "Bật/tắt tiếng Việt"
+hotkey_mode = "Đổi chế độ gõ"
+hotkey_rule = "Chọn luật theo app"
+hotkey_emoji = "Mở bảng emoji"
+
 [tips]
 enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
 method = "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
@@ -473,6 +484,7 @@ capitalize_macro = "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo.
 macro_in_off_mode = "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
 emoji_enabled = "Gõ :smile: thành emoji. Từ dán ngay sau dấu hai chấm không được thêm dấu khi tính năng này bật (như quy tắc bỏ qua URL); tắt đi nếu bạn thường viết kiểu :từ_viết."
 emoji_hotkey = "Phím tắt mở menu chọn emoji kiểu ibus-bamboo: bảng ứng viên hiện ngay tại con trỏ, gõ chữ để tìm, phím số chọn, Esc hoặc click ra chỗ khác đóng."
+custom_hotkey_row = "Phím tắt riêng — bấm thùng rác để xóa"
 dictionary_enabled = "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc."
 debug_log = "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
 x11_delete = "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."

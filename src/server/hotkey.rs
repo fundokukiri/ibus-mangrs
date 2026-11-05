@@ -40,6 +40,24 @@ pub(super) fn hotkey_registry(config: &Config) -> Vec<HotkeyBinding> {
     if let Some((mods, key)) = parse_hotkey(&config.emoji_hotkey).filter(|(mods, _)| *mods != 0) {
         out.push((mods, key, HotkeyAction::OpenEmoji));
     }
+    // The user's own shortcuts, after the four built-ins: the same parse,
+    // the action key picked from the fixed table. Unknown actions or
+    // unusable specs register nothing; a spec colliding with an earlier
+    // entry loses (the first match fires).
+    for custom in &config.custom_hotkeys {
+        let Some(action) = (match custom.action.as_str() {
+            "enabled" => Some(HotkeyAction::ToggleEnabled),
+            "mode" => Some(HotkeyAction::CycleMode),
+            "rule" => Some(HotkeyAction::AppRulePicker),
+            "emoji" => Some(HotkeyAction::OpenEmoji),
+            _ => None,
+        }) else {
+            continue;
+        };
+        if let Some((mods, key)) = parse_hotkey(&custom.spec).filter(|(mods, _)| *mods != 0) {
+            out.push((mods, key, action));
+        }
+    }
     out
 }
 
@@ -221,7 +239,7 @@ impl EngineHandler {
 
 /// Parse a hotkey spec like `Control+Alt+v` into (modifier mask, keysym).
 /// Returns `None` for specs it does not understand. The key may be a single
-/// letter/digit, `space`, or `f1`..`f12`.
+/// letter/digit/punctuation character, `space`, or `f1`..`f12`.
 /// Minimum gap between two fires of the same hotkey: key autorepeat
 /// re-sends the combo tens of times a second while it is held, and a
 /// deliberate second press is never this fast.
@@ -237,7 +255,7 @@ pub(crate) fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
             "super" | "meta" => mods |= keymap::MOD4_MASK,
             "shift" => mods |= keymap::SHIFT_MASK,
             "space" => key = Some(0x20),
-            f if f.len() == 2
+            f if f.len() >= 2
                 && f.starts_with('f')
                 && f[1..].chars().all(|c| c.is_ascii_digit())
                 && f[1..]
@@ -245,6 +263,7 @@ pub(crate) fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
                     .map(|n| (1..=12).contains(&n))
                     .unwrap_or(false) =>
             {
+                // f1..f12: the len==2 check here used to reject f10..f12.
                 let n: u8 = f[1..].parse().unwrap();
                 key = Some(0xffbe + (n as u32 - 1));
             }
@@ -268,8 +287,15 @@ pub(crate) fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
         None if mods.count_ones() >= 2 => 0,
         _ => return None,
     };
-    if mods == 0 || mods & !keymap::SHIFT_MASK == 0 {
-        // A bare or Shift-only hotkey would eat normal typing.
+    if mods == 0 {
+        // A bare key would fire on every press of that character.
+        return None;
+    }
+    // A Shift-only combo is fine as long as its key is not a letter: the
+    // key itself disambiguates (Shift+~ never collides with plain typing),
+    // while Shift+a would fire on every capital A the user types. ASCII
+    // letters are their own keysyms.
+    if mods == keymap::SHIFT_MASK && char::from_u32(key).is_some_and(|c| c.is_ascii_alphabetic()) {
         return None;
     }
     Some((mods, key))

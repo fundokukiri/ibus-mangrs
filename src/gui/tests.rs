@@ -73,6 +73,12 @@ fn refresh_round_trips_every_widget() {
             pattern: "kate".into(),
             mode: ModeConfig::Preedit,
         }],
+        // One custom shortcut: the round-trip must carry it through
+        // refresh/read like the menu design does.
+        custom_hotkeys: vec![crate::config::CustomHotkey {
+            spec: "Control+Shift".into(),
+            action: "emoji".into(),
+        }],
         // Passes through read() untouched (see baseline above).
         quick_menu: baseline.quick_menu,
         menu_modes: baseline.menu_modes,

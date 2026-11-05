@@ -415,6 +415,57 @@ fn active_window_id_and_class_parse_xprop_output() {
 }
 
 #[test]
+fn parse_hotkey_accepts_the_owner_requested_combos() {
+    // Modifier-only combos used to die on a trailing '+' in the recorded
+    // spec; punctuation keys died on their GDK names ("asciitilde"); the
+    // Shift-only gate and the two-character F-key check rejected the rest.
+    assert!(super::parse_hotkey("Control+Shift").is_some());
+    assert!(super::parse_hotkey("Control+Alt").is_some());
+    assert!(super::parse_hotkey("Control+Shift+Alt").is_some());
+    assert!(super::parse_hotkey("Shift+~").is_some());
+    assert!(super::parse_hotkey("Control+~").is_some());
+    // A bare key and Shift+letter still eat normal typing.
+    assert_eq!(super::parse_hotkey("~"), None);
+    assert_eq!(super::parse_hotkey("Shift+a"), None);
+    // f10..f12 used to fail the two-character length check (with a
+    // modifier: a bare key is still rejected by design).
+    assert!(super::parse_hotkey("Control+f1").is_some());
+    assert!(super::parse_hotkey("Control+F10").is_some());
+    assert!(super::parse_hotkey("Control+f12").is_some());
+}
+
+#[test]
+fn registry_includes_custom_shortcuts() {
+    let config = Config {
+        custom_hotkeys: vec![
+            crate::config::CustomHotkey {
+                spec: "Control+Shift".into(),
+                action: "mode".into(),
+            },
+            // A spec the parser cannot read and an action key it does not
+            // know: both register nothing.
+            crate::config::CustomHotkey {
+                spec: "nonsense".into(),
+                action: "emoji".into(),
+            },
+            crate::config::CustomHotkey {
+                spec: "Control+Alt+j".into(),
+                action: "volume".into(),
+            },
+            crate::config::CustomHotkey {
+                spec: "Control+Alt+k".into(),
+                action: "rule".into(),
+            },
+        ],
+        ..Config::default()
+    };
+    let reg = hotkey_registry(&config);
+    assert_eq!(reg.len(), 2, "bad spec and unknown action are skipped");
+    assert_eq!(reg[0].2, HotkeyAction::CycleMode);
+    assert_eq!(reg[1].2, HotkeyAction::AppRulePicker);
+}
+
+#[test]
 fn registry_uses_the_newest_file() {
     // Several registry files (display change, a stale one) must not send
     // the engine to a dead socket: the daemon rewrites its file on start.
