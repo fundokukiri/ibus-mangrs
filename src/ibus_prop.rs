@@ -88,6 +88,7 @@ pub const METHODS: &[(&str, &str)] = &[
 /// are reachable through the GUI — duplicated near-identical choices only
 /// widen the popup.
 pub const MODES: &[(&str, &str)] = &[
+    ("auto", "Tự động"),
     ("nonpreedit", "Không gạch chân"),
     ("preedit", "Gạch chân (preedit)"),
     ("surrounding", "Surrounding text"),
@@ -97,7 +98,6 @@ pub const MODES: &[(&str, &str)] = &[
     ("forwardkeyevent", "ForwardKeyEvent (Backspace)"),
     ("forwardselect", "ForwardKeyEvent II (Shift+Left)"),
     ("off", "OFF"),
-    ("defaulttyping", "Gõ mặc định"),
 ];
 
 /// One item in the engine's property list.

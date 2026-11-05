@@ -338,9 +338,17 @@ pub enum ModeConfig {
     /// Backspace. ibus-bamboo's ForwardKeyEvent II.
     ForwardSelect,
     /// Vietnamese processing off, but macros and auto-capitalize still run.
+    /// The removed Default Typing mode ("engine inert") migrates here: an
+    /// inert engine is what switching to another input method already does.
+    #[serde(
+        alias = "defaulttyping",
+        alias = "default-typing",
+        alias = "default_typing"
+    )]
     Off,
-    /// The engine is inert: every key is forwarded, no processing at all.
-    DefaultTyping,
+    /// Pick the display mode per client from what it reports (the ladder in
+    /// `Engine::auto_mode`). App rules still win over the resolution.
+    Auto,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -409,7 +417,7 @@ impl From<ModeConfig> for Mode {
             ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
             ModeConfig::ForwardSelect => Mode::ForwardSelect,
             ModeConfig::Off => Mode::Off,
-            ModeConfig::DefaultTyping => Mode::DefaultTyping,
+            ModeConfig::Auto => Mode::Auto,
         }
     }
 }
@@ -426,7 +434,7 @@ impl From<Mode> for ModeConfig {
             Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
             Mode::ForwardSelect => ModeConfig::ForwardSelect,
             Mode::Off => ModeConfig::Off,
-            Mode::DefaultTyping => ModeConfig::DefaultTyping,
+            Mode::Auto => ModeConfig::Auto,
         }
     }
 }
@@ -517,7 +525,7 @@ impl ModeConfig {
             ModeConfig::ForwardKeyEvent => "forwardkeyevent",
             ModeConfig::ForwardSelect => "forwardselect",
             ModeConfig::Off => "off",
-            ModeConfig::DefaultTyping => "defaulttyping",
+            ModeConfig::Auto => "auto",
         }
     }
 
@@ -538,7 +546,10 @@ impl ModeConfig {
             | "forward-key-event-2"
             | "forward_key_event_2" => ModeConfig::ForwardSelect,
             "off" => ModeConfig::Off,
-            "defaulttyping" | "default-typing" | "default_typing" => ModeConfig::DefaultTyping,
+            // The removed Default Typing mode migrates to Off (both here and
+            // through the serde aliases on the enum, for old config files).
+            "defaulttyping" | "default-typing" | "default_typing" => ModeConfig::Off,
+            "auto" => ModeConfig::Auto,
             _ => return None,
         })
     }
