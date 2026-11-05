@@ -657,6 +657,30 @@ impl Engine {
             .push((Instant::now() + Duration::from_millis(delay_ms), text));
     }
 
+    /// Whether a paced rewrite commit is still waiting — subsequent commits
+    /// queue behind it (see `queue_commit_behind_timed`).
+    pub fn timed_commit_pending(&self) -> bool {
+        !self.timed_deferred.is_empty()
+    }
+
+    /// Queue `text` after the pending paced commit(s): a burst's next
+    /// keystroke must not overtake the previous word's rewrite, or it lands
+    /// at the pre-rewrite caret and the words interleave (the intermittent
+    /// corruption report). The tick flushes due entries in queue order, so
+    /// the rewrite commit goes out first.
+    pub fn queue_commit_behind_timed(&mut self, text: String) {
+        debug_log::log(&format!(
+            "queue commit behind paced rewrite: {:?}",
+            brief(&text)
+        ));
+        let deadline = self
+            .timed_deferred
+            .last()
+            .map(|(d, _)| *d)
+            .unwrap_or_else(Instant::now);
+        self.timed_deferred.push((deadline, text));
+    }
+
     /// Record that one injected backspace was forwarded; returns commits whose
     /// Backspaces have all been delivered, in order.
     pub fn note_echo_forwarded(&mut self) -> Vec<String> {
