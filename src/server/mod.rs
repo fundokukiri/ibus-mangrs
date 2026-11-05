@@ -40,7 +40,11 @@ mod x11;
 #[cfg(test)]
 mod tests;
 
+// The GUI hotkey recorder validates specs through crate::server::parse_hotkey;
+// the lib build resolves the name inside hotkey itself, hence the allow.
+#[allow(unused_imports)]
 pub(crate) use self::hotkey::parse_hotkey;
+use self::hotkey::{hotkey_registry, HotkeyAction, HotkeyBinding};
 
 use self::prop::*;
 use self::x11::*;
@@ -100,10 +104,8 @@ impl Server {
             engine: Arc::clone(&engine),
             last_config_check: Instant::now(),
             last_config_mtime: None,
-            cycle_hotkey: None,
-            enabled_hotkey: None,
-            last_toggle_fire: None,
-            last_cycle_fire: None,
+            hotkeys: Vec::new(),
+            last_fire: Vec::new(),
             focus_ext: None,
         };
         handler.last_config_mtime = Config::path()
@@ -210,15 +212,13 @@ struct EngineHandler {
     /// events, so GUI/menu edits apply without a focus change or restart.
     last_config_check: Instant,
     last_config_mtime: Option<SystemTime>,
-    /// Parsed cycle-mode hotkey, refreshed wherever the config is already
+    /// The shortcut registry, rebuilt wherever the config is already
     /// loaded (startup, mtime reload, focus-in). Loading the config file on
     /// every key event just to compare a hotkey put disk I/O on the key path.
-    cycle_hotkey: Option<(u32, u32)>,
-    enabled_hotkey: Option<(u32, u32)>,
-    /// Last fire of each hotkey: autorepeat of the combo key would
-    /// re-trigger it tens of times a second while held.
-    last_toggle_fire: Option<Instant>,
-    last_cycle_fire: Option<Instant>,
+    hotkeys: Vec<HotkeyBinding>,
+    /// Last fire per action: autorepeat of the combo key would re-trigger
+    /// it tens of times a second while held.
+    last_fire: Vec<(HotkeyAction, Instant)>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
 }
@@ -385,10 +385,8 @@ impl EngineHandler {
                 // Direct field assignment: the engine guard held by this
                 // branch borrows part of self, so the &mut self helper
                 // cannot be called here.
-                self.cycle_hotkey =
-                    parse_hotkey(&config.cycle_mode_hotkey).filter(|(mods, _)| *mods != 0);
-                self.enabled_hotkey =
-                    parse_hotkey(&config.enabled_hotkey).filter(|(mods, _)| *mods != 0);
+                self.hotkeys = hotkey_registry(&config);
+                self.last_fire.clear();
                 debug_log::log(&format!("focus-in client={:?}", engine.client()));
                 let actions = engine.apply_config(&config);
                 engine.set_enabled(config.enabled);
