@@ -230,6 +230,30 @@ pub fn app_rule_mode(rules: &[AppRule], target: Option<&str>) -> Option<ModeConf
         .map(|rule| rule.mode)
 }
 
+impl Config {
+    /// Point the user's rule for `pattern` at `mode`: rules matching the
+    /// pattern (case-insensitively, like `app_rule_matches`) are removed and
+    /// the new rule goes to the top, so an explicit choice outranks both the
+    /// built-in safety net and earlier rules. Used by the app-rule picker.
+    pub fn upsert_app_rule(&mut self, pattern: &str, mode: ModeConfig) {
+        let lower = pattern.to_lowercase();
+        self.app_rules.retain(|r| r.pattern.to_lowercase() != lower);
+        self.app_rules.insert(
+            0,
+            AppRule {
+                pattern: pattern.to_string(),
+                mode,
+            },
+        );
+    }
+
+    /// Drop every rule matching `pattern` (case-insensitive).
+    pub fn remove_app_rule(&mut self, pattern: &str) {
+        let lower = pattern.to_lowercase();
+        self.app_rules.retain(|r| r.pattern.to_lowercase() != lower);
+    }
+}
+
 /// Channel for Vietnamese text in the uinput modes (`unicode_channel`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -1129,5 +1153,51 @@ children = ["preedit", "smooth"]
             Some(MethodConfig::Microsoft)
         );
         assert_eq!(MethodConfig::from_key("nope"), None);
+    }
+
+    #[test]
+    fn app_rule_upsert_and_remove() {
+        let mut c = Config::default();
+        // The built-in safety net ships with rules; upserting one of its
+        // patterns must REPLACE every match, not add a duplicate, and land
+        // on top so the explicit choice outranks the net.
+        let chrome = crate::config::app_rule_mode(&c.app_rules, Some("wayland:chrome"));
+        assert_eq!(chrome, Some(ModeConfig::Preedit));
+        c.upsert_app_rule("chrome", ModeConfig::Off);
+        assert_eq!(
+            crate::config::app_rule_mode(&c.app_rules, Some("wayland:chrome")),
+            Some(ModeConfig::Off)
+        );
+        assert_eq!(
+            c.app_rules
+                .iter()
+                .filter(|r| r.pattern.to_lowercase() == "chrome")
+                .count(),
+            1,
+            "upsert replaces, never duplicates"
+        );
+        // Top of the list: first-match-wins gives the explicit rule priority.
+        assert_eq!(c.app_rules[0].pattern, "chrome");
+        // Case-insensitive replace, matching app_rule_matches.
+        c.upsert_app_rule("Chrome", ModeConfig::Preedit);
+        assert_eq!(
+            c.app_rules
+                .iter()
+                .filter(|r| r.pattern.to_lowercase() == "chrome")
+                .count(),
+            1
+        );
+        // Remove clears every case variant.
+        c.remove_app_rule("CHROME");
+        assert!(crate::config::app_rule_mode(&c.app_rules, Some("chrome")).is_none());
+        // A brand-new pattern lands first too.
+        c.upsert_app_rule("e2epick", ModeConfig::Auto);
+        assert_eq!(c.app_rules[0].pattern, "e2epick");
+        assert_eq!(c.app_rules[0].mode, ModeConfig::Auto);
+        c.remove_app_rule("e2epick");
+        assert!(
+            c.app_rules.iter().all(|r| r.pattern != "e2epick"),
+            "remove clears the rule"
+        );
     }
 }

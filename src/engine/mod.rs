@@ -798,6 +798,12 @@ impl Engine {
         self.app_name = name;
     }
 
+    /// The name set by `set_app_name`, for callers outside the engine (the
+    /// app-rule picker needs the same target the rules will match against).
+    pub fn app_name(&self) -> Option<&str> {
+        self.app_name.as_deref()
+    }
+
     /// Mode forced by an `AppRule` matching the focused client, if any.
     /// The rule target is `app_name` (the focus extension / X active window)
     /// when present, else the IBus client string. The special pattern `none`
