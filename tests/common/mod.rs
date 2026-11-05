@@ -185,7 +185,7 @@ pub struct Sess {
     mark: usize,
 }
 
-fn engine_msg(member: &str) -> Message {
+pub(crate) fn engine_msg(member: &str) -> Message {
     // Test-only unwraps: every name here is this crate's own constant.
     Message::method_call(
         &BusName::new(BUS_NAME).unwrap(),
@@ -303,6 +303,12 @@ impl Sess {
         self.conn
             .send_with_reply_and_block(msg, CALL_TIMEOUT_MS)
             .expect("engine call")
+    }
+
+    /// Send an engine method call and keep the reply (used for
+    /// CandidateClicked, which has no bool reply to interpret).
+    pub fn call_engine(&mut self, msg: Message) {
+        self.call(msg);
     }
 
     pub fn key(&mut self, keyval: u32, state: u32) -> bool {

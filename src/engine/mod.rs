@@ -1144,6 +1144,25 @@ impl Engine {
         actions
     }
 
+    /// End the in-flight word because the app-rule picker is opening (the
+    /// pick must never land mid-composition: apply_config on a live word
+    /// desynced tail and wrapper — lost letters, duplicated words). Preedit
+    /// clients hold nothing on the wire yet — the preedit is only a display —
+    /// so the composed text commits here, exactly what is shown; inline
+    /// clients already hold their raw characters, so only the bookkeeping
+    /// drops and the screen keeps what it shows.
+    pub fn end_word_for_picker(&mut self) -> Vec<Action> {
+        let mut actions = Vec::new();
+        if self.preedit_visible {
+            let text = self.preedit_text();
+            if !text.is_empty() {
+                actions.push(Action::Commit(text));
+            }
+        }
+        actions.extend(self.drop_pending_word(true));
+        actions
+    }
+
     /// The client `Reset` method. GTK fires it when the user clicks in a text
     /// field and on focus changes. The preedit is sent with
     /// `IBUS_ENGINE_PREEDIT_COMMIT`, so GTK has already committed the pending
