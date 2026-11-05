@@ -1,8 +1,9 @@
 //! Page "Cài đặt khác": everything that is neither everyday typing nor a
 //! per-feature page — the app-grid icon, the focus extension installer,
-//! the JSON backup, the debug log, the uinput pacing, the X11/XIM
-//! workarounds and the restore-defaults button. The host page carries a
-//! ToastOverlay: the icon switch reports on the filesystem action itself.
+//! the JSON backup, the debug log and the restore-defaults button. The
+//! uinput pacing and the X11/XIM workarounds moved to their own "Tinh
+//! chỉnh" page. This host page carries a ToastOverlay: the icon switch
+//! reports on the filesystem action itself.
 
 use super::*;
 
@@ -92,40 +93,6 @@ pub(crate) fn build(
         .build();
     diagnostics.add(&ui.debug_log);
     page.add(&diagnostics);
-
-    // uinput pacing: moved from "Tinh chỉnh".
-    let pacing = adw::PreferencesGroup::builder()
-        .title(t("groups.other.pacing.title", "Tốc độ gõ (uinput)"))
-        .description(t(
-            "groups.other.pacing.description",
-            "Chỉ áp dụng cho Smooth / Super Smooth / Select",
-        ))
-        .build();
-    pacing.add(&ui.commit_interval);
-    pacing.add(&ui.backspace_interval);
-    pacing.add(&ui.post_delay);
-    pacing.add(&ui.unicode_channel);
-    page.add(&pacing);
-    for row in [&ui.commit_interval, &ui.backspace_interval, &ui.post_delay] {
-        let s = ui.save_cb.clone();
-        row.connect_value_notify(move |_| {
-            if let Some(save) = s.borrow().as_ref() {
-                save();
-            }
-        });
-    }
-
-    // X11/XIM workarounds: moved from "Tinh chỉnh".
-    let xim = adw::PreferencesGroup::builder()
-        .title(t("groups.other.xim.title", "Tương thích X11/XIM"))
-        .description(t(
-            "groups.other.xim.description",
-            "Cho app X11 trực tiếp và app XIM (Java/JetBrains)",
-        ))
-        .build();
-    xim.add(&ui.x11_delete);
-    xim.add(&ui.preedit_xim);
-    page.add(&xim);
 
     // Restore defaults: destructive, confirmed in content.rs where the
     // window and the restart banner live.

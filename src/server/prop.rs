@@ -29,7 +29,10 @@ pub(super) fn activate_property(
         return;
     }
     if name == ibus_prop::KEY_SHORTCUTS {
-        open_settings("hotkeys");
+        // The panel item is labeled "Cài đặt": open the window on the
+        // everyday page, not on a tab (it used to open the hotkeys page,
+        // which read as "settings always starts on Phím tắt").
+        open_settings("general");
         return;
     }
 
