@@ -106,6 +106,16 @@ fn update_group(props: &[Prop], group: &str, out: &mut Vec<Message>) {
     }
 }
 
+/// Live panel refresh for a config change made outside the menu (the
+/// hotkey path): `UpdateProperty` for every item of one group, the exact
+/// shape a panel click produces. The click path refreshes GNOME's menu
+/// this way; a mid-session full `RegisterProperties` does not — the
+/// hotkey used to re-register and the menu kept its stale check mark
+/// until the engine was re-focused.
+pub(super) fn update_property_group(config: &Config, group: &str, out: &mut Vec<Message>) {
+    update_group(&ibus_prop::properties(config), group, out);
+}
+
 fn push_update(prop: &Prop, out: &mut Vec<Message>) {
     out.push(signal("UpdateProperty").append1(prop.variant()));
 }
