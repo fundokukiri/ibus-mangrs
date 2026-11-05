@@ -14,9 +14,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.iter().any(|a| a == "-gui" || a == "--gui") {
         return run_gui();
     }
-    if args.iter().any(|a| a == "-picker") {
-        return run_picker(&args);
-    }
 
     let config = Config::load();
     ibus_mangrs::debug_log::set_enabled(config.debug_log);
@@ -65,21 +62,5 @@ fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(not(feature = "gui"))]
 fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
-    Err("this build has no GUI; rebuild with --features gui".into())
-}
-
-/// The app-rule picker carries its target over argv; an empty/unset target
-/// means the focused app could not be named.
-#[cfg(feature = "gui")]
-fn run_picker(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let target = args
-        .iter()
-        .find_map(|a| a.strip_prefix("--app=").map(str::to_string))
-        .filter(|s| !s.is_empty());
-    ibus_mangrs::gui::run_picker(target)
-}
-
-#[cfg(not(feature = "gui"))]
-fn run_picker(_args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     Err("this build has no GUI; rebuild with --features gui".into())
 }

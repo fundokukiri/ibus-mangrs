@@ -28,7 +28,6 @@ use libadwaita as adw;
 mod content;
 mod hotkey;
 mod pages;
-mod picker;
 mod text;
 mod widgets;
 
@@ -46,8 +45,6 @@ mod tests;
 
 use self::build::*;
 use self::menu_editor::*;
-
-pub use picker::run_picker;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Adwaita styles (StyleManager, dark mode, accent color) must be
