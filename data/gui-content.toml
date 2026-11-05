@@ -17,8 +17,8 @@ typing = "Chung"
 tone = "Dấu & tự động"
 macros = "Gõ tắt"
 data = "Từ điển"
-rules = "Luật"
-panel = "Menu trên panel"
+rules = "App rules"
+panel = "Menu panel"
 advanced = "Tinh chỉnh"
 about = "Giới thiệu"
 
@@ -40,14 +40,14 @@ import_dialog = "Nhập cấu hình"
 export_button = "Xuất…"
 import_button = "Nhập…"
 dbus_error = "Không nối được D-Bus: {e}"
-focus_ext_error = "Không thấy extension MăngRS Focus"
+focus_ext_error = "Không hỏi được extension MăngRS Focus (data/gnome-shell-extension)"
 focus_none = "Không có cửa sổ nào đang focus"
 
 # --- page Chung -------------------------------------------------------------
 
 [groups.typing.status]
 title = "Trạng thái"
-description = "Bật tiếng Việt và hai phím tắt"
+description = "Bật tiếng Việt và phím tắt đổi chế độ"
 
 [groups.typing.style]
 title = "Cách gõ"
@@ -62,7 +62,7 @@ text = "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạc
 
 [rows.enabled]
 title = "Bật tiếng Việt"
-subtitle = "Tắt để gõ thẳng mọi phím; gõ tắt chỉ chạy khi bật \"Gõ tắt khi tắt tiếng Việt\""
+subtitle = "Tắt để gõ thẳng mọi phím (gõ tắt vẫn chạy nếu bật ở tab Gõ tắt)"
 
 [rows.method]
 title = "Kiểu gõ"
@@ -70,14 +70,14 @@ subtitle = "Telex, VNI, VIQR, Microsoft layout"
 
 [rows.mode]
 title = "Chế độ gõ"
-subtitle = "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 chế độ uinput, 2 chế độ ForwardKeyEvent, OFF, Gõ mặc định"
+subtitle = "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF, Gõ mặc định"
 
 [rows.charset]
 title = "Bảng mã"
-subtitle = "Unicode, NFD và 9 bảng mã cũ"
+subtitle = "Unicode và 10 bảng mã cũ"
 
 [rows.hotkey_mode]
-title = "Phím tắt đổi chế độ"
+title = "Phím tắt đổi chế độ gõ"
 subtitle = "Ví dụ: Control+Alt+v"
 
 [rows.hotkey_enabled]
@@ -107,15 +107,15 @@ title = "Ký tự đặc biệt"
 description = "Chuyển đổi phím tắt ký tự"
 
 [rows.modern]
-title = "Kiểu dấu mới"
+title = "Đặt dấu kiểu mới"
 subtitle = "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)"
 
 [rows.free]
-title = "Dấu tự do"
-subtitle = "Gõ dấu ở bất kỳ vị trí nào trong từ: hoangf → hoàng"
+title = "Đặt dấu tự do"
+subtitle = "Đặt dấu tự do trong từ: hoangf → hoàng"
 
 [rows.auto_correct]
-title = "Từ sai trả phím gốc"
+title = "Khôi phục phím với từ sai"
 subtitle = "Âm tiết không hợp lệ trả về đúng phím đã bấm"
 
 [rows.auto_restore]
@@ -123,11 +123,11 @@ title = "Khôi phục từ nước ngoài"
 subtitle = "Từ không phải âm tiết Việt trả về chuỗi phím gốc"
 
 [rows.abbrev]
-title = "Giữ đ trong viết tắt"
-subtitle = "Bật để ddc → đc, ddk → đk, ddt → đt"
+title = "Giữ các từ được viết tắt"
+subtitle = "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt"
 
 [rows.bypass_url]
-title = "Không dấu sau URL"
+title = "Không gõ dấu sau URL"
 subtitle = "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên"
 
 [rows.w2u]
@@ -143,11 +143,11 @@ title = "Gạch ngang dài"
 subtitle = "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)"
 
 [rows.auto_capitalize]
-title = "Tự viết hoa"
+title = "Tự viết động hoa"
 subtitle = "Sau . ! ? và Enter"
 
 [rows.double_space]
-title = "2 dấu cách = chấm"
+title = "Nhấn 'Space' hai lần thành dấu chấm"
 subtitle = "Thử nghiệm: hai dấu cách thành dấu chấm"
 
 # --- page Gõ tắt ------------------------------------------------------------
@@ -175,11 +175,20 @@ subtitle = "Khóa mở rộng thành cụm khi hết từ"
 
 [rows.capitalize_macro]
 title = "Viết hoa gõ tắt"
-subtitle = "Khóa hoa/thường đều khớp; nội dung viết hoa theo"
+subtitle = "Khóa viết hoa → nội dung viết hoa theo"
 
 [rows.macro_in_off_mode]
-title = "Gõ tắt khi tắt tiếng Việt"
+title = "Gõ tắt khi tắt tiếng việt"
 subtitle = "Vẫn mở rộng khi tiếng Việt đang tắt"
+
+[rows.macro_key]
+tooltip = "Khóa gõ tắt (gõ xong sẽ mở rộng)"
+
+[rows.macro_value]
+tooltip = "Nội dung mở rộng ($TIME, $DATE)"
+
+[rows.macro_delete]
+tooltip = "Xoá cặp này"
 
 # --- page Từ điển -----------------------------------------------------------
 
@@ -203,33 +212,33 @@ subtitle = "~/.config/ibus-mangrs/dictionary.txt"
 title = "Ứng dụng đang focus"
 
 [groups.rules.add]
-title = "Thêm luật"
+title = "Thêm rule"
 description = "Chọn app đã thấy hoặc dùng app đang focus."
 
 [groups.rules.list]
-title = "Danh sách luật"
+title = "Danh sách rules"
 description = "Luật đầu tiên thắng; none = app không báo tên."
-tooltip = "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài và bật extension MăngRS Focus để nhận tên app Wayland-native."
+tooltip = "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native."
 
 [groups.rules.preview]
-title = "Thử luật"
+title = "Thử rule"
 description = "Nhập tên app để xem luật nào khớp."
 
 [rows.rule_name]
 title = "Tên app"
-tooltip = "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox); \"none\" cho app không báo tên"
+tooltip = "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)"
 
 [rows.rule_focus]
-title = "Tên app đang focus"
+title = "App đang focus"
 subtitle = "Chuyển sang app đích rồi quay lại"
 tooltip = "Tên lấy qua extension MăngRS Focus; app không báo tên thì dùng pattern none"
 chip_tooltip = "Chuyển sang app đích rồi quay lại cửa sổ này — tên app sẽ hiện ở đây (cần extension MăngRS Focus)"
 
 [rows.rule_combo]
-tooltip = "App engine đã từng thấy, kèm mục Wayland và không tên"
+tooltip = "Các app engine đã từng thấy"
 
 [rows.rule_copy]
-tooltip = "Lấy tên app đang focus"
+tooltip = "Sao chép tên app đang focus"
 
 [rows.rule_mode]
 tooltip = "Chế độ gõ của luật mới"
@@ -244,10 +253,11 @@ tooltip = "Xuống"
 tooltip = "Xoá luật này"
 
 [rows.rule_preview_input]
+placeholder = "Firefox / wayland:Firefox / xim"
 tooltip = "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp và chế độ gõ kết quả"
 
 [rules]
-add_button = "Thêm luật"
+add_button = "Thêm rule"
 use_focus_button = "Dùng app đang focus"
 copy_toast = "Đã sao chép"
 empty = "Chưa có luật nào"
@@ -288,8 +298,8 @@ radios_charset = "Bảng mã (nhóm chọn)"
 radios_method = "Kiểu gõ (nhóm chọn)"
 radios_display = "Chế độ gõ (nhóm chọn)"
 action_macro_editor = "Mở bảng gõ tắt…"
-action_settings = "Cấu hình"
-action_about = "Giới thiệu"
+action_settings = "Cài đặt"
+action_about = "Giới thiệu (About)"
 sep = "Gạch ngang phân cách"
 folder = "Thư mục mới"
 label_charset = "Bảng mã"
@@ -371,7 +381,7 @@ homepage_title = "Trang chủ"
 homepage_url = "https://mangrs.fundoku.io.vn"
 license_title = "Giấy phép mã nguồn mở"
 license_value = "GPL — phiên bản 3, chi tiết trong LICENSE"
-credits_title = "Ghi công"
+credits_title = "Credits"
 credits_value = "Lõi gõ bamboo-core (MIT, bên thứ 3)"
 detail_title = "Giới thiệu chi tiết"
 detail_subtitle = ""
@@ -380,34 +390,34 @@ issue_url = "https://github.com/fundokukiri/ibus-mangrs/issues"
 # Explanation markers ("?") - the longer text shown on hover or click next
 # to each feature title.
 [tips]
-enabled = "Bật/tắt xử lý tiếng Việt. Khi tắt, phím đi thẳng vào app; gõ tắt chỉ chạy khi bật \"Gõ tắt khi tắt tiếng Việt\"."
-method = "Kiểu gõ quyết định cách tạo chữ có dấu: Telex (as → á), VNI (a1 → á), VIQR (a' → á) hoặc Microsoft layout."
-mode = "Cách hiển thị chữ đang gõ: Preedit (gạch chân) hợp với mọi app; NonPreedit, Surrounding và 2 chế độ ForwardKeyEvent ghi thẳng vào app; Smooth, Super Smooth, Select gửi phím thật qua uinput nên có thể lệch ở một số app."
-charset = "Bảng mã của chữ ghi ra: Unicode cho mọi trường hợp thông thường; NFD và các bảng mã cũ (TCVN3, VNI, VISCII…) chỉ cần cho app hoặc tài liệu cũ dùng bảng mã đó."
+enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
+method = "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
+mode = "Cách hiển thị chữ đang gõ: preedit (gạch chân) dùng được ở mọi app, các mode uinput gửi phím thật nhưng có thể lệch app."
+charset = "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
 hotkey_mode = "Gán phím chuyển tuần tự qua các chế độ gõ. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa."
 hotkey_enabled = "Gán phím bật/tắt tiếng Việt nhanh. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa."
 hide_underline = "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
 modern = "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."
-free = "Cho phép gõ phím dấu ở bất kỳ đâu trong từ, không cần ngay sau nguyên âm: hoangf → hoàng."
-auto_correct = "Âm tiết không hợp lệ theo chính tả tiếng Việt sẽ trả về đúng chuỗi phím đã bấm."
+free = "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên âm gần nhất."
+auto_correct = "Âm tiết không có trong từ điển tiếng Việt sẽ trả về đúng chuỗi phím đã bấm."
 auto_restore = "Từ nước ngoài (english, hello) gõ xong tự trả về chuỗi phím gốc thay vì giữ nguyên."
-abbrev = "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt (tắt: giữ nguyên ddc, ddk, ddt)."
+abbrev = "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
 bypass_url = "Từ ngay sau URL/email/path không được thêm dấu, tránh làm hỏng liên kết khi soạn chat."
-w2u = "Ở \"Mọi vị trí\", w thành ư (w → ư, wa → ưa); \"Trừ đầu từ\" giữ w ở đầu từ để không phá từ tiếng Anh."
-bracket = "Gõ [ ] thành ơ ư, { } thành Ơ Ư; gõ lặp lại để lấy ký tự ngoặc."
+w2u = "Gõ w nhận ư: w = ư, wa = ưa... tiện cho bàn phím không có sẵn ư."
+bracket = "Gõ [ và ] nhận ơ và ư theo vị trí trong từ."
 em_dash = "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
 auto_capitalize = "Tự viết hoa chữ cái đầu câu sau dấu chấm, !, ? hoặc Enter."
 double_space = "Nhấn hai dấu cách liên tiếp thành dấu chấm + khoảng cách (thử nghiệm)."
 macro_enabled = "Bật bảng gõ tắt: chuỗi khóa được mở rộng thành nội dung khi gõ xong từ."
-capitalize_macro = "Khớp khóa không phân biệt hoa/thường; khóa viết hoa thì nội dung viết hoa theo (Dd → Đại đội, DD → ĐẠI ĐỘI)."
+capitalize_macro = "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo."
 macro_in_off_mode = "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
 dictionary_enabled = "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc."
 debug_log = "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
-x11_delete = "Bật: app X11 trực tiếp xoá đuôi từ như ibus-bamboo dù không báo vị trí — có thể xoá nhầm nếu con trỏ đổi chỗ. Tắt: chỉ xoá khi app báo vị trí."
-preedit_xim = "Giữ Preedit cho app XIM (Java/JetBrains) thay vì tự chuyển sang NonPreedit; app XIM tự vẽ preedit trong cửa sổ riêng."
+x11_delete = "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."
+preedit_xim = "Dùng cửa sổ preedit riêng cho app XIM (Java/JetBrains) vốn không hỗ trợ preedit của IBus."
 commit_interval = "Nhịp gửi từng chữ ở mode uinput — giảm nếu app bị mất chữ, tăng nếu bị đơ."
 backspace_interval = "Nhịp gửi Backspace ở mode uinput — giảm nếu xoá chậm, tăng nếu app xử lý không kịp."
 post_delay = "Chờ sau khi viết lại cả từ trước khi gõ chữ tiếp, dành cho app xử lý phím chậm."
-unicode_channel = "Cách đưa từ tiếng Việt vào app ở các chế độ uinput: CommitText an toàn; Clipboard dùng Ctrl+V và tạm đè clipboard."
+unicode_channel = "Cách gửi từ có ký tự đặc biệt: CommitText là an toàn; Clipboard dùng Ctrl+V, tạm đè clipboard."
 export = "Lưu toàn bộ cấu hình, gõ tắt và từ điển ra một file JSON để mang sang máy khác."
 import = "Đọc lại file JSON đã xuất: ghi đè cấu hình, gõ tắt và từ điển hiện tại."
