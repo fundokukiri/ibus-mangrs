@@ -1083,3 +1083,106 @@ fn emoji_menu_keys_map_onto_actions() {
     assert_eq!(map(0x3b), EmojiKey::Ignore, "punctuation closes");
     assert_eq!(map(0xff51), EmojiKey::Ignore, "arrows close");
 }
+
+#[test]
+fn forwarded_rewrites_defer_their_commit_by_the_pacing_window() {
+    // The race that corrupted every accented word on Sublime/GNOME Text
+    // Editor: the delete keys and the paired commit left in one batch and
+    // the apps applied them out of order. The commit now waits out the
+    // pacing window while the keys go out at once.
+    let t = Transports {
+        backspaces: &|_, _| true,
+        keys: &|_, _| true,
+        select_left: &|_, _| true,
+        paste: &|_| false,
+    };
+    let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+    e.set_client(Some("gtk4-im:test".into()));
+    let mut out = Vec::new();
+    emit_with(
+        &mut e,
+        &[
+            Action::ForwardBackspaces(4),
+            Action::Commit("Tôi tên là Tùng".into()),
+        ],
+        &mut out,
+        &t,
+    );
+    // The keys are on the wire, the commit is not — it is queued.
+    assert_eq!(
+        out.iter()
+            .filter(|m| m.member().unwrap() == "CommitText")
+            .count(),
+        0,
+        "the commit must not leave with the keys"
+    );
+    assert!(e.has_deferred(), "the commit waits out the window");
+    assert!(
+        e.ms_until_tick().is_some(),
+        "the loop wakes for the deadline"
+    );
+    // Defaults: 20ms commit interval + 4 * 5ms backspace gap = 40ms.
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    let actions = e.tick();
+    assert_eq!(
+        actions,
+        vec![Action::Commit("Tôi tên là Tùng".into())],
+        "the commit lands when the window passes"
+    );
+    assert!(!e.has_deferred());
+
+    // The same for the select-and-erase shape (one more key: the Backspace).
+    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+    e.set_client(Some("gtk4-im:test".into()));
+    let mut out = Vec::new();
+    emit_with(
+        &mut e,
+        &[Action::ForwardSelectLeft(2), Action::Commit("ào".into())],
+        &mut out,
+        &t,
+    );
+    assert_eq!(
+        out.iter()
+            .filter(|m| m.member().unwrap() == "CommitText")
+            .count(),
+        0,
+        "the select rewrite's commit waits too"
+    );
+    // A commit NOT paired with a forwarded delete still leaves at once.
+    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+    e.set_client(Some("gtk4-im:test".into()));
+    let mut out = Vec::new();
+    emit_with(&mut e, &[Action::Commit("xin".into())], &mut out, &t);
+    assert_eq!(
+        out.iter()
+            .filter(|m| m.member().unwrap() == "CommitText")
+            .count(),
+        1,
+        "plain commits are not delayed"
+    );
+    assert!(!e.has_deferred());
+}
+
+#[test]
+fn a_focus_change_flushes_the_paced_commit() {
+    let t = Transports {
+        backspaces: &|_, _| true,
+        keys: &|_, _| true,
+        select_left: &|_, _| true,
+        paste: &|_| false,
+    };
+    let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+    e.set_client(Some("gtk4-im:test".into()));
+    let mut out = Vec::new();
+    emit_with(
+        &mut e,
+        &[Action::ForwardBackspaces(1), Action::Commit("x".into())],
+        &mut out,
+        &t,
+    );
+    assert!(e.has_deferred());
+    // Focus out must not swallow the rewrite: everything queued lands.
+    let flushed = e.flush_deferred();
+    assert_eq!(flushed, vec!["x".to_string()]);
+    assert!(!e.has_deferred());
+}

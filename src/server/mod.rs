@@ -552,6 +552,12 @@ const LEFT_KEYCODE: u32 = 105;
 /// One forwarded key as press + release. The release carries no modifier (the
 /// app has already acted on the press); ibus-bamboo's ForwardKeyEvent modes
 /// send the same pair.
+/// The pacing window for a forwarded rewrite's commit: the same shape the
+/// uinput modes pace with, from the user's own timing config.
+fn pacing_delay(engine: &Engine, keys: u32) -> u64 {
+    engine.commit_interval_ms() + u64::from(keys) * engine.backspace_interval_ms()
+}
+
 fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u32) {
     out.push(
         signal("ForwardKeyEvent")
@@ -735,16 +741,27 @@ fn emit_with(
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
     let mut delete_failed = false;
-    for action in actions {
+    // A rewrite's paired commit waits out a short pacing window (see
+    // `Engine::defer_commit_timed`): the delete keys go out at once, the
+    // commit lands when the window passes. Set on the forward-delete arms
+    // below when a Commit follows.
+    let mut paced_commit: Option<u64> = None;
+    for (idx, action) in actions.iter().enumerate() {
         match action {
-            Action::Commit(text) => push_commit(
-                engine,
-                out,
-                text.clone(),
-                &mut delete_failed,
-                &mut nav_since_commit,
-                &mut injected_since_commit,
-            ),
+            Action::Commit(text) => {
+                if let Some(delay) = paced_commit.take() {
+                    engine.defer_commit_timed(delay, text.clone());
+                    continue;
+                }
+                push_commit(
+                    engine,
+                    out,
+                    text.clone(),
+                    &mut delete_failed,
+                    &mut nav_since_commit,
+                    &mut injected_since_commit,
+                )
+            }
             Action::DeleteBefore(n) if inject => {
                 // No usable protocol delete here; press real Backspace keys
                 // at the cursor instead. If the device cannot be opened
@@ -904,6 +921,9 @@ fn emit_with(
                 for _ in 0..*n {
                     push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
                 }
+                if matches!(actions.get(idx + 1), Some(Action::Commit(_))) {
+                    paced_commit = Some(pacing_delay(engine, *n));
+                }
             }
             // ForwardSelect: Shift+Left moves the application's own selection
             // over the raw tail, then one forwarded Backspace erases it.
@@ -919,6 +939,9 @@ fn emit_with(
                     push_forward_keys(out, keymap::LEFT, LEFT_KEYCODE, keymap::SHIFT_MASK);
                 }
                 push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
+                if matches!(actions.get(idx + 1), Some(Action::Commit(_))) {
+                    paced_commit = Some(pacing_delay(engine, *n + 1));
+                }
             }
             Action::SelectLeft(n) => {
                 if (t.select_left)(*n, bs_gap) {
