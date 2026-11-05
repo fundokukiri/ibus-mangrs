@@ -61,6 +61,12 @@ pub struct Config {
     /// Hotkey toggling Vietnamese on/off, e.g. `Control+Alt+space`.
     /// Empty = unassigned.
     pub enabled_hotkey: String,
+    /// Hotkey opening the per-app rule picker. Reserved — the picker
+    /// window is a later round; empty = unassigned.
+    pub app_rule_hotkey: String,
+    /// Hotkey opening the emoji picker. Reserved the same way; empty =
+    /// unassigned.
+    pub emoji_hotkey: String,
     /// Send preedit without the underline attribute (app support permitting).
     pub hide_underline: bool,
     /// Uinput pacing: gap between injected text/commit steps (ms).
@@ -627,6 +633,8 @@ impl Default for Config {
             abbreviations: true,
             cycle_mode_hotkey: String::new(),
             enabled_hotkey: String::new(),
+            app_rule_hotkey: String::new(),
+            emoji_hotkey: String::new(),
             hide_underline: false,
             commit_interval_ms: 20,
             backspace_interval_ms: 5,

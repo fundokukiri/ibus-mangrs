@@ -57,11 +57,12 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
 
     // ===== Page 6: Menu panel — the popup designer.
     let panel_page = pages::panel::build(&ui);
+    let hotkeys_page = pages::hotkeys::build(&ui);
 
     // Content: one page per section, crossfading. Stack names are stable —
     // the engine opens pages with `--page=<name>`.
     // (stack name, sidebar label, symbolic icon from the icon theme)
-    let pages: [(&str, String, &str); 8] = [
+    let pages: [(&str, String, &str); 9] = [
         (
             "typing",
             t("pages.typing", "Chung"),
@@ -89,6 +90,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             "document-edit-symbolic",
         ),
         (
+            "hotkeys",
+            t("pages.hotkeys", "Phím tắt"),
+            "preferences-desktop-keyboard-symbolic",
+        ),
+        (
             "other",
             t("pages.other", "Cài đặt khác"),
             "preferences-other-symbolic",
@@ -99,17 +105,18 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             "help-about-symbolic",
         ),
     ];
-    let pages_refs: [(&str, &str, &str); 8] = std::array::from_fn(|i| {
+    let pages_refs: [(&str, &str, &str); 9] = std::array::from_fn(|i| {
         let (name, title, icon) = &pages[i];
         (*name, title.as_str(), *icon)
     });
-    let page_boxes: [&gtk4::Widget; 8] = [
+    let page_boxes: [&gtk4::Widget; 9] = [
         typing_page.upcast_ref(),
         tone_page.upcast_ref(),
         macro_page.upcast_ref(),
         data_page.upcast_ref(),
         rules_page.upcast_ref(),
         panel_page.upcast_ref(),
+        hotkeys_page.upcast_ref(),
         other_page.upcast_ref(),
         about_page.upcast_ref(),
     ];
@@ -492,6 +499,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // Old page names from earlier layouts are mapped onto the current ones.
     let wanted = match initial_page {
         Some("general") | None => "typing",
+        Some("hotkeys") | Some("shortcuts") => "hotkeys",
         Some("dictionary") | Some("backup") => "data",
         // The old "apps" page was the app rules page.
         Some("apps") => "rules",

@@ -108,10 +108,8 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
         // the test never touches the real config file.
         last_config_check: Instant::now(),
         last_config_mtime: None,
-        cycle_hotkey: None,
-        enabled_hotkey: None,
-        last_toggle_fire: None,
-        last_cycle_fire: None,
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
         focus_ext: None,
     };
     let press = |handler: &mut EngineHandler, keyval: u32| {
@@ -818,4 +816,33 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
     }
     let mut out = Vec::new();
     assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+}
+
+#[test]
+fn hotkey_registry_maps_assigned_specs_in_page_order() {
+    let mut config = Config::default();
+    config.enabled_hotkey = "Control+Alt+h".into();
+    config.cycle_mode_hotkey = "Control+Alt+v".into();
+    let reg = hotkey_registry(&config);
+    assert_eq!(reg.len(), 2);
+    assert_eq!(reg[0].2, HotkeyAction::ToggleEnabled);
+    assert_eq!(reg[0].0, keymap::CONTROL_MASK | keymap::MOD1_MASK);
+    assert_eq!(reg[0].1, 0x68); // 'h'
+    assert_eq!(reg[1].2, HotkeyAction::CycleMode);
+    // A same-combo collision keeps both entries; the first match wins.
+    config.cycle_mode_hotkey = "Control+Alt+h".into();
+    let reg = hotkey_registry(&config);
+    assert_eq!(
+        reg.len(),
+        2,
+        "the registry does not dedupe - page order rules"
+    );
+    // Unassigned or unusable specs register nothing.
+    assert!(hotkey_registry(&Config::default()).is_empty());
+    config.enabled_hotkey = "Control".into();
+    config.cycle_mode_hotkey = "Shift+x".into();
+    assert!(
+        hotkey_registry(&config).is_empty(),
+        "parse_hotkey rejects these"
+    );
 }

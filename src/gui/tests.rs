@@ -57,6 +57,8 @@ fn refresh_round_trips_every_widget() {
         abbreviations: false,
         cycle_mode_hotkey: "Control+Alt+v".into(),
         enabled_hotkey: "Control+Alt+space".into(),
+        app_rule_hotkey: String::new(),
+        emoji_hotkey: String::new(),
         hide_underline: true,
         commit_interval_ms: 33,
         backspace_interval_ms: 7,

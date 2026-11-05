@@ -19,6 +19,7 @@ macros = "Gõ tắt"
 data = "Từ điển"
 rules = "App rules"
 panel = "Menu panel"
+hotkeys = "Phím tắt"
 other = "Cài đặt khác"
 about = "Giới thiệu"
 
@@ -51,7 +52,7 @@ focus_none = "Không có cửa sổ nào đang focus"
 
 [groups.typing.status]
 title = "Trạng thái"
-description = "Bật tiếng Việt và phím tắt đổi chế độ"
+description = "Bật tiếng Việt"
 
 [groups.typing.style]
 title = "Cách gõ"
@@ -61,7 +62,7 @@ description = "Kiểu gõ, bảng mã và chế độ gõ"
 title = "Hiển thị"
 description = "Hình thức của chữ đang gõ"
 
-[groups.typing.cycle_note]
+[groups.hotkeys.cycle_note]
 text = "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF → Gõ mặc định."
 
 [rows.enabled]
@@ -341,6 +342,10 @@ subtitle = "Đọc lại từ file đã xuất"
 [groups.other.diagnostics]
 title = "Chẩn đoán"
 description = "Ghi lại quyết định của engine để gỡ lỗi"
+
+[groups.hotkeys.keys]
+title = "Phím tắt"
+description = "Bấm vào nút bút chì rồi nhấn tổ hợp phím; Esc hủy, Backspace xóa"
 
 [groups.other.interface]
 title = "Giao diện"
