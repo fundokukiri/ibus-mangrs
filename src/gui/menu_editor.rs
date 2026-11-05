@@ -263,6 +263,7 @@ impl Ui {
         let row = adw::ActionRow::builder()
             .title(title)
             .subtitle(subtitle)
+            .use_markup(false) // titles are user-typed labels; a bare & must show
             .activatable(false)
             .build();
         if dim_title {
@@ -307,6 +308,7 @@ impl Ui {
         let header = adw::ActionRow::builder()
             .title(title)
             .subtitle(subtitle)
+            .use_markup(false) // same as menu_leaf_row: user-typed labels
             .build();
         header.add_prefix(&self.menu_lead(path.clone(), kind));
         let more = self.menu_more_button(path.clone(), kind);

@@ -50,9 +50,11 @@ pub(crate) fn build(
     extension.add(&extension_row);
     page.add(&extension);
 
-    // Backup: moved from "Tinh chỉnh", logic unchanged.
+    // Backup: moved from "Tinh chỉnh", logic unchanged. Group titles are
+    // Pango markup fields with no opt-out — the & must be escaped here and
+    // in the content file.
     let backup = adw::PreferencesGroup::builder()
-        .title(t("groups.other.backup.title", "Sao lưu & khôi phục"))
+        .title(t("groups.other.backup.title", "Sao lưu &amp; khôi phục"))
         .description(t(
             "groups.other.backup.description",
             "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng",

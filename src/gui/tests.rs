@@ -207,3 +207,28 @@ fn external_reload_refreshes_without_saving() {
     assert_eq!(calls.get(), 1, "external_reload must not save");
     assert!(!ui.suppress_save.get(), "the flag must be cleared after");
 }
+
+/// Adw rows parse Pango markup in title/subtitle by default; the URL
+/// rule's subtitle carries a bare `&`, which failed to parse and rendered
+/// as nothing. The row builders switch markup off — assert one row per
+/// builder, plus the subtitle data of the reported row.
+#[test]
+fn row_texts_render_as_plain_text() {
+    if gtk4::init().is_err() {
+        eprintln!("gui: SKIP (no display)");
+        return;
+    }
+    let ui = widgets();
+    for markup_off in [
+        !ui.bypass_url.uses_markup(),
+        !ui.method.uses_markup(),
+        !ui.commit_interval.uses_markup(),
+        !ui.rule_preview.uses_markup(),
+    ] {
+        assert!(markup_off, "row titles and subtitles must be plain text");
+    }
+    assert_eq!(
+        ui.bypass_url.subtitle().as_deref(),
+        Some("Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên")
+    );
+}
