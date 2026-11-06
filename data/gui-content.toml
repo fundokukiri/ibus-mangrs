@@ -267,12 +267,12 @@ title = "Thêm luật"
 description = "Chuyển sang app đích rồi quay lại, tên app sẽ hiện mờ trong ô nhập."
 
 [groups.rules.list]
-title = "Danh sách rules"
+title = "Danh sách luật"
 description = "Luật đầu tiên thắng; none = app không báo tên."
 tooltip = "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native."
 
 [groups.rules.preview]
-title = "Thử rule"
+title = "Thử luật"
 description = "Nhập tên app để xem luật nào khớp."
 
 [rows.rule_name]
@@ -281,7 +281,7 @@ placeholder = "vd: firefox, org.gnome.Console"
 tooltip = "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)"
 
 [rows.rule_combo]
-tooltip = "Các app engine đã từng thấy"
+tooltip = "Chọn từ app đã thấy"
 label = "Chọn từ app đã thấy"
 
 [rows.rule_copy]
@@ -293,14 +293,14 @@ tooltip = "Dùng app đang focus"
 [rows.rule_mode]
 tooltip = "Chế độ gõ của luật mới"
 
-[rows.rule_up]
-tooltip = "Lên — luật trước thắng"
+[rows.rule_handle]
+tooltip = "Kéo để đổi thứ tự luật"
 
-[rows.rule_down]
-tooltip = "Xuống"
-
-[rows.rule_delete]
-tooltip = "Xoá luật này"
+[rows.rule_menu]
+tooltip = "Thao tác với luật này"
+up = "Lên"
+down = "Xuống"
+delete = "Xóa"
 
 [rows.rule_preview_input]
 placeholder = "Firefox / wayland:Firefox / xim"
@@ -310,8 +310,11 @@ tooltip = "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp và c
 add_button = "Thêm luật"
 add_toast = "Đã thêm luật cho {app}"
 copy_toast = "Đã sao chép {app}"
+deleted_toast = "Đã xóa luật"
 empty = "Chưa có luật nào"
 result_title = "Kết quả"
+preview_empty = "Nhập tên app ở trên để xem kết quả"
+match_result = "Khớp luật #{n}: {mode}"
 no_match = "Không khớp luật nào"
 pseudo_wayland = "gnome-shell (app Wayland)"
 pseudo_none = "(app không báo tên)"

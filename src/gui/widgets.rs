@@ -157,6 +157,26 @@ pub(super) fn row_title<W: IsA<gtk4::Widget>>(row: &W) -> Option<gtk4::Label> {
     row_labels(row).0
 }
 
+/// The first GtkLabel below `w` in reading order. GtkDropDown hides its
+/// selected-item label behind a button and a list-item wrapper with no
+/// public accessor — this reaches it to ellipsize long mode names.
+pub(super) fn first_label<W: IsA<gtk4::Widget>>(w: &W) -> Option<gtk4::Label> {
+    fn walk(w: &gtk4::Widget) -> Option<gtk4::Label> {
+        if let Some(l) = w.downcast_ref::<gtk4::Label>() {
+            return Some(l.clone());
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            if let Some(l) = walk(&c) {
+                return Some(l);
+            }
+            child = c.next_sibling();
+        }
+        None
+    }
+    walk(w.upcast_ref())
+}
+
 /// All labels inside an Adw row: (title, subtitle) by their theme classes,
 /// with positional fallback (first label = title, second = subtitle).
 fn row_labels<W: IsA<gtk4::Widget>>(row: &W) -> (Option<gtk4::Label>, Option<gtk4::Label>) {

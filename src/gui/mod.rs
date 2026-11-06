@@ -207,9 +207,9 @@ struct Ui {
     /// the group's first_child is its internal header, so a
     /// remove-everything loop would never end.
     rules_box: gtk4::ListBox,
-    /// Shown by `fill_rules` when no rule exists: an empty group reads as
-    /// a bug otherwise (compact StatusPage, no icon).
-    rules_status: adw::StatusPage,
+    /// The page's toast host: add/copy confirmations and delete-undo. It is
+    /// the wrapper the rules page returns, so toasts are actually visible.
+    rules_overlay: adw::ToastOverlay,
     /// Blocks row save handlers while `fill_rules` rebuilds the rows: the
     /// mode dropdown fires `selected_notify` on a programmatic set too.
     rules_loading: Rc<RefCell<bool>>,
@@ -222,9 +222,10 @@ struct Ui {
     /// change handlers a user edit does, and saving them would write the
     /// half-updated state back over the change being picked up.
     suppress_save: Cell<bool>,
-    /// "Thử luật" input and its verdict row.
+    /// "Thử luật" input, its verdict row and the verdict's status icon.
     rule_preview_input: adw::EntryRow,
     rule_preview: adw::ActionRow,
+    rule_preview_icon: gtk4::Image,
     /// The merged add-rule form ("Thêm luật"): the pill (fill + tooltip),
     /// the frameless name entry whose placeholder mirrors the focused app,
     /// the copy/apply pair shown only while an app is detected, and Thêm.
