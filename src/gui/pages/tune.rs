@@ -6,6 +6,26 @@
 
 use super::*;
 
+/// AdwSpinRow has no public API for the spin width: find the inner
+/// GtkSpinButton and widen its character box, like the reference mockup.
+fn widen_spin(row: &adw::SpinRow, chars: i32) {
+    fn walk(w: &gtk4::Widget, chars: i32) -> bool {
+        if let Some(spin) = w.downcast_ref::<gtk4::SpinButton>() {
+            spin.set_width_chars(chars);
+            return true;
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            if walk(&c, chars) {
+                return true;
+            }
+            child = c.next_sibling();
+        }
+        false
+    }
+    walk(row.upcast_ref(), chars);
+}
+
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
@@ -49,6 +69,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             .replace("{n}", &defaults.post_delay_ms.to_string()),
         ),
     ] {
+        widen_spin(row, 18);
         row.set_subtitle(&subtitle);
         row.set_tooltip_text(Some(&t(
             "tips.commit_interval",
