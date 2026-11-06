@@ -476,7 +476,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         });
     }
 
-    // Keyboard: close and quit, plus Alt+1..7 to jump straight to a page.
+    // Keyboard: close and quit, plus Alt+0..9 to jump straight to a page
+    // (an accelerator takes one character after Alt, so the 11th page has
+    // none — installing "<Alt>10" only warned and did nothing).
     app.set_accels_for_action("window.close", &["<Control>w"]);
     let quit = gtk4::gio::SimpleAction::new("quit", None);
     {
@@ -493,7 +495,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             action.connect_activate(move |_, _| list.select_row(Some(&row)));
         }
         window.add_action(&action);
-        app.set_accels_for_action(&format!("win.page-{}", i + 1), &[&format!("<Alt>{i}")]);
+        if i < 10 {
+            app.set_accels_for_action(&format!("win.page-{}", i + 1), &[&format!("<Alt>{i}")]);
+        }
     }
 
     // The focused-app chip refreshes when the window loses focus: at that
