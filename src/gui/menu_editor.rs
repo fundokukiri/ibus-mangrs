@@ -104,11 +104,12 @@ fn menu_parse_key(key: &str) -> Option<Vec<usize>> {
         .collect::<Option<Vec<_>>>()
 }
 
-/// The type icon for a menu item kind; separators carry none.
+/// The type icon for a menu item kind: one monochrome symbolic per kind;
+/// radio-group entries and separators carry none (empty column).
 fn menu_kind_icon(kind: &str) -> Option<&'static str> {
     match kind {
-        "toggle" => Some("emblem-ok-symbolic"),
-        "radios" | "entry" => Some("radio-checked-symbolic"),
+        "toggle" => Some("object-select-symbolic"),
+        "radios" => Some("view-list-bullet-symbolic"),
         "action" => Some("system-run-symbolic"),
         "folder" => Some("folder-symbolic"),
         _ => None,
@@ -185,17 +186,14 @@ pub(super) fn normalize_menu(nodes: &[MenuNode]) -> Vec<MenuNode> {
 }
 
 impl Ui {
-    /// Expand/collapse one folder or radio group and re-render — the arrow
-    /// state is derived from `menu_open`, so the rebuild keeps the other
-    /// blocks as they are. Fired by the arrow button and the row itself.
-    fn menu_toggle_expander(self: &Rc<Self>, path: Vec<usize>) {
-        let now = !self.menu_open.borrow().contains(&path);
+    /// Expand/collapse one folder or radio group. The native ExpanderRow
+    /// animates itself — only the design-path set updates, no rebuild.
+    fn menu_toggle_expander(self: &Rc<Self>, path: Vec<usize>, now: bool) {
         if now {
-            self.menu_open.borrow_mut().insert(path.clone());
+            self.menu_open.borrow_mut().insert(path);
         } else {
             self.menu_open.borrow_mut().remove(&path);
         }
-        self.fill_menu_list();
     }
 
     /// Rebuild the row list from the design vector. Also runs after every
@@ -212,8 +210,9 @@ impl Ui {
         }
     }
 
-    /// One editor item's widgets: a leaf row, or an expander header plus
-    /// its child block (folders and radio groups).
+    /// One editor item's widgets: a leaf row, or a native ExpanderRow with
+    /// its children (folders and radio groups) — an empty container shows
+    /// a dim "Trống" child instead of pretending to be a leaf.
     fn menu_row_widget(
         self: &Rc<Self>,
         path: Vec<usize>,
@@ -222,174 +221,198 @@ impl Ui {
     ) -> Vec<gtk4::Widget> {
         let (kind, _key, label, kind_label) = menu_row(node);
         match node {
-            MenuNode::Folder { children, .. } if depth == 0 && !children.is_empty() => {
+            MenuNode::Folder { children, .. } if depth == 0 => {
                 let mut rows = Vec::new();
                 for (i, child) in children.iter().enumerate() {
                     let mut child_path = path.clone();
                     child_path.push(i);
-                    rows.extend(self.menu_row_widget(child_path, child, depth + 1));
+                    for widget in self.menu_row_widget(child_path, child, depth + 1) {
+                        // Indented under the guide line, same card.
+                        widget.add_css_class("menu-child");
+                        widget.set_margin_start(24);
+                        rows.push(widget);
+                    }
+                }
+                if rows.is_empty() {
+                    rows.push(self.menu_empty_row());
                 }
                 self.menu_expander_row(path, &kind, &label, &kind_label, rows)
             }
-            MenuNode::Radios { group, children } if depth == 0 && !children.is_empty() => {
+            MenuNode::Radios { group, children } if depth == 0 => {
                 let mut rows = Vec::new();
                 for (i, key) in children.iter().enumerate() {
                     let mut child_path = path.clone();
                     child_path.push(i);
-                    rows.push(self.menu_leaf_row(
+                    let widget = self.menu_leaf_row(
                         child_path,
                         "entry",
                         &menu_entry_label(group, key),
                         &t("menu.kind_entry", "Mục chọn"),
                         false,
-                    ));
+                        false,
+                    );
+                    // Indented under the guide line, same card.
+                    widget.add_css_class("menu-child");
+                    widget.set_margin_start(24);
+                    rows.push(widget);
+                }
+                if rows.is_empty() {
+                    rows.push(self.menu_empty_row());
                 }
                 self.menu_expander_row(path, &kind, &label, &kind_label, rows)
             }
-            _ => vec![self.menu_leaf_row(path, &kind, &label, &kind_label, kind == "sep")],
+            _ => vec![self.menu_leaf_row(
+                path,
+                &kind,
+                &label,
+                &kind_label,
+                kind != "sep",
+                kind == "sep",
+            )],
         }
     }
 
+    /// The empty-container placeholder: a dim row with no handle, menu or
+    /// type — there is nothing to act on yet.
+    fn menu_empty_row(&self) -> gtk4::Widget {
+        let row = adw::ActionRow::new();
+        row.set_use_markup(false);
+        row.set_title(&t("panel.empty", "Trống"));
+        row.set_activatable(false);
+        row.set_focusable(false);
+        row.add_css_class("dim-label");
+        row.add_css_class("menu-child");
+        row.set_margin_start(24);
+        row.upcast::<gtk4::Widget>()
+    }
+
     /// One leaf editor row (real leaves and radio-group entries share it):
-    /// leading handle + type icon, the per-row menu, the same-parent drop.
+    /// one compact line — handle, type icon, title, dim type caption, row
+    /// menu — with the same-parent drop and the drag dim.
     fn menu_leaf_row(
         self: &Rc<Self>,
         path: Vec<usize>,
         kind: &str,
         title: &str,
-        subtitle: &str,
+        kind_label: &str,
+        show_type: bool,
         dim_title: bool,
     ) -> gtk4::Widget {
-        let row = adw::ActionRow::builder()
-            .title(title)
-            .subtitle(subtitle)
-            .use_markup(false) // titles are user-typed labels; a bare & must show
-            .activatable(false)
-            .build();
+        // Markup off before the title: titles are user-typed labels, a
+        // bare & must show as itself.
+        let row = adw::ActionRow::new();
+        row.set_use_markup(false);
+        row.set_title(title);
+        row.set_activatable(false);
+        // Rows never take keyboard focus: no initial focus ring on the
+        // first row, and Tab walks the buttons directly.
+        row.set_focusable(false);
         if dim_title {
             // A slim dim row: separators carry no title emphasis.
             if let Some(title) = row_title(&row) {
                 title.add_css_class("dim-label");
             }
         }
-        row.add_prefix(&self.menu_lead(path.clone(), kind));
+        row.add_prefix(&self.menu_lead(path.clone(), kind, &row));
+        if show_type {
+            let kind_label = gtk4::Label::new(Some(kind_label));
+            kind_label.add_css_class("dim-label");
+            kind_label.add_css_class("caption");
+            kind_label.set_valign(gtk4::Align::Center);
+            row.add_suffix(&kind_label);
+        }
         row.add_suffix(&self.menu_more_button(path.clone(), kind));
         self.menu_drop_target(&row, path);
+        row.update_property(&[gtk4::accessible::Property::Description(&format!(
+            "{title}, {kind_label}"
+        ))]);
         row.upcast::<gtk4::Widget>()
     }
 
-    /// The leading box (handle, then type icon) — one widget, so leaf rows
-    /// and the expander header place the handle at the same spot despite
-    /// their differing add_prefix insert orders.
-    fn menu_lead(&self, path: Vec<usize>, kind: &str) -> gtk4::Box {
+    /// The leading box (handle, then the fixed-width type icon column) —
+    /// one widget, so leaf rows and expander headers align their columns.
+    fn menu_lead(&self, path: Vec<usize>, kind: &str, row: &impl IsA<gtk4::Widget>) -> gtk4::Box {
         let lead = gtk4::Box::new(Orientation::Horizontal, 6);
-        lead.append(&self.menu_drag_handle(&path));
+        lead.append(&self.menu_drag_handle(&path, row));
+        // The empty image keeps the icon column's width for kinds without
+        // one, so every title starts at the same x.
+        let icon = gtk4::Image::new();
         if let Some(name) = menu_kind_icon(kind) {
-            let icon = gtk4::Image::from_icon_name(name);
-            icon.add_css_class("dim-label");
-            lead.append(&icon);
+            icon.set_icon_name(Some(name));
         }
+        icon.add_css_class("menu-icon");
+        icon.add_css_class("dim-label");
+        lead.append(&icon);
         lead
     }
 
-    /// A folder / radio group as two list rows: the header (our own arrow
-    /// INSIDE — before the row menu, which stays last; AdwExpanderRow
-    /// would always render its chevron after the menu) and the child
-    /// block, collapsed by default, indented one step.
+    /// A folder / radio group as a native ExpanderRow: the chevron renders
+    /// rightmost (after the row menu), the children are plain rows on the
+    /// same card, indented under a guide line.
     fn menu_expander_row(
         self: &Rc<Self>,
         path: Vec<usize>,
         kind: &str,
         title: &str,
-        subtitle: &str,
+        kind_label: &str,
         children: Vec<gtk4::Widget>,
     ) -> Vec<gtk4::Widget> {
-        // Activatable: clicking the row itself expands, like the arrow.
-        let header = adw::ActionRow::builder()
-            .title(title)
-            .subtitle(subtitle)
-            .use_markup(false) // same as menu_leaf_row: user-typed labels
-            .build();
-        header.add_prefix(&self.menu_lead(path.clone(), kind));
-        let more = self.menu_more_button(path.clone(), kind);
+        let header = adw::ExpanderRow::new();
+        header.set_use_markup(false); // titles are user-typed labels
+        header.set_title(title);
+        header.set_focusable(false);
+        header.add_prefix(&self.menu_lead(path.clone(), kind, &header));
+        header.add_suffix(&self.menu_more_button(path.clone(), kind));
+        header.update_property(&[gtk4::accessible::Property::Description(&format!(
+            "{title}, {kind_label}"
+        ))]);
+        // The state lives in the design-path set, so a rebuild after a
+        // move keeps blocks open; the widget animates on its own.
         let expanded = self.menu_open.borrow().contains(&path);
-        let arrow = gtk4::Button::from_icon_name(if expanded {
-            "pan-down-symbolic"
-        } else {
-            "pan-end-symbolic"
-        });
-        arrow.add_css_class("flat");
-        arrow.set_valign(gtk4::Align::Center);
-        arrow.set_tooltip_text(Some(&t("panel.expand_tooltip", "Mở rộng / thu gọn")));
-        // A plain child list: boxed-list styling would nest a card inside
-        // the card, the plain list keeps the row look and its separators.
-        let child_list = gtk4::ListBox::new();
-        child_list.set_selection_mode(gtk4::SelectionMode::None);
-        child_list.set_margin_start(12);
-        for child in &children {
-            child_list.append(child);
-        }
-        let children_row = gtk4::ListBoxRow::new();
-        children_row.set_activatable(false);
-        children_row.set_selectable(false);
-        children_row.set_child(Some(&child_list));
-        children_row.set_visible(expanded);
-        // The arrow expands directly; the row body expands through its
-        // own click gesture — the list's row-activated never fired for
-        // these rows. The gesture ignores clicks that land on the row's
-        // own buttons (arrow, row menu). The expanded set lives in the
-        // Ui, so a rebuild after a move keeps blocks open.
-        let toggle = {
+        header.set_expanded(expanded);
+        {
             let ui = self.clone();
             let path = path.clone();
-            move || ui.menu_toggle_expander(path.clone())
-        };
-        let toggle: Rc<dyn Fn()> = Rc::new(toggle);
-        arrow.connect_clicked({
-            let toggle = toggle.clone();
-            move |_| toggle()
-        });
-        {
-            let header_pick = header.clone();
-            let toggle = toggle.clone();
-            let gesture = gtk4::GestureClick::new();
-            gesture.connect_released(move |_, _, x, y| {
-                let Some(target) = header_pick.pick(x, y, gtk4::PickFlags::DEFAULT) else {
-                    return;
-                };
-                let mut node = target;
-                loop {
-                    if node.downcast_ref::<gtk4::Button>().is_some()
-                        || node.downcast_ref::<gtk4::MenuButton>().is_some()
-                    {
-                        return;
-                    }
-                    let Some(parent) = node.parent() else {
-                        break;
-                    };
-                    node = parent;
-                }
-                toggle();
+            header.connect_notify_local(Some("expanded"), move |row, _| {
+                ui.menu_toggle_expander(path.clone(), row.is_expanded());
             });
-            header.add_controller(gesture);
         }
-        header.add_suffix(&arrow);
-        header.add_suffix(&more);
+        for child in children {
+            header.add_row(&child);
+        }
         self.menu_drop_target(&header, path);
-        vec![
-            header.upcast::<gtk4::Widget>(),
-            children_row.upcast::<gtk4::Widget>(),
-        ]
+        vec![header.upcast::<gtk4::Widget>()]
     }
 
     /// Drop side of the drag handle: reorder same-parent siblings by the
-    /// payload path (see `menu_drag`).
+    /// payload path (see `menu_drag`). While a drag hovers, the row shows
+    /// a thin accent line at the insert position.
     fn menu_drop_target(self: &Rc<Self>, widget: &impl IsA<gtk4::Widget>, dst_path: Vec<usize>) {
         let drop =
             gtk4::DropTarget::new(gtk4::glib::types::Type::STRING, gtk4::gdk::DragAction::MOVE);
         {
+            let target = widget.upcast_ref::<gtk4::Widget>().clone();
+            drop.connect_enter({
+                let target = target.clone();
+                move |_, _, _| {
+                    target.add_css_class("menu-drop-line");
+                    gtk4::gdk::DragAction::MOVE
+                }
+            });
+            drop.connect_motion({
+                let target = target.clone();
+                move |_, _, _| {
+                    target.add_css_class("menu-drop-line");
+                    gtk4::gdk::DragAction::MOVE
+                }
+            });
+            drop.connect_leave(move |_| target.remove_css_class("menu-drop-line"));
+        }
+        {
             let ui = self.clone();
+            let target = widget.upcast_ref::<gtk4::Widget>().clone();
             drop.connect_drop(move |_, value, _, _| {
+                target.remove_css_class("menu-drop-line");
                 let Ok(src_key) = value.get::<String>() else {
                     return false;
                 };
@@ -408,14 +431,23 @@ impl Ui {
     }
 
     /// The drag handle: a DragSource whose payload is the row's design
-    /// path (see `menu_drag` for the receiving side).
-    fn menu_drag_handle(&self, path: &[usize]) -> gtk4::Image {
+    /// path (see `menu_drag` for the receiving side). While the drag is
+    /// alive the dragged row dims.
+    fn menu_drag_handle(&self, path: &[usize], row: &impl IsA<gtk4::Widget>) -> gtk4::Image {
         let handle = gtk4::Image::from_icon_name("list-drag-handle-symbolic");
         handle.add_css_class("dim-label");
         let payload = menu_path_key(path).to_value();
         let src = gtk4::DragSource::new();
         src.set_actions(gtk4::gdk::DragAction::MOVE);
         src.connect_prepare(move |_, _, _| Some(gtk4::gdk::ContentProvider::for_value(&payload)));
+        {
+            let row = row.upcast_ref::<gtk4::Widget>().clone();
+            src.connect_drag_begin(move |_, _| row.add_css_class("menu-dragging"));
+        }
+        {
+            let row = row.upcast_ref::<gtk4::Widget>().clone();
+            src.connect_drag_end(move |_, _, _| row.remove_css_class("menu-dragging"));
+        }
         handle.add_controller(src);
         handle
     }
@@ -428,6 +460,10 @@ impl Ui {
         more.set_icon_name("view-more-symbolic");
         more.add_css_class("flat");
         more.set_tooltip_text(Some(&t("panel.row_menu_tooltip", "Thao tác với mục này")));
+        more.update_property(&[gtk4::accessible::Property::Label(&t(
+            "panel.row_menu_tooltip",
+            "Thao tác với mục này",
+        ))]);
         let popover = gtk4::Popover::new();
         let list = gtk4::Box::new(Orientation::Vertical, 0);
         // Sensitivity: the sibling position decides up/down, the kind
@@ -537,24 +573,35 @@ impl Ui {
         {
             let ui = self.clone();
             let p = path.clone();
+            let overlay = self.menu_overlay.clone();
             let popover = popover.clone();
             del.connect_clicked(move |_| {
                 if ui.menu_delete(&p) {
                     ui.fill_menu_list();
                     ui.fire_save();
+                    overlay.add_toast(adw::Toast::new(&t("panel.deleted_toast", "Đã xóa")));
                 }
                 popover.popdown();
             });
         }
         popover.set_child(Some(&list));
         more.set_popover(Some(&popover));
+        // The row just added takes the keyboard focus (an idle, because
+        // the row only maps once the rebuild finished).
+        if *self.menu_focus_target.borrow() == Some(menu_path_key(&path)) {
+            *self.menu_focus_target.borrow_mut() = None;
+            let more = more.clone();
+            gtk4::glib::idle_add_local_once(move || {
+                more.grab_focus();
+            });
+        }
         more
     }
 
     /// The addable-item list for `scope` (root, or one root container):
     /// everything generic for root/folder, a radio group's own entries for
     /// that group — the old type picker's rule. Buttons append, re-render,
-    /// save and close `popover`.
+    /// save, toast and close `popover`.
     pub(super) fn menu_add_list(
         self: &Rc<Self>,
         scope: &MenuScope,
@@ -573,8 +620,14 @@ impl Ui {
                         return;
                     };
                     if ui.menu_add(kind, key, &scope) {
+                        // The next rebuild focuses the new row's menu, so
+                        // keyboard users land right on it.
+                        *ui.menu_focus_target.borrow_mut() =
+                            ui.menu_last_path(&scope).map(|p| menu_path_key(&p));
                         ui.fill_menu_list();
                         ui.fire_save();
+                        ui.menu_overlay
+                            .add_toast(adw::Toast::new(&t("panel.added_toast", "Đã thêm mục")));
                     }
                     popover.popdown();
                 });
@@ -588,6 +641,24 @@ impl Ui {
         scroll.set_propagate_natural_height(true);
         scroll.set_child(Some(&list));
         scroll.upcast::<gtk4::Widget>()
+    }
+
+    /// The design path the next append lands on in `scope` — the new row
+    /// the add buttons just created.
+    fn menu_last_path(&self, scope: &MenuScope) -> Option<Vec<usize>> {
+        let menu = self.menu.borrow();
+        Some(match scope {
+            MenuScope::Root => vec![menu.len().checked_sub(1)?],
+            MenuScope::Container(path) => match menu.get(path[0]) {
+                Some(MenuNode::Folder { children, .. }) => {
+                    vec![path[0], children.len().checked_sub(1)?]
+                }
+                Some(MenuNode::Radios { children, .. }) => {
+                    vec![path[0], children.len().checked_sub(1)?]
+                }
+                _ => return None,
+            },
+        })
     }
 
     /// The items addable in `scope` (id "kind:key", display label).

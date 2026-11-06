@@ -346,6 +346,8 @@ pub(super) fn widgets() -> Rc<Ui> {
     menu_box.add_css_class("boxed-list");
     menu_box.set_selection_mode(gtk4::SelectionMode::None);
     let menu_open = Rc::new(RefCell::new(HashSet::new()));
+    let menu_overlay = adw::ToastOverlay::new();
+    let menu_focus_target = Rc::new(RefCell::new(None));
 
     // The tips are row tooltips now — no icon button at the row end;
     // hovering the row itself shows the longer explanation, whose text
@@ -554,5 +556,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         menu,
         menu_box,
         menu_open,
+        menu_overlay,
+        menu_focus_target,
     })
 }

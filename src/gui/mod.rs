@@ -237,6 +237,11 @@ struct Ui {
     /// Which folder/radio rows are expanded, by design path — the list is
     /// rebuilt after every edit, so the state must outlive the widgets.
     menu_open: Rc<RefCell<HashSet<Vec<usize>>>>,
+    /// The page's toast host: delete and add confirmations.
+    menu_overlay: adw::ToastOverlay,
+    /// The design-path key of the row just added — the next rebuild focuses
+    /// its row menu, so keyboard users land on the new item.
+    menu_focus_target: Rc<RefCell<Option<String>>>,
 }
 
 /// The save funnel handle shared between `Ui` and the rule-row closures.
