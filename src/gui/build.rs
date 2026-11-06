@@ -31,27 +31,20 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.charset.subtitle", "Unicode và 10 bảng mã cũ"),
         CHARSETS,
     );
-    let capture_tooltip = t(
-        "misc.capture_tooltip",
-        "Gán lại: nhấn tổ hợp phím mới. Esc hủy, Backspace xóa.",
-    );
-    let hotkey_label = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
-    hotkey_label.add_css_class("dim-label");
-    let hotkey_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
-    hotkey_edit.add_css_class("flat");
-    hotkey_edit.set_tooltip_text(Some(&capture_tooltip));
+    // Built-in shortcut rows: the keycap display carries the row title for
+    // its accessible description; capture happens in the shared dialog.
+    let hotkey_display =
+        ShortcutDisplay::new(&t("rows.hotkey_mode.title", "Phím tắt đổi chế độ gõ"));
     let hotkey_value = Rc::new(RefCell::new(String::new()));
-    let enabled_hotkey_label = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
-    enabled_hotkey_label.add_css_class("dim-label");
-    let enabled_hotkey_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
-    enabled_hotkey_edit.add_css_class("flat");
-    enabled_hotkey_edit.set_tooltip_text(Some(&capture_tooltip));
+    let enabled_hotkey_display = ShortcutDisplay::new(&t(
+        "rows.hotkey_enabled.title",
+        "Phím tắt bật/tắt tiếng Việt",
+    ));
     let enabled_hotkey_value = Rc::new(RefCell::new(String::new()));
-    let app_rule_hotkey_label = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
-    app_rule_hotkey_label.add_css_class("dim-label");
-    let app_rule_hotkey_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
-    app_rule_hotkey_edit.add_css_class("flat");
-    app_rule_hotkey_edit.set_tooltip_text(Some(&capture_tooltip));
+    let app_rule_hotkey_display = ShortcutDisplay::new(&t(
+        "rows.hotkey_app_rule.title",
+        "Phím tắt chọn luật theo app",
+    ));
     let app_rule_hotkey_value = Rc::new(RefCell::new(String::new()));
     let modern = switch_row(
         &t("rows.modern.title", "Kiểu dấu mới"),
@@ -162,39 +155,17 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Gõ :ten: kèm dấu hai chấm sẽ thành emoji khi hết từ",
         ),
     );
-    let emoji_hotkey_label = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
-    emoji_hotkey_label.add_css_class("dim-label");
-    let emoji_hotkey_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
-    emoji_hotkey_edit.add_css_class("flat");
-    emoji_hotkey_edit.set_tooltip_text(Some(&capture_tooltip));
+    let emoji_hotkey_display =
+        ShortcutDisplay::new(&t("rows.hotkey_emoji.title", "Phím tắt mở bảng emoji"));
     let emoji_hotkey_value = Rc::new(RefCell::new(String::new()));
     let emoji_text = text_view("");
 
-    // Custom shortcuts: the list view plus the add row (function dropdown,
-    // pencil recorder, add button). The design vector lives in Ui.
+    // Custom shortcuts: the boxed list is rebuilt by `fill_custom` (rows,
+    // empty state, add row); the overlay hosts the delete-undo toasts.
     let custom_box = gtk4::ListBox::new();
     custom_box.add_css_class("boxed-list");
     custom_box.set_selection_mode(gtk4::SelectionMode::None);
-    let custom_action_labels: Vec<String> = CUSTOM_ACTION_KEYS
-        .iter()
-        .zip(CUSTOM_ACTION_DEFAULTS)
-        .map(|(key, fallback)| t(key.1, fallback))
-        .collect();
-    let custom_action = gtk4::DropDown::from_strings(
-        &custom_action_labels
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-    );
-    let custom_edit = gtk4::Button::from_icon_name("document-edit-symbolic");
-    custom_edit.add_css_class("flat");
-    custom_edit.set_tooltip_text(Some(&capture_tooltip));
-    let custom_label = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
-    custom_label.add_css_class("dim-label");
-    let custom_value = Rc::new(RefCell::new(String::new()));
-    let custom_add = gtk4::Button::with_label(&t("misc.custom_add", "Thêm"));
-    custom_add.add_css_class("suggested-action");
-    custom_add.set_sensitive(false);
+    let hotkey_overlay = adw::ToastOverlay::new();
     let dictionary_enabled = switch_row(
         &t("rows.dictionary_enabled.title", "Dùng từ điển cá nhân"),
         &t(
@@ -480,11 +451,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Gõ :smile: thành emoji. Từ dán ngay sau dấu hai chấm không được thêm dấu khi tính năng này bật (như quy tắc bỏ qua URL); tắt đi nếu bạn thường viết kiểu :từ_viết."
     );
     tip!(
-        emoji_hotkey_edit,
-        "tips.emoji_hotkey",
-        "Phím tắt mở menu chọn emoji kiểu ibus-bamboo: bảng ứng viên hiện ngay tại con trỏ, gõ chữ để tìm, phím số chọn, Esc hoặc click ra chỗ khác đóng."
-    );
-    tip!(
         hide_underline,
         "tips.hide_underline",
         "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
@@ -530,14 +496,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         method,
         mode,
         charset,
-        hotkey_label,
-        hotkey_edit,
+        hotkey_display,
         hotkey_value,
-        enabled_hotkey_label,
-        enabled_hotkey_edit,
+        enabled_hotkey_display,
         enabled_hotkey_value,
-        app_rule_hotkey_label,
-        app_rule_hotkey_edit,
+        app_rule_hotkey_display,
         app_rule_hotkey_value,
         modern,
         free,
@@ -557,17 +520,12 @@ pub(super) fn widgets() -> Rc<Ui> {
         date_format,
         macros_text,
         emoji_enabled,
-        emoji_hotkey_label,
-        emoji_hotkey_edit,
+        emoji_hotkey_display,
         emoji_hotkey_value,
         emoji_text,
         custom: Rc::new(RefCell::new(Vec::new())),
         custom_box,
-        custom_action,
-        custom_edit,
-        custom_label,
-        custom_value,
-        custom_add,
+        hotkey_overlay,
         dictionary_enabled,
         dictionary_text,
         rules_box,

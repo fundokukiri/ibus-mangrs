@@ -36,10 +36,16 @@ page_kind = "Trang"
 
 [misc]
 unassigned = "Chưa gán"
-custom_add = "Thêm"
-capture_prompt = "Nhấn tổ hợp phím… (Esc hủy)"
+a11y_unassigned = "chưa gán"
+capture_waiting = "Đang chờ phím…"
+capture_body = "Nhấn tổ hợp phím mới. Esc để hủy, Backspace để xóa."
+capture_add_body = "Chọn chức năng rồi nhấn tổ hợp phím. Esc để hủy."
 capture_bad_key = "Phím này không dùng được — thử phím khác"
-capture_tooltip = "Gán lại: nhấn tổ hợp phím mới. Esc hủy, Backspace xóa."
+conflict_used = "Đã dùng cho: {f}"
+cancel = "Hủy"
+delete = "Xóa"
+deleted_toast = "Đã xóa"
+undo = "Hoàn tác"
 restart_button = "Khởi động lại IBus"
 save_alert_heading = "Không lưu được cấu hình"
 export_dialog = "Xuất cấu hình"
@@ -70,10 +76,14 @@ description = "Hình thức của chữ đang gõ"
 
 [groups.hotkeys.custom]
 title = "Phím tắt riêng"
-description = "Gán thêm phím tắt cho cùng chức năng — 4 phím ở trên là mặc định"
+description = "Gán thêm phím cho cùng chức năng với phím mặc định."
+add_row = "Thêm phím tắt riêng"
+function = "Chức năng"
+empty = "Chưa có phím tắt riêng"
 
-[groups.hotkeys.cycle_note]
-text = "Thứ tự phím tắt đổi chế độ: Tự động → Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF."
+[groups.hotkeys.cycle]
+title = "Thứ tự khi đổi chế độ"
+subtitle = "{n} chế độ, xoay vòng"
 
 [rows.enabled]
 title = "Bật tiếng Việt"
@@ -374,8 +384,8 @@ title = "Chẩn đoán"
 description = "Ghi lại quyết định của engine để gỡ lỗi"
 
 [groups.hotkeys.keys]
-title = "Phím tắt"
-description = "Bấm vào nút bút chì rồi nhấn tổ hợp phím; Esc hủy, Backspace xóa"
+title = "Phím tắt mặc định"
+description = "Bấm vào một dòng rồi nhấn tổ hợp phím mới."
 
 [groups.other.interface]
 title = "Giao diện"
@@ -461,8 +471,6 @@ enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào ap
 method = "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
 mode = "Cách hiển thị chữ đang gõ: preedit (gạch chân) dùng được ở mọi app, các mode uinput gửi phím thật nhưng có thể lệch app."
 charset = "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
-hotkey_mode = "Gán phím chuyển tuần tự qua các chế độ gõ. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa."
-hotkey_enabled = "Gán phím bật/tắt tiếng Việt nhanh. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa."
 hide_underline = "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
 modern = "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."
 free = "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên âm gần nhất."
@@ -479,8 +487,6 @@ macro_enabled = "Bật bảng gõ tắt: chuỗi khóa được mở rộng thà
 capitalize_macro = "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo."
 macro_in_off_mode = "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
 emoji_enabled = "Gõ :smile: thành emoji. Từ dán ngay sau dấu hai chấm không được thêm dấu khi tính năng này bật (như quy tắc bỏ qua URL); tắt đi nếu bạn thường viết kiểu :từ_viết."
-emoji_hotkey = "Phím tắt mở menu chọn emoji kiểu ibus-bamboo: bảng ứng viên hiện ngay tại con trỏ, gõ chữ để tìm, phím số chọn, Esc hoặc click ra chỗ khác đóng."
-custom_hotkey_row = "Phím tắt riêng — bấm thùng rác để xóa"
 dictionary_enabled = "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc."
 debug_log = "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
 x11_delete = "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."

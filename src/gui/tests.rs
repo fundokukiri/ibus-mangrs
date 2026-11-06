@@ -14,10 +14,71 @@ fn gtk_widget_scenarios() {
         return;
     }
     refresh_round_trips_every_widget();
-    hotkey_recorder_lives_on_the_edit_button();
+    shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
     row_texts_render_as_plain_text();
     rules_add_group_merges_the_focus_chip();
+}
+
+/// The reworked "Phím tắt" helpers: the stored spec renders as keycaps with
+/// the dim fallback for unassigned or unconvertible values, conflicts
+/// compare on the engine parse, and the capture dialog offers only "Hủy".
+fn shortcut_helpers_render_and_capture() {
+    // Accelerator rendering: modifiers first; modifier-only specs have no
+    // keycap shape.
+    assert_eq!(
+        accelerator_label("Control+Alt+v").as_deref(),
+        Some("<Control><Alt>v")
+    );
+    assert_eq!(
+        accelerator_label("Control+space").as_deref(),
+        Some("<Control>space")
+    );
+    assert_eq!(
+        accelerator_label("Control+f5").as_deref(),
+        Some("<Control>F5")
+    );
+    // Punctuation whose keyval name is not the character has no keycap.
+    assert_eq!(accelerator_label("Shift+~"), None);
+    assert_eq!(accelerator_label("Shift+Control"), None);
+    assert!(same_combo("Alt+Control+v", "Control+Alt+v"));
+    assert!(!same_combo("Control+v", "Control+Alt+v"));
+    // The display swaps keycaps and the dim fallback.
+    let display = ShortcutDisplay::new("Phím tắt đổi chế độ gõ");
+    let stack = display.widget();
+    display.render("");
+    let label = stack
+        .visible_child()
+        .unwrap()
+        .downcast_ref::<gtk4::Label>()
+        .unwrap()
+        .clone();
+    assert_eq!(label.text(), "Chưa gán");
+    display.render("Control+Alt+v");
+    let keys = stack
+        .visible_child()
+        .unwrap()
+        .downcast_ref::<gtk4::ShortcutLabel>()
+        .unwrap()
+        .clone();
+    assert_eq!(keys.accelerator().as_deref(), Some("<Control><Alt>v"));
+    display.render("Shift+Control");
+    let label = stack
+        .visible_child()
+        .unwrap()
+        .downcast_ref::<gtk4::Label>()
+        .unwrap()
+        .clone();
+    assert_eq!(label.text(), "Shift+Control");
+    // The capture dialog: only the Hủy response, no rejection note yet.
+    let (dialog, _preview, note) = build_capture_dialog(
+        "Phím tắt đổi chế độ gõ",
+        "Nhấn tổ hợp phím mới. Esc để hủy, Backspace để xóa.",
+        None,
+    );
+    assert_eq!(dialog.heading().as_deref(), Some("Phím tắt đổi chế độ gõ"));
+    assert_eq!(dialog.close_response(), "cancel");
+    assert!(!note.is_visible());
 }
 
 /// The merged add-rule form: the focused app surfaces only as the entry's
@@ -185,46 +246,6 @@ fn refresh_round_trips_every_widget() {
     let mut words = ui.read_dictionary();
     words.sort();
     assert_eq!(words, vec!["asl".to_string(), "tr".to_string()]);
-}
-
-/// The hotkey recorder must live on the pencil button: after a click the
-/// button keeps key focus, so the key controllers there receive the
-/// pressed keys. Regression for the row-anchored recorder whose
-/// focus-leave handler cancelled the capture before any key arrived —
-/// with the controllers on the row and the button disabled on click,
-/// assigning a hotkey did nothing.
-fn hotkey_recorder_lives_on_the_edit_button() {
-    let kinds = |w: &gtk4::Widget| -> Vec<String> {
-        let list = w.observe_controllers();
-        (0..list.n_items())
-            .filter_map(|i| list.item(i))
-            .map(|o| o.type_().name().to_string())
-            .collect()
-    };
-
-    let label = gtk4::Label::new(None);
-    let edit = gtk4::Button::from_icon_name("document-edit-symbolic");
-    let value = Rc::new(RefCell::new(String::new()));
-    hotkey_wire(&edit, &label, &value, || {});
-
-    let button = kinds(edit.upcast_ref());
-    // 2 ours + GTK's internal one for the button's own key handling.
-    assert!(
-        button
-            .iter()
-            .filter(|k| *k == "GtkEventControllerKey")
-            .count()
-            >= 2,
-        "press/release key controllers must sit on the edit button: {button:?}"
-    );
-    assert!(button.iter().any(|k| *k == "GtkEventControllerFocus"));
-
-    // The capture starts on click and the button stays sensitive:
-    // disabling the focus widget makes GTK move key focus off it, and
-    // the focus-leave handler cancels the capture immediately.
-    edit.emit_clicked();
-    assert!(edit.is_sensitive(), "the recorder disabled the edit button");
-    assert_eq!(label.text(), "Nhấn tổ hợp phím… (Esc hủy)");
 }
 
 /// The live-reload path pushes fresh file contents through the same change
