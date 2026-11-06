@@ -20,6 +20,41 @@ fn gtk_widget_scenarios() {
     rules_add_group_merges_the_focus_chip();
     rule_rows_and_preview_track_the_engine_match();
     macro_page_helpers_count_and_preview();
+    macros_editor_follows_the_switch();
+}
+
+/// With "Bật gõ tắt" off, the macro editor visibly disables with the
+/// switch (the dictionary editor's behavior) — but never stops saving.
+fn macros_editor_follows_the_switch() {
+    let ui = widgets();
+    let page = crate::gui::pages::macros::build(&ui);
+    // The editor card: the page's only ScrolledWindow with the card class.
+    fn find_card_scroll(w: &gtk4::Widget) -> Option<gtk4::ScrolledWindow> {
+        if let Some(s) = w.downcast_ref::<gtk4::ScrolledWindow>() {
+            if s.has_css_class("card") {
+                return Some(s.clone());
+            }
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            if let Some(s) = find_card_scroll(&c) {
+                return Some(s);
+            }
+            child = c.next_sibling();
+        }
+        None
+    }
+    let scroll = find_card_scroll(page.upcast_ref()).expect("the editor card");
+    ui.macro_enabled.set_active(true);
+    for _ in 0..5 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    assert!(scroll.is_sensitive(), "editor editable with Gõ tắt on");
+    ui.macro_enabled.set_active(false);
+    for _ in 0..5 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    assert!(!scroll.is_sensitive(), "editor dead with Gõ tắt off");
 }
 
 /// The "Gõ tắt" page helpers: the preview rejects invalid strftime
