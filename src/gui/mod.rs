@@ -112,15 +112,14 @@ const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
 
 /// The custom-shortcut functions, in `config::CUSTOM_HOTKEY_ACTIONS` order:
 /// (action key, gui-content key) plus the code fallback labels — the
-/// add-row dropdown and the row subtitles read these.
+/// add-row dropdown and the row subtitles read these. "enabled" and "rule"
+/// have their own default rows on this page; the small toggles the owner
+/// trimmed stay assignable only from old configs.
 const CUSTOM_ACTION_KEYS: &[(&str, &str)] = &[
-    ("enabled", "actions.hotkey_enabled"),
     ("mode", "actions.hotkey_mode"),
-    ("rule", "actions.hotkey_rule"),
     ("emoji", "actions.hotkey_emoji"),
     ("charset", "actions.hotkey_charset"),
     ("method", "actions.hotkey_method"),
-    ("macro", "actions.hotkey_macro"),
     ("auto_capitalize", "actions.hotkey_auto_capitalize"),
     ("abbreviations", "actions.hotkey_abbrev"),
     ("auto_restore", "actions.hotkey_auto_restore"),
@@ -131,16 +130,12 @@ const CUSTOM_ACTION_KEYS: &[(&str, &str)] = &[
     ("em_dash", "actions.hotkey_em_dash"),
     ("macro_editor", "actions.hotkey_macro_editor"),
     ("settings", "actions.hotkey_settings"),
-    ("about", "actions.hotkey_about"),
 ];
 const CUSTOM_ACTION_DEFAULTS: &[&str] = &[
-    "Bật/tắt tiếng Việt",
     "Đổi chế độ gõ",
-    "Chọn luật theo app",
     "Mở bảng emoji",
     "Xoay bảng mã",
     "Xoay kiểu gõ",
-    "Bật/tắt gõ tắt",
     "Tự viết hoa",
     "Viết tắt",
     "Khôi phục từ nước ngoài",
@@ -151,7 +146,6 @@ const CUSTOM_ACTION_DEFAULTS: &[&str] = &[
     "Gạch ngang dài",
     "Mở trang Gõ tắt",
     "Mở Cài đặt",
-    "Mở Giới thiệu",
 ];
 
 struct Ui {

@@ -229,9 +229,10 @@ fn open_add_dialog(ui: &Rc<Ui>, parent: &impl IsA<gtk4::Widget>) {
                 let Some(spec) = result else {
                     return;
                 };
-                let action = crate::config::CUSTOM_HOTKEY_ACTIONS
+                let action = CUSTOM_ACTION_KEYS
                     .get(pick.selected() as usize)
-                    .unwrap_or(&"enabled")
+                    .map(|(k, _)| *k)
+                    .unwrap_or("mode")
                     .to_string();
                 ui.custom.borrow_mut().push((spec, action));
                 ui.fill_custom();

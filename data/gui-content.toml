@@ -463,13 +463,10 @@ issue_url = "https://github.com/fundokukiri/ibus-mangrs/issues"
 # Explanation markers ("?") - the longer text shown on hover or click next
 # to each feature title.
 [actions]
-hotkey_enabled = "Bật/tắt tiếng Việt"
 hotkey_mode = "Đổi chế độ gõ"
-hotkey_rule = "Chọn luật theo app"
 hotkey_emoji = "Mở bảng emoji"
 hotkey_charset = "Xoay bảng mã"
 hotkey_method = "Xoay kiểu gõ"
-hotkey_macro = "Bật/tắt gõ tắt"
 hotkey_auto_capitalize = "Tự viết hoa"
 hotkey_abbrev = "Viết tắt"
 hotkey_auto_restore = "Khôi phục từ nước ngoài"
@@ -480,7 +477,6 @@ hotkey_double_space = "2 dấu cách = chấm"
 hotkey_em_dash = "Gạch ngang dài"
 hotkey_macro_editor = "Mở trang Gõ tắt"
 hotkey_settings = "Mở Cài đặt"
-hotkey_about = "Mở Giới thiệu"
 
 [tips]
 enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
