@@ -21,6 +21,98 @@ fn parse_hotkey_accepts_modifier_combinations() {
 }
 
 #[test]
+fn hotkey_registry_maps_the_new_custom_actions() {
+    let config = Config {
+        custom_hotkeys: vec![
+            crate::config::CustomHotkey {
+                spec: "Control+Alt+c".into(),
+                action: "charset".into(),
+            },
+            crate::config::CustomHotkey {
+                spec: "Control+Alt+t".into(),
+                action: "method".into(),
+            },
+            crate::config::CustomHotkey {
+                spec: "Control+Alt+m".into(),
+                action: "macro".into(),
+            },
+            crate::config::CustomHotkey {
+                spec: "Control+Alt+g".into(),
+                action: "macro_editor".into(),
+            },
+            crate::config::CustomHotkey {
+                spec: "Control+Alt+s".into(),
+                action: "settings".into(),
+            },
+            crate::config::CustomHotkey {
+                spec: "Control+Alt+a".into(),
+                action: "about".into(),
+            },
+            // Unknown actions register nothing.
+            crate::config::CustomHotkey {
+                spec: "Control+Alt+q".into(),
+                action: "nonsense".into(),
+            },
+        ],
+        ..Config::default()
+    };
+    let registry = hotkey_registry(&config);
+    assert!(registry
+        .iter()
+        .any(|(_, _, a)| matches!(a, HotkeyAction::CycleCharset)));
+    assert!(registry
+        .iter()
+        .any(|(_, _, a)| matches!(a, HotkeyAction::CycleMethod)));
+    assert!(registry
+        .iter()
+        .any(|(_, _, a)| matches!(a, HotkeyAction::QuickToggle("macro"))));
+    assert!(registry
+        .iter()
+        .any(|(_, _, a)| matches!(a, HotkeyAction::OpenSettings("macros"))));
+    assert!(registry
+        .iter()
+        .any(|(_, _, a)| matches!(a, HotkeyAction::OpenSettings("general"))));
+    assert!(registry
+        .iter()
+        .any(|(_, _, a)| matches!(a, HotkeyAction::OpenSettings("about"))));
+    // Six custom entries, the unknown one skipped.
+    assert_eq!(
+        registry
+            .iter()
+            .filter(|(_, _, a)| !matches!(
+                a,
+                HotkeyAction::ToggleEnabled
+                    | HotkeyAction::CycleMode
+                    | HotkeyAction::AppRulePicker
+                    | HotkeyAction::OpenEmoji
+            ))
+            .count(),
+        6
+    );
+}
+
+#[test]
+fn shift_punctuation_hotkeys_pass_the_key_through() {
+    use crate::keymap::{CONTROL_MASK, MOD1_MASK, SHIFT_MASK};
+    // "Shift+~" types ~ as well as firing its action.
+    assert!(hotkey_passes_key(SHIFT_MASK, 0x7e));
+    assert!(hotkey_passes_key(SHIFT_MASK, 0x2c));
+    // Control and Alt block the character: regular combos consume.
+    assert!(!hotkey_passes_key(CONTROL_MASK, 0x7e));
+    assert!(!hotkey_passes_key(CONTROL_MASK | MOD1_MASK, 0x76));
+    // Modifier-only combos have no key at all.
+    assert!(!hotkey_passes_key(SHIFT_MASK | CONTROL_MASK, 0));
+}
+
+#[test]
+fn cycle_next_wraps_around_the_list() {
+    let list = &[("a", "A"), ("b", "B"), ("c", "C")];
+    assert_eq!(cycle_next(list, "a"), Some("b"));
+    assert_eq!(cycle_next(list, "c"), Some("a"));
+    assert_eq!(cycle_next(list, "z"), None);
+}
+
+#[test]
 fn parse_hotkey_rejects_dangerous_or_bad_specs() {
     // A bare letter would swallow normal typing.
     assert_eq!(parse_hotkey("v"), None);
