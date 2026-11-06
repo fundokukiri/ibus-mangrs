@@ -9,7 +9,8 @@
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
 [`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts, ten display modes (Preedit, NonPreedit, Surrounding, two
 ForwardKeyEvent modes, three uinput modes, OFF, Default Typing), a GTK4 settings window, macros,
-a custom dictionary and per-app rules.
+a custom dictionary, emoji shortcodes with a picker window, per-app rules and an editable
+panel menu.
 
 > **Platform status:** developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland;
 > X11 smoke-tested). Other distributions and desktop environments have **not** been tested yet —
@@ -23,7 +24,7 @@ a custom dictionary and per-app rules.
 - **Four input methods**: Telex (`tieengs` → `tiếng`), VNI (`tie6ng1`), VIQR, Microsoft layout.
 - **Eleven output charsets**: Unicode (default), Unicode NFD, TCVN3, VNI, VIQR, VISCII, VPS,
   CP1258, BKHCM, Vietware X, Vietware Full.
-- **Eight display modes** (see below), selectable per application via App Rules.
+- **Ten display modes** (see below), selectable per application via App Rules.
 - **Per-app rules for Wayland-native apps** (Chrome, Firefox, Sublime Text, ...) through the
   companion GNOME Shell extension: IBus reports those apps only as an anonymous mutter relay,
   so the extension names the focused window from inside the Shell. Optional — without it rules
@@ -41,9 +42,18 @@ a custom dictionary and per-app rules.
 - **Macros** with `$TIME` / `$DATE` expansion and smart capitalization; shorthand keys that are
   valid Vietnamese words never expand while you are typing that word normally.
 - **Custom dictionary**: words that must never be auto-restored.
-- **GTK4 + libadwaita settings window** (GNOME Settings style: sidebar, 8 pages, Vietnamese, page search); every change hot-reloads within ~1 second.
+- **Emoji shortcodes and picker**: typing `:name:` rewrites to the emoji (off by default), and an
+  assignable hotkey opens a picker at the caret — ~1,900 built-in emoji with Vietnamese and
+  English keywords, navigable by keyboard (arrows, pages, digits, type-to-search, Enter). Your
+  own `name = "glyph"` pairs in `~/.config/ibus-mangrs/emoji.toml` override or extend the table.
+- **Editable panel menu and custom shortcuts**: the panel menu (folders, functions, radio
+  groups, separators, order, names) is redesigned in the settings window, and the shipped menu
+  stays when no design is saved; 14 functions take assignable shortcuts, plus a second hotkey
+  that toggles Vietnamese.
+- **GTK4 + libadwaita settings window** (GNOME Settings style: grouped sidebar, 11 pages,
+  Vietnamese, page search with Ctrl+F); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 240 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows); the GUI round-trip and hotkey-recorder tests add 2 more when built with `--features gui`.
+- 292 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows); the GTK widget-scenario test adds 1 more when built with `--features gui`.
 
 ## Display modes
 
@@ -74,7 +84,7 @@ are intended for X11 sessions).
 | Fedora          | `ibus` `gtk4-devel` `libadwaita-devel` `dbus-devel`, `gcc` `make` |
 
 The installer detects the distro (apt / pacman / dnf), installs only what is missing and leaves
-Rust to rustup; GTK 4.10+ and libadwaita 1.4+ are required (Ubuntu 22.04 ships 4.6). Only the Arch path is tested —
+Rust to rustup; GTK 4.10+ and libadwaita 1.5+ are required (Ubuntu 22.04 ships 4.6). Only the Arch path is tested —
 the Debian/Ubuntu and Fedora package names are the standard ones but unverified there. IBus must
 be your active input-method framework (on GNOME it is).
 
@@ -158,11 +168,14 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | Open settings window      | input-source menu → _Cài đặt…_, or `ibus-engine-ibus-mangrs -gui`                      |
 | Change input method       | menu → _Input Method_ (Telex / VNI / VIQR / Microsoft), or GUI                         |
 | Change charset            | menu → _Charset_ (11 charsets), or GUI                                                 |
-| Change display mode       | menu → _Display_ (4 main modes), or GUI (10 modes), or the cycle hotkey                |
-| Display mode cycle hotkey | GUI _Chung_ tab → _Phím tắt đổi chế độ_ (e.g. `Control+Alt+v`)                         |
+| Change display mode       | menu → _Display_ (4 modes by default; the menu is editable), or GUI (10 modes), or the cycle hotkey |
+| Display mode cycle hotkey | GUI _Phím tắt_ page → _Thứ tự khi đổi chế độ_ (e.g. `Control+Alt+v`)                   |
 | Quick settings            | menu → _Quick Settings_ (macros, auto-capitalize, abbreviations, foreign-word restore) |
+| Type an emoji             | type `:name:` (enable in GUI _Emoji_ page), or the emoji hotkey opens the picker at the caret |
+| Rearrange the panel menu  | GUI _Menu trên panel_ page (folders, functions, radio groups, separators)              |
+| Assign a shortcut         | GUI _Phím tắt_ page (14 functions — click a row, press the combo)                      |
 | Type English / code       | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw         |
-| Per-app display mode      | GUI _Luật_ tab → _Luật theo ứng dụng_ (see App Rules below)                            |
+| Per-app display mode      | GUI _Luật theo app_ page (see App Rules below)                                         |
 
 ## App Rules (per-app display mode)
 
@@ -170,11 +183,11 @@ A rule forces one display mode for one application and overrides the global
 mode. Rules are evaluated in order and the **first match wins**, so list
 specific patterns above general ones.
 
-**In the settings window:** _Luật_ tab → _Luật theo ứng dụng_. Pick an app in
-the dropdown (or copy the focused app), pick a mode, press _Thêm luật_: the
-rule is appended as a `name=mode` line and saved with the rest of the settings
-(patterns are edited directly in the rule's text box, saving on
-focus-leave). The dropdown lists
+**In the settings window:** _Luật theo app_ page. Pick an app in the name
+field (or copy the focused app), pick a mode, press _Thêm luật_: the rule is
+saved with the rest of the settings. Each rule is one line you reorder by
+dragging (a ⋮ menu offers Lên/Xuống/Xóa; deleting toasts with Hoàn tác), and
+_Thử luật_ shows which rule a given app name matches. The dropdown lists
 only apps the engine has already seen (newest 50, `~/.cache/ibus-mangrs/clients`)
 plus two pseudo-targets: `gnome-shell (app Wayland)` — every Wayland app while
 the focus extension is not installed — and `(app không báo tên)` — apps that
@@ -236,6 +249,7 @@ for apps that reach the engine in unusual ways:
 ```
 ~/.config/ibus-mangrs/config.toml     # all settings, hot-reloaded within ~1 s
 ~/.config/ibus-mangrs/macros.toml     # one key=expansion per line, $TIME / $DATE
+~/.config/ibus-mangrs/emoji.toml      # name = "glyph" pairs, same shape as macros.toml
 ~/.config/ibus-mangrs/dictionary.txt  # words never auto-restored
 ```
 
@@ -250,7 +264,7 @@ for apps that reach the engine in unusual ways:
   apps only as an anonymous mutter relay, so the engine has no name to match. Install the
   companion GNOME Shell extension (`data/gnome-shell-extension/README.md`), then log out and back
   in — editing or enabling it in place is not enough.
-- **Something else**: enable _Ghi log gỡ lỗi_ (GUI _Tinh chỉnh_ tab → _Chẩn đoán_, or
+- **Something else**: enable _Ghi log gỡ lỗi_ (GUI _Cài đặt khác_ page, or
   `debug_log = true` in `config.toml`), reproduce the issue, and attach
   `~/.cache/ibus-mangrs/debug.log` — the engine logs every focus change,
   capability, keystroke decision and delete/inject with millisecond timestamps
@@ -259,7 +273,7 @@ for apps that reach the engine in unusual ways:
 ## Testing
 
 ```sh
-cargo test                      # 240 unit tests, including the 678-case golden table
+cargo test                      # 292 unit tests, including the 678-case golden table
 cargo clippy --all-targets
 ```
 
@@ -272,12 +286,13 @@ ibus engine ibus-mangrs
 
 ## Architecture
 
-- `src/server.rs` — D-Bus, message filter, property menu, hotkey, config watch, key transports
-- `src/engine.rs` — state machine: display modes, App Rules, macros, restore, verify/repair
+- `src/server/` — D-Bus, message filter, panel menu, hotkeys, config watch, key transports, the emoji picker window
+- `src/engine/` — state machine: display modes, App Rules, macros, restore, verify/repair
 - `src/bamboo_wrapper.rs` — the only code touching `bamboo-core`; computes its own output delta
 - `src/uinput.rs` — virtual keyboard: paced Backspaces, selection, Ctrl+V (US-QWERTY key table)
 - `src/paste.rs` — clipboard Unicode channel for the uinput modes (debounced restore)
 - `src/macros.rs` — macro table + custom dictionary
+- `src/emoji.rs` — shortcode tables: the embedded list and the user's `emoji.toml`
 - `src/backup.rs` — one-file JSON backup/restore of settings, macros and the dictionary
 - `src/golden.rs` — 678 keystroke→text golden cases
 - `src/ibus_prop.rs` — IBus property-menu encoding; `src/keymap.rs` — keysym decoding
