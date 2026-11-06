@@ -149,10 +149,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
 
     // With Gõ tắt off the table is dead weight: it visibly disables with
     // the switch, like the dictionary editor.
-    ui.macro_enabled
-        .bind_property("active", &scroll, "sensitive")
-        .sync_create()
-        .build();
+    gate_editor(&ui.macro_enabled, &scroll);
 
     // The count and the error line follow the buffer; the save stays on
     // focus-leave (content.rs), untouched.
