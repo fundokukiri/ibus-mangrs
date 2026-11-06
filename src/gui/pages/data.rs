@@ -1,19 +1,10 @@
 //! Page "Từ điển": the personal dictionary — one switch plus the word list
 //! editor. The word list can grow into the thousands, so one row per word
 //! would not scale; it stays a text file shown in the shared bounded card,
-//! which disables with the switch and dims its text (the theme would leave
+//! which disables and dims its text with the switch (the theme would leave
 //! a TextView at full opacity).
 
 use super::*;
-
-/// The page's only CSS: insensitive editor content must read as dead, but
-/// the theme keeps TextView text at full opacity.
-const DATA_CSS: &str = "
-/* insensitive editor content dims; the theme skips TextViews */
-.dictionary-editor textview:disabled {
-  opacity: 0.45;
-}
-";
 
 /// One icon+label button: the label is detached from the stock button and
 /// re-parented into an icon+label box (a button child can only be set
@@ -40,16 +31,6 @@ fn open_button() -> gtk4::Button {
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
-    let provider = gtk4::CssProvider::new();
-    provider.load_from_data(DATA_CSS);
-    if let Some(display) = gtk4::gdk::Display::default() {
-        gtk4::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
-
     let dictionary = adw::PreferencesGroup::builder()
         .title(t("groups.data.dictionary.title", "Từ điển của tôi"))
         .description(t(
@@ -67,8 +48,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         &t("groups.data.words.hint", "github\nlinux\nrust"),
         &t("groups.data.words.title", "Danh sách từ"),
     );
-    // The dim-on-disabled rule is scoped to this editor.
-    scroll.add_css_class("dictionary-editor");
 
     // Header suffix: the live word count (the parser's own rule — trimmed,
     // non-empty, no `#` comment lines; hidden at zero) and the file
@@ -90,11 +69,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     page.add(&words);
 
     // The switch gates the editor: a dead text area reads as a bug, so it
-    // visibly disables with the dictionary off (the text is kept).
-    ui.dictionary_enabled
-        .bind_property("active", &scroll, "sensitive")
-        .sync_create()
-        .build();
+    // visibly disables and dims with the dictionary off (the text is kept,
+    // and a caret caught typing does not stay behind in the dead editor).
+    gate_editor(&ui.dictionary_enabled, &scroll);
     // Bulk edits (paste a word list) happen in a real editor, not this card.
     open_btn.connect_clicked(move |_| {
         if let Some(path) = crate::macros::Dictionary::path() {

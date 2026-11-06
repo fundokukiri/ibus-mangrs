@@ -180,11 +180,38 @@ fn row_labels<W: IsA<gtk4::Widget>>(row: &W) -> (Option<gtk4::Label>, Option<gtk
 /// sits top-left while the buffer is empty (decorative: no click, no
 /// focus), and the card is 240px minimum, 420px maximum so the page never
 /// becomes one giant block — the content scrolls inside.
+/// The dim-on-disabled rule for every bounded editor, loaded once per
+/// display: the theme keeps TextView text at full opacity when the widget
+/// is insensitive, so a switched-off table would not read as dead.
+fn load_editor_css() {
+    static LOADED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if LOADED.get().is_some() {
+        return;
+    }
+    let _ = LOADED.set(());
+    const EDITOR_CSS: &str = "
+/* insensitive editor content dims; the theme skips TextViews */
+.raw-editor textview:disabled {
+  opacity: 0.45;
+}
+";
+    if let Some(display) = gtk4::gdk::Display::default() {
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_data(EDITOR_CSS);
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
 pub(super) fn bounded_card_editor(
     view: &TextView,
     hint_text: &str,
     a11y_label: &str,
 ) -> gtk4::ScrolledWindow {
+    load_editor_css();
     view.remove_css_class("view");
     view.set_left_margin(16);
     view.set_right_margin(16);
@@ -213,12 +240,43 @@ pub(super) fn bounded_card_editor(
     }
     let scroll = gtk4::ScrolledWindow::new();
     scroll.add_css_class("card");
+    // The dim-on-disabled rule above is scoped to this class.
+    scroll.add_css_class("raw-editor");
     scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
     scroll.set_min_content_height(240);
     scroll.set_max_content_height(420);
     scroll.set_propagate_natural_height(true);
     scroll.set_child(Some(&overlay));
     scroll
+}
+
+/// Gate a raw-table editor on its switch: insensitive while the feature is
+/// off (the bounded editor dims via CSS), and — when it turns off while
+/// the user was typing, e.g. through a live config reload — the caret must
+/// not stay behind in the dead editor, so focus is released.
+pub(crate) fn gate_editor(switch: &adw::SwitchRow, editor: &gtk4::ScrolledWindow) {
+    switch
+        .bind_property("active", editor, "sensitive")
+        .sync_create()
+        .build();
+    {
+        let editor = editor.clone();
+        switch.connect_active_notify(move |sw| {
+            if sw.is_active() {
+                return;
+            }
+            let Some(window) = editor.root().and_downcast::<gtk4::Window>() else {
+                return;
+            };
+            let inside = gtk4::prelude::GtkWindowExt::focus(&window)
+                .is_some_and(|focused| focused.is_ancestor(editor.upcast_ref::<gtk4::Widget>()));
+            if inside {
+                // GtkWindowExt::set_focus — the Widget method of the same
+                // name means "take focus" and would fight this one.
+                gtk4::prelude::GtkWindowExt::set_focus(&window, None::<&gtk4::Widget>);
+            }
+        });
+    }
 }
 
 /// The raw-table line stats, by the parsers' own drop rule (`macros_from_

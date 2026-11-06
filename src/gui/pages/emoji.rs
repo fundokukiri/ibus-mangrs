@@ -104,10 +104,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
 
     // With Gõ tắt emoji off the table is dead weight: it disables with
     // the switch, like the macro and dictionary editors.
-    ui.emoji_enabled
-        .bind_property("active", &scroll, "sensitive")
-        .sync_create()
-        .build();
+    gate_editor(&ui.emoji_enabled, &scroll);
 
     // The count and the error line follow the buffer; the save stays on
     // focus-leave (content.rs), untouched.
