@@ -1,8 +1,68 @@
 //! Page "Giới thiệu": the logo hero, project links and the standard GNOME
 //! about dialog. The hero uses the embedded logo (the same logo.png that
 //! install.sh ships into hicolor); the dialog shows the installed icon.
+//! Link rows open the URL themselves (the flat link button is gone); the
+//! non-link rows carry no suffix and never look clickable.
 
 use super::*;
+
+/// The first icon the theme actually has, in preference order — the
+/// page's prefix/suffix set must never render a missing-icon glyph.
+fn themed_icon(names: &[&str]) -> String {
+    match gtk4::gdk::Display::default() {
+        Some(d) => {
+            let theme = gtk4::IconTheme::for_display(&d);
+            names
+                .iter()
+                .find(|n| theme.has_icon(n))
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| names[names.len() - 1].to_string())
+        }
+        // No display in headless tests: the first name compiles fine and
+        // is only ever asked for on a real display.
+        None => names[0].to_string(),
+    }
+}
+
+/// One read-only info row with a leading dim symbolic icon.
+fn feature_row(icon: &str, title: &str, subtitle: &str) -> adw::ActionRow {
+    let row = action_row(title, subtitle);
+    let image = gtk4::Image::from_icon_name(icon);
+    image.add_css_class("dim-label");
+    row.add_prefix(&image);
+    row
+}
+
+/// One link row: activatable, opens the URL in the default browser; the
+/// suffix is a dim external-link glyph, the tooltip the URL itself, and
+/// the accessible description names it an external link.
+fn link_row(prefix: &str, title: &str, subtitle: &str, url: &str) -> adw::ActionRow {
+    let row = action_row(title, subtitle);
+    row.set_activatable(true);
+    let prefix_image = gtk4::Image::from_icon_name(prefix);
+    prefix_image.add_css_class("dim-label");
+    row.add_prefix(&prefix_image);
+    let image = gtk4::Image::from_icon_name(&themed_icon(&[
+        "adw-external-link-symbolic",
+        "external-link-symbolic",
+        "go-next-symbolic",
+    ]));
+    image.add_css_class("dim-label");
+    row.add_suffix(&image);
+    row.set_tooltip_text(Some(url));
+    row.update_property(&[gtk4::accessible::Property::Description(&format!(
+        "{title}, liên kết ngoài"
+    ))]);
+    let url = url.to_string();
+    row.connect_activated(move |row| {
+        gtk4::UriLauncher::new(&url).launch(
+            row.root().and_downcast::<gtk4::Window>().as_ref(),
+            None::<&gtk4::gio::Cancellable>,
+            |_| {},
+        );
+    });
+    row
+}
 
 pub(crate) fn build() -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
@@ -12,6 +72,7 @@ pub(crate) fn build() -> adw::PreferencesPage {
         "about.source_url",
         "https://github.com/fundokukiri/ibus-mangrs",
     );
+    let author_url = t("about.author_url", "https://fundoku.io.vn");
     let homepage_url = t("about.homepage_url", "https://mangrs.fundoku.io.vn");
 
     // The hero lives in a title-less group so the page keeps its centered
@@ -41,30 +102,24 @@ pub(crate) fn build() -> adw::PreferencesPage {
     let project = adw::PreferencesGroup::builder()
         .title(t("about.group_title", "Thông tin dự án"))
         .build();
-    let source = feature_row(
-        "text-x-generic-symbolic",
+    project.add(&link_row(
+        &themed_icon(&["utilities-terminal-symbolic", "text-x-generic-symbolic"]),
         &t("about.source_title", "Mã nguồn GitHub"),
         &source_url,
-    );
-    source.add_suffix(&link_button(&source_url));
-    project.add(&source);
-    let author = feature_row(
-        "avatar-default-symbolic",
+        &source_url,
+    ));
+    project.add(&link_row(
+        &themed_icon(&["avatar-default-symbolic"]),
         &t("about.author_title", "Tác giả"),
         &t("about.author_value", "Phùng Đức Tùng (Fundoku)"),
-    );
-    author.add_suffix(&link_button(&t(
-        "about.author_url",
-        "https://fundoku.io.vn",
-    )));
-    project.add(&author);
-    let homepage = feature_row(
-        "web-browser-symbolic",
+        &author_url,
+    ));
+    project.add(&link_row(
+        &themed_icon(&["web-browser-symbolic", "network-workgroup-symbolic"]),
         &t("about.homepage_title", "Trang chủ"),
         &homepage_url,
-    );
-    homepage.add_suffix(&link_button(&homepage_url));
-    project.add(&homepage);
+        &homepage_url,
+    ));
     project.add(&feature_row(
         "application-certificate-symbolic",
         &t("about.license_title", "Giấy phép mã nguồn mở"),
@@ -74,21 +129,28 @@ pub(crate) fn build() -> adw::PreferencesPage {
         ),
     ));
     project.add(&feature_row(
-        "package-x-generic-symbolic",
-        &t("about.credits_title", "Credits"),
-        &t("about.credits_value", "Lõi gõ bamboo-core (MIT, bên thứ 3)"),
+        "emote-love-symbolic",
+        &t("about.credits_title", "Ghi công"),
+        &t(
+            "about.credits_value",
+            "Lõi gõ bamboo-core (MIT, bên thứ ba)",
+        ),
     ));
     let detail_row = action_row(
         &t("about.detail_title", "Giới thiệu chi tiết"),
         &t("about.detail_subtitle", "Hộp thoại about chuẩn GNOME"),
     );
-    let detail_btn = gtk4::Button::from_icon_name("help-about-symbolic");
-    detail_btn.add_css_class("flat");
-    detail_row.add_suffix(&detail_btn);
+    let detail_icon = gtk4::Image::from_icon_name("dialog-information-symbolic");
+    detail_icon.add_css_class("dim-label");
+    detail_row.add_prefix(&detail_icon);
+    let go_next = gtk4::Image::from_icon_name("go-next-symbolic");
+    go_next.add_css_class("dim-label");
+    detail_row.add_suffix(&go_next);
+    detail_row.set_activatable(true);
     project.add(&detail_row);
     page.add(&project);
 
-    detail_btn.connect_clicked(move |btn| {
+    detail_row.connect_activated(move |row| {
         let dialog = adw::AboutDialog::builder()
             .application_name(&app_name)
             .application_icon("ibus-mangrs")
@@ -101,17 +163,8 @@ pub(crate) fn build() -> adw::PreferencesPage {
             ))
             .license_type(gtk4::License::Gpl30)
             .build();
-        dialog.present(btn.native().as_ref());
+        dialog.present(row.native().as_ref());
     });
 
     page
-}
-
-/// One read-only info row with a leading symbolic icon.
-fn feature_row(icon: &str, title: &str, subtitle: &str) -> adw::ActionRow {
-    let row = action_row(title, subtitle);
-    let image = gtk4::Image::from_icon_name(icon);
-    image.add_css_class("dim-label");
-    row.add_prefix(&image);
-    row
 }

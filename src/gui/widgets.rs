@@ -50,65 +50,53 @@ pub(super) fn focused_app_name() -> Result<(String, String), String> {
     Ok((class, title))
 }
 
-/// Refresh the focused-app chip. The D-Bus call is sync with a 300 ms
-/// timeout on the main thread — GTK types are not Send, so a worker thread
-/// cannot touch the label — but the callers are startup and focus-leave,
-/// moments when the window is idle anyway; with the extension installed the
-/// call is near-instant.
-pub(super) fn refresh_focused_app(label: &gtk4::Label, value: &Rc<RefCell<String>>) {
-    match focused_app_name() {
-        Ok((class, title)) => {
-            label.set_text(&class);
-            label.set_tooltip_text(Some(&title));
-            *value.borrow_mut() = class;
-        }
-        Err(e) => {
-            label.set_text(&e);
-            label.set_tooltip_text(None);
-            value.borrow_mut().clear();
-        }
-    }
-}
-
 /// A boxed-list boolean row (title + dim subtitle). Replaces the plain
-/// Switch + pref_row pair of the old pages.
+/// Switch + pref_row pair of the old pages. Every row builder switches
+/// markup off: Adw rows parse Pango markup in title/subtitle by default,
+/// and a bare `&` in a text (the URL rule's subtitle) blanked it.
 pub(super) fn switch_row(title: &str, subtitle: &str) -> adw::SwitchRow {
-    adw::SwitchRow::builder()
-        .title(title)
-        .subtitle(subtitle)
-        .build()
+    // Markup is turned off BEFORE the text: the builder applies its stored
+    // properties in declaration order (text first), and a bare `&` in a
+    // subtitle parsed as Pango would warn on every startup.
+    let row = adw::SwitchRow::new();
+    row.set_use_markup(false);
+    row.set_title(title);
+    row.set_subtitle(subtitle);
+    row
 }
 
 /// A boxed-list choice row; `selected` indexes into `items`.
 pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::ComboRow {
-    adw::ComboRow::builder()
-        .title(title)
-        .subtitle(subtitle)
-        .model(&StringList::new(items))
-        .selected(0)
-        .build()
+    let row = adw::ComboRow::new();
+    row.set_use_markup(false);
+    row.set_title(title);
+    row.set_subtitle(subtitle);
+    row.set_model(Some(&StringList::new(items)));
+    row.set_selected(0);
+    row
 }
 
 /// A boxed-list number row; `step` is both the arrow increment and the
 /// page increment (x10).
 pub(super) fn spin_row(title: &str, subtitle: &str, min: f64, max: f64, step: f64) -> adw::SpinRow {
     let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
-    adw::SpinRow::builder()
-        .title(title)
-        .subtitle(subtitle)
-        .adjustment(&adjustment)
-        .build()
+    let row = adw::SpinRow::new(Some(&adjustment), 0.0, 0);
+    row.set_use_markup(false);
+    row.set_title(title);
+    row.set_subtitle(subtitle);
+    row
 }
 
 /// An info row for a boxed list (title + dim subtitle, no control). Not
 /// activatable — the hover highlight on an activation-shaped row that does
 /// nothing reads as a broken button.
 pub(super) fn action_row(title: &str, subtitle: &str) -> adw::ActionRow {
-    adw::ActionRow::builder()
-        .title(title)
-        .subtitle(subtitle)
-        .activatable(false)
-        .build()
+    let row = adw::ActionRow::new();
+    row.set_use_markup(false);
+    row.set_title(title);
+    row.set_subtitle(subtitle);
+    row.set_activatable(false);
+    row
 }
 
 pub(super) fn text_view(content: &str) -> TextView {
@@ -124,37 +112,6 @@ pub(super) fn text_view(content: &str) -> TextView {
     view
 }
 
-/// A dictionary-style card editor: a monospace text view in a rounded
-/// card, with a dim placeholder overlay that disappears once text exists.
-/// The view drops its own .view background — it would paint over the
-/// card's rounded corners, and the card bg is the same color in both
-/// themes.
-pub(super) fn card_text_editor(view: &TextView, placeholder_text: &str) -> gtk4::ScrolledWindow {
-    view.remove_css_class("view");
-    view.set_vexpand(true);
-    let placeholder = gtk4::Label::new(Some(placeholder_text));
-    placeholder.add_css_class("dim-label");
-    placeholder.add_css_class("caption");
-    placeholder.set_valign(gtk4::Align::Center);
-    // A visible overlay label still targets pointer events and would eat
-    // the first click into the empty editor.
-    placeholder.set_can_target(false);
-    let editor = gtk4::Overlay::new();
-    editor.set_child(Some(view));
-    editor.add_overlay(&placeholder);
-    {
-        let buf = view.buffer();
-        placeholder.set_visible(buf.char_count() == 0);
-        buf.connect_changed(move |b| placeholder.set_visible(b.char_count() == 0));
-    }
-    let scroll = gtk4::ScrolledWindow::new();
-    scroll.add_css_class("card");
-    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    scroll.set_min_content_height(240);
-    scroll.set_child(Some(&editor));
-    scroll
-}
-
 /// The internal subtitle label of an Adw row: it is not a public child, so
 /// a caption/monospace look for file paths reaches it through the tree.
 /// Falls back to the second label (title, then subtitle order) when the
@@ -167,6 +124,26 @@ pub(super) fn row_subtitle<W: IsA<gtk4::Widget>>(row: &W) -> Option<gtk4::Label>
 /// app id that must ellipsize at its middle instead of its end.
 pub(super) fn row_title<W: IsA<gtk4::Widget>>(row: &W) -> Option<gtk4::Label> {
     row_labels(row).0
+}
+
+/// The first GtkLabel below `w` in reading order. GtkDropDown hides its
+/// selected-item label behind a button and a list-item wrapper with no
+/// public accessor — this reaches it to ellipsize long mode names.
+pub(super) fn first_label<W: IsA<gtk4::Widget>>(w: &W) -> Option<gtk4::Label> {
+    fn walk(w: &gtk4::Widget) -> Option<gtk4::Label> {
+        if let Some(l) = w.downcast_ref::<gtk4::Label>() {
+            return Some(l.clone());
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            if let Some(l) = walk(&c) {
+                return Some(l);
+            }
+            child = c.next_sibling();
+        }
+        None
+    }
+    walk(w.upcast_ref())
 }
 
 /// All labels inside an Adw row: (title, subtitle) by their theme classes,
@@ -198,12 +175,144 @@ fn row_labels<W: IsA<gtk4::Widget>>(row: &W) -> (Option<gtk4::Label>, Option<gtk
     (title, subtitle)
 }
 
-/// A link that opens in the default browser, drawn as a flat icon —
-/// send-to (an arrow leaving a box) stands in for external-link, which the
-/// shipped Adwaita theme no longer carries.
-pub(super) fn link_button(uri: &str) -> gtk4::LinkButton {
-    let image = gtk4::Image::from_icon_name("send-to-symbolic");
-    let button = gtk4::LinkButton::builder().uri(uri).child(&image).build();
-    button.add_css_class("flat");
-    button
+/// A bounded monospace card editor: the TextView drops its own `.view`
+/// background so the card fill shows through unchanged, an example hint
+/// sits top-left while the buffer is empty (decorative: no click, no
+/// focus), and the card is 240px minimum, 420px maximum so the page never
+/// becomes one giant block — the content scrolls inside.
+/// The dim-on-disabled rule for every bounded editor, loaded once per
+/// display: the theme keeps TextView text at full opacity when the widget
+/// is insensitive, so a switched-off table would not read as dead.
+fn load_editor_css() {
+    static LOADED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if LOADED.get().is_some() {
+        return;
+    }
+    let _ = LOADED.set(());
+    const EDITOR_CSS: &str = "
+/* insensitive editor content dims; the theme skips TextViews */
+.raw-editor textview:disabled {
+  opacity: 0.45;
+}
+";
+    if let Some(display) = gtk4::gdk::Display::default() {
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_data(EDITOR_CSS);
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
+pub(super) fn bounded_card_editor(
+    view: &TextView,
+    hint_text: &str,
+    a11y_label: &str,
+) -> gtk4::ScrolledWindow {
+    load_editor_css();
+    view.remove_css_class("view");
+    view.set_left_margin(16);
+    view.set_right_margin(16);
+    view.set_top_margin(12);
+    view.set_bottom_margin(12);
+    view.update_property(&[gtk4::accessible::Property::Label(a11y_label)]);
+    let hint = gtk4::Label::new(Some(hint_text));
+    hint.add_css_class("dim-label");
+    hint.add_css_class("monospace");
+    hint.set_xalign(0.0);
+    hint.set_valign(gtk4::Align::Start);
+    hint.set_halign(gtk4::Align::Start);
+    hint.set_margin_start(16);
+    hint.set_margin_top(12);
+    hint.set_can_target(false);
+    hint.set_focusable(false);
+    let overlay = gtk4::Overlay::new();
+    overlay.set_child(Some(view));
+    overlay.add_overlay(&hint);
+    {
+        let hint_into = hint.clone();
+        view.buffer().connect_changed(move |buf| {
+            hint_into.set_visible(buf.char_count() == 0);
+        });
+        hint.set_visible(view.buffer().char_count() == 0);
+    }
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.add_css_class("card");
+    // The dim-on-disabled rule above is scoped to this class.
+    scroll.add_css_class("raw-editor");
+    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    scroll.set_min_content_height(240);
+    scroll.set_max_content_height(420);
+    scroll.set_propagate_natural_height(true);
+    scroll.set_child(Some(&overlay));
+    scroll
+}
+
+/// Gate a raw-table editor on its switch: insensitive while the feature is
+/// off (the bounded editor dims via CSS), and — when it turns off while
+/// the user was typing, e.g. through a live config reload — the caret must
+/// not stay behind in the dead editor, so focus is released.
+pub(crate) fn gate_editor(switch: &adw::SwitchRow, editor: &gtk4::ScrolledWindow) {
+    switch
+        .bind_property("active", editor, "sensitive")
+        .sync_create()
+        .build();
+    {
+        let editor = editor.clone();
+        switch.connect_active_notify(move |sw| {
+            if sw.is_active() {
+                return;
+            }
+            let Some(window) = editor.root().and_downcast::<gtk4::Window>() else {
+                return;
+            };
+            let inside = gtk4::prelude::GtkWindowExt::focus(&window)
+                .is_some_and(|focused| focused.is_ancestor(editor.upcast_ref::<gtk4::Widget>()));
+            if inside {
+                // GtkWindowExt::set_focus — the Widget method of the same
+                // name means "take focus" and would fight this one.
+                gtk4::prelude::GtkWindowExt::set_focus(&window, None::<&gtk4::Widget>);
+            }
+        });
+    }
+}
+
+/// The raw-table line stats, by the parsers' own drop rule (`macros_from_
+/// text` / `emoji_from_text`): a pair needs a `=` and non-empty key and
+/// value. The error line only reports non-blank lines without a `=` — the
+/// other drops stay silent, exactly as they always were. `section` picks
+/// the message keys ("<section>.error_one"/"error_many").
+pub(crate) fn line_stats(text: &str, section: &str) -> (usize, Option<String>) {
+    let lines: Vec<&str> = text.lines().collect();
+    let valid = lines
+        .iter()
+        .filter(|l| {
+            l.split_once('=')
+                .is_some_and(|(k, v)| !k.trim().is_empty() && !v.trim().is_empty())
+        })
+        .count();
+    let bad: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty() && l.split_once('=').is_none())
+        .map(|(i, _)| i + 1)
+        .collect();
+    let error = match bad.as_slice() {
+        [] => None,
+        [n] => Some(
+            t(&format!("{section}.error_one"), "Dòng {n} thiếu dấu =")
+                .replace("{n}", &n.to_string()),
+        ),
+        [first, ..] => Some(
+            t(
+                &format!("{section}.error_many"),
+                "{k} dòng thiếu dấu =, bắt đầu từ dòng {n}",
+            )
+            .replace("{k}", &bad.len().to_string())
+            .replace("{n}", &first.to_string()),
+        ),
+    };
+    (valid, error)
 }
