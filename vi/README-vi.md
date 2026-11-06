@@ -54,9 +54,9 @@ shortcode kèm bảng chọn, luật theo từng ứng dụng và menu panel tù
 - **Cửa sổ cài đặt GTK4 + libadwaita** (kiểu GNOME Settings: thanh bên có nhóm, 11 trang,
   tiếng Việt, tìm kiếm trang bằng Ctrl+F); mọi thay đổi được nạp lại nóng trong khoảng 1 giây.
 - **Sao lưu/khôi phục** toàn bộ cài đặt thành một file JSON.
-- 292 unit test, trong đó có bảng golden 678 ca phím→văn bản (102 hàng Telex + 96 hàng VNI +
-  24 hàng VIQR x 3 biến thể hoa/thường, 12 hàng Microsoft); một test kịch bản widget GTK thêm
-  vào khi build với `--features gui`.
+- 292 unit test, trong đó có bảng golden 894 ca phím→văn bản (102 hàng Telex + 96 hàng VNI +
+  24 hàng VIQR + 72 hàng kiểu gõ bổ sung x 3 biến thể hoa/thường, 12 hàng Microsoft); một test
+  kịch bản widget GTK thêm vào khi build với `--features gui`.
 
 ## Các kiểu hiển thị
 
@@ -274,7 +274,7 @@ bất thường:
 ## Kiểm thử
 
 ```sh
-cargo test                      # 292 unit test, gồm cả bảng golden 678 ca
+cargo test                      # 292 unit test, gồm cả bảng golden 894 ca
 cargo clippy --all-targets
 ```
 
@@ -295,7 +295,7 @@ ibus engine ibus-mangrs
 - `src/macros.rs` — bảng macro + từ điển tùy chọn
 - `src/emoji.rs` — các bảng shortcode: bảng nhúng và `emoji.toml` của người dùng
 - `src/backup.rs` — sao lưu/khôi phục cài đặt, macro và từ điển trong một file JSON
-- `src/golden.rs` — 678 ca golden phím→văn bản
+- `src/golden.rs` — 894 ca golden phím→văn bản
 - `src/ibus_prop.rs` — mã hóa menu property của IBus; `src/keymap.rs` — giải mã keysym
 - `src/debug_log.rs` — log gỡ lỗi tùy chọn tại `~/.cache/ibus-mangrs/debug.log`
 - `src/config.rs` — cài đặt TOML dùng chung bởi engine + GUI; `src/gui/` — cửa sổ cài đặt libadwaita (feature `gui`)
