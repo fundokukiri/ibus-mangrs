@@ -18,6 +18,7 @@ fn gtk_widget_scenarios() {
     external_reload_refreshes_without_saving();
     row_texts_render_as_plain_text();
     rules_add_group_merges_the_focus_chip();
+    rule_rows_and_preview_track_the_engine_match();
 }
 
 /// The reworked "Phím tắt" helpers: the stored spec renders as keycaps with
@@ -117,6 +118,69 @@ fn rules_add_group_merges_the_focus_chip() {
     // A typed name rules over the hint and keeps Thêm enabled.
     ui.rule_name_entry.set_text("fire");
     assert!(ui.rule_add_btn.is_sensitive());
+    // Block A's icon buttons share one 36px box; measure works even while
+    // the pair is hidden (no detected app). The seen-apps chevron is built
+    // with the same request on the page.
+    for btn in [&ui.rule_copy_btn, &ui.rule_apply_btn] {
+        let (min_w, _, _, _) = btn.measure(gtk4::Orientation::Horizontal, -1);
+        let (min_h, _, _, _) = btn.measure(gtk4::Orientation::Vertical, -1);
+        assert_eq!((min_w, min_h), (36, 36), "icon buttons must share 36px");
+    }
+}
+
+/// The rebuilt rule rows: the empty list renders one dim row, a loaded rule
+/// reads back through `read()` unchanged, and the "Thử luật" verdict row
+/// walks the engine's own matcher — icon and subtitle per state.
+fn rule_rows_and_preview_track_the_engine_match() {
+    let ui = widgets();
+    // Empty list: one plain row, not activatable, carrying the notice.
+    ui.fill_rules(&[]);
+    let empty = ui.rules_box.row_at_index(0).expect("empty-state row");
+    assert!(!empty.is_activatable());
+    assert!(empty.downcast_ref::<adw::ActionRow>().is_none());
+    ui.rule_preview_input.set_text("");
+    ui.update_rule_preview();
+    assert_eq!(
+        ui.rule_preview.subtitle().as_deref(),
+        Some("Nhập tên app ở trên để xem kết quả")
+    );
+    assert!(ui.rule_preview_icon.icon_name().as_deref() == Some("system-search-symbolic"));
+    assert!(!ui.rule_preview_icon.has_css_class("success"));
+
+    // One rule: the row round-trips through read(), and the verdict row
+    // reports the match with its priority and mode.
+    ui.fill_rules(&[crate::config::AppRule {
+        pattern: "kate".into(),
+        mode: ModeConfig::Preedit,
+    }]);
+    assert_eq!(
+        ui.read().app_rules,
+        vec![crate::config::AppRule {
+            pattern: "kate".into(),
+            mode: ModeConfig::Preedit,
+        }]
+    );
+    let row = ui
+        .rules_box
+        .row_at_index(0)
+        .and_downcast::<adw::ActionRow>()
+        .expect("rule row");
+    assert_eq!(row.title().as_str(), "kate");
+    ui.rule_preview_input.set_text("kate");
+    ui.update_rule_preview();
+    assert_eq!(
+        ui.rule_preview.subtitle().as_deref(),
+        Some("Khớp luật #1: Gạch chân (preedit)")
+    );
+    assert!(ui.rule_preview_icon.has_css_class("success"));
+    // A non-matching name reports no match, without the success tint.
+    ui.rule_preview_input.set_text("zed");
+    ui.update_rule_preview();
+    assert_eq!(
+        ui.rule_preview.subtitle().as_deref(),
+        Some("Không khớp luật nào")
+    );
+    assert!(!ui.rule_preview_icon.has_css_class("success"));
 }
 
 /// B3 regression: the import path pushes a config into every widget through

@@ -1,16 +1,17 @@
 //! Page "Luật": the per-app rule editor — a merged add-rule form whose
 //! name pill mirrors the focused app (placeholder hint, copy/apply pair,
-//! seen-apps chevron), one ComboRow per rule and the live match preview.
-//! The widgets live in `Ui`; this file lays them out and wires them. The
-//! save funnel comes from the shared `save_cb` handle. The page hosts its
-//! own ToastOverlay for the copy/add confirmations; the window shell stays
-//! untouched.
+//! seen-apps chevron), the priority-ordered rule list (drag handle, ⋮
+//! menu) and the live match preview. The widgets live in `Ui`; this file
+//! lays them out and wires them. The save funnel comes from the shared
+//! `save_cb` handle. The page wraps itself in the shared `rules_overlay`
+//! toast host; the window shell stays untouched.
 
 use super::*;
 
-/// The page's only CSS: the app-name pill and the mode dropdown share one
-/// fill so the form reads as a single control. Named colors only — the
-/// look holds in dark, light and any accent.
+/// The page's unavoidable CSS: the shared pill/dropdown fill, the flat
+/// dropdown's normal-weight label (the theme bolds every button label)
+/// and the drag-and-drop affordances. Named colors only — the look holds
+/// in dark, light and any accent.
 const FORM_CSS: &str = "
 /* shared fill: the app-name pill and the mode dropdown read as one control */
 .rule-fill {
@@ -28,6 +29,21 @@ const FORM_CSS: &str = "
   background: none;
   border: none;
   box-shadow: none;
+}
+/* the theme bolds every button label; these dropdowns read as row text */
+.rule-fill button label, .rule-mode button label {
+  font-weight: normal;
+}
+/* the drop line: a thin accent bar on the hovered row's landing edge */
+.rule-drop-above {
+  border-top: 2px solid @accent_color;
+}
+.rule-drop-below {
+  border-bottom: 2px solid @accent_color;
+}
+/* the dragged row fades while its snapshot follows the pointer */
+.rule-dragging {
+  opacity: 0.4;
 }
 ";
 
@@ -66,16 +82,17 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         "none".to_string(),
     ));
 
-    // The seen-apps chevron: a flat menu button whose popover lists the
-    // targets; picking one fills the pill entry, like the old dropdown.
+    // The seen-apps chevron: a flat round menu button, the same 36px box
+    // as its copy/apply neighbours; the popover lists the targets and
+    // picking one fills the pill entry, like the old dropdown.
     let pick = gtk4::MenuButton::new();
     pick.set_icon_name("pan-down-symbolic");
     pick.add_css_class("flat");
+    pick.add_css_class("circular");
+    pick.set_size_request(36, 36);
     pick.set_valign(gtk4::Align::Center);
-    pick.set_tooltip_text(Some(&t(
-        "rows.rule_combo.tooltip",
-        "Các app engine đã từng thấy",
-    )));
+    pick.set_margin_end(8);
+    pick.set_tooltip_text(Some(&t("rows.rule_combo.tooltip", "Chọn từ app đã thấy")));
     pick.update_property(&[gtk4::accessible::Property::Label(&t(
         "rows.rule_combo.label",
         "Chọn từ app đã thấy",
@@ -108,45 +125,57 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     pick.set_popover(Some(&pick_popover));
 
     // Block A — the name pill and its actions, one native card. The pill
-    // gets its caption here; entry, copy and apply arrive from `Ui`.
-    let card = gtk4::Box::new(Orientation::Horizontal, 6);
+    // is inset by the card's 8px padding on every side, so its 8px radius
+    // never touches the card edge; copy/apply arrive from `Ui`.
+    let card = gtk4::Box::new(Orientation::Horizontal, 8);
     card.add_css_class("card");
-    card.set_margin_top(8);
-    card.set_margin_end(10);
-    card.set_margin_bottom(8);
-    card.set_margin_start(14);
-    card.set_valign(gtk4::Align::Center);
     card.append(&ui.rule_pill);
     card.append(&ui.rule_copy_btn);
     card.append(&ui.rule_apply_btn);
     card.append(&pick);
+    ui.rule_pill.set_margin_top(8);
+    ui.rule_pill.set_margin_bottom(8);
+    ui.rule_pill.set_margin_start(8);
+    ui.rule_pill.set_valign(gtk4::Align::Center);
+    // The caption aligns with the entry text: the entry starts at 10px and
+    // carries ~6px internal padding, so the caption gets the same 16px.
     let caption = gtk4::Label::new(Some(&t("rows.rule_name.title", "Tên app")));
     caption.add_css_class("dim-label");
     caption.add_css_class("caption");
     caption.set_xalign(0.0);
-    caption.set_margin_top(5);
-    caption.set_margin_start(14);
+    caption.set_margin_top(4);
+    caption.set_margin_start(16);
     ui.rule_pill.append(&caption);
     ui.rule_pill.append(&ui.rule_name_entry);
+    ui.rule_name_entry.set_margin_start(10);
+    ui.rule_name_entry.set_margin_end(10);
+    ui.rule_name_entry.set_margin_bottom(6);
 
-    // Block B — mode and Thêm on one line, both children equal width; the
-    // Thêm button is the only suggested-action of the group.
+    // Block B — mode and Thêm on one line, one 10px gap below Block A.
+    // Both children get the SizeGroup's equal width and a 40px height.
     let mode_pick = gtk4::DropDown::new(Some(StringList::new(MODES)), gtk4::Expression::NONE);
     // Preedit is the default rule mode (index of "Gạch chân (preedit)").
     mode_pick.set_selected(mode_index(ModeConfig::Preedit));
     mode_pick.set_hexpand(true);
-    mode_pick.set_valign(gtk4::Align::Fill);
     mode_pick.set_height_request(40);
     mode_pick.add_css_class("rule-fill");
     mode_pick.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
+    if let Some(label) = first_label(&mode_pick) {
+        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    }
     ui.rule_add_btn.set_height_request(40);
+    let sizes = gtk4::SizeGroup::new(gtk4::SizeGroupMode::Horizontal);
+    sizes.add_widget(&mode_pick);
+    sizes.add_widget(&ui.rule_add_btn);
     let line = gtk4::Box::new(Orientation::Horizontal, 10);
-    line.set_margin_top(8);
-    line.set_margin_end(12);
-    line.set_margin_bottom(8);
-    line.set_margin_start(12);
     line.append(&mode_pick);
     line.append(&ui.rule_add_btn);
+
+    // Both blocks are one group child: a plain box spans the group's full
+    // width, so their edges equal every other card on the page.
+    let form = gtk4::Box::new(Orientation::Vertical, 10);
+    form.append(&card);
+    form.append(&line);
 
     let add_group = adw::PreferencesGroup::builder()
         .title(t("groups.rules.add.title", "Thêm luật"))
@@ -155,8 +184,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             "Chuyển sang app đích rồi quay lại, tên app sẽ hiện mờ trong ô nhập.",
         ))
         .build();
-    add_group.add(&card);
-    add_group.add(&line);
+    add_group.add(&form);
     page.add(&add_group);
 
     let list_group = adw::PreferencesGroup::builder()
@@ -171,7 +199,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native.",
     )));
     list_group.add(&ui.rules_box);
-    list_group.add(&ui.rules_status);
     page.add(&list_group);
 
     let preview_group = adw::PreferencesGroup::builder()
@@ -184,11 +211,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     preview_group.add(&ui.rule_preview_input);
     preview_group.add(&ui.rule_preview);
     page.add(&preview_group);
-
-    // The page's own toast host: the copy/add confirmations must surface
-    // somewhere, and the window shell stays untouched by this page work.
-    let toast_overlay = adw::ToastOverlay::new();
-    toast_overlay.set_child(Some(&page));
 
     // Typing or a new hint both move the Thêm button; detection only ever
     // shows as the placeholder, never over typed text.
@@ -203,7 +225,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let add_rule: Rc<dyn Fn()> = {
         let ui = ui.clone();
         let mode_pick = mode_pick.clone();
-        let overlay = toast_overlay.clone();
+        let overlay = ui.rules_overlay.clone();
         Rc::new(move || {
             let typed = ui.rule_name_entry.text().trim().to_string();
             let pattern = if typed.is_empty() {
@@ -254,7 +276,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     }
     {
         let ui = ui.clone();
-        let overlay = toast_overlay.clone();
+        let overlay = ui.rules_overlay.clone();
         let copy = ui.rule_copy_btn.clone();
         copy.connect_clicked(move |_| {
             let value = ui.rule_focus_value.borrow().clone();
@@ -277,5 +299,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         });
     }
 
-    toast_overlay
+    ui.rules_overlay.set_child(Some(&page));
+    ui.rules_overlay.clone()
 }
