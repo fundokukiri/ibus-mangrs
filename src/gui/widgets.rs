@@ -112,37 +112,6 @@ pub(super) fn text_view(content: &str) -> TextView {
     view
 }
 
-/// A dictionary-style card editor: a monospace text view in a rounded
-/// card, with a dim placeholder overlay that disappears once text exists.
-/// The view drops its own .view background — it would paint over the
-/// card's rounded corners, and the card bg is the same color in both
-/// themes.
-pub(super) fn card_text_editor(view: &TextView, placeholder_text: &str) -> gtk4::ScrolledWindow {
-    view.remove_css_class("view");
-    view.set_vexpand(true);
-    let placeholder = gtk4::Label::new(Some(placeholder_text));
-    placeholder.add_css_class("dim-label");
-    placeholder.add_css_class("caption");
-    placeholder.set_valign(gtk4::Align::Center);
-    // A visible overlay label still targets pointer events and would eat
-    // the first click into the empty editor.
-    placeholder.set_can_target(false);
-    let editor = gtk4::Overlay::new();
-    editor.set_child(Some(view));
-    editor.add_overlay(&placeholder);
-    {
-        let buf = view.buffer();
-        placeholder.set_visible(buf.char_count() == 0);
-        buf.connect_changed(move |b| placeholder.set_visible(b.char_count() == 0));
-    }
-    let scroll = gtk4::ScrolledWindow::new();
-    scroll.add_css_class("card");
-    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    scroll.set_min_content_height(240);
-    scroll.set_child(Some(&editor));
-    scroll
-}
-
 /// The internal subtitle label of an Adw row: it is not a public child, so
 /// a caption/monospace look for file paths reaches it through the tree.
 /// Falls back to the second label (title, then subtitle order) when the

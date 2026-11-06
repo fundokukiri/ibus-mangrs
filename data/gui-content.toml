@@ -252,9 +252,11 @@ description = "Từ trong từ điển không bị khôi phục về chuỗi ph�
 
 [groups.data.words]
 title = "Danh sách từ"
+description = "Mỗi dòng một từ."
+count = "{n} từ"
 open_button = "Mở tệp"
-open_tooltip = "Mở dictionary.txt bằng ứng dụng mặc định"
-placeholder = "Mỗi dòng một từ — danh sách đang trống"
+open_tooltip = "Mở tệp từ điển trong trình soạn thảo"
+hint = "github\nlinux\nrust"
 
 [rows.dictionary_enabled]
 title = "Dùng từ điển cá nhân"
