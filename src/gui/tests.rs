@@ -23,6 +23,7 @@ fn gtk_widget_scenarios() {
     macros_editor_follows_the_switch();
     emoji_editor_follows_the_switch();
     toggling_off_releases_the_editor_caret();
+    every_switch_triggers_save();
 }
 
 /// While typing in a raw table, a switch turned off (by hand or by a live
@@ -508,5 +509,49 @@ fn row_texts_render_as_plain_text() {
     assert_eq!(
         ui.bypass_url.subtitle().as_deref(),
         Some("Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên")
+    );
+}
+
+/// Every switch wired by `wire_switch_saves` must fire the save funnel
+/// when toggled — a row missing from that list edits on screen only and
+/// never reaches `config.toml` (the "Ẩn gạch chân" switch). Each row
+/// flips away from its current state, so the notify always fires.
+fn every_switch_triggers_save() {
+    let ui = widgets();
+    let saves = Rc::new(Cell::new(0u32));
+    let counter = saves.clone();
+    wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
+    let rows: [&adw::SwitchRow; 19] = [
+        &ui.enabled,
+        &ui.modern,
+        &ui.free,
+        &ui.auto_correct,
+        &ui.auto_restore,
+        &ui.abbrev,
+        &ui.bypass_url,
+        &ui.em_dash,
+        &ui.auto_capitalize,
+        &ui.double_space,
+        &ui.macro_enabled,
+        &ui.capitalize_macro,
+        &ui.macro_in_off_mode,
+        &ui.emoji_enabled,
+        &ui.dictionary_enabled,
+        &ui.hide_underline,
+        &ui.debug_log,
+        &ui.x11_delete,
+        &ui.preedit_xim,
+    ];
+    for row in rows {
+        let before = saves.get();
+        row.set_active(!row.is_active());
+        assert!(saves.get() > before, "a switch toggled without saving");
+    }
+    // The reported bug end to end: the toggled state survives read(), so
+    // the next save writes it and refresh restores it after a reopen.
+    ui.hide_underline.set_active(true);
+    assert!(
+        ui.read().hide_underline,
+        "read() must see the toggled switch"
     );
 }

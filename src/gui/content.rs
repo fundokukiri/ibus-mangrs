@@ -635,30 +635,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         // The rule rows are created by `refresh`, so they save through this
         // handle instead of a closure captured at build time.
         *ui.save_cb.borrow_mut() = Some(Rc::new(save.clone()));
-        macro_rules! on_change {
-            ($w:expr) => {{
-                let s = save.clone();
-                $w.connect_active_notify(move |_| s());
-            }};
-        }
-        on_change!(ui.enabled);
-        on_change!(ui.modern);
-        on_change!(ui.free);
-        on_change!(ui.auto_correct);
-        on_change!(ui.auto_restore);
-        on_change!(ui.abbrev);
-        on_change!(ui.bypass_url);
-        on_change!(ui.em_dash);
-        on_change!(ui.auto_capitalize);
-        on_change!(ui.double_space);
-        on_change!(ui.macro_enabled);
-        on_change!(ui.capitalize_macro);
-        on_change!(ui.macro_in_off_mode);
-        on_change!(ui.emoji_enabled);
-        on_change!(ui.dictionary_enabled);
-        on_change!(ui.debug_log);
-        on_change!(ui.x11_delete);
-        on_change!(ui.preedit_xim);
+        wire_switch_saves(&ui, Rc::new(save.clone()));
         {
             let s = save.clone();
             ui.method.connect_selected_notify(move |_| s());
@@ -747,6 +724,40 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     }
 
     window.present();
+}
+
+/// Wire every boolean row the window owns to the save funnel — one
+/// `on_change!` per switch field. A switch missing here still toggles on
+/// screen but never reaches `config.toml` (the "Ẩn gạch chân" bug), so
+/// the gui tests flip this whole list and assert each one saves.
+/// `desktop_icon` is wired on its page instead: it carries a loading
+/// guard for its filesystem side effect, not a plain config save.
+pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
+    macro_rules! on_change {
+        ($w:expr) => {{
+            let s = Rc::clone(&save);
+            $w.connect_active_notify(move |_| s());
+        }};
+    }
+    on_change!(ui.enabled);
+    on_change!(ui.modern);
+    on_change!(ui.free);
+    on_change!(ui.auto_correct);
+    on_change!(ui.auto_restore);
+    on_change!(ui.abbrev);
+    on_change!(ui.bypass_url);
+    on_change!(ui.em_dash);
+    on_change!(ui.auto_capitalize);
+    on_change!(ui.double_space);
+    on_change!(ui.macro_enabled);
+    on_change!(ui.capitalize_macro);
+    on_change!(ui.macro_in_off_mode);
+    on_change!(ui.emoji_enabled);
+    on_change!(ui.dictionary_enabled);
+    on_change!(ui.hide_underline);
+    on_change!(ui.debug_log);
+    on_change!(ui.x11_delete);
+    on_change!(ui.preedit_xim);
 }
 
 /// mtime of config.toml, `None` while it does not exist yet — the watch
