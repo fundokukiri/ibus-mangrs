@@ -218,23 +218,22 @@ subtitle = "Vẫn mở rộng khi tiếng Việt đang tắt"
 
 [rows.emoji_enabled]
 title = "Gõ tắt emoji"
-subtitle = "Gõ :ten: kèm dấu hai chấm sẽ thành emoji khi hết từ"
+subtitle = "Gõ <tt>:ten:</tt> kèm dấu hai chấm sẽ thành emoji khi hết từ"
 
 [rows.hotkey_emoji]
 title = "Phím tắt mở bảng emoji"
 subtitle = "Mở menu chọn emoji tại con trỏ: 1-9/0 chọn, gõ chữ để tìm"
 
-[groups.emoji.settings]
-title = "Emoji"
-description = "Gõ :ten: kèm hai dấu hai chấm sẽ thành emoji khi hết từ"
+[groups.emoji.shortcut]
+subtitle = "Mở menu chọn emoji tại con trỏ. Gán ở trang Phím tắt."
 
 [groups.emoji.raw]
 title = "Bảng emoji riêng"
-description = "Mỗi dòng một cặp ten=emoji — ghi đè hoặc thêm shortcode (chữ thường)"
-placeholder = "ten=emoji — mỗi dòng một cặp"
-
-[groups.emoji.note]
-text = "Phím tắt mở bảng chọn emoji gán ở trang Phím tắt."
+description = "Mỗi dòng một cặp <tt>ten=emoji</tt>. Ghi đè hoặc thêm shortcode (chữ thường)."
+hint = "cuoi=😄\ntim=❤️\nok=👌"
+count = "{n} mục"
+error_one = "Dòng {n} thiếu dấu ="
+error_many = "{k} dòng thiếu dấu =, bắt đầu từ dòng {n}"
 
 [rows.macro_key]
 tooltip = "Khóa gõ tắt (gõ xong sẽ mở rộng)"
