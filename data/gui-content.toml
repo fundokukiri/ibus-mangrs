@@ -67,17 +67,11 @@ focus_none = "Không có cửa sổ nào đang focus"
 
 # --- page Chung -------------------------------------------------------------
 
-[groups.typing.status]
-title = "Trạng thái"
-description = "Bật tiếng Việt"
-
 [groups.typing.style]
 title = "Cách gõ"
-description = "Kiểu gõ, bảng mã và chế độ gõ"
 
 [groups.typing.display]
 title = "Hiển thị"
-description = "Hình thức của chữ đang gõ"
 
 [groups.hotkeys.custom]
 title = "Phím tắt riêng"
@@ -92,15 +86,15 @@ subtitle = "{n} chế độ, xoay vòng"
 
 [rows.enabled]
 title = "Bật tiếng Việt"
-subtitle = "Tắt để gõ thẳng mọi phím (gõ tắt vẫn chạy nếu bật ở tab Gõ tắt)"
+subtitle = "Tắt để gõ thẳng mọi phím. Gõ tắt vẫn chạy nếu bật ở trang {page}."
 
 [rows.method]
 title = "Kiểu gõ"
-subtitle = "Telex, VNI, VIQR, Microsoft layout"
+subtitle = "Cách gõ dấu tiếng Việt"
 
 [rows.mode]
 title = "Chế độ gõ"
-subtitle = "Tự động, Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF"
+subtitle = "Cách đưa chữ vào ứng dụng"
 
 [rows.charset]
 title = "Bảng mã"
