@@ -316,13 +316,3 @@ pub(crate) fn line_stats(text: &str, section: &str) -> (usize, Option<String>) {
     };
     (valid, error)
 }
-
-/// A link that opens in the default browser, drawn as a flat icon —
-/// send-to (an arrow leaving a box) stands in for external-link, which the
-/// shipped Adwaita theme no longer carries.
-pub(super) fn link_button(uri: &str) -> gtk4::LinkButton {
-    let image = gtk4::Image::from_icon_name("send-to-symbolic");
-    let button = gtk4::LinkButton::builder().uri(uri).child(&image).build();
-    button.add_css_class("flat");
-    button
-}
