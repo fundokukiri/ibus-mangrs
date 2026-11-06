@@ -22,6 +22,63 @@ fn gtk_widget_scenarios() {
     macro_page_helpers_count_and_preview();
     macros_editor_follows_the_switch();
     emoji_editor_follows_the_switch();
+    toggling_off_releases_the_editor_caret();
+}
+
+/// While typing in a raw table, a switch turned off (by hand or by a live
+/// config reload) must not leave the caret blinking in the dead editor —
+/// focus is released. The text itself stays.
+fn toggling_off_releases_the_editor_caret() {
+    let ui = widgets();
+    let page = crate::gui::pages::data::build(&ui);
+    let win = gtk4::Window::new();
+    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
+    win.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    ui.dictionary_text.grab_focus();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let scroll = find_card_scroll(page.upcast_ref()).expect("the editor card");
+    // The editor must be live to take focus at all (switch on first).
+    ui.dictionary_enabled.set_active(true);
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    // grab_focus is unreliable in a test window the display never
+    // activates; the focus-widget property is the same state the gate
+    // releases.
+    gtk4::prelude::GtkWindowExt::set_focus(&win, Some(&ui.dictionary_text));
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let focused = gtk4::prelude::GtkWindowExt::focus(&win);
+    println!(
+        "DEBUG focus after set_focus: {:?} inside={}",
+        focused.as_ref().map(|f| f.type_().name().to_string()),
+        focused.as_ref().is_some_and(|f| f.is_ancestor(&scroll))
+    );
+    assert!(
+        focused.is_some_and(|f| f.is_ancestor(&scroll)),
+        "the caret starts inside the editor"
+    );
+    ui.dictionary_enabled.set_active(false);
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let focused = gtk4::prelude::GtkWindowExt::focus(&win);
+    assert!(
+        !focused.is_some_and(|f| f.is_ancestor(&scroll)),
+        "no caret may stay in the disabled editor"
+    );
+    // The text survives the round trip.
+    ui.dictionary_enabled.set_active(true);
+    for _ in 0..5 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    assert!(scroll.is_sensitive());
 }
 
 /// The editor card of a raw-table page: the page's only ScrolledWindow
