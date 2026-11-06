@@ -17,9 +17,9 @@ fn action_button(icon_name: &str, label: &str) -> gtk4::Button {
     content.append(&text);
     let btn = gtk4::Button::new();
     btn.set_child(Some(&content));
-    // Two reasons the row-suffix button reads bulky (owner feedback): the
-    // theme padding, and GTK stretching the button to the full row height
-    // — center it and tighten the padding.
+    // Centered vertically: full-height stretch read bulky (owner
+    // feedback), a natural-height button read too small — the CSS
+    // min-height balances it against the row's switch.
     btn.set_valign(gtk4::Align::Center);
     btn.add_css_class("compact-button");
     btn
@@ -28,10 +28,10 @@ fn action_button(icon_name: &str, label: &str) -> gtk4::Button {
 /// The page's only CSS: the row-suffix action buttons come out bulky with
 /// the theme defaults; the compact class tightens them without CSS fonts.
 const PAGE_CSS: &str = "
-/* compact row-suffix action buttons */
+/* compact row-suffix action buttons, balanced with the row's switch height */
 .compact-button {
-  padding: 4px 10px;
-  min-height: 0;
+  padding: 4px 12px;
+  min-height: 46px;
 }
 ";
 
