@@ -35,6 +35,11 @@ none = "Không có kết quả"
 page_kind = "Trang"
 
 [misc]
+reinstall_button = "Cài lại"
+exported_toast = "Đã xuất cấu hình"
+imported_toast = "Đã nhập cấu hình"
+reset_toast = "Đã khôi phục mặc định"
+json_filter = "Tệp JSON"
 unassigned = "Chưa gán"
 a11y_unassigned = "chưa gán"
 capture_waiting = "Đang chờ phím…"
@@ -371,19 +376,15 @@ description = "Cho app X11 trực tiếp và app XIM (Java/JetBrains)"
 
 [groups.other.backup]
 title = "Sao lưu &amp; khôi phục"
-description = "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng"
+description = "Một tệp JSON chứa cấu hình, gõ tắt và từ điển."
 
 [rows.export]
 title = "Xuất cấu hình ra JSON"
-subtitle = "Lưu ra file để mang đi"
+subtitle = "Lưu ra tệp để mang đi hoặc dự phòng"
 
 [rows.import]
 title = "Nhập cấu hình từ JSON"
-subtitle = "Đọc lại từ file đã xuất"
-
-[groups.other.diagnostics]
-title = "Chẩn đoán"
-description = "Ghi lại quyết định của engine để gỡ lỗi"
+subtitle = "Đọc lại từ tệp đã xuất"
 
 [groups.hotkeys.keys]
 title = "Phím tắt mặc định"
@@ -394,18 +395,19 @@ title = "Giao diện"
 
 [groups.other.extension]
 title = "GNOME Shell extension"
-description = "Cần cho luật theo app trên Wayland (tên cửa sổ đang focus)"
+description = "Cần cho luật theo app trên Wayland."
 
-[groups.other.reset]
-title = "Khôi phục"
+[groups.other.advanced]
+title = "Nâng cao"
 
 [rows.desktop_icon]
 title = "Hiện trong menu ứng dụng"
-subtitle = "Icon MăngRS Cấu hình trong lưới ứng dụng của GNOME"
+subtitle = "Hiện biểu tượng MăngRS Cấu hình trong lưới ứng dụng của GNOME"
 
 [rows.focus_extension]
 title = "Extension MăngRS Focus"
-subtitle = "Cài vào ~/.local/share/gnome-shell/extensions và bật"
+subtitle = "Cài vào <tt>~/.local/share/gnome-shell/extensions</tt> và bật"
+subtitle_installed = "Đã cài vào <tt>~/.local/share/gnome-shell/extensions</tt>"
 
 [rows.reset_defaults]
 title = "Khôi phục mặc định"
@@ -413,7 +415,7 @@ subtitle = "Cấu hình về mặc định; gõ tắt và từ điển giữ ngu
 
 [rows.debug_log]
 title = "Ghi log gỡ lỗi"
-subtitle = "Ghi vào ~/.cache/ibus-mangrs/debug.log"
+subtitle_markup = "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangrs/debug.log</tt>"
 
 [rows.x11_delete]
 title = "Xoá đuôi từ ở app X11"
