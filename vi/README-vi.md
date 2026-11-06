@@ -4,17 +4,17 @@
 
 # MăngRS
 
-**Tiếng Việt** | [English](README.md)
+**Tiếng Việt** | [English](../README.md)
 
 Bộ máy gõ tiếng Việt cho **IBus**, viết bằng **Rust** trên nền
 [`bamboo-core`](https://crates.io/crates/bamboo-core). Hỗ trợ các bố cục Telex, VNI, VIQR và
 Microsoft, mười kiểu hiển thị (Preedit, NonPreedit, Surrounding, hai kiểu ForwardKeyEvent, ba
-kiểu uinput, OFF, Default Typing), cửa sổ cài đặt GTK4, macro, từ điển tùy chọn và luật theo
-từng ứng dụng.
+kiểu uinput, OFF, Default Typing), cửa sổ cài đặt GTK4, macro, từ điển tùy chọn, emoji qua
+shortcode kèm bảng chọn, luật theo từng ứng dụng và menu panel tùy chỉnh được.
 
 > **Trạng thái nền tảng:** phát triển và kiểm thử trên **Arch Linux** (IBus 1.5.34, GNOME 51,
 > Wayland; X11 đã kiểm thử nhanh). Các bản phân phối và môi trường desktop khác **chưa được
-> kiểm thử** — IBus ≥ 1.5 và GTK4 là hai yêu cầu bắt buộc duy nhất, nên nó phải hoạt động ở
+> kiểm thử** — IBus ≥ 1.5 và GTK4 + libadwaita là các yêu cầu bắt buộc duy nhất, nên nó phải hoạt động ở
 > bất cứ đâu IBus hoạt động. Rất mong nhận phản hồi từ các distro khác.
 
 ---
@@ -42,11 +42,21 @@ từng ứng dụng.
 - **Macro** với mở rộng `$TIME` / `$DATE` và viết hoa thông minh; phím tắt macro là một từ
   tiếng Việt hợp lệ thì không bao giờ tự mở rộng khi bạn đang gõ từ đó bình thường.
 - **Từ điển tùy chọn**: những từ không bao giờ bị tự khôi phục.
-- **Cửa sổ cài đặt GTK4** (5 trang, tiếng Việt); mọi thay đổi được nạp lại nóng trong khoảng
-  1 giây.
+- **Emoji qua shortcode và bảng chọn**: gõ `:name:` sẽ được thay bằng emoji (tắt theo mặc
+  định), và một phím tắt có thể gán mở bảng chọn ngay tại con trỏ — khoảng 1.900 emoji có sẵn
+  với từ khóa tiếng Việt và tiếng Anh, điều hướng được bằng bàn phím (mũi tên, đổi trang, chữ
+  số, gõ để tìm, Enter). Các cặp `name = "glyph"` riêng trong `~/.config/ibus-mangrs/emoji.toml`
+  ghi đè hoặc mở rộng bảng này.
+- **Menu panel tùy chỉnh và phím tắt riêng**: menu trên panel (thư mục, chức năng, nhóm radio,
+  dấu phân cách, thứ tự, tên) được thiết kế lại trong cửa sổ cài đặt, và menu mặc định được giữ
+  nguyên khi chưa có thiết kế nào được lưu; 14 chức năng nhận phím tắt gán được, cùng một phím
+  tắt thứ hai để bật/tắt tiếng Việt.
+- **Cửa sổ cài đặt GTK4 + libadwaita** (kiểu GNOME Settings: thanh bên có nhóm, 11 trang,
+  tiếng Việt, tìm kiếm trang bằng Ctrl+F); mọi thay đổi được nạp lại nóng trong khoảng 1 giây.
 - **Sao lưu/khôi phục** toàn bộ cài đặt thành một file JSON.
-- 227 unit test, trong đó có bảng golden 678 ca phím→văn bản (102 hàng Telex + 96 hàng VNI +
-  24 hàng VIQR x 3 biến thể hoa/thường, 12 hàng Microsoft).
+- 292 unit test, trong đó có bảng golden 678 ca phím→văn bản (102 hàng Telex + 96 hàng VNI +
+  24 hàng VIQR x 3 biến thể hoa/thường, 12 hàng Microsoft); một test kịch bản widget GTK thêm
+  vào khi build với `--features gui`.
 
 ## Các kiểu hiển thị
 
@@ -70,16 +80,16 @@ preedit; chúng dành cho phiên X11).
 
 ## Yêu cầu
 
-| Distro          | Gói cài đặt                                  |
-| --------------- | -------------------------------------------- |
-| Arch            | `ibus` `gtk4` (build: `rust`)                |
-| Debian / Ubuntu | `ibus` `libgtk-4-dev` (build: `cargo rustc`) |
-| Fedora          | `ibus` `gtk4-devel` (build: `rust cargo`)    |
-| openSUSE        | `ibus` `gtk4-devel` (build: `rust cargo`)    |
+| Distro          | Gói do trình cài một dòng cài                                              |
+| --------------- | -------------------------------------------------------------------------- |
+| Arch            | `ibus` `gtk4` `libadwaita` `dbus`, `gcc` `make` `pkgconf`                  |
+| Debian / Ubuntu | `ibus` `libgtk-4-dev` `libadwaita-1-dev` `libdbus-1-dev`, build-essential  |
+| Fedora          | `ibus` `gtk4-devel` `libadwaita-devel` `dbus-devel`, `gcc` `make`          |
 
-Các tên gói ở trên là tên chuẩn nhưng **chưa được xác minh trên các distro đó** — chỉ dòng
-Arch là đã được kiểm thử. IBus phải là khung phương thức nhập đang hoạt động (trên GNOME thì
-mặc định đã là vậy).
+Trình cài nhận diện distro (apt / pacman / dnf), chỉ cài những gói còn thiếu và để Rust cho
+rustup; cần GTK 4.10+ và libadwaita 1.5+ (Ubuntu 22.04 chỉ có GTK 4.6). Chỉ đường dẫn Arch là
+đã được kiểm thử — tên gói Debian/Ubuntu và Fedora là tên chuẩn nhưng chưa được xác minh ở đó.
+IBus phải là khung phương thức nhập đang hoạt động (trên GNOME thì mặc định đã là vậy).
 
 ## Build
 
@@ -94,11 +104,12 @@ Phần lõi engine đến từ crate `bamboo-core` trên crates.io. Có thể xe
 
 ### Cài một dòng (online)
 
-Tải mã nguồn, build và cài — cần `curl`, Rust (`cargo`), `ibus`, `gtk4` và `sudo`; udev rule
-cho `/dev/uinput` và nhóm `input` được thiết lập sẵn cho bạn:
+Tải mã nguồn, build và cài; các phụ thuộc build còn thiếu (IBus, GTK4, toolchain build, Rust)
+được cài giúp bạn, nên ban đầu chỉ cần `curl` và `sudo`. Udev rule cho `/dev/uinput` và nhóm
+`input` cũng được thiết lập sẵn:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/dev/scripts/install-online.sh | sh
+curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
 ```
 
 (Bơm script vào `sh` nghĩa là chạy code từ mạng — bạn nên đọc qua nó trước nếu điều đó quan
@@ -106,15 +117,10 @@ trọng với mình.)
 
 ### Từ bản checkout cục bộ
 
-Một bước (build + cài + khởi động lại IBus):
+Build, cài và khởi động lại IBus:
 
 ```sh
-./scripts/autoinstall.sh
-```
-
-Hoặc thủ công:
-
-```sh
+cargo build --release --features gui
 sudo ./scripts/install.sh
 ibus restart
 ```
@@ -166,11 +172,14 @@ Kiểm tra: `ls -l /dev/uinput` phải hiện `crw-rw---- root input`.
 | Mở cửa sổ cài đặt         | menu nguồn nhập → _Cài đặt…_, hoặc `ibus-engine-ibus-mangrs -gui`                      |
 | Đổi kiểu gõ               | menu → _Input Method_ (Telex / VNI / VIQR / Microsoft), hoặc GUI                       |
 | Đổi bảng mã               | menu → _Charset_ (11 bảng mã), hoặc GUI                                                |
-| Đổi kiểu hiển thị         | menu → _Display_ (4 kiểu chính), hoặc GUI (10 kiểu), hoặc phím tắt xoay vòng           |
-| Phím tắt đổi kiểu hiển thị | GUI tab _Kiểu gõ_ → _Phím tắt đổi chế độ_ (vd. `Control+Alt+v`)                       |
+| Đổi kiểu hiển thị         | menu → _Display_ (4 kiểu theo mặc định; menu tùy chỉnh được), hoặc GUI (10 kiểu), hoặc phím tắt xoay vòng |
+| Phím tắt đổi kiểu hiển thị | GUI trang _Phím tắt_ → _Thứ tự khi đổi chế độ_ (vd. `Control+Alt+v`)                  |
 | Cài đặt nhanh             | menu → _Quick Settings_ (macro, tự viết hoa, từ viết tắt, khôi phục từ ngoại lai)      |
+| Gõ emoji                  | gõ `:name:` (bật ở trang _Emoji_), hoặc phím tắt emoji mở bảng chọn tại con trỏ        |
+| Sắp lại menu trên panel   | GUI trang _Menu trên panel_ (thư mục, chức năng, nhóm radio, dấu phân cách)            |
+| Gán phím tắt              | GUI trang _Phím tắt_ (14 chức năng — nhấp vào hàng, nhấn tổ hợp)                       |
 | Gõ tiếng Anh / code       | cứ gõ bình thường — từ không hợp lệ quay về phím thô; URL/email/đường dẫn giữ nguyên   |
-| Kiểu hiển thị theo ứng dụng | GUI tab _Dữ liệu_ → _Luật theo ứng dụng_ (xem Luật ứng dụng bên dưới)                |
+| Kiểu hiển thị theo ứng dụng | GUI trang _Luật theo app_ (xem Luật ứng dụng bên dưới)                               |
 
 ## Luật ứng dụng (kiểu hiển thị theo từng ứng dụng)
 
@@ -178,10 +187,11 @@ Một luật ép một kiểu hiển thị cho một ứng dụng và ghi đè k
 giá theo thứ tự và **luật khớp đầu tiên thắng**, nên hãy đặt các pattern cụ thể phía trên các
 pattern tổng quát.
 
-**Trong cửa sổ cài đặt:** tab _Dữ liệu_ → _Luật theo ứng dụng_. Chọn một ứng dụng trong
-dropdown, chọn một kiểu, nhấn _Thêm luật_: luật được nối vào dưới dạng dòng `name=mode` và
-lưu cùng phần còn lại của cài đặt (sửa trực tiếp trong ô văn bản sẽ được lưu khi bạn nhấp ra
-ngoài). Dropdown chỉ liệt kê các ứng dụng engine đã từng thấy (50 mục mới nhất,
+**Trong cửa sổ cài đặt:** trang _Luật theo app_. Chọn một ứng dụng trong ô tên (hoặc chép ứng
+dụng đang focus), chọn một kiểu, nhấn _Thêm luật_: luật được lưu cùng phần còn lại của cài
+đặt. Mỗi luật là một dòng, kéo để sắp xếp lại (menu ⋮ có Lên/Xuống/Xóa; xóa có toast Hoàn
+tác), và _Thử luật_ cho biết một tên ứng dụng khớp luật nào. Dropdown chỉ liệt kê các ứng
+dụng engine đã từng thấy (50 mục mới nhất,
 `~/.cache/ibus-mangrs/clients`) cùng hai đích giả: `gnome-shell (app Wayland)` — mọi ứng dụng
 Wayland khi chưa cài extension focus — và `(app không báo tên)` — các ứng dụng không báo tên
 nào cả. Gõ một lần trong ứng dụng để nó xuất hiện trong danh sách.
@@ -226,7 +236,7 @@ nhân đôi văn bản.
 
 ## Tùy chọn X11/XIM
 
-Hai công tắc tương thích trong cửa sổ cài đặt (tab _Kiểu gõ_ → _Tương thích X11/XIM_). Cả
+Hai công tắc tương thích trong cửa sổ cài đặt (trang _Tinh chỉnh_ → _Tương thích X11/XIM_). Cả
 hai đều **tắt theo mặc định**, và cả hai chỉ cần cho các ứng dụng tiếp cận engine theo cách
 bất thường:
 
@@ -240,6 +250,7 @@ bất thường:
 ```
 ~/.config/ibus-mangrs/config.toml     # toàn bộ cài đặt, nạp lại nóng trong khoảng 1 giây
 ~/.config/ibus-mangrs/macros.toml     # mỗi dòng một key=expansion, $TIME / $DATE
+~/.config/ibus-mangrs/emoji.toml      # các cặp name = "glyph", cùng định dạng với macros.toml
 ~/.config/ibus-mangrs/dictionary.txt  # các từ không bao giờ bị tự khôi phục
 ```
 
@@ -254,7 +265,7 @@ bất thường:
   chỉ báo cáo các ứng dụng đó như một mutter relay ẩn danh, nên engine không có tên để khớp.
   Cài extension GNOME Shell đi kèm (`data/gnome-shell-extension/README.md`), rồi đăng xuất và
   đăng nhập lại — sửa hoặc bật tại chỗ là chưa đủ.
-- **Trường hợp khác**: bật _Ghi log gỡ lỗi_ (GUI tab _Kiểu gõ_ → _Chẩn đoán_, hoặc
+- **Trường hợp khác**: bật _Ghi log gỡ lỗi_ (GUI trang _Cài đặt khác_, hoặc
   `debug_log = true` trong `config.toml`), tái hiện sự cố, và đính kèm
   `~/.cache/ibus-mangrs/debug.log` — engine ghi log mọi thay đổi focus, capability, quyết
   định xử lý phím và xóa/bơm phím với dấu thời gian đến mili giây, đối chiếu được với
@@ -263,7 +274,7 @@ bất thường:
 ## Kiểm thử
 
 ```sh
-cargo test                      # 227 unit test, gồm cả bảng golden 678 ca
+cargo test                      # 292 unit test, gồm cả bảng golden 678 ca
 cargo clippy --all-targets
 ```
 
@@ -276,17 +287,18 @@ ibus engine ibus-mangrs
 
 ## Kiến trúc
 
-- `src/server.rs` — D-Bus, message filter, menu property, phím tắt, theo dõi cấu hình, các key transport
-- `src/engine.rs` — máy trạng thái: kiểu hiển thị, Luật ứng dụng, macro, khôi phục, xác minh/sửa chữa
+- `src/server/` — D-Bus, message filter, menu panel, phím tắt, theo dõi cấu hình, các key transport, cửa sổ bảng chọn emoji
+- `src/engine/` — máy trạng thái: kiểu hiển thị, Luật ứng dụng, macro, khôi phục, xác minh/sửa chữa
 - `src/bamboo_wrapper.rs` — nơi duy nhất chạm vào `bamboo-core`; tự tính delta đầu ra
 - `src/uinput.rs` — bàn phím ảo: Backspace có nhịp, chọn vùng, Ctrl+V (bảng phím US-QWERTY)
 - `src/paste.rs` — kênh Unicode qua clipboard cho các kiểu uinput (khôi phục có debounce)
 - `src/macros.rs` — bảng macro + từ điển tùy chọn
+- `src/emoji.rs` — các bảng shortcode: bảng nhúng và `emoji.toml` của người dùng
 - `src/backup.rs` — sao lưu/khôi phục cài đặt, macro và từ điển trong một file JSON
 - `src/golden.rs` — 678 ca golden phím→văn bản
 - `src/ibus_prop.rs` — mã hóa menu property của IBus; `src/keymap.rs` — giải mã keysym
 - `src/debug_log.rs` — log gỡ lỗi tùy chọn tại `~/.cache/ibus-mangrs/debug.log`
-- `src/config.rs` — cài đặt TOML dùng chung bởi engine + GUI; `src/gui.rs` — cửa sổ GTK4 (feature `gui`)
+- `src/config.rs` — cài đặt TOML dùng chung bởi engine + GUI; `src/gui/` — cửa sổ cài đặt libadwaita (feature `gui`)
 
 ## Giấy phép
 

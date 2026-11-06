@@ -73,7 +73,12 @@ pub const CHARSETS: &[(&str, &str)] = &[
 /// (menu key, label) for every input method.
 pub const METHODS: &[(&str, &str)] = &[
     ("telex", "Telex"),
+    ("telex2", "Telex 2"),
+    ("telexw", "Telex W"),
+    ("telexvni", "Telex + VNI"),
+    ("telexvniviqr", "Telex + VNI + VIQR"),
     ("vni", "VNI"),
+    ("vnifrench", "VNI bàn phím Pháp"),
     ("viqr", "VIQR"),
     ("microsoft", "Microsoft layout"),
 ];
@@ -83,6 +88,7 @@ pub const METHODS: &[(&str, &str)] = &[
 /// are reachable through the GUI — duplicated near-identical choices only
 /// widen the popup.
 pub const MODES: &[(&str, &str)] = &[
+    ("auto", "Tự động"),
     ("nonpreedit", "Không gạch chân"),
     ("preedit", "Gạch chân (preedit)"),
     ("surrounding", "Surrounding text"),
@@ -92,7 +98,6 @@ pub const MODES: &[(&str, &str)] = &[
     ("forwardkeyevent", "ForwardKeyEvent (Backspace)"),
     ("forwardselect", "ForwardKeyEvent II (Shift+Left)"),
     ("off", "OFF"),
-    ("defaulttyping", "Gõ mặc định"),
 ];
 
 /// One item in the engine's property list.
@@ -356,7 +361,7 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                 MenuNode::Action { key } => match key.as_str() {
                     "macro_editor" => Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"),
                     "settings" => {
-                        let mut p = Prop::normal(KEY_SHORTCUTS, "Cấu hình");
+                        let mut p = Prop::normal(KEY_SHORTCUTS, "Cài đặt");
                         p.tooltip = "Mở cửa sổ cấu hình MăngRS".into();
                         p
                     }
@@ -400,6 +405,33 @@ fn radio_items(
             ))
         })
         .collect()
+}
+
+/// The serialized `IBusLookupTable` for the per-app rule picker, ready for
+/// a `v` slot. Signature `(sa{sv}uubbiavav)` — type tag, properties,
+/// page size, cursor, cursor visible, round, orientation, candidates
+/// (IBusText), labels — captured from libibus 1.5.34's own serialization
+/// (`IBus.LookupTable` via GI). The engine shows it at the caret the way
+/// ibus-bamboo's Shift+` menu does.
+pub fn lookup_table_variant(
+    page_size: u32,
+    cursor: u32,
+    candidates: &[String],
+) -> Variant<Box<dyn RefArg>> {
+    Variant(Box::new((
+        "IBusLookupTable".to_string(),
+        crate::ibus_text::Props::new(),
+        page_size,
+        cursor,
+        true, // cursor visible
+        true, // round: wrap around at the ends
+        2i32, // vertical orientation
+        candidates
+            .iter()
+            .map(|c| crate::ibus_text::plain_text(c))
+            .collect::<Vec<_>>(),
+        Vec::<Variant<Box<dyn RefArg>>>::new(), // default 1..n labels
+    )) as Box<dyn RefArg>)
 }
 
 #[cfg(test)]
