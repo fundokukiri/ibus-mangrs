@@ -224,14 +224,13 @@ pub struct CustomHotkey {
 /// engine maps the key onto its registry actions; the GUI builds the
 /// picker dropdown from it (labels come from gui-content.toml). The quick
 /// toggles reuse the panel registry's own keys (`ibus_prop::QUICK_TOGGLES`).
+/// Keys the GUI does not offer ("enabled", "rule"...) keep matching in the
+/// engine, so old configs keep working.
 pub const CUSTOM_HOTKEY_ACTIONS: &[&str] = &[
-    "enabled",
     "mode",
-    "rule",
     "emoji",
     "charset",
     "method",
-    "macro",
     "auto_capitalize",
     "abbreviations",
     "auto_restore",
@@ -242,7 +241,6 @@ pub const CUSTOM_HOTKEY_ACTIONS: &[&str] = &[
     "em_dash",
     "macro_editor",
     "settings",
-    "about",
 ];
 
 /// One rule pattern against one rule target (`app_name` when present, else
