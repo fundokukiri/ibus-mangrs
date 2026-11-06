@@ -19,6 +19,37 @@ fn gtk_widget_scenarios() {
     row_texts_render_as_plain_text();
     rules_add_group_merges_the_focus_chip();
     rule_rows_and_preview_track_the_engine_match();
+    macro_page_helpers_count_and_preview();
+}
+
+/// The "Gõ tắt" page helpers: the preview rejects invalid strftime
+/// patterns (chrono's own verdict, the same call the engine's expand
+/// makes), and the line stats follow the parser's drop rule — only a
+/// non-blank line without '=' counts as an error line.
+fn macro_page_helpers_count_and_preview() {
+    use crate::gui::pages::macros::{line_stats, preview};
+    let shown = preview("%H:%M").expect("a valid pattern previews");
+    assert_eq!(shown.len(), 5, "HH:MM shape");
+    assert!(preview("%").is_none(), "a lone % is an invalid pattern");
+    assert_eq!(
+        preview("").as_deref(),
+        Some(""),
+        "empty pattern, empty preview"
+    );
+    let (valid, err) = line_stats("vn=Việt Nam\ntphcm=Thành phố Hồ Chí Minh\ndongloi");
+    assert_eq!(valid, 2);
+    assert_eq!(err.as_deref(), Some("Dòng 3 thiếu dấu ="));
+    let (valid, err) = line_stats("a=1\nbad1\nb=2\nbad2\nbad3");
+    assert_eq!(valid, 2);
+    assert_eq!(
+        err.as_deref(),
+        Some("3 dòng thiếu dấu =, bắt đầu từ dòng 2")
+    );
+    // Blank lines and empty key/value sides are dropped silently, as they
+    // always were — they must not be reported as missing '='.
+    let (valid, err) = line_stats("a=1\n\nb=\n=x\n");
+    assert_eq!(valid, 1);
+    assert_eq!(err, None);
 }
 
 /// The reworked "Phím tắt" helpers: the stored spec renders as keycaps with
