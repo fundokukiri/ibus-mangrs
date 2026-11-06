@@ -131,21 +131,25 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let macro_in_off_mode = switch_row(
-        &t("rows.macro_in_off_mode.title", "Gõ tắt khi OFF"),
+        &t("rows.macro_in_off_mode.title", "Gõ tắt khi tắt tiếng Việt"),
         &t(
             "rows.macro_in_off_mode.subtitle",
             "Vẫn mở rộng khi tiếng Việt đang tắt",
         ),
     );
-    // Suffix entries: sized to the format they hold and centered, so the
-    // row reads as one balanced control instead of a wide box on the edge.
-    let time_format = Entry::builder()
-        .width_chars(8)
-        .valign(gtk4::Align::Center)
+    // The formats live in native EntryRows (the row carries the title, the
+    // old subtitle examples moved to the page as tooltips — EntryRow has
+    // no placeholder in this libadwaita). Markup off before the title, as
+    // in every row helper.
+    let time_format = adw::EntryRow::builder()
+        .use_markup(false)
+        .title(t("rows.time_format.title", "Định dạng giờ ($TIME)"))
+        .show_apply_button(false)
         .build();
-    let date_format = Entry::builder()
-        .width_chars(12)
-        .valign(gtk4::Align::Center)
+    let date_format = adw::EntryRow::builder()
+        .use_markup(false)
+        .title(t("rows.date_format.title", "Định dạng ngày ($DATE)"))
+        .show_apply_button(false)
         .build();
     let macros_text = text_view("");
     let emoji_enabled = switch_row(

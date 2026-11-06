@@ -188,8 +188,13 @@ description = "Mở rộng cụm tắt thành câu đầy đủ"
 
 [groups.macros.raw]
 title = "Nội dung gõ tắt"
-description = "Mỗi dòng một cặp khóa=nội dung ($TIME, $DATE)"
-placeholder = "khóa=nội dung — mỗi dòng một cặp"
+description = "Mỗi dòng một cặp khóa=nội dung. Dùng <tt>$TIME</tt> và <tt>$DATE</tt> để chèn giờ và ngày."
+hint = "vn=Việt Nam\ntphcm=Thành phố Hồ Chí Minh\ngio=$TIME"
+count = "{n} mục"
+error_one = "Dòng {n} thiếu dấu ="
+error_many = "{k} dòng thiếu dấu =, bắt đầu từ dòng {n}"
+open_button = "Mở tệp"
+open_tooltip = "Mở macros.toml bằng ứng dụng mặc định"
 
 [rows.time_format]
 title = "Định dạng giờ ($TIME)"
@@ -208,7 +213,7 @@ title = "Viết hoa gõ tắt"
 subtitle = "Khóa viết hoa → nội dung viết hoa theo"
 
 [rows.macro_in_off_mode]
-title = "Gõ tắt khi tắt tiếng việt"
+title = "Gõ tắt khi tắt tiếng Việt"
 subtitle = "Vẫn mở rộng khi tiếng Việt đang tắt"
 
 [rows.emoji_enabled]
