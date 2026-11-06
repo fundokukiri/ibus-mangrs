@@ -160,11 +160,11 @@ subtitle = "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên"
 
 [rows.w2u]
 title = "W thành ư"
-subtitle = "Tắt / trừ đầu từ / mọi vị trí"
+subtitle = "Chọn vị trí áp dụng"
 
 [rows.bracket]
 title = "[ ] thành ơ ư"
-subtitle = "Tắt / trừ đầu từ / mọi vị trí"
+subtitle = "Chọn vị trí áp dụng"
 
 [rows.em_dash]
 title = "Gạch ngang dài"
@@ -175,8 +175,10 @@ title = "Tự viết động hoa"
 subtitle = "Sau . ! ? và Enter"
 
 [rows.double_space]
-title = "Nhấn 'Space' hai lần thành dấu chấm"
-subtitle = "Thử nghiệm: hai dấu cách thành dấu chấm"
+title = "Nhấn “Space” hai lần thành dấu chấm"
+subtitle = "Hai dấu cách thành dấu chấm"
+badge = "Thử nghiệm"
+a11y = "Nhấn Space hai lần thành dấu chấm, thử nghiệm"
 
 # --- page Gõ tắt ------------------------------------------------------------
 
