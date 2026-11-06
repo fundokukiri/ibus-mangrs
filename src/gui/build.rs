@@ -279,13 +279,15 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Chữ đang gõ không có gạch chân (tùy app)",
         ),
     );
-    let debug_log = switch_row(
-        &t("rows.debug_log.title", "Ghi log gỡ lỗi"),
-        &t(
-            "rows.debug_log.subtitle",
-            "Ghi vào ~/.cache/ibus-mangrs/debug.log",
-        ),
-    );
+    // The debug-log path reads as a path: markup is on so the subtitle can
+    // wrap it in <tt> (the text carries no & — markup is safe here).
+    let debug_log = adw::SwitchRow::new();
+    debug_log.set_use_markup(true);
+    debug_log.set_title(&t("rows.debug_log.title", "Ghi log gỡ lỗi"));
+    debug_log.set_subtitle(&t(
+        "rows.debug_log.subtitle_markup",
+        "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangrs/debug.log</tt>",
+    ));
     let x11_delete = switch_row(
         &t("rows.x11_delete.title", "Xoá đuôi từ ở app X11"),
         &t(

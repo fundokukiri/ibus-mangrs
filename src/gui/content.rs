@@ -16,17 +16,26 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
 
     // --- pages: grouped-card settings style (section header + cards) ---
 
-    // Flat: a boxed labeled button in a row suffix reads as a chunky
-    // foreign control (owner feedback).
-    let export_btn = gtk4::Button::with_label(&t("misc.export_button", "Xuất…"));
-    export_btn.add_css_class("flat");
-    let import_btn = gtk4::Button::with_label(&t("misc.import_button", "Nhập…"));
-    import_btn.add_css_class("flat");
-    let extension_btn = gtk4::Button::with_label(&t("misc.extension_button", "Cài đặt"));
-    extension_btn.add_css_class("flat");
-    let reset_defaults_btn = gtk4::Button::with_label(&t("misc.reset_button", "Khôi phục"));
-    reset_defaults_btn.add_css_class("flat");
-    reset_defaults_btn.add_css_class("destructive-action");
+    // The floating restart button. It stays hidden until a change is saved:
+    // every control already writes straight to config.toml, so the only
+    // thing left for the user to do is restart IBus (a new engine binary or
+    // component XML needs it; plain settings changes apply within a second).
+    let restart_btn = gtk4::Button::new();
+    {
+        let b = gtk4::Box::new(Orientation::Horizontal, 8);
+        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
+        b.append(&gtk4::Label::new(Some(&t(
+            "misc.restart_button",
+            "Khởi động lại IBus",
+        ))));
+        restart_btn.set_child(Some(&b));
+    }
+    restart_btn.add_css_class("suggested-action");
+    restart_btn.add_css_class("pill");
+    restart_btn.set_halign(gtk4::Align::Center);
+    restart_btn.set_valign(gtk4::Align::End);
+    restart_btn.set_margin_bottom(18);
+    restart_btn.set_visible(false);
 
     // ===== Page 1: Chung — the everyday page, on its own preferences file.
     let typing_page = pages::typing::build(&ui);
@@ -46,14 +55,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 5: Luật — chip, quick-add, list editor, preview.
     let rules_page = pages::rules::build(&ui);
 
-    // ===== Page 6: Tinh chỉnh — uinput pacing, X11/XIM, backup, log.
-    let other_page = pages::other::build(
-        &ui,
-        &export_btn,
-        &import_btn,
-        &extension_btn,
-        &reset_defaults_btn,
-    );
+    // ===== Page 6: Cài đặt khác — icon, extension, backup, reset.
+    let other_page = pages::other::build(&ui, &restart_btn);
 
     // ===== Page 7: Tinh chỉnh — uinput pacing + X11/XIM workarounds.
     let tune_page = pages::tune::build(&ui);
@@ -148,27 +151,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // The restart button floats over the content at the bottom center.
     let split_view = adw::NavigationSplitView::new();
     split_view.set_sidebar_width_fraction(0.24);
-
-    // The floating restart button. It stays hidden until a change is saved:
-    // every control already writes straight to config.toml, so the only
-    // thing left for the user to do is restart IBus (a new engine binary or
-    // component XML needs it; plain settings changes apply within a second).
-    let restart_btn = gtk4::Button::new();
-    {
-        let b = gtk4::Box::new(Orientation::Horizontal, 8);
-        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
-        b.append(&gtk4::Label::new(Some(&t(
-            "misc.restart_button",
-            "Khởi động lại IBus",
-        ))));
-        restart_btn.set_child(Some(&b));
-    }
-    restart_btn.add_css_class("suggested-action");
-    restart_btn.add_css_class("pill");
-    restart_btn.set_halign(gtk4::Align::Center);
-    restart_btn.set_valign(gtk4::Align::End);
-    restart_btn.set_margin_bottom(18);
-    restart_btn.set_visible(false);
 
     let title_label = gtk4::Label::new(Some("Chung"));
     title_label.add_css_class("title");
@@ -633,116 +615,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             controller.connect_leave(move |_| s());
             view.add_controller(controller);
         }
-    }
-
-    {
-        let window = window.clone();
-        export_btn.connect_clicked(move |_| {
-            let dialog = gtk4::FileDialog::builder()
-                .title(t("misc.export_dialog", "Xuất cấu hình"))
-                .modal(true)
-                .initial_name("ibus-mangrs-backup.json")
-                .build();
-            // The clicked handler is Fn and keeps its own capture; the
-            // callback gets its own clone (the parent is only borrowed for
-            // the call, the callback outlives it).
-            let callback_window = window.clone();
-            dialog.save(
-                Some(&window),
-                gtk4::gio::Cancellable::NONE,
-                // A dismissed dialog is also an Err: nothing to save, no error.
-                move |result| {
-                    if let Ok(file) = result {
-                        if let Err(e) = export_json(file.path()) {
-                            alert(&callback_window, &e);
-                        }
-                    }
-                },
-            );
-        });
-    }
-    {
-        let ui = ui.clone();
-        let window = window.clone();
-        let restart_for_import = restart_btn.clone();
-        import_btn.connect_clicked(move |_| {
-            let dialog = gtk4::FileDialog::builder()
-                .title(t("misc.import_dialog", "Nhập cấu hình"))
-                .modal(true)
-                .build();
-            let ui = ui.clone();
-            let callback_window = window.clone();
-            let restart_for_import = restart_for_import.clone();
-            dialog.open(
-                Some(&window),
-                gtk4::gio::Cancellable::NONE,
-                // A dismissed dialog is also an Err: nothing to import.
-                move |result| {
-                    if let Ok(file) = result {
-                        match import_json(file.path(), &ui) {
-                            // An import rewrites config.toml wholesale — the
-                            // restart banner applies to it like any save.
-                            Ok(()) => restart_for_import.set_visible(true),
-                            Err(e) => alert(&callback_window, &e),
-                        }
-                    }
-                },
-            );
-        });
-    }
-
-    {
-        let window = window.clone();
-        extension_btn.connect_clicked(move |_| match install_focus_extension() {
-            Ok(msg) => {
-                let dialog = adw::AlertDialog::builder()
-                    .heading(t("other.extension_heading", "Extension MăngRS Focus"))
-                    .body(msg)
-                    .build();
-                dialog.add_response("ok", "OK");
-                dialog.set_default_response(Some("ok"));
-                dialog.set_close_response("ok");
-                dialog.present(Some(&window));
-            }
-            Err(e) => alert(&window, &e),
-        });
-    }
-    {
-        let ui = ui.clone();
-        let window = window.clone();
-        let restart_for_reset = restart_btn.clone();
-        reset_defaults_btn.connect_clicked(move |btn| {
-            // Destructive: every config key goes back to the default, so it
-            // confirms like the panel-menu reset does.
-            let dialog = adw::AlertDialog::builder()
-                .heading(t("other.reset_heading", "Khôi phục mặc định?"))
-                .body(t(
-                    "other.reset_body",
-                    "Mọi tùy chỉnh cấu hình (kể cả menu panel, luật theo app, phím tắt) sẽ về mặc định. Gõ tắt và từ điển giữ nguyên.",
-                ))
-                .build();
-            dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
-            dialog.add_response("apply", &t("other.reset_apply", "Khôi phục"));
-            dialog.set_response_appearance("apply", adw::ResponseAppearance::Destructive);
-            dialog.set_close_response("cancel");
-            {
-                let ui = ui.clone();
-                let window = window.clone();
-                let restart = restart_for_reset.clone();
-                dialog.connect_response(Some("apply"), move |_, _| {
-                    if let Err(e) = Config::default().save_fresh() {
-                        alert(&window, &format!("Không ghi được cấu hình mặc định: {e}"));
-                        return;
-                    }
-                    let config = Config::load();
-                    let macros = Macros::load();
-                    let dictionary = Dictionary::load();
-                    ui.refresh(&config, &macros, &dictionary);
-                    restart.set_visible(true);
-                });
-            }
-            dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
-        });
     }
 
     {

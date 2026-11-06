@@ -633,6 +633,18 @@ const FOCUS_EXTENSION_META: &str =
     include_str!("../../data/gnome-shell-extension/mangrs-focus@fundokukiri/metadata.json");
 const FOCUS_EXT_DIR: &str = "gnome-shell/extensions/mangrs-focus@fundokukiri";
 
+/// Is the focus extension already installed (its directory exists)? The
+/// extension row shows the status and says "Cài lại" instead of "Cài đặt".
+pub(super) fn focus_extension_installed() -> bool {
+    dirs::data_dir().is_some_and(|d| d.join(FOCUS_EXT_DIR).join("extension.js").exists())
+}
+
+/// The focus extension only makes sense inside GNOME: hide the installer
+/// group on other desktops.
+pub(super) fn session_is_gnome() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.to_ascii_uppercase().contains("GNOME"))
+}
+
 /// Copy the embedded focus extension into the user extension directory and
 /// try to enable it. GNOME 45+ caches extension ES modules, so a fresh copy
 /// only loads after logout/login — every outcome says so.
