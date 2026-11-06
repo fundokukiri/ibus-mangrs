@@ -38,8 +38,19 @@ fn shortcut_helpers_render_and_capture() {
         accelerator_label("Control+f5").as_deref(),
         Some("<Control>F5")
     );
-    // Punctuation whose keyval name is not the character has no keycap.
-    assert_eq!(accelerator_label("Shift+~"), None);
+    // Punctuation keys render as keycaps too: the accelerator string uses
+    // the canonical keyval name GTK's parser accepts, and ShortcutLabel
+    // shows the plain character again.
+    assert_eq!(
+        accelerator_label("Shift+~").as_deref(),
+        Some("<Shift>asciitilde")
+    );
+    assert_eq!(accelerator_label("Alt+,").as_deref(), Some("<Alt>comma"));
+    assert_eq!(
+        accelerator_label("Control+`").as_deref(),
+        Some("<Control>grave")
+    );
+    // A modifier-only combo has no key to draw a keycap for.
     assert_eq!(accelerator_label("Shift+Control"), None);
     assert!(same_combo("Alt+Control+v", "Control+Alt+v"));
     assert!(!same_combo("Control+v", "Control+Alt+v"));
