@@ -90,12 +90,12 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     let w2u = combo_row(
         &t("rows.w2u.title", "W thành ư"),
-        &t("rows.w2u.subtitle", "Tắt / trừ đầu từ / mọi vị trí"),
+        &t("rows.w2u.subtitle", "Chọn vị trí áp dụng"),
         ON_OFF_MODES,
     );
     let bracket = combo_row(
         &t("rows.bracket.title", "[ ] thành ơ ư"),
-        &t("rows.bracket.subtitle", "Tắt / trừ đầu từ / mọi vị trí"),
+        &t("rows.bracket.subtitle", "Chọn vị trí áp dụng"),
         ON_OFF_MODES,
     );
     let em_dash = switch_row(
@@ -110,11 +110,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.auto_capitalize.subtitle", "Sau . ! ? và Enter"),
     );
     let double_space = switch_row(
-        &t("rows.double_space.title", "2 dấu cách = chấm"),
         &t(
-            "rows.double_space.subtitle",
-            "Thử nghiệm: hai dấu cách thành dấu chấm",
+            "rows.double_space.title",
+            "Nhấn “Space” hai lần thành dấu chấm",
         ),
+        &t("rows.double_space.subtitle", "Hai dấu cách thành dấu chấm"),
     );
     let macro_enabled = switch_row(
         &t("rows.macro_enabled.title", "Gõ tắt"),
