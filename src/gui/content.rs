@@ -111,7 +111,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         (
             "other",
             t("pages.other", "Cài đặt khác"),
-            "preferences-other-symbolic",
+            "view-more-horizontal-symbolic",
         ),
         (
             "tune",
@@ -202,8 +202,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         row.set_focusable(false);
         row.set_can_target(false);
         let sep = gtk4::Box::new(Orientation::Vertical, 0);
-        sep.set_margin_top(6);
-        sep.set_margin_bottom(6);
+        sep.set_margin_top(3);
+        sep.set_margin_bottom(3);
         sep.append(&gtk4::Separator::new(Orientation::Horizontal));
         row.set_child(Some(&sep));
         row
@@ -299,28 +299,38 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         });
     }
 
-    // Search lives in the sidebar, hidden behind a magnifier button: the
-    // click swaps the button for the entry above the page list; typing
-    // overlays the matching rows over the content, Esc (or jumping to a
-    // result) collapses back to the button.
+    // Search lives in the sidebar: the magnifier button stays visible and
+    // TOGGLES the entry beside it — the second press hides it again (Esc
+    // and jumping to a result do the same). Typing overlays the matching
+    // rows over the content.
     let search_btn = gtk4::Button::from_icon_name("system-search-symbolic");
     search_btn.add_css_class("flat");
     search_btn.set_tooltip_text(Some(&t("search.tooltip", "Tìm chức năng trong mọi trang")));
-    search_btn.set_halign(gtk4::Align::Start);
-    search_btn.set_margin_top(6);
-    search_btn.set_margin_bottom(6);
-    search_btn.set_margin_start(6);
     let search_entry = gtk4::SearchEntry::new();
     search_entry.set_placeholder_text(Some(&t("search.placeholder", "Tìm chức năng…")));
     search_entry.set_hexpand(true);
-    search_entry.set_margin_top(6);
-    search_entry.set_margin_bottom(6);
-    search_entry.set_margin_start(6);
-    search_entry.set_margin_end(6);
     search_entry.set_visible(false);
+    {
+        let entry = search_entry.clone();
+        search_btn.connect_clicked(move |_| {
+            let show = !entry.is_visible();
+            entry.set_visible(show);
+            if show {
+                entry.grab_focus();
+            } else {
+                entry.set_text("");
+            }
+        });
+    }
+    let search_box = gtk4::Box::new(Orientation::Horizontal, 6);
+    search_box.set_margin_top(6);
+    search_box.set_margin_bottom(6);
+    search_box.set_margin_start(6);
+    search_box.set_margin_end(6);
+    search_box.append(&search_btn);
+    search_box.append(&search_entry);
     let sidebar_box = gtk4::Box::new(Orientation::Vertical, 0);
-    sidebar_box.append(&search_btn);
-    sidebar_box.append(&search_entry);
+    sidebar_box.append(&search_box);
     // The main list keeps its natural height; an expanding spacer pins the
     // About group to the bottom of the sidebar.
     sidebar_box.append(&sidebar_list);
@@ -345,16 +355,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ALL pages, and activating a result jumps to that page through the
     // sidebar (title and selection stay in sync). The index is built once
     // from the finished page trees.
-    {
-        let btn = search_btn.clone();
-        let entry = search_entry.clone();
-        search_btn.connect_clicked(move |_| {
-            btn.set_visible(false);
-            entry.set_visible(true);
-            entry.grab_focus();
-        });
-    }
-
     let results_list = gtk4::ListBox::new();
     results_list.add_css_class("boxed-list");
     results_list.set_selection_mode(gtk4::SelectionMode::None);
@@ -467,18 +467,16 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         });
     }
     {
-        let btn = search_btn.clone();
         let entry = search_entry.clone();
         search_entry.connect_stop_search(move |_| {
-            // Esc: collapse back to the button with the query cleared.
+            // Esc: collapse the entry with the query cleared; the
+            // magnifier stays and toggles it back.
             entry.set_text("");
             entry.set_visible(false);
-            btn.set_visible(true);
         });
     }
     {
         let entry = search_entry.clone();
-        let btn = search_btn.clone();
         let page_rows = page_rows.clone();
         results_list.connect_row_activated(move |_, row| {
             let name = row.widget_name().to_string();
@@ -495,9 +493,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                 }
             }
             entry.set_text("");
-            // The jump found the page: collapse back to the magnifier.
+            // The jump found the page: collapse the entry.
             entry.set_visible(false);
-            btn.set_visible(true);
         });
     }
 
@@ -556,10 +553,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     app.set_accels_for_action("app.quit", &["<Control>q"]);
     let search_action = gtk4::gio::SimpleAction::new("search", None);
     {
-        let btn = search_btn.clone();
         let entry = search_entry.clone();
         search_action.connect_activate(move |_, _| {
-            btn.set_visible(false);
             entry.set_visible(true);
             entry.grab_focus();
         });
