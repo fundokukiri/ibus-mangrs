@@ -368,11 +368,14 @@ kind_entry = "Mục chọn"
 
 [groups.tune.pacing]
 title = "Tốc độ gõ (uinput)"
-description = "Chỉ áp dụng cho Smooth / Super Smooth / Select"
+description = "Chỉ áp dụng cho Smooth, Super Smooth và Select."
+
+[groups.tune.channel]
+title = "Kênh gửi chữ"
 
 [groups.tune.xim]
 title = "Tương thích X11/XIM"
-description = "Cho app X11 trực tiếp và app XIM (Java/JetBrains)"
+description = "Cho app X11 trực tiếp và app XIM (Java/JetBrains)."
 
 [groups.other.backup]
 title = "Sao lưu &amp; khôi phục"
@@ -419,27 +422,27 @@ subtitle_markup = "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangr
 
 [rows.x11_delete]
 title = "Xoá đuôi từ ở app X11"
-subtitle = "App X11 trực tiếp xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ."
+subtitle = "App X11 xoá đuôi từ mà không báo cáo, giống ibus-bamboo. Có thể xoá nhầm ký tự nếu con trỏ bị đổi chỗ."
 
 [rows.preedit_xim]
 title = "Preedit cho app XIM"
-subtitle = "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ."
+subtitle = "Giữ gạch chân cho app XIM: chữ đang gõ hiện trong cửa sổ riêng, commit khi hết từ."
 
 [rows.commit_interval]
 title = "Nhịp gõ chữ"
-subtitle = "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20"
+subtitle = "Khoảng cách giữa hai lần gửi chữ, tính bằng ms. Mặc định: {n}"
 
 [rows.backspace_interval]
 title = "Nhịp xoá lùi"
-subtitle = "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5"
+subtitle = "Khoảng cách giữa hai lần Backspace, tính bằng ms. Mặc định: {n}"
 
 [rows.post_delay]
 title = "Độ trễ sau từ"
-subtitle = "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10"
+subtitle = "Chờ sau khi viết lại từ, trước khi gõ tiếp, tính bằng ms. Mặc định: {n}"
 
 [rows.unicode_channel]
 title = "Kênh gửi từ tiếng Việt"
-subtitle = "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)"
+subtitle = "Clipboard sẽ tạm ghi đè nội dung clipboard của bạn."
 
 # --- page Giới thiệu --------------------------------------------------------
 
