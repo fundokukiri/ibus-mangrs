@@ -7,33 +7,28 @@
 
 use super::*;
 
-/// One compact action button with an icon and a label; the page's SizeGroup
-/// keeps every one of them the same width so the row edges align.
-fn action_button(icon_name: &str, label: &str) -> gtk4::Button {
-    let icon = gtk4::Image::from_icon_name(icon_name);
-    let text = gtk4::Label::new(Some(label));
-    let content = gtk4::Box::new(Orientation::Horizontal, 4);
-    content.append(&icon);
-    content.append(&text);
-    let btn = gtk4::Button::new();
-    btn.set_child(Some(&content));
-    // Centered vertically: full-height stretch read bulky (owner
-    // feedback), a natural-height button read too small — the CSS
-    // min-height balances it against the row's switch.
+/// One flat action button (no background, like the reference mockup);
+/// `icon_name: None` renders label only. No SizeGroup — each button takes
+/// its own content width, as the mockup shows.
+fn action_button(icon_name: Option<&str>, label: &str) -> gtk4::Button {
+    let btn = gtk4::Button::with_label(label);
+    btn.add_css_class("flat");
     btn.set_valign(gtk4::Align::Center);
-    btn.add_css_class("compact-button");
+    if let Some(icon_name) = icon_name {
+        let icon = gtk4::Image::from_icon_name(icon_name);
+        let text = btn
+            .child()
+            .and_downcast::<gtk4::Label>()
+            .expect("with_label");
+        // Detach the label before re-parenting it into the content box.
+        btn.set_child(None::<&gtk4::Widget>);
+        let content = gtk4::Box::new(Orientation::Horizontal, 6);
+        content.append(&icon);
+        content.append(&text);
+        btn.set_child(Some(&content));
+    }
     btn
 }
-
-/// The page's only CSS: the row-suffix action buttons come out bulky with
-/// the theme defaults; the compact class tightens them without CSS fonts.
-const PAGE_CSS: &str = "
-/* compact row-suffix action buttons, balanced with the row's switch height */
-.compact-button {
-  padding: 4px 12px;
-  min-height: 46px;
-}
-";
 
 /// A one-line JSON file filter for the open/save dialogs.
 fn json_filter() -> gtk4::FileFilter {
@@ -52,20 +47,6 @@ fn window_of(btn: &gtk4::Button) -> Option<gtk4::Window> {
 pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverlay {
     let page = adw::PreferencesPage::new();
     let toast_overlay = adw::ToastOverlay::new();
-
-    // Load the page's one CSS block (a display exists whenever the GUI runs).
-    let provider = gtk4::CssProvider::new();
-    provider.load_from_data(PAGE_CSS);
-    if let Some(display) = gtk4::gdk::Display::default() {
-        gtk4::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
-
-    // One consistent width for every action button on the page.
-    let sizes = gtk4::SizeGroup::new(gtk4::SizeGroupMode::Horizontal);
 
     // App-grid icon: the switch writes/removes a user-level desktop-entry
     // override; `refresh` keeps the state in sync from the filesystem.
@@ -111,14 +92,13 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
         "Extension báo cho engine tên cửa sổ đang focus, để luật theo app chạy được với app Wayland thuần (Chrome, Firefox…).",
     )));
     let extension_btn = action_button(
-        "system-software-install-symbolic",
+        None,
         &if installed {
             t("misc.reinstall_button", "Cài lại")
         } else {
             t("misc.extension_button", "Cài đặt")
         },
     );
-    sizes.add_widget(&extension_btn);
     extension_row.add_suffix(&extension_btn);
     extension.add(&extension_row);
     if session_is_gnome() {
@@ -146,8 +126,10 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
         "tips.export",
         "Lưu toàn bộ cấu hình, gõ tắt và từ điển ra một file JSON để mang sang máy khác.",
     )));
-    let export_btn = action_button("document-save-symbolic", &t("misc.export_button", "Xuất…"));
-    sizes.add_widget(&export_btn);
+    let export_btn = action_button(
+        Some("document-save-symbolic"),
+        &t("misc.export_button", "Xuất…"),
+    );
     export_row.add_suffix(&export_btn);
     backup.add(&export_row);
     let import_row = action_row(
@@ -158,8 +140,10 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
         "tips.import",
         "Đọc lại file JSON đã xuất: ghi đè cấu hình, gõ tắt và từ điển hiện tại.",
     )));
-    let import_btn = action_button("document-open-symbolic", &t("misc.import_button", "Nhập…"));
-    sizes.add_widget(&import_btn);
+    let import_btn = action_button(
+        Some("document-revert-symbolic"),
+        &t("misc.import_button", "Nhập…"),
+    );
     import_row.add_suffix(&import_btn);
     backup.add(&import_row);
     page.add(&backup);
@@ -181,12 +165,9 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
         "tips.reset_defaults",
         "Ghi đè config.toml bằng giá trị mặc định (kể cả menu panel, luật theo app, phím tắt). Gõ tắt và từ điển không bị đụng đến.",
     )));
-    let reset_btn = action_button(
-        "view-refresh-symbolic",
-        &t("misc.reset_button", "Khôi phục…"),
-    );
-    reset_btn.add_css_class("destructive-action");
-    sizes.add_widget(&reset_btn);
+    // Label only and no red: the reference keeps the reset quiet, the
+    // destructive confirmation dialog carries the warning.
+    let reset_btn = action_button(None, &t("misc.reset_button", "Khôi phục…"));
     reset_row.add_suffix(&reset_btn);
     advanced.add(&reset_row);
     page.add(&advanced);
