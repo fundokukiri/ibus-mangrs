@@ -131,17 +131,13 @@ struct Ui {
     method: adw::ComboRow,
     mode: adw::ComboRow,
     charset: adw::ComboRow,
-    /// GNOME-style hotkey row: the dim combo text plus the small edit
-    /// button; the recorder captures on the edit button (see
-    /// `hotkey_wire`).
-    hotkey_label: gtk4::Label,
-    hotkey_edit: gtk4::Button,
+    /// Built-in shortcut rows: the value is the stored spec, the display
+    /// renders it as keycaps (see `ShortcutDisplay`).
+    hotkey_display: ShortcutDisplay,
     hotkey_value: Rc<RefCell<String>>,
-    enabled_hotkey_label: gtk4::Label,
-    enabled_hotkey_edit: gtk4::Button,
+    enabled_hotkey_display: ShortcutDisplay,
     enabled_hotkey_value: Rc<RefCell<String>>,
-    app_rule_hotkey_label: gtk4::Label,
-    app_rule_hotkey_edit: gtk4::Button,
+    app_rule_hotkey_display: ShortcutDisplay,
     app_rule_hotkey_value: Rc<RefCell<String>>,
     modern: adw::SwitchRow,
     free: adw::SwitchRow,
@@ -163,21 +159,17 @@ struct Ui {
     /// hotkey (the row itself lives on "Phím tắt", one row per shortcut)
     /// and the raw user table `name=glyph` lines of `emoji.toml`.
     emoji_enabled: adw::SwitchRow,
-    emoji_hotkey_label: gtk4::Label,
-    emoji_hotkey_edit: gtk4::Button,
+    emoji_hotkey_display: ShortcutDisplay,
     emoji_hotkey_value: Rc<RefCell<String>>,
     emoji_text: TextView,
     /// Custom shortcuts ("Phím tắt" page): the design vector is the source
     /// of truth (spec, action key), the boxed list is its view, rebuilt on
-    /// every edit — the menu editor's shape. The add row captures the spec
-    /// through its own recorder into `custom_value`.
+    /// every edit — the menu editor's shape. The add row opens the shared
+    /// capture dialog.
     custom: Rc<RefCell<Vec<(String, String)>>>,
     custom_box: gtk4::ListBox,
-    custom_action: gtk4::DropDown,
-    custom_edit: gtk4::Button,
-    custom_label: gtk4::Label,
-    custom_value: Rc<RefCell<String>>,
-    custom_add: gtk4::Button,
+    /// The page's toast host: the delete confirmation with its undo button.
+    hotkey_overlay: adw::ToastOverlay,
     /// Macro editor: one boxed-list row per entry (key, value); GObject
     /// clones share the widgets, so reading them reads what the user sees.
     /// The rows live in a plain ListBox — a PreferencesGroup's first_child
@@ -342,11 +334,11 @@ impl Ui {
         self.mode.set_selected(mode_index(config.mode));
         self.charset.set_selected(charset_index(config.charset));
         *self.hotkey_value.borrow_mut() = config.cycle_mode_hotkey.clone();
-        render_hotkey(&self.hotkey_label, &config.cycle_mode_hotkey);
+        self.hotkey_display.render(&config.cycle_mode_hotkey);
         *self.enabled_hotkey_value.borrow_mut() = config.enabled_hotkey.clone();
-        render_hotkey(&self.enabled_hotkey_label, &config.enabled_hotkey);
+        self.enabled_hotkey_display.render(&config.enabled_hotkey);
         *self.app_rule_hotkey_value.borrow_mut() = config.app_rule_hotkey.clone();
-        render_hotkey(&self.app_rule_hotkey_label, &config.app_rule_hotkey);
+        self.app_rule_hotkey_display.render(&config.app_rule_hotkey);
         self.modern.set_active(config.modern_tone_style);
         self.free.set_active(config.free_tone_marking);
         self.auto_correct.set_active(config.auto_correct);
@@ -373,7 +365,7 @@ impl Ui {
         self.date_format.set_text(&config.date_format);
         self.emoji_enabled.set_active(config.emoji_enabled);
         *self.emoji_hotkey_value.borrow_mut() = config.emoji_hotkey.clone();
-        render_hotkey(&self.emoji_hotkey_label, &config.emoji_hotkey);
+        self.emoji_hotkey_display.render(&config.emoji_hotkey);
         self.dictionary_enabled
             .set_active(config.dictionary_enabled);
         self.debug_log.set_active(config.debug_log);
@@ -543,44 +535,6 @@ impl Ui {
             .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
             .filter(|(k, v)| !k.is_empty() && !v.is_empty())
             .collect()
-    }
-
-    // --- custom shortcuts ("Phím tắt" page) ---
-
-    /// Rebuild the custom-shortcut rows from the design vector. Rows read
-    /// the live vector through their index at click time; every edit
-    /// refills, so the indices stay valid.
-    fn fill_custom(self: &Rc<Self>) {
-        while let Some(row) = self.custom_box.row_at_index(0) {
-            self.custom_box.remove(&row);
-        }
-        for (i, (spec, action)) in self.custom.borrow().iter().enumerate() {
-            let label = crate::config::CUSTOM_HOTKEY_ACTIONS
-                .iter()
-                .position(|k| k == action)
-                .map(|idx| t(CUSTOM_ACTION_KEYS[idx].1, CUSTOM_ACTION_DEFAULTS[idx]))
-                .unwrap_or_else(|| action.clone());
-            let row = action_row(spec, &label);
-            row.set_tooltip_text(Some(&t(
-                "tips.custom_hotkey_row",
-                "Phím tắt riêng — bấm thùng rác để xóa",
-            )));
-            let trash = gtk4::Button::from_icon_name("user-trash-symbolic");
-            trash.add_css_class("flat");
-            trash.set_tooltip_text(Some(&t("rows.rule_delete.tooltip", "Xóa")));
-            trash.set_valign(gtk4::Align::Center);
-            let ui = self.clone();
-            trash.connect_clicked(move |_| {
-                ui.custom.borrow_mut().remove(i);
-                ui.fill_custom();
-                ui.fire_save();
-            });
-            row.add_suffix(&trash);
-            self.custom_box.append(&row);
-        }
-        // Nothing to add until a combo is captured.
-        self.custom_add
-            .set_sensitive(!self.custom_value.borrow().is_empty());
     }
 
     // --- panel-menu editor (the design vector is the source of truth) ---
