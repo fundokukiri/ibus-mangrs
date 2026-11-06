@@ -53,7 +53,7 @@ panel menu.
 - **GTK4 + libadwaita settings window** (GNOME Settings style: grouped sidebar, 11 pages,
   Vietnamese, page search with Ctrl+F); every change hot-reloads within ~1 second.
 - **Backup/restore** of all settings as one JSON file.
-- 292 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows); the GTK widget-scenario test adds 1 more when built with `--features gui`.
+- 292 unit tests including an 894-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR + 72 extra-method rows x 3 case variants, 12 Microsoft rows); the GTK widget-scenario test adds 1 more when built with `--features gui`.
 
 ## Display modes
 
@@ -273,7 +273,7 @@ for apps that reach the engine in unusual ways:
 ## Testing
 
 ```sh
-cargo test                      # 292 unit tests, including the 678-case golden table
+cargo test                      # 292 unit tests, including the 894-case golden table
 cargo clippy --all-targets
 ```
 
@@ -294,7 +294,7 @@ ibus engine ibus-mangrs
 - `src/macros.rs` — macro table + custom dictionary
 - `src/emoji.rs` — shortcode tables: the embedded list and the user's `emoji.toml`
 - `src/backup.rs` — one-file JSON backup/restore of settings, macros and the dictionary
-- `src/golden.rs` — 678 keystroke→text golden cases
+- `src/golden.rs` — 894 keystroke→text golden cases
 - `src/ibus_prop.rs` — IBus property-menu encoding; `src/keymap.rs` — keysym decoding
 - `src/debug_log.rs` — opt-in debug log at `~/.cache/ibus-mangrs/debug.log`
 - `src/config.rs` — TOML settings shared by engine + GUI; `src/gui/` — libadwaita settings window (`gui` feature), texts from `data/gui-content.toml`
