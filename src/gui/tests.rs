@@ -17,6 +17,34 @@ fn gtk_widget_scenarios() {
     hotkey_recorder_lives_on_the_edit_button();
     external_reload_refreshes_without_saving();
     row_texts_render_as_plain_text();
+    rules_add_group_merges_the_focus_chip();
+}
+
+/// The merged add-rule form: the focused app surfaces only as the entry's
+/// placeholder hint plus the copy/apply pair — never over typed text — and
+/// the hint alone is enough to enable Thêm.
+fn rules_add_group_merges_the_focus_chip() {
+    let ui = widgets();
+    // Build time has no detection yet: copy/apply stay hidden, Thêm is
+    // dead, and the placeholder is the fallback example.
+    assert!(!ui.rule_copy_btn.is_visible());
+    assert!(!ui.rule_apply_btn.is_visible());
+    assert!(!ui.rule_add_btn.is_sensitive());
+    assert_eq!(
+        ui.rule_name_entry.placeholder_text().as_deref(),
+        Some("vd: firefox, org.gnome.Console")
+    );
+    // A detected app lights the form up even with the field empty: the
+    // hint alone can be added, and detection never writes into the field.
+    *ui.rule_focus_value.borrow_mut() = "sublime_text".to_string();
+    ui.update_rule_add_state();
+    assert!(ui.rule_copy_btn.is_visible());
+    assert!(ui.rule_apply_btn.is_visible());
+    assert!(ui.rule_add_btn.is_sensitive());
+    assert!(ui.rule_name_entry.text().is_empty());
+    // A typed name rules over the hint and keeps Thêm enabled.
+    ui.rule_name_entry.set_text("fire");
+    assert!(ui.rule_add_btn.is_sensitive());
 }
 
 /// B3 regression: the import path pushes a config into every widget through

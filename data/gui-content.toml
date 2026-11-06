@@ -247,12 +247,9 @@ subtitle = "~/.config/ibus-mangrs/dictionary.txt"
 
 # --- page Luật --------------------------------------------------------------
 
-[groups.rules.focus]
-title = "Ứng dụng đang focus"
-
 [groups.rules.add]
-title = "Thêm rule"
-description = "Chọn app đã thấy hoặc dùng app đang focus."
+title = "Thêm luật"
+description = "Chuyển sang app đích rồi quay lại, tên app sẽ hiện mờ trong ô nhập."
 
 [groups.rules.list]
 title = "Danh sách rules"
@@ -265,19 +262,18 @@ description = "Nhập tên app để xem luật nào khớp."
 
 [rows.rule_name]
 title = "Tên app"
+placeholder = "vd: firefox, org.gnome.Console"
 tooltip = "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)"
-
-[rows.rule_focus]
-title = "App đang focus"
-subtitle = "Chuyển sang app đích rồi quay lại"
-tooltip = "Tên lấy qua extension MăngRS Focus; app không báo tên thì dùng pattern none"
-chip_tooltip = "Chuyển sang app đích rồi quay lại cửa sổ này — tên app sẽ hiện ở đây (cần extension MăngRS Focus)"
 
 [rows.rule_combo]
 tooltip = "Các app engine đã từng thấy"
+label = "Chọn từ app đã thấy"
 
 [rows.rule_copy]
-tooltip = "Sao chép tên app đang focus"
+tooltip = "Sao chép app đang focus"
+
+[rows.rule_apply]
+tooltip = "Dùng app đang focus"
 
 [rows.rule_mode]
 tooltip = "Chế độ gõ của luật mới"
@@ -296,9 +292,9 @@ placeholder = "Firefox / wayland:Firefox / xim"
 tooltip = "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp và chế độ gõ kết quả"
 
 [rules]
-add_button = "Thêm rule"
-use_focus_button = "Dùng app đang focus"
-copy_toast = "Đã sao chép"
+add_button = "Thêm luật"
+add_toast = "Đã thêm luật cho {app}"
+copy_toast = "Đã sao chép {app}"
 empty = "Chưa có luật nào"
 result_title = "Kết quả"
 no_match = "Không khớp luật nào"

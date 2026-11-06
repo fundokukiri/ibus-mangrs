@@ -211,9 +211,17 @@ struct Ui {
     /// "Thử luật" input and its verdict row.
     rule_preview_input: adw::EntryRow,
     rule_preview: adw::ActionRow,
-    /// The focused-app chip: name label plus the last good name (the label
-    /// also carries error text, so the usable value is kept separately).
-    rule_focus: gtk4::Label,
+    /// The merged add-rule form ("Thêm luật"): the pill (fill + tooltip),
+    /// the frameless name entry whose placeholder mirrors the focused app,
+    /// the copy/apply pair shown only while an app is detected, and Thêm.
+    rule_pill: gtk4::Box,
+    rule_name_entry: gtk4::Entry,
+    rule_copy_btn: gtk4::Button,
+    rule_apply_btn: gtk4::Button,
+    rule_add_btn: gtk4::Button,
+    /// The last good focused-app id: the hint Thêm falls back to when the
+    /// field is empty. The pill tooltip carries the window title or the
+    /// detection error.
     rule_focus_value: Rc<RefCell<String>>,
     hide_underline: adw::SwitchRow,
     debug_log: adw::SwitchRow,

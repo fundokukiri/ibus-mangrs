@@ -50,26 +50,6 @@ pub(super) fn focused_app_name() -> Result<(String, String), String> {
     Ok((class, title))
 }
 
-/// Refresh the focused-app chip. The D-Bus call is sync with a 300 ms
-/// timeout on the main thread — GTK types are not Send, so a worker thread
-/// cannot touch the label — but the callers are startup and focus-leave,
-/// moments when the window is idle anyway; with the extension installed the
-/// call is near-instant.
-pub(super) fn refresh_focused_app(label: &gtk4::Label, value: &Rc<RefCell<String>>) {
-    match focused_app_name() {
-        Ok((class, title)) => {
-            label.set_text(&class);
-            label.set_tooltip_text(Some(&title));
-            *value.borrow_mut() = class;
-        }
-        Err(e) => {
-            label.set_text(&e);
-            label.set_tooltip_text(None);
-            value.borrow_mut().clear();
-        }
-    }
-}
-
 /// A boxed-list boolean row (title + dim subtitle). Replaces the plain
 /// Switch + pref_row pair of the old pages. Every row builder switches
 /// markup off: Adw rows parse Pango markup in title/subtitle by default,
