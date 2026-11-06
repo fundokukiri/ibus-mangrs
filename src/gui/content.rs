@@ -79,13 +79,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         ),
         (
             "tone",
-            t("pages.tone", "Dấu & tự động"),
-            "tools-check-spelling-symbolic",
+            t("pages.tone", "Dấu và tự động"),
+            "accessories-character-map-symbolic",
         ),
         (
             "macros",
             t("pages.macros", "Gõ tắt"),
-            "insert-text-symbolic",
+            "edit-find-replace-symbolic",
         ),
         ("emoji", t("pages.emoji", "Emoji"), "face-smile-symbolic"),
         (
@@ -93,16 +93,20 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             t("pages.data", "Từ điển"),
             "accessories-dictionary-symbolic",
         ),
-        ("rules", t("pages.rules", "Luật"), "view-list-symbolic"),
+        (
+            "rules",
+            t("pages.rules", "Luật theo app"),
+            "view-app-grid-symbolic",
+        ),
         (
             "panel",
-            t("pages.panel", "Menu panel"),
-            "document-edit-symbolic",
+            t("pages.panel", "Menu trên panel"),
+            "open-menu-symbolic",
         ),
         (
             "hotkeys",
             t("pages.hotkeys", "Phím tắt"),
-            "preferences-desktop-keyboard-symbolic",
+            "preferences-desktop-keyboard-shortcuts-symbolic",
         ),
         (
             "other",
@@ -112,7 +116,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         (
             "tune",
             t("pages.tune", "Tinh chỉnh"),
-            "preferences-system-symbolic",
+            "applications-engineering-symbolic",
         ),
         (
             "about",
@@ -160,36 +164,84 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     sidebar_btn.set_visible(false);
     header.pack_start(&sidebar_btn);
 
-    // Sidebar rows in GNOME Settings groups: the everyday pages, then the
-    // advanced ones, then About — separated by non-selectable rows.
+    // Sidebar rows in GNOME Settings groups: the everyday pages, the
+    // feature targets, the advanced ones — one thin separator between
+    // groups — and About pinned below an expanding spacer.
     let sidebar_list = gtk4::ListBox::new();
     sidebar_list.add_css_class("navigation-sidebar");
+    let about_list = gtk4::ListBox::new();
+    about_list.add_css_class("navigation-sidebar");
     let mut page_rows: Vec<(String, gtk4::ListBoxRow)> = Vec::new();
-    for (name, title, icon) in pages_refs {
-        if name == "rules" || name == "about" {
-            let sep_row = gtk4::ListBoxRow::new();
-            sep_row.set_selectable(false);
-            sep_row.set_activatable(false);
-            let sep = gtk4::Box::new(Orientation::Vertical, 0);
-            sep.set_margin_top(6);
-            sep.set_margin_bottom(6);
-            sep.append(&gtk4::Separator::new(Orientation::Horizontal));
-            sep_row.set_child(Some(&sep));
-            sidebar_list.append(&sep_row);
-        }
+    /// One navigation row: icon + label, the accessible label and tooltip
+    /// carry the full text, long labels ellipsize at the end.
+    fn nav_row(title: &str, icon: &str, name: &str) -> gtk4::ListBoxRow {
         let row = gtk4::ListBoxRow::new();
         let h = gtk4::Box::new(Orientation::Horizontal, 12);
         // A little breathing room: navigation-sidebar's padding alone leaves
         // the icon glued to the window edge.
         h.set_margin_start(6);
         h.append(&gtk4::Image::from_icon_name(icon));
-        h.append(&gtk4::Label::new(Some(title)));
+        let label = gtk4::Label::new(Some(title));
+        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        label.set_hexpand(true);
+        label.set_xalign(0.0);
+        h.append(&label);
         row.set_child(Some(&h));
         // The row carries its stack name; the selection handler reads it.
         row.set_widget_name(name);
-        sidebar_list.append(&row);
-        page_rows.push((name.to_string(), row.clone()));
+        row.set_tooltip_text(Some(title));
+        row.update_property(&[gtk4::accessible::Property::Label(title)]);
+        row
     }
+    /// One thin group separator: not selectable, not focusable, identical
+    /// margins above and below.
+    fn separator_row() -> gtk4::ListBoxRow {
+        let row = gtk4::ListBoxRow::new();
+        row.set_selectable(false);
+        row.set_activatable(false);
+        row.set_focusable(false);
+        row.set_can_target(false);
+        let sep = gtk4::Box::new(Orientation::Vertical, 0);
+        sep.set_margin_top(6);
+        sep.set_margin_bottom(6);
+        sep.append(&gtk4::Separator::new(Orientation::Horizontal));
+        row.set_child(Some(&sep));
+        row
+    }
+    let label_of = |name: &str| {
+        pages_refs
+            .iter()
+            .find(|(n, _, _)| *n == name)
+            .map(|(_, title, _)| title.as_ref())
+            .unwrap_or("")
+    };
+    let icon_of = |name: &str| {
+        pages_refs
+            .iter()
+            .find(|(n, _, _)| *n == name)
+            .map(|(_, _, icon)| *icon)
+            .unwrap_or("")
+    };
+    let groups: [&[&str]; 3] = [
+        &["typing", "tone", "macros", "emoji", "data"],
+        &["rules", "panel", "hotkeys"],
+        &["tune", "other"],
+    ];
+    for (gi, group) in groups.iter().copied().enumerate() {
+        if gi > 0 {
+            sidebar_list.append(&separator_row());
+        }
+        for name in group {
+            let row = nav_row(label_of(name), icon_of(name), name);
+            sidebar_list.append(&row);
+            page_rows.push((name.to_string(), row.clone()));
+        }
+    }
+    let about_row = nav_row(label_of("about"), icon_of("about"), "about");
+    // The pinned About group keeps the same separator style above it.
+    about_list.append(&separator_row());
+    about_list.append(&about_row);
+    page_rows.push(("about".to_string(), about_row.clone()));
     // Owned copies for the 'static signal handlers (the const PAGES they
     // replaced lives only in the content file now).
     let app_name = t("app.name", "MăngRS");
@@ -197,12 +249,16 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         .iter()
         .map(|(name, title, _)| (name.to_string(), title.clone()))
         .collect();
-    {
+    // One pick handler for both lists: switch the stack, set the header
+    // title, reveal the content when collapsed — and keep exactly one
+    // selected row across the two lists.
+    type PagePick = Rc<dyn Fn(Option<&gtk4::ListBoxRow>)>;
+    let pick: PagePick = {
         let stack = stack.clone();
         let title_label = title_label.clone();
         let split_view = split_view.clone();
         let app_name = app_name.clone();
-        sidebar_list.connect_row_selected(move |_, some_row| {
+        Rc::new(move |some_row| {
             let Some(row) = some_row else {
                 return;
             };
@@ -218,6 +274,27 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             // GNOME Settings on a phone-shaped window.
             if split_view.is_collapsed() {
                 split_view.set_show_content(true);
+            }
+        })
+    };
+    {
+        let pick = pick.clone();
+        let about_list = about_list.clone();
+        sidebar_list.connect_row_selected(move |_, some_row| {
+            pick(some_row);
+            if some_row.is_some() {
+                // One selection at a time across the two lists.
+                about_list.select_row(None::<&gtk4::ListBoxRow>);
+            }
+        });
+    }
+    {
+        let pick = pick.clone();
+        let main_list = sidebar_list.clone();
+        about_list.connect_row_selected(move |_, some_row| {
+            pick(some_row);
+            if some_row.is_some() {
+                main_list.select_row(None::<&gtk4::ListBoxRow>);
             }
         });
     }
@@ -244,8 +321,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     let sidebar_box = gtk4::Box::new(Orientation::Vertical, 0);
     sidebar_box.append(&search_btn);
     sidebar_box.append(&search_entry);
-    sidebar_list.set_vexpand(true);
+    // The main list keeps its natural height; an expanding spacer pins the
+    // About group to the bottom of the sidebar.
     sidebar_box.append(&sidebar_list);
+    let spacer = gtk4::Box::new(Orientation::Vertical, 0);
+    spacer.set_vexpand(true);
+    sidebar_box.append(&spacer);
+    sidebar_box.append(&about_list);
     let sidebar_page = adw::NavigationPage::builder()
         .title(&app_name)
         .child(&sidebar_box)
@@ -395,20 +477,22 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         });
     }
     {
-        let sidebar_list = sidebar_list.clone();
         let entry = search_entry.clone();
         let btn = search_btn.clone();
+        let page_rows = page_rows.clone();
         results_list.connect_row_activated(move |_, row| {
             let name = row.widget_name().to_string();
             // Selecting the sidebar row drives stack + title, exactly like a
-            // manual page pick.
-            let mut i = 0;
-            while let Some(candidate) = sidebar_list.row_at_index(i) {
-                if candidate.widget_name() == name {
-                    sidebar_list.select_row(Some(&candidate));
-                    break;
+            // manual page pick — the row may live in the main list or the
+            // pinned About list.
+            let target = page_rows
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, r)| r.clone());
+            if let Some(row) = target {
+                if let Some(list) = row.parent().and_downcast::<gtk4::ListBox>() {
+                    list.select_row(Some(&row));
                 }
-                i += 1;
             }
             entry.set_text("");
             // The jump found the page: collapse back to the magnifier.
@@ -458,9 +542,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         });
     }
 
-    // Keyboard: close and quit, plus Alt+0..9 to jump straight to a page
-    // (an accelerator takes one character after Alt, so the 11th page has
-    // none — installing "<Alt>10" only warned and did nothing).
+    // Keyboard: close and quit, Ctrl+F for the sidebar search, plus
+    // Alt+0..9 to jump straight to a page (an accelerator takes one
+    // character after Alt, so the 11th page has none — installing
+    // "<Alt>10" only warned and did nothing).
     app.set_accels_for_action("window.close", &["<Control>w"]);
     let quit = gtk4::gio::SimpleAction::new("quit", None);
     {
@@ -469,12 +554,29 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     }
     app.add_action(&quit);
     app.set_accels_for_action("app.quit", &["<Control>q"]);
+    let search_action = gtk4::gio::SimpleAction::new("search", None);
+    {
+        let btn = search_btn.clone();
+        let entry = search_entry.clone();
+        search_action.connect_activate(move |_, _| {
+            btn.set_visible(false);
+            entry.set_visible(true);
+            entry.grab_focus();
+        });
+    }
+    window.add_action(&search_action);
+    app.set_accels_for_action("win.search", &["<Control>f"]);
     for (i, (_, row)) in page_rows.iter().enumerate() {
         let action = gtk4::gio::SimpleAction::new(&format!("page-{}", i + 1), None);
         {
-            let list = sidebar_list.clone();
+            // The row's own parent list — the main pages or the pinned
+            // About list — selects it and drives the stack.
             let row = row.clone();
-            action.connect_activate(move |_, _| list.select_row(Some(&row)));
+            action.connect_activate(move |_, _| {
+                if let Some(list) = row.parent().and_downcast::<gtk4::ListBox>() {
+                    list.select_row(Some(&row));
+                }
+            });
         }
         window.add_action(&action);
         if i < 10 {
@@ -512,7 +614,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         .iter()
         .find(|(n, _)| n == wanted)
         .unwrap_or(&page_rows[0]);
-    sidebar_list.select_row(Some(wanted_row));
+    // The row's own list selects it — the main pages or the pinned About.
+    if let Some(list) = wanted_row.parent().and_downcast::<gtk4::ListBox>() {
+        list.select_row(Some(wanted_row));
+    }
 
     {
         let window_for_save = window.clone();
