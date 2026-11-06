@@ -36,98 +36,6 @@ fn add_preview(row: &adw::EntryRow) {
     }
 }
 
-/// The macro line stats, by the parser's own rule (`macros_from_text`): a
-/// pair needs a `=` and non-empty key and value. The error line only
-/// reports non-blank lines without a `=` — the other drops stay silent,
-/// exactly as they always were.
-pub(crate) fn line_stats(text: &str) -> (usize, Option<String>) {
-    let lines: Vec<&str> = text.lines().collect();
-    let valid = lines
-        .iter()
-        .filter(|l| {
-            l.split_once('=')
-                .is_some_and(|(k, v)| !k.trim().is_empty() && !v.trim().is_empty())
-        })
-        .count();
-    let bad: Vec<usize> = lines
-        .iter()
-        .enumerate()
-        .filter(|(_, l)| !l.trim().is_empty() && l.split_once('=').is_none())
-        .map(|(i, _)| i + 1)
-        .collect();
-    let error = match bad.as_slice() {
-        [] => None,
-        [n] => Some(
-            t("groups.macros.raw.error_one", "Dòng {n} thiếu dấu =").replace("{n}", &n.to_string()),
-        ),
-        [first, ..] => Some(
-            t(
-                "groups.macros.raw.error_many",
-                "{k} dòng thiếu dấu =, bắt đầu từ dòng {n}",
-            )
-            .replace("{k}", &bad.len().to_string())
-            .replace("{n}", &first.to_string()),
-        ),
-    };
-    (valid, error)
-}
-
-/// The editor shell: like the dictionary's card editor but bounded
-/// (240..420px, the page never becomes one giant block) and the empty
-/// hint sits top-left with three example lines. The TextView drops its
-/// own `.view` background so the card fill shows through unchanged.
-fn editor_card(ui: &Rc<Ui>, hint_visible: &Rc<RefCell<bool>>) -> gtk4::ScrolledWindow {
-    ui.macros_text.remove_css_class("view");
-    ui.macros_text.set_left_margin(16);
-    ui.macros_text.set_right_margin(16);
-    ui.macros_text.set_top_margin(12);
-    ui.macros_text.set_bottom_margin(12);
-    ui.macros_text
-        .update_property(&[gtk4::accessible::Property::Label(&t(
-            "groups.macros.raw.title",
-            "Nội dung gõ tắt",
-        ))]);
-    // The example lines, top-left over the text area: decorative, so they
-    // take neither clicks nor focus.
-    let hint = gtk4::Label::new(Some(&t(
-        "groups.macros.raw.hint",
-        "vn=Việt Nam\ntphcm=Thành phố Hồ Chí Minh\ngio=$TIME",
-    )));
-    hint.add_css_class("dim-label");
-    hint.add_css_class("monospace");
-    hint.set_xalign(0.0);
-    hint.set_valign(gtk4::Align::Start);
-    hint.set_halign(gtk4::Align::Start);
-    hint.set_margin_start(16);
-    hint.set_margin_top(12);
-    hint.set_can_target(false);
-    hint.set_focusable(false);
-    let overlay = gtk4::Overlay::new();
-    overlay.set_child(Some(&ui.macros_text));
-    overlay.add_overlay(&hint);
-    let scroll = gtk4::ScrolledWindow::new();
-    scroll.add_css_class("card");
-    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    scroll.set_min_content_height(240);
-    scroll.set_max_content_height(420);
-    scroll.set_propagate_natural_height(true);
-    scroll.set_child(Some(&overlay));
-    // The hint follows the buffer: visible only while it is empty.
-    {
-        let hint_into = hint.clone();
-        let empty_flag = hint_visible.clone();
-        ui.macros_text.buffer().connect_changed(move |buf| {
-            let empty = buf.char_count() == 0;
-            hint_into.set_visible(empty);
-            *empty_flag.borrow_mut() = empty;
-        });
-        let empty = ui.macros_text.buffer().char_count() == 0;
-        hint.set_visible(empty);
-        *hint_visible.borrow_mut() = empty;
-    }
-    scroll
-}
-
 /// The pencil (edit-icon) inside an AdwEntryRow has no API to hide it and
 /// CSS cannot remove a widget's paint. The template never toggles it in
 /// code, so hiding it once — and again on every map, for safety — sticks;
@@ -227,8 +135,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     error_line.set_margin_top(6);
     error_line.set_visible(false);
 
-    let hint_visible = Rc::new(RefCell::new(true));
-    let scroll = editor_card(ui, &hint_visible);
+    let scroll = bounded_card_editor(
+        &ui.macros_text,
+        &t(
+            "groups.macros.raw.hint",
+            "vn=Việt Nam\ntphcm=Thành phố Hồ Chí Minh\ngio=$TIME",
+        ),
+        &t("groups.macros.raw.title", "Nội dung gõ tắt"),
+    );
     raw.add(&scroll);
     raw.add(&error_line);
     page.add(&raw);
@@ -247,14 +161,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         let error_into = error_line.clone();
         ui.macros_text.buffer().connect_changed(move |buf| {
             let text = buf.text(&buf.start_iter(), &buf.end_iter(), false);
-            let (valid, error) = line_stats(text.as_str());
+            let (valid, error) = line_stats(text.as_str(), "groups.macros.raw");
             count_into.set_text(
                 &t("groups.macros.raw.count", "{n} mục").replace("{n}", &valid.to_string()),
             );
             error_into.set_text(error.as_deref().unwrap_or(""));
             error_into.set_visible(error.is_some());
         });
-        let (valid, error) = line_stats(&text_of(&ui.macros_text));
+        let (valid, error) = line_stats(&text_of(&ui.macros_text), "groups.macros.raw");
         count.set_text(&t("groups.macros.raw.count", "{n} mục").replace("{n}", &valid.to_string()));
         error_line.set_text(error.as_deref().unwrap_or(""));
         error_line.set_visible(error.is_some());

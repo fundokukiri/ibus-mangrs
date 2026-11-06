@@ -206,6 +206,90 @@ fn row_labels<W: IsA<gtk4::Widget>>(row: &W) -> (Option<gtk4::Label>, Option<gtk
     (title, subtitle)
 }
 
+/// A bounded monospace card editor: the TextView drops its own `.view`
+/// background so the card fill shows through unchanged, an example hint
+/// sits top-left while the buffer is empty (decorative: no click, no
+/// focus), and the card is 240px minimum, 420px maximum so the page never
+/// becomes one giant block — the content scrolls inside.
+pub(super) fn bounded_card_editor(
+    view: &TextView,
+    hint_text: &str,
+    a11y_label: &str,
+) -> gtk4::ScrolledWindow {
+    view.remove_css_class("view");
+    view.set_left_margin(16);
+    view.set_right_margin(16);
+    view.set_top_margin(12);
+    view.set_bottom_margin(12);
+    view.update_property(&[gtk4::accessible::Property::Label(a11y_label)]);
+    let hint = gtk4::Label::new(Some(hint_text));
+    hint.add_css_class("dim-label");
+    hint.add_css_class("monospace");
+    hint.set_xalign(0.0);
+    hint.set_valign(gtk4::Align::Start);
+    hint.set_halign(gtk4::Align::Start);
+    hint.set_margin_start(16);
+    hint.set_margin_top(12);
+    hint.set_can_target(false);
+    hint.set_focusable(false);
+    let overlay = gtk4::Overlay::new();
+    overlay.set_child(Some(view));
+    overlay.add_overlay(&hint);
+    {
+        let hint_into = hint.clone();
+        view.buffer().connect_changed(move |buf| {
+            hint_into.set_visible(buf.char_count() == 0);
+        });
+        hint.set_visible(view.buffer().char_count() == 0);
+    }
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.add_css_class("card");
+    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    scroll.set_min_content_height(240);
+    scroll.set_max_content_height(420);
+    scroll.set_propagate_natural_height(true);
+    scroll.set_child(Some(&overlay));
+    scroll
+}
+
+/// The raw-table line stats, by the parsers' own drop rule (`macros_from_
+/// text` / `emoji_from_text`): a pair needs a `=` and non-empty key and
+/// value. The error line only reports non-blank lines without a `=` — the
+/// other drops stay silent, exactly as they always were. `section` picks
+/// the message keys ("<section>.error_one"/"error_many").
+pub(crate) fn line_stats(text: &str, section: &str) -> (usize, Option<String>) {
+    let lines: Vec<&str> = text.lines().collect();
+    let valid = lines
+        .iter()
+        .filter(|l| {
+            l.split_once('=')
+                .is_some_and(|(k, v)| !k.trim().is_empty() && !v.trim().is_empty())
+        })
+        .count();
+    let bad: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty() && l.split_once('=').is_none())
+        .map(|(i, _)| i + 1)
+        .collect();
+    let error = match bad.as_slice() {
+        [] => None,
+        [n] => Some(
+            t(&format!("{section}.error_one"), "Dòng {n} thiếu dấu =")
+                .replace("{n}", &n.to_string()),
+        ),
+        [first, ..] => Some(
+            t(
+                &format!("{section}.error_many"),
+                "{k} dòng thiếu dấu =, bắt đầu từ dòng {n}",
+            )
+            .replace("{k}", &bad.len().to_string())
+            .replace("{n}", &first.to_string()),
+        ),
+    };
+    (valid, error)
+}
+
 /// A link that opens in the default browser, drawn as a flat icon —
 /// send-to (an arrow leaving a box) stands in for external-link, which the
 /// shipped Adwaita theme no longer carries.
