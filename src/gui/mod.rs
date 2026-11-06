@@ -175,8 +175,8 @@ struct Ui {
     macro_enabled: adw::SwitchRow,
     capitalize_macro: adw::SwitchRow,
     macro_in_off_mode: adw::SwitchRow,
-    time_format: Entry,
-    date_format: Entry,
+    time_format: adw::EntryRow,
+    date_format: adw::EntryRow,
     /// Emoji shortcodes ("Emoji" tab): the on/off switch, the picker
     /// hotkey (the row itself lives on "Phím tắt", one row per shortcut)
     /// and the raw user table `name=glyph` lines of `emoji.toml`.
