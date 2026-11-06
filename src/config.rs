@@ -222,8 +222,28 @@ pub struct CustomHotkey {
 
 /// The functions a custom shortcut can be assigned to, by action key. The
 /// engine maps the key onto its registry actions; the GUI builds the
-/// picker dropdown from it (labels come from gui-content.toml).
-pub const CUSTOM_HOTKEY_ACTIONS: &[&str] = &["enabled", "mode", "rule", "emoji"];
+/// picker dropdown from it (labels come from gui-content.toml). The quick
+/// toggles reuse the panel registry's own keys (`ibus_prop::QUICK_TOGGLES`).
+pub const CUSTOM_HOTKEY_ACTIONS: &[&str] = &[
+    "enabled",
+    "mode",
+    "rule",
+    "emoji",
+    "charset",
+    "method",
+    "macro",
+    "auto_capitalize",
+    "abbreviations",
+    "auto_restore",
+    "auto_correct",
+    "bypass_url",
+    "dictionary",
+    "double_space",
+    "em_dash",
+    "macro_editor",
+    "settings",
+    "about",
+];
 
 /// One rule pattern against one rule target (`app_name` when present, else
 /// the IBus client string, `None` when the client has neither) — the shared

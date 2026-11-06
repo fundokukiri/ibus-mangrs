@@ -124,7 +124,7 @@ fn push_update(prop: &Prop, out: &mut Vec<Message>) {
 }
 
 /// The "Phím tắt" item opens the GTK4 settings window, same as `-gui`.
-fn open_settings(page: &str) {
+pub(super) fn open_settings(page: &str) {
     let Some(exe) = std::env::current_exe().ok() else {
         return;
     };

@@ -12,10 +12,18 @@ pub(super) enum HotkeyAction {
     ToggleEnabled,
     /// Cycle the display mode list.
     CycleMode,
+    /// Cycle the charset list.
+    CycleCharset,
+    /// Cycle the typing method list.
+    CycleMethod,
     /// Open the per-app rule picker for the focused application.
     AppRulePicker,
     /// Open the emoji picker window (`-emoji`).
     OpenEmoji,
+    /// Flip one quick toggle, by the panel registry's key.
+    QuickToggle(&'static str),
+    /// Open the settings window on one page.
+    OpenSettings(&'static str),
 }
 
 /// A parsed shortcut: modifier mask, keysym, action.
@@ -41,16 +49,22 @@ pub(super) fn hotkey_registry(config: &Config) -> Vec<HotkeyBinding> {
         out.push((mods, key, HotkeyAction::OpenEmoji));
     }
     // The user's own shortcuts, after the four built-ins: the same parse,
-    // the action key picked from the fixed table. Unknown actions or
-    // unusable specs register nothing; a spec colliding with an earlier
-    // entry loses (the first match fires).
+    // the action key picked from the fixed table (quick toggles reuse the
+    // panel registry's keys). Unknown actions or unusable specs register
+    // nothing; a spec colliding with an earlier entry loses (the first
+    // match fires).
     for custom in &config.custom_hotkeys {
         let Some(action) = (match custom.action.as_str() {
             "enabled" => Some(HotkeyAction::ToggleEnabled),
             "mode" => Some(HotkeyAction::CycleMode),
+            "charset" => Some(HotkeyAction::CycleCharset),
+            "method" => Some(HotkeyAction::CycleMethod),
             "rule" => Some(HotkeyAction::AppRulePicker),
             "emoji" => Some(HotkeyAction::OpenEmoji),
-            _ => None,
+            "macro_editor" => Some(HotkeyAction::OpenSettings("macros")),
+            "settings" => Some(HotkeyAction::OpenSettings("general")),
+            "about" => Some(HotkeyAction::OpenSettings("about")),
+            other => ibus_prop::quick_toggle(other).map(|t| HotkeyAction::QuickToggle(t.key)),
         }) else {
             continue;
         };
@@ -97,7 +111,7 @@ impl EngineHandler {
     /// Run the first registry entry matching this key event. Returns
     /// whether the key was consumed.
     fn try_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
-        let Some(&(_, _, action)) = self
+        let Some(&(mods, key, action)) = self
             .hotkeys
             .iter()
             .find(|(mods, key, _)| hotkey_matches(*mods, *key, keyval, state))
@@ -121,10 +135,83 @@ impl EngineHandler {
         match action {
             HotkeyAction::ToggleEnabled => self.toggle_enabled(out),
             HotkeyAction::CycleMode => self.cycle_mode(out),
+            HotkeyAction::CycleCharset => self.cycle_charset(out),
+            HotkeyAction::CycleMethod => self.cycle_method(out),
             HotkeyAction::AppRulePicker => self.open_app_rule_picker(out),
             HotkeyAction::OpenEmoji => self.open_emoji_picker(out),
+            HotkeyAction::QuickToggle(key) => self.quick_toggle_key(key, out),
+            HotkeyAction::OpenSettings(page) => prop::open_settings(page),
         }
-        true
+        // A Shift+punctuation combo also types its key: the engine cannot
+        // tell the combo from typing the character ("Shift+~" stays usable
+        // as ~), so the key passes through after the action fired.
+        !hotkey_passes_key(mods, key)
+    }
+
+    /// Cycle the charset list: save, apply, per-item panel update.
+    fn cycle_charset(&mut self, out: &mut Vec<Message>) {
+        let mut config = Config::load();
+        let Some(next) =
+            cycle_next(ibus_prop::CHARSETS, config.charset.key()).and_then(CharsetConfig::from_key)
+        else {
+            return;
+        };
+        config.charset = next;
+        if config.save().is_err() {
+            return; // consumed anyway; do not type with a hotkey press
+        }
+        {
+            let mut engine = lock_engine(&self.engine);
+            let actions = engine.apply_config(&config);
+            engine.set_enabled(config.enabled);
+            emit(&mut engine, &actions, out);
+        }
+        self.rebaseline_config_mtime();
+        update_property_group(&config, "charset", out);
+    }
+
+    /// Cycle the typing method list: save, apply, per-item panel update.
+    fn cycle_method(&mut self, out: &mut Vec<Message>) {
+        let mut config = Config::load();
+        let Some(next) =
+            cycle_next(ibus_prop::METHODS, config.method.key()).and_then(MethodConfig::from_key)
+        else {
+            return;
+        };
+        config.method = next;
+        if config.save().is_err() {
+            return; // consumed anyway; do not type with a hotkey press
+        }
+        {
+            let mut engine = lock_engine(&self.engine);
+            let actions = engine.apply_config(&config);
+            engine.set_enabled(config.enabled);
+            emit(&mut engine, &actions, out);
+        }
+        self.rebaseline_config_mtime();
+        update_property_group(&config, "method", out);
+    }
+
+    /// Flip one quick toggle from a hotkey: save, apply, panel update —
+    /// the same round a panel click does, state read from the config.
+    fn quick_toggle_key(&mut self, key: &str, out: &mut Vec<Message>) {
+        let Some(toggle) = ibus_prop::quick_toggle(key) else {
+            return;
+        };
+        let mut config = Config::load();
+        let checked = !(toggle.get)(&config);
+        (toggle.set)(&mut config, checked);
+        if config.save().is_err() {
+            return; // consumed anyway; do not type with a hotkey press
+        }
+        {
+            let mut engine = lock_engine(&self.engine);
+            let actions = engine.apply_config(&config);
+            engine.set_enabled(config.enabled);
+            emit(&mut engine, &actions, out);
+        }
+        self.rebaseline_config_mtime();
+        update_property_group(&config, key, out);
     }
 
     /// Flip Vietnamese on/off: save, apply, then the per-item panel update
@@ -299,6 +386,21 @@ pub(crate) fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
         return None;
     }
     Some((mods, key))
+}
+
+/// A Shift+punctuation combo also types its key: Control/Alt block the
+/// character and Shift+letters are refused by the parser, so this is the
+/// only colliding shape — the engine cannot tell the combo from the
+/// character, so the key passes through (the action still fires).
+pub(super) fn hotkey_passes_key(mods: u32, key: u32) -> bool {
+    mods == keymap::SHIFT_MASK && char::from_u32(key).is_some_and(|c| c.is_ascii_graphic())
+}
+
+/// The next entry's key after `current`, wrapping around — the same list
+/// order the panel radios show.
+pub(super) fn cycle_next<'a>(list: &'a [(&'a str, &'a str)], current: &str) -> Option<&'a str> {
+    let i = list.iter().position(|(k, _)| *k == current)?;
+    Some(list[(i + 1) % list.len()].0)
 }
 
 /// Does this key event trigger the hotkey? `key == 0` marks a
