@@ -6,6 +6,10 @@
 # Notes:
 # - The logo image is data/logo.png (embedded at build time; replace the
 #   file to change it).
+# - Row titles and subtitles render as plain text (markup off in the row
+#   builders) - a bare & is safe there. Group titles and descriptions are
+#   Pango markup with no opt-out: escape & as &amp; (see "Sao lưu &amp;
+#   khôi phục").
 # - Icon names, the mode/charset/method lists and the menu design defaults
 #   are functional data, not content: they stay in the code.
 
@@ -14,12 +18,14 @@ name = "MăngRS"
 
 [pages]
 typing = "Chung"
-tone = "Dấu & tự động"
+tone = "Dấu và tự động"
 macros = "Gõ tắt"
+emoji = "Emoji"
 data = "Từ điển"
-rules = "Luật"
-panel = "Menu panel"
-advanced = "Tinh chỉnh"
+rules = "Luật theo app"
+panel = "Menu trên panel"
+hotkeys = "Phím tắt"
+other = "Cài đặt khác"
 about = "Giới thiệu"
 
 [search]
@@ -29,60 +35,82 @@ none = "Không có kết quả"
 page_kind = "Trang"
 
 [misc]
+reinstall_button = "Cài lại"
+exported_toast = "Đã xuất cấu hình"
+imported_toast = "Đã nhập cấu hình"
+reset_toast = "Đã khôi phục mặc định"
+json_filter = "Tệp JSON"
 unassigned = "Chưa gán"
-capture_prompt = "Nhấn tổ hợp phím… (Esc hủy)"
+a11y_unassigned = "chưa gán"
+capture_waiting = "Đang chờ phím…"
+capture_body = "Nhấn tổ hợp phím mới. Esc để hủy, Backspace để xóa."
+capture_add_body = "Chọn chức năng rồi nhấn tổ hợp phím. Esc để hủy."
 capture_bad_key = "Phím này không dùng được — thử phím khác"
-capture_tooltip = "Gán lại: nhấn tổ hợp phím mới. Esc hủy, Backspace xóa."
+conflict_used = "Đã dùng cho: {f}"
+cancel = "Hủy"
+delete = "Xóa"
+deleted_toast = "Đã xóa"
+undo = "Hoàn tác"
 restart_button = "Khởi động lại IBus"
 save_alert_heading = "Không lưu được cấu hình"
 export_dialog = "Xuất cấu hình"
 import_dialog = "Nhập cấu hình"
 export_button = "Xuất…"
 import_button = "Nhập…"
+extension_button = "Cài đặt"
+reset_button = "Khôi phục"
+other_icon_toast_hidden = "Đã ẩn khỏi menu ứng dụng"
+other_icon_toast_shown = "Đã hiện lại trong menu ứng dụng"
 dbus_error = "Không nối được D-Bus: {e}"
 focus_ext_error = "Không hỏi được extension MăngRS Focus (data/gnome-shell-extension)"
 focus_none = "Không có cửa sổ nào đang focus"
 
 # --- page Chung -------------------------------------------------------------
 
-[groups.typing.status]
-title = "Trạng thái"
-description = "Bật tiếng Việt và phím tắt đổi chế độ"
-
 [groups.typing.style]
 title = "Cách gõ"
-description = "Kiểu gõ, bảng mã và chế độ gõ"
 
 [groups.typing.display]
 title = "Hiển thị"
-description = "Hình thức của chữ đang gõ"
 
-[groups.typing.cycle_note]
-text = "Thứ tự phím tắt đổi chế độ: Không gạch chân → Gạch chân → Surrounding → Smooth → Super Smooth → Select → ForwardKeyEvent → ForwardKeyEvent II → OFF → Gõ mặc định."
+[groups.hotkeys.custom]
+title = "Phím tắt riêng"
+description = "Gán thêm phím cho cùng chức năng với phím mặc định."
+add_row = "Thêm phím tắt riêng"
+function = "Chức năng"
+empty = "Chưa có phím tắt riêng"
+
+[groups.hotkeys.cycle]
+title = "Thứ tự khi đổi chế độ"
+subtitle = "{n} chế độ, xoay vòng"
 
 [rows.enabled]
 title = "Bật tiếng Việt"
-subtitle = "Tắt để gõ thẳng mọi phím (gõ tắt vẫn chạy nếu bật ở tab Gõ tắt)"
+subtitle = "Tắt để gõ thẳng mọi phím. Gõ tắt vẫn chạy nếu bật ở trang {page}."
 
 [rows.method]
 title = "Kiểu gõ"
-subtitle = "Telex, VNI, VIQR, Microsoft layout"
+subtitle = "Cách gõ dấu tiếng Việt"
 
 [rows.mode]
 title = "Chế độ gõ"
-subtitle = "Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF, Gõ mặc định"
+subtitle = "Cách đưa chữ vào ứng dụng"
 
 [rows.charset]
 title = "Bảng mã"
 subtitle = "Unicode và 10 bảng mã cũ"
 
 [rows.hotkey_mode]
-title = "Phím tắt đổi chế độ"
+title = "Phím tắt đổi chế độ gõ"
 subtitle = "Ví dụ: Control+Alt+v"
 
 [rows.hotkey_enabled]
 title = "Phím tắt bật/tắt tiếng Việt"
 subtitle = "Ví dụ: Control+Alt+space"
+
+[rows.hotkey_app_rule]
+title = "Phím tắt chọn luật theo app"
+subtitle = "Mở menu chọn chế độ ngay tại con trỏ (mũi tên + Enter)"
 
 [rows.hide_underline]
 title = "Ẩn gạch chân"
@@ -107,15 +135,15 @@ title = "Ký tự đặc biệt"
 description = "Chuyển đổi phím tắt ký tự"
 
 [rows.modern]
-title = "Kiểu dấu mới"
+title = "Đặt dấu kiểu mới"
 subtitle = "hòa (chuẩn mới) thay vì hoà (chuẩn cũ)"
 
 [rows.free]
-title = "Dấu tự do"
-subtitle = "Dấu đặt anywhere trong từ: hoangf → hoàng"
+title = "Đặt dấu tự do"
+subtitle = "Đặt dấu tự do trong từ: hoangf → hoàng"
 
 [rows.auto_correct]
-title = "Từ sai trả phím gốc"
+title = "Khôi phục phím với từ sai"
 subtitle = "Âm tiết không hợp lệ trả về đúng phím đã bấm"
 
 [rows.auto_restore]
@@ -123,32 +151,34 @@ title = "Khôi phục từ nước ngoài"
 subtitle = "Từ không phải âm tiết Việt trả về chuỗi phím gốc"
 
 [rows.abbrev]
-title = "Viết tắt"
+title = "Giữ các từ được viết tắt"
 subtitle = "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt"
 
 [rows.bypass_url]
-title = "Không dấu sau URL"
+title = "Không gõ dấu sau URL"
 subtitle = "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên"
 
 [rows.w2u]
 title = "W thành ư"
-subtitle = "Tắt / trừ đầu từ / mọi vị trí"
+subtitle = "Chọn vị trí áp dụng"
 
 [rows.bracket]
 title = "[ ] thành ơ ư"
-subtitle = "Tắt / trừ đầu từ / mọi vị trí"
+subtitle = "Chọn vị trí áp dụng"
 
 [rows.em_dash]
 title = "Gạch ngang dài"
 subtitle = "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)"
 
 [rows.auto_capitalize]
-title = "Tự viết hoa"
+title = "Tự viết động hoa"
 subtitle = "Sau . ! ? và Enter"
 
 [rows.double_space]
-title = "2 dấu cách = chấm"
-subtitle = "Thử nghiệm: hai dấu cách thành dấu chấm"
+title = "Nhấn “Space” hai lần thành dấu chấm"
+subtitle = "Hai dấu cách thành dấu chấm"
+badge = "Thử nghiệm"
+a11y = "Nhấn Space hai lần thành dấu chấm, thử nghiệm"
 
 # --- page Gõ tắt ------------------------------------------------------------
 
@@ -158,8 +188,13 @@ description = "Mở rộng cụm tắt thành câu đầy đủ"
 
 [groups.macros.raw]
 title = "Nội dung gõ tắt"
-description = "Mỗi dòng một cặp khóa=nội dung ($TIME, $DATE)"
-placeholder = "khóa=nội dung — mỗi dòng một cặp"
+description = "Mỗi dòng một cặp khóa=nội dung. Dùng <tt>$TIME</tt> và <tt>$DATE</tt> để chèn giờ và ngày."
+hint = "vn=Việt Nam\ntphcm=Thành phố Hồ Chí Minh\ngio=$TIME"
+count = "{n} mục"
+error_one = "Dòng {n} thiếu dấu ="
+error_many = "{k} dòng thiếu dấu =, bắt đầu từ dòng {n}"
+open_button = "Mở tệp"
+open_tooltip = "Mở macros.toml bằng ứng dụng mặc định"
 
 [rows.time_format]
 title = "Định dạng giờ ($TIME)"
@@ -170,7 +205,7 @@ title = "Định dạng ngày ($DATE)"
 subtitle = "Ví dụ %d/%m/%Y"
 
 [rows.macro_enabled]
-title = "Gõ tắt"
+title = "Bật gõ tắt"
 subtitle = "Khóa mở rộng thành cụm khi hết từ"
 
 [rows.capitalize_macro]
@@ -178,8 +213,27 @@ title = "Viết hoa gõ tắt"
 subtitle = "Khóa viết hoa → nội dung viết hoa theo"
 
 [rows.macro_in_off_mode]
-title = "Gõ tắt khi OFF"
+title = "Gõ tắt khi tắt tiếng Việt"
 subtitle = "Vẫn mở rộng khi tiếng Việt đang tắt"
+
+[rows.emoji_enabled]
+title = "Gõ tắt emoji"
+subtitle = "Gõ <tt>:ten:</tt> kèm dấu hai chấm sẽ thành emoji khi hết từ"
+
+[rows.hotkey_emoji]
+title = "Phím tắt mở bảng emoji"
+subtitle = "Mở menu chọn emoji tại con trỏ: 1-9/0 chọn, gõ chữ để tìm"
+
+[groups.emoji.shortcut]
+subtitle = "Mở menu chọn emoji tại con trỏ. Gán ở trang Phím tắt."
+
+[groups.emoji.raw]
+title = "Bảng emoji riêng"
+description = "Mỗi dòng một cặp <tt>ten=emoji</tt>. Ghi đè hoặc thêm shortcode (chữ thường)."
+hint = "cuoi=😄\ntim=❤️\nok=👌"
+count = "{n} mục"
+error_one = "Dòng {n} thiếu dấu ="
+error_many = "{k} dòng thiếu dấu =, bắt đầu từ dòng {n}"
 
 [rows.macro_key]
 tooltip = "Khóa gõ tắt (gõ xong sẽ mở rộng)"
@@ -198,9 +252,11 @@ description = "Từ trong từ điển không bị khôi phục về chuỗi ph�
 
 [groups.data.words]
 title = "Danh sách từ"
+description = "Mỗi dòng một từ."
+count = "{n} từ"
 open_button = "Mở tệp"
-open_tooltip = "Mở dictionary.txt bằng ứng dụng mặc định"
-placeholder = "Mỗi dòng một từ — danh sách đang trống"
+open_tooltip = "Mở tệp từ điển trong trình soạn thảo"
+hint = "github\nlinux\nrust"
 
 [rows.dictionary_enabled]
 title = "Dùng từ điển cá nhân"
@@ -208,12 +264,9 @@ subtitle = "~/.config/ibus-mangrs/dictionary.txt"
 
 # --- page Luật --------------------------------------------------------------
 
-[groups.rules.focus]
-title = "Ứng dụng đang focus"
-
 [groups.rules.add]
 title = "Thêm luật"
-description = "Chọn app đã thấy hoặc dùng app đang focus."
+description = "Chuyển sang app đích rồi quay lại, tên app sẽ hiện mờ trong ô nhập."
 
 [groups.rules.list]
 title = "Danh sách luật"
@@ -226,31 +279,30 @@ description = "Nhập tên app để xem luật nào khớp."
 
 [rows.rule_name]
 title = "Tên app"
+placeholder = "vd: firefox, org.gnome.Console"
 tooltip = "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)"
 
-[rows.rule_focus]
-title = "App đang focus"
-subtitle = "Chuyển sang app đích rồi quay lại"
-tooltip = "Tên lấy qua extension MăngRS Focus; app không báo tên thì dùng pattern none"
-chip_tooltip = "Chuyển sang app đích rồi quay lại cửa sổ này — tên app sẽ hiện ở đây (cần extension MăngRS Focus)"
-
 [rows.rule_combo]
-tooltip = "Các app engine đã từng thấy"
+tooltip = "Chọn từ app đã thấy"
+label = "Chọn từ app đã thấy"
 
 [rows.rule_copy]
-tooltip = "Sao chép tên app đang focus"
+tooltip = "Sao chép app đang focus"
+
+[rows.rule_apply]
+tooltip = "Dùng app đang focus"
 
 [rows.rule_mode]
 tooltip = "Chế độ gõ của luật mới"
 
-[rows.rule_up]
-tooltip = "Lên — luật trước thắng"
+[rows.rule_handle]
+tooltip = "Kéo để đổi thứ tự luật"
 
-[rows.rule_down]
-tooltip = "Xuống"
-
-[rows.rule_delete]
-tooltip = "Xoá luật này"
+[rows.rule_menu]
+tooltip = "Thao tác với luật này"
+up = "Lên"
+down = "Xuống"
+delete = "Xóa"
 
 [rows.rule_preview_input]
 placeholder = "Firefox / wayland:Firefox / xim"
@@ -258,10 +310,13 @@ tooltip = "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp và c
 
 [rules]
 add_button = "Thêm luật"
-use_focus_button = "Dùng app đang focus"
-copy_toast = "Đã sao chép"
+add_toast = "Đã thêm luật cho {app}"
+copy_toast = "Đã sao chép {app}"
+deleted_toast = "Đã xóa luật"
 empty = "Chưa có luật nào"
 result_title = "Kết quả"
+preview_empty = "Nhập tên app ở trên để xem kết quả"
+match_result = "Khớp luật #{n}: {mode}"
 no_match = "Không khớp luật nào"
 pseudo_wayland = "gnome-shell (app Wayland)"
 pseudo_none = "(app không báo tên)"
@@ -275,9 +330,11 @@ description = "Tùy chỉnh menu popup trên panel IBus."
 [panel]
 add_button = "Thêm mục"
 add_tooltip = "Thêm mục vào cuối menu"
+added_toast = "Đã thêm mục"
+deleted_toast = "Đã xóa"
+empty = "Trống"
 add_here = "Thêm vào đây…"
 row_menu_tooltip = "Thao tác với mục này"
-expand_tooltip = "Mở rộng / thu gọn"
 move_up = "Lên"
 move_down = "Xuống"
 move_out = "Đưa ra khỏi thư mục"
@@ -298,7 +355,7 @@ radios_charset = "Bảng mã (nhóm chọn)"
 radios_method = "Kiểu gõ (nhóm chọn)"
 radios_display = "Chế độ gõ (nhóm chọn)"
 action_macro_editor = "Mở bảng gõ tắt…"
-action_settings = "Cấu hình"
+action_settings = "Cài đặt"
 action_about = "Giới thiệu (About)"
 sep = "Gạch ngang phân cách"
 folder = "Thư mục mới"
@@ -314,57 +371,83 @@ kind_entry = "Mục chọn"
 
 # --- page Tinh chỉnh --------------------------------------------------------
 
-[groups.advanced.pacing]
+[groups.tune.pacing]
 title = "Tốc độ gõ (uinput)"
-description = "Chỉ áp dụng cho Smooth / Super Smooth / Select"
+description = "Chỉ áp dụng cho Smooth, Super Smooth và Select."
 
-[groups.advanced.xim]
+[groups.tune.channel]
+title = "Kênh gửi chữ"
+
+[groups.tune.xim]
 title = "Tương thích X11/XIM"
-description = "Cho app X11 trực tiếp và app XIM (Java/JetBrains)"
+description = "Cho app X11 trực tiếp và app XIM (Java/JetBrains)."
 
-[groups.advanced.backup]
-title = "Sao lưu & khôi phục"
-description = "Một JSON chứa cấu hình, gõ tắt và từ điển — chuyển máy hoặc dự phòng"
+[groups.other.backup]
+title = "Sao lưu &amp; khôi phục"
+description = "Một tệp JSON chứa cấu hình, gõ tắt và từ điển."
 
 [rows.export]
 title = "Xuất cấu hình ra JSON"
-subtitle = "Lưu ra file để mang đi"
+subtitle = "Lưu ra tệp để mang đi hoặc dự phòng"
 
 [rows.import]
 title = "Nhập cấu hình từ JSON"
-subtitle = "Đọc lại từ file đã xuất"
+subtitle = "Đọc lại từ tệp đã xuất"
 
-[groups.advanced.diagnostics]
-title = "Chẩn đoán"
-description = "Ghi lại quyết định của engine để gỡ lỗi"
+[groups.hotkeys.keys]
+title = "Phím tắt mặc định"
+description = "Bấm vào một dòng rồi nhấn tổ hợp phím mới."
+
+[groups.other.interface]
+title = "Giao diện"
+
+[groups.other.extension]
+title = "GNOME Shell extension"
+description = "Cần cho luật theo app trên Wayland."
+
+[groups.other.advanced]
+title = "Nâng cao"
+
+[rows.desktop_icon]
+title = "Hiện trong menu ứng dụng"
+subtitle = "Hiện biểu tượng MăngRS Cấu hình trong lưới ứng dụng của GNOME"
+
+[rows.focus_extension]
+title = "Extension MăngRS Focus"
+subtitle = "Cài vào <tt>~/.local/share/gnome-shell/extensions</tt> và bật"
+subtitle_installed = "Đã cài vào <tt>~/.local/share/gnome-shell/extensions</tt>"
+
+[rows.reset_defaults]
+title = "Khôi phục mặc định"
+subtitle = "Cấu hình về mặc định; gõ tắt và từ điển giữ nguyên"
 
 [rows.debug_log]
 title = "Ghi log gỡ lỗi"
-subtitle = "Ghi vào ~/.cache/ibus-mangrs/debug.log"
+subtitle_markup = "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangrs/debug.log</tt>"
 
 [rows.x11_delete]
 title = "Xoá đuôi từ ở app X11"
-subtitle = "App X11 trực tiếp xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ."
+subtitle = "App X11 xoá đuôi từ mà không báo cáo, giống ibus-bamboo. Có thể xoá nhầm ký tự nếu con trỏ bị đổi chỗ."
 
 [rows.preedit_xim]
 title = "Preedit cho app XIM"
-subtitle = "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ."
+subtitle = "Giữ gạch chân cho app XIM: chữ đang gõ hiện trong cửa sổ riêng, commit khi hết từ."
 
 [rows.commit_interval]
 title = "Nhịp gõ chữ"
-subtitle = "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20"
+subtitle = "Khoảng cách giữa hai lần gửi chữ, tính bằng ms. Mặc định: {n}"
 
 [rows.backspace_interval]
 title = "Nhịp xoá lùi"
-subtitle = "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5"
+subtitle = "Khoảng cách giữa hai lần Backspace, tính bằng ms. Mặc định: {n}"
 
 [rows.post_delay]
 title = "Độ trễ sau từ"
-subtitle = "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10"
+subtitle = "Chờ sau khi viết lại từ, trước khi gõ tiếp, tính bằng ms. Mặc định: {n}"
 
 [rows.unicode_channel]
 title = "Kênh gửi từ tiếng Việt"
-subtitle = "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)"
+subtitle = "Clipboard sẽ tạm ghi đè nội dung clipboard của bạn."
 
 # --- page Giới thiệu --------------------------------------------------------
 
@@ -381,21 +464,35 @@ homepage_title = "Trang chủ"
 homepage_url = "https://mangrs.fundoku.io.vn"
 license_title = "Giấy phép mã nguồn mở"
 license_value = "GPL — phiên bản 3, chi tiết trong LICENSE"
-credits_title = "Credits"
-credits_value = "Lõi gõ bamboo-core (MIT, bên thứ 3)"
+credits_title = "Ghi công"
+credits_value = "Lõi gõ bamboo-core (MIT, bên thứ ba)"
 detail_title = "Giới thiệu chi tiết"
 detail_subtitle = ""
 issue_url = "https://github.com/fundokukiri/ibus-mangrs/issues"
 
 # Explanation markers ("?") - the longer text shown on hover or click next
 # to each feature title.
+[actions]
+hotkey_mode = "Đổi chế độ gõ"
+hotkey_emoji = "Mở bảng emoji"
+hotkey_charset = "Xoay bảng mã"
+hotkey_method = "Xoay kiểu gõ"
+hotkey_auto_capitalize = "Tự viết hoa"
+hotkey_abbrev = "Viết tắt"
+hotkey_auto_restore = "Khôi phục từ nước ngoài"
+hotkey_auto_correct = "Từ sai trả phím gốc"
+hotkey_bypass_url = "Không dấu sau URL"
+hotkey_dictionary = "Từ điển của tôi"
+hotkey_double_space = "2 dấu cách = chấm"
+hotkey_em_dash = "Gạch ngang dài"
+hotkey_macro_editor = "Mở trang Gõ tắt"
+hotkey_settings = "Mở Cài đặt"
+
 [tips]
 enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
 method = "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
 mode = "Cách hiển thị chữ đang gõ: preedit (gạch chân) dùng được ở mọi app, các mode uinput gửi phím thật nhưng có thể lệch app."
 charset = "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
-hotkey_mode = "Gán phím chuyển tuần tự qua các chế độ gõ. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa."
-hotkey_enabled = "Gán phím bật/tắt tiếng Việt nhanh. Bấm vào nút bút chì, nhấn tổ hợp phím; Esc hủy, Backspace xóa."
 hide_underline = "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
 modern = "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."
 free = "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên âm gần nhất."
@@ -411,6 +508,7 @@ double_space = "Nhấn hai dấu cách liên tiếp thành dấu chấm + khoả
 macro_enabled = "Bật bảng gõ tắt: chuỗi khóa được mở rộng thành nội dung khi gõ xong từ."
 capitalize_macro = "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo."
 macro_in_off_mode = "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
+emoji_enabled = "Gõ :smile: thành emoji. Từ dán ngay sau dấu hai chấm không được thêm dấu khi tính năng này bật (như quy tắc bỏ qua URL); tắt đi nếu bạn thường viết kiểu :từ_viết."
 dictionary_enabled = "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc."
 debug_log = "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
 x11_delete = "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."

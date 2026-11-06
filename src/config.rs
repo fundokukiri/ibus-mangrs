@@ -61,6 +61,16 @@ pub struct Config {
     /// Hotkey toggling Vietnamese on/off, e.g. `Control+Alt+space`.
     /// Empty = unassigned.
     pub enabled_hotkey: String,
+    /// Hotkey opening the per-app rule picker. Reserved — the picker
+    /// window is a later round; empty = unassigned.
+    pub app_rule_hotkey: String,
+    /// Hotkey opening the emoji picker. Reserved the same way; empty =
+    /// unassigned.
+    pub emoji_hotkey: String,
+    /// Typing `:name:` rewrites the shortcode to its emoji. Off by default:
+    /// a word glued directly after `:` stays raw while it is on (the URL
+    /// bypass behavior), so the user opts in.
+    pub emoji_enabled: bool,
     /// Send preedit without the underline attribute (app support permitting).
     pub hide_underline: bool,
     /// Uinput pacing: gap between injected text/commit steps (ms).
@@ -92,6 +102,10 @@ pub struct Config {
     pub preedit_for_xim: bool,
     /// Per-application display mode overrides (phase 9).
     pub app_rules: Vec<AppRule>,
+    /// Shortcuts the user assigned beyond the four built-in hotkeys (those
+    /// are the defaults). Unknown actions or unusable specs are skipped
+    /// when the engine builds its shortcut registry.
+    pub custom_hotkeys: Vec<CustomHotkey>,
     /// Which toggles the panel popup shows, in order — the keys of
     /// `ibus_prop::QUICK_TOGGLES`. Unknown keys are skipped when building the
     /// menu, so a hand edit or an older file cannot break the panel.
@@ -198,6 +212,37 @@ pub struct AppRule {
     pub mode: ModeConfig,
 }
 
+/// One user-assigned shortcut: a `parse_hotkey` spec and the action key it
+/// fires (`CUSTOM_HOTKEY_ACTIONS`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CustomHotkey {
+    pub spec: String,
+    pub action: String,
+}
+
+/// The functions a custom shortcut can be assigned to, by action key. The
+/// engine maps the key onto its registry actions; the GUI builds the
+/// picker dropdown from it (labels come from gui-content.toml). The quick
+/// toggles reuse the panel registry's own keys (`ibus_prop::QUICK_TOGGLES`).
+/// Keys the GUI does not offer ("enabled", "rule"...) keep matching in the
+/// engine, so old configs keep working.
+pub const CUSTOM_HOTKEY_ACTIONS: &[&str] = &[
+    "mode",
+    "emoji",
+    "charset",
+    "method",
+    "auto_capitalize",
+    "abbreviations",
+    "auto_restore",
+    "auto_correct",
+    "bypass_url",
+    "dictionary",
+    "double_space",
+    "em_dash",
+    "macro_editor",
+    "settings",
+];
+
 /// One rule pattern against one rule target (`app_name` when present, else
 /// the IBus client string, `None` when the client has neither) — the shared
 /// predicate behind `app_rule_mode` and the GUI's rule preview.
@@ -205,7 +250,15 @@ pub struct AppRule {
 /// (`wayland:Firefox` → `Firefox`); the special pattern `none` matches only
 /// a client with no name at all, the only way to target one.
 pub fn app_rule_matches(pattern: &str, target: Option<&str>) -> bool {
-    let pattern = pattern.to_lowercase();
+    // A pattern may carry the transport prefix the focus extension adds
+    // (`wayland:foo` / `x11:foo`) — targets are matched bare (the prefix is
+    // stripped below), so strip it from the pattern too or such a rule can
+    // never fire.
+    let pattern = pattern
+        .strip_prefix("wayland:")
+        .or_else(|| pattern.strip_prefix("x11:"))
+        .unwrap_or(pattern)
+        .to_lowercase();
     if pattern == "none" {
         return target.is_none();
     }
@@ -222,6 +275,37 @@ pub fn app_rule_mode(rules: &[AppRule], target: Option<&str>) -> Option<ModeConf
         .iter()
         .find(|rule| app_rule_matches(&rule.pattern, target))
         .map(|rule| rule.mode)
+}
+
+impl Config {
+    /// Apply a picker choice: the highest-priority rule matching `target`
+    /// (same predicate the engine uses) gets `mode` in place — an app may
+    /// match several patterns (`chrome` and `chromium`), and the pick must
+    /// change the rule it currently rides on, not pile a new one on top.
+    /// Only an app no rule covers gets a fresh rule, at the top.
+    pub fn set_rule_mode_for_target(&mut self, target: &str, mode: ModeConfig) {
+        if let Some(rule) = self
+            .app_rules
+            .iter_mut()
+            .find(|r| app_rule_matches(&r.pattern, Some(target)))
+        {
+            rule.mode = mode;
+            return;
+        }
+        self.app_rules.insert(
+            0,
+            AppRule {
+                pattern: target.to_string(),
+                mode,
+            },
+        );
+    }
+
+    /// Drop every rule matching `pattern` (case-insensitive).
+    pub fn remove_app_rule(&mut self, pattern: &str) {
+        let lower = pattern.to_lowercase();
+        self.app_rules.retain(|r| r.pattern.to_lowercase() != lower);
+    }
 }
 
 /// Channel for Vietnamese text in the uinput modes (`unicode_channel`).
@@ -287,6 +371,17 @@ pub enum MethodConfig {
     Viqr,
     /// Microsoft layout preset (`đ` on `d` twice, marks on 1..9).
     Microsoft,
+    /// Telex with `[`/`]` typing the horn vowels (ơ/ư) like the Microsoft
+    /// layout, so bracket keys reach bamboo-core even with brackets off.
+    Telex2,
+    /// Telex marks and VNI digits both type accents.
+    TelexVni,
+    /// Telex marks, VNI digits and VIQR punctuation all type accents.
+    TelexVniViqr,
+    /// VNI for AZERTY/French physical layouts.
+    VniFrench,
+    /// Telex with `w` as the mark key and `z` removing the tone.
+    TelexW,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -321,9 +416,17 @@ pub enum ModeConfig {
     /// Backspace. ibus-bamboo's ForwardKeyEvent II.
     ForwardSelect,
     /// Vietnamese processing off, but macros and auto-capitalize still run.
+    /// The removed Default Typing mode ("engine inert") migrates here: an
+    /// inert engine is what switching to another input method already does.
+    #[serde(
+        alias = "defaulttyping",
+        alias = "default-typing",
+        alias = "default_typing"
+    )]
     Off,
-    /// The engine is inert: every key is forwarded, no processing at all.
-    DefaultTyping,
+    /// Pick the display mode per client from what it reports (the ladder in
+    /// `Engine::auto_mode`). App rules still win over the resolution.
+    Auto,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -371,6 +474,11 @@ impl From<MethodConfig> for Method {
             MethodConfig::Vni => Method::Vni,
             MethodConfig::Viqr => Method::Viqr,
             MethodConfig::Microsoft => Method::MsLayout,
+            MethodConfig::Telex2 => Method::Telex2,
+            MethodConfig::TelexVni => Method::TelexVni,
+            MethodConfig::TelexVniViqr => Method::TelexVniViqr,
+            MethodConfig::VniFrench => Method::VniFrench,
+            MethodConfig::TelexW => Method::TelexW,
         }
     }
 }
@@ -387,7 +495,7 @@ impl From<ModeConfig> for Mode {
             ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
             ModeConfig::ForwardSelect => Mode::ForwardSelect,
             ModeConfig::Off => Mode::Off,
-            ModeConfig::DefaultTyping => Mode::DefaultTyping,
+            ModeConfig::Auto => Mode::Auto,
         }
     }
 }
@@ -404,7 +512,7 @@ impl From<Mode> for ModeConfig {
             Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
             Mode::ForwardSelect => ModeConfig::ForwardSelect,
             Mode::Off => ModeConfig::Off,
-            Mode::DefaultTyping => ModeConfig::DefaultTyping,
+            Mode::Auto => ModeConfig::Auto,
         }
     }
 }
@@ -453,15 +561,31 @@ impl MethodConfig {
             MethodConfig::Vni => "vni",
             MethodConfig::Viqr => "viqr",
             MethodConfig::Microsoft => "microsoft",
+            MethodConfig::Telex2 => "telex2",
+            MethodConfig::TelexVni => "telexvni",
+            MethodConfig::TelexVniViqr => "telexvniviqr",
+            MethodConfig::VniFrench => "vnifrench",
+            MethodConfig::TelexW => "telexw",
         }
     }
 
     pub fn from_key(key: &str) -> Option<Self> {
+        // Aliases mirror bamboo-core's `InputMethodPreset::from_str` so a
+        // hand-edited or migrated file using its spellings still loads.
         Some(match key {
             "telex" => MethodConfig::Telex,
             "vni" => MethodConfig::Vni,
             "viqr" => MethodConfig::Viqr,
-            "microsoft" => MethodConfig::Microsoft,
+            "microsoft" | "microsoft layout" | "microsoft_layout" => MethodConfig::Microsoft,
+            "telex2" | "telex 2" | "telex_2" => MethodConfig::Telex2,
+            "telexvni" | "telex+vni" | "telex + vni" | "telex_vni" => MethodConfig::TelexVni,
+            "telexvniviqr" | "telex+vni+viqr" | "telex + vni + viqr" | "telex_vni_viqr" => {
+                MethodConfig::TelexVniViqr
+            }
+            "vnifrench" | "vni french" | "vni_french" | "vni ban phim tieng phap" => {
+                MethodConfig::VniFrench
+            }
+            "telexw" | "telex w" | "telex_w" => MethodConfig::TelexW,
             _ => return None,
         })
     }
@@ -479,7 +603,7 @@ impl ModeConfig {
             ModeConfig::ForwardKeyEvent => "forwardkeyevent",
             ModeConfig::ForwardSelect => "forwardselect",
             ModeConfig::Off => "off",
-            ModeConfig::DefaultTyping => "defaulttyping",
+            ModeConfig::Auto => "auto",
         }
     }
 
@@ -500,7 +624,10 @@ impl ModeConfig {
             | "forward-key-event-2"
             | "forward_key_event_2" => ModeConfig::ForwardSelect,
             "off" => ModeConfig::Off,
-            "defaulttyping" | "default-typing" | "default_typing" => ModeConfig::DefaultTyping,
+            // The removed Default Typing mode migrates to Off (both here and
+            // through the serde aliases on the enum, for old config files).
+            "defaulttyping" | "default-typing" | "default_typing" => ModeConfig::Off,
+            "auto" => ModeConfig::Auto,
             _ => return None,
         })
     }
@@ -595,6 +722,9 @@ impl Default for Config {
             abbreviations: true,
             cycle_mode_hotkey: String::new(),
             enabled_hotkey: String::new(),
+            app_rule_hotkey: String::new(),
+            emoji_hotkey: String::new(),
+            emoji_enabled: false,
             hide_underline: false,
             commit_interval_ms: 20,
             backspace_interval_ms: 5,
@@ -604,6 +734,7 @@ impl Default for Config {
             x11_delete_without_report: false,
             preedit_for_xim: false,
             app_rules: default_app_rules(),
+            custom_hotkeys: Vec::new(),
             quick_menu: default_quick_menu(),
             menu_modes: default_menu_modes(),
             menu: None,
@@ -690,6 +821,23 @@ impl Config {
         // hand edit) instead of silently dropping them on the next save.
         let existing = std::fs::read_to_string(&path).unwrap_or_default();
         let text = merge(&existing, self).map_err(std::io::Error::other)?;
+        std::fs::write(path, text)
+    }
+
+    /// Overwrite the file with this config verbatim — no merge. The
+    /// restore-defaults button needs it: `save` merges, so an old `menu`
+    /// design and keys this version no longer knows would survive a reset.
+    pub fn save_fresh(&self) -> std::io::Result<()> {
+        let Some(path) = Self::path() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no config dir",
+            ));
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(path, text)
     }
 
@@ -1024,5 +1172,102 @@ children = ["preedit", "smooth"]
         let b = c.bamboo_config();
         assert_eq!(b.w2u_mode, bamboo_core::W2uMode::Everywhere);
         assert_eq!(b.bracket_mode, bamboo_core::BracketMode::NonStart);
+    }
+
+    #[test]
+    fn new_method_keys_round_trip_with_aliases() {
+        for (key, m) in [
+            ("telex2", MethodConfig::Telex2),
+            ("telexvni", MethodConfig::TelexVni),
+            ("telexvniviqr", MethodConfig::TelexVniViqr),
+            ("vnifrench", MethodConfig::VniFrench),
+            ("telexw", MethodConfig::TelexW),
+        ] {
+            let c: Config = toml::from_str(&format!("method = \"{key}\"")).unwrap();
+            assert_eq!(c.method, m, "{key}");
+            assert_eq!(m.key(), key);
+            assert_eq!(MethodConfig::from_key(key), Some(m));
+        }
+        // bamboo-core preset spellings load too, so a hand-edited file
+        // using them still works.
+        assert_eq!(
+            MethodConfig::from_key("telex+vni+viqr"),
+            Some(MethodConfig::TelexVniViqr)
+        );
+        assert_eq!(
+            MethodConfig::from_key("vni french"),
+            Some(MethodConfig::VniFrench)
+        );
+        assert_eq!(
+            MethodConfig::from_key("telex w"),
+            Some(MethodConfig::TelexW)
+        );
+        // The four shipped keys keep their exact spelling.
+        assert_eq!(MethodConfig::from_key("telex"), Some(MethodConfig::Telex));
+        assert_eq!(
+            MethodConfig::from_key("microsoft"),
+            Some(MethodConfig::Microsoft)
+        );
+        assert_eq!(MethodConfig::from_key("nope"), None);
+    }
+
+    #[test]
+    fn picker_choice_updates_the_winning_rule() {
+        let mut c = Config::default();
+        // The net covers chrome with Preedit; a pick for a chrome target
+        // must flip THAT rule in place.
+        assert_eq!(
+            crate::config::app_rule_mode(&c.app_rules, Some("wayland:chrome")),
+            Some(ModeConfig::Preedit)
+        );
+        c.set_rule_mode_for_target("chrome", ModeConfig::Off);
+        assert_eq!(
+            crate::config::app_rule_mode(&c.app_rules, Some("wayland:chrome")),
+            Some(ModeConfig::Off)
+        );
+        // Substring overlap: "chromium" matches the "chromium" rule first —
+        // the pick must update the winning one, not the "chrome" prefix rule.
+        c.set_rule_mode_for_target("chromium", ModeConfig::Auto);
+        let chromium = c
+            .app_rules
+            .iter()
+            .find(|r| r.pattern == "chromium")
+            .expect("net rule");
+        assert_eq!(chromium.mode, ModeConfig::Auto);
+        let chrome = c
+            .app_rules
+            .iter()
+            .find(|r| r.pattern == "chrome")
+            .expect("net rule");
+        assert_eq!(
+            chrome.mode,
+            ModeConfig::Off,
+            "the chrome rule stays untouched"
+        );
+        // An app no rule covers gets a fresh rule at the top.
+        let before = c.app_rules.len();
+        c.set_rule_mode_for_target("e2epick", ModeConfig::Surrounding);
+        assert_eq!(c.app_rules.len(), before + 1);
+        assert_eq!(c.app_rules[0].pattern, "e2epick");
+        assert_eq!(
+            crate::config::app_rule_mode(&c.app_rules, Some("e2epick")),
+            Some(ModeConfig::Surrounding)
+        );
+        // Re-picking updates in place instead of stacking.
+        c.set_rule_mode_for_target("e2epick", ModeConfig::Off);
+        assert_eq!(c.app_rules.len(), before + 1);
+        assert_eq!(
+            crate::config::app_rule_mode(&c.app_rules, Some("e2epick")),
+            Some(ModeConfig::Off)
+        );
+    }
+
+    #[test]
+    fn rule_patterns_tolerate_transport_prefixes() {
+        // The app-rule picker once saved patterns with the focus
+        // extension's transport prefix; those rules must still fire.
+        assert!(app_rule_matches("wayland:chrome", Some("wayland:chrome")));
+        assert!(app_rule_matches("x11:chrome", Some("x11:chrome")));
+        assert!(app_rule_matches("chrome", Some("wayland:chrome")));
     }
 }
