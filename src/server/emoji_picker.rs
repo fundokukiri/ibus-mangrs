@@ -28,6 +28,10 @@ pub(super) enum EmojiKey {
     Backspace,
     PageUp,
     PageDown,
+    CursorUp,
+    CursorDown,
+    PageLeft,
+    PageRight,
     Cancel,
     /// Any other key: close the menu and let the key reach the engine.
     Ignore,
@@ -37,10 +41,12 @@ pub(super) struct EmojiPickerState {
     /// (name, glyph, folded blob) of the whole table, built once at open —
     /// filtering never touches the filesystem.
     entries: Vec<(String, String, String)>,
-    /// The search query (what the user typed) and the page cursor —
-    /// pub(super) so the tests can drive the state directly.
+    /// The search query (what the user typed), the page cursor and the
+    /// highlighted row within the page — pub(super) so the tests can drive
+    /// the state directly.
     pub(super) query: String,
     pub(super) page: usize,
+    pub(super) cursor: usize,
     /// The picks before, newest first, resolved to (name, glyph) once at
     /// open — the initial page without per-keystroke file reads.
     recents: Vec<(String, String)>,
@@ -71,6 +77,7 @@ impl EmojiPickerState {
                 .collect(),
             query: String::new(),
             page: 0,
+            cursor: 0,
             recents,
         }
     }
@@ -117,13 +124,13 @@ impl EmojiPickerState {
             .collect()
     }
 
-    /// The auxiliary line under the popup: the query state and the count.
+    /// The auxiliary line under the popup: the query state and the keys.
     pub(super) fn auxiliary(&self) -> String {
         if self.query.is_empty() {
-            "Emoji — 1-9/0 chọn, gõ chữ để tìm, Esc đóng".to_string()
+            "Emoji — gõ chữ để tìm, ↑↓ chọn, ←→ lật trang, Enter/1-9 chọn, Esc đóng".to_string()
         } else {
             format!(
-                "Tìm \"{}\" — {} kết quả, 1-9/0 chọn, Esc đóng",
+                "Tìm \"{}\" — {} kết quả, ↑↓ chọn, ←→ lật trang, Enter chọn, Esc đóng",
                 self.query,
                 self.results().len()
             )
@@ -144,20 +151,61 @@ impl EmojiPickerState {
         if self.page + 1 < total {
             self.page += 1;
         }
+        // A shorter last page must not keep a highlight past its end.
+        self.clamp_cursor();
     }
 
     pub fn page_up(&mut self) {
         self.page = self.page.saturating_sub(1);
+        self.clamp_cursor();
+    }
+
+    /// The highlighted row stays on the visible page (a short last page
+    /// pulls it back to the last row).
+    fn clamp_cursor(&mut self) {
+        let page_len = self.page_results().len();
+        self.cursor = self.cursor.min(page_len.saturating_sub(1));
+    }
+
+    /// Highlight one row down; walking off the page's end turns to the
+    /// next page, like the IBus candidate windows.
+    pub(super) fn cursor_down(&mut self) {
+        let page_len = self.page_results().len();
+        if page_len == 0 {
+            return;
+        }
+        if self.cursor + 1 < page_len {
+            self.cursor += 1;
+        } else if self.page + 1 < self.results().len().div_ceil(EMOJI_PAGE_SIZE as usize) {
+            self.page += 1;
+            self.cursor = 0;
+        }
+    }
+
+    /// Highlight one row up; walking off the page's top turns to the
+    /// previous page's last row.
+    pub(super) fn cursor_up(&mut self) {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+        } else if self.page > 0 {
+            self.page -= 1;
+            self.cursor = self.page_results().len().saturating_sub(1);
+        }
     }
 
     /// Map one key event onto the picker. Digits 1..9 pick entries 1..9 and
-    /// 0 picks the tenth (keypad digits included); Enter picks the first;
+    /// 0 picks the tenth (keypad digits included); Enter picks the
+    /// highlighted row; the arrows move the highlight and turn pages;
     /// letters, space and underscore build the query.
     pub fn on_key(&self, keyval: u32) -> EmojiKey {
         match keyval {
-            65293 | 65421 => EmojiKey::Select(0), // Return / KP_Enter
-            65307 => EmojiKey::Cancel,            // Escape
+            65293 | 65421 => EmojiKey::Select(self.cursor), // Return / KP_Enter
+            65307 => EmojiKey::Cancel,                      // Escape
             65288 => EmojiKey::Backspace,
+            65361 => EmojiKey::PageLeft,   // Left
+            65363 => EmojiKey::PageRight,  // Right
+            65362 => EmojiKey::CursorUp,   // Up
+            65364 => EmojiKey::CursorDown, // Down
             65365 => EmojiKey::PageUp,
             65366 => EmojiKey::PageDown,
             k @ 0x31..=0x39 => EmojiKey::Select((k - 0x31) as usize),
@@ -208,7 +256,10 @@ impl EngineHandler {
             // No results: keep the query visible, drop the empty popup.
             out.push(signal("HideLookupTable"));
         } else {
-            let table = ibus_prop::lookup_table_variant(EMOJI_PAGE_SIZE, 0, &labels);
+            // The cursor highlights the row the arrows moved to; the panel
+            // renders it and Enter commits exactly that row.
+            let table =
+                ibus_prop::lookup_table_variant(EMOJI_PAGE_SIZE, state.cursor as u32, &labels);
             out.push(signal("UpdateLookupTable").append2(table, true));
         }
         out.push(
@@ -242,6 +293,7 @@ impl EngineHandler {
                 if let Some(picker) = self.emoji_picker.as_mut() {
                     picker.query.push(c.to_ascii_lowercase());
                     picker.page = 0;
+                    picker.cursor = 0;
                 }
                 self.emit_emoji_table(out);
                 true
@@ -250,6 +302,7 @@ impl EngineHandler {
                 if let Some(picker) = self.emoji_picker.as_mut() {
                     picker.query.pop();
                     picker.page = 0;
+                    picker.cursor = 0;
                 }
                 self.emit_emoji_table(out);
                 true
@@ -262,6 +315,34 @@ impl EngineHandler {
                 true
             }
             EmojiKey::PageDown => {
+                if let Some(picker) = self.emoji_picker.as_mut() {
+                    picker.page_down();
+                }
+                self.emit_emoji_table(out);
+                true
+            }
+            EmojiKey::CursorUp => {
+                if let Some(picker) = self.emoji_picker.as_mut() {
+                    picker.cursor_up();
+                }
+                self.emit_emoji_table(out);
+                true
+            }
+            EmojiKey::CursorDown => {
+                if let Some(picker) = self.emoji_picker.as_mut() {
+                    picker.cursor_down();
+                }
+                self.emit_emoji_table(out);
+                true
+            }
+            EmojiKey::PageLeft => {
+                if let Some(picker) = self.emoji_picker.as_mut() {
+                    picker.page_up();
+                }
+                self.emit_emoji_table(out);
+                true
+            }
+            EmojiKey::PageRight => {
                 if let Some(picker) = self.emoji_picker.as_mut() {
                     picker.page_down();
                 }

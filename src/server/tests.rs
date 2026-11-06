@@ -1154,6 +1154,44 @@ fn emoji_menu_backspace_returns_to_the_recents() {
 }
 
 #[test]
+fn emoji_menu_arrows_move_the_highlight_across_pages() {
+    use super::emoji_picker::EmojiPickerState;
+    let mut state = EmojiPickerState::with(emoji_rows(), Vec::new());
+    assert_eq!(state.cursor, 0, "the first row starts highlighted");
+    state.cursor_down();
+    state.cursor_down();
+    assert_eq!(state.cursor, 2);
+    assert_eq!(
+        state.pick(state.cursor).map(|(_, g)| g),
+        Some("🐢".into()),
+        "Enter will commit exactly the highlighted row"
+    );
+    // Up at the page's top does not underflow.
+    state.cursor_up();
+    state.cursor_up();
+    state.cursor_up();
+    assert_eq!(state.cursor, 0);
+    // Down from the last row walks into the next page's first row.
+    state.cursor = 9;
+    state.cursor_down();
+    assert_eq!(state.page, 1, "twelve rows, so a second page exists");
+    assert_eq!(state.cursor, 0);
+    assert_eq!(state.pick(0).map(|(_, g)| g), Some("🌙".into()));
+    // Up from that page's top returns to the previous page's last row.
+    state.cursor_up();
+    assert_eq!(state.page, 0);
+    assert_eq!(state.cursor, 9);
+    assert_eq!(state.pick(9).map(|(_, g)| g), Some("☕".into()));
+    // Page turns keep the slot but clamp it to a short page.
+    state.page_down();
+    assert_eq!(state.page, 1);
+    assert_eq!(state.cursor, 1, "the last page holds two rows");
+    state.page_up();
+    assert_eq!(state.page, 0);
+    assert_eq!(state.cursor, 1);
+}
+
+#[test]
 fn emoji_menu_keys_map_onto_actions() {
     use super::emoji_picker::{EmojiKey, EmojiPickerState};
     let state = EmojiPickerState::with(emoji_rows(), Vec::new());
@@ -1163,15 +1201,23 @@ fn emoji_menu_keys_map_onto_actions() {
     assert_eq!(map(0x30), EmojiKey::Select(9), "'0' picks the tenth");
     assert_eq!(map(0xffb1), EmojiKey::Select(0), "KP_1 picks the first");
     assert_eq!(map(0xffb0), EmojiKey::Select(9), "KP_0 picks the tenth");
-    assert_eq!(map(65293), EmojiKey::Select(0), "Enter picks the first");
-    assert_eq!(map(65421), EmojiKey::Select(0), "KP_Enter too");
+    assert_eq!(
+        map(65293),
+        EmojiKey::Select(state.cursor),
+        "Enter picks the highlighted row"
+    );
+    assert_eq!(map(65421), EmojiKey::Select(state.cursor), "KP_Enter too");
     assert_eq!(map(65307), EmojiKey::Cancel);
     assert_eq!(map(65288), EmojiKey::Backspace);
+    assert_eq!(map(65361), EmojiKey::PageLeft, "Left turns the page back");
+    assert_eq!(map(65363), EmojiKey::PageRight, "Right turns the page");
+    assert_eq!(map(65362), EmojiKey::CursorUp, "Up moves the highlight");
+    assert_eq!(map(65364), EmojiKey::CursorDown, "Down moves the highlight");
     assert_eq!(map(65365), EmojiKey::PageUp);
     assert_eq!(map(65366), EmojiKey::PageDown);
     assert_eq!(map(0x61), EmojiKey::Query('a'), "letters search");
     assert_eq!(map(0x20), EmojiKey::Query(' '), "space searches");
     assert_eq!(map(0x5f), EmojiKey::Query('_'), "underscore searches");
     assert_eq!(map(0x3b), EmojiKey::Ignore, "punctuation closes");
-    assert_eq!(map(0xff51), EmojiKey::Ignore, "arrows close");
+    assert_eq!(map(0xff51), EmojiKey::PageLeft, "arrows navigate now");
 }
