@@ -7,12 +7,11 @@
 
 use super::*;
 
-/// One flat action button (no background, like the reference mockup);
-/// `icon_name: None` renders label only. No SizeGroup — each button takes
-/// its own content width, as the mockup shows.
+/// One regular (bordered) action button; `icon_name: None` renders label
+/// only. The page's SizeGroup gives them all the widest button's width and
+/// their shared label rows keep the heights equal.
 fn action_button(icon_name: Option<&str>, label: &str) -> gtk4::Button {
     let btn = gtk4::Button::with_label(label);
-    btn.add_css_class("flat");
     btn.set_valign(gtk4::Align::Center);
     if let Some(icon_name) = icon_name {
         let icon = gtk4::Image::from_icon_name(icon_name);
@@ -47,6 +46,10 @@ fn window_of(btn: &gtk4::Button) -> Option<gtk4::Window> {
 pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverlay {
     let page = adw::PreferencesPage::new();
     let toast_overlay = adw::ToastOverlay::new();
+
+    // One shared width for every action button, the longest ("Khôi phục…")
+    // deciding it.
+    let sizes = gtk4::SizeGroup::new(gtk4::SizeGroupMode::Horizontal);
 
     // App-grid icon: the switch writes/removes a user-level desktop-entry
     // override; `refresh` keeps the state in sync from the filesystem.
@@ -99,6 +102,7 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
             t("misc.extension_button", "Cài đặt")
         },
     );
+    sizes.add_widget(&extension_btn);
     extension_row.add_suffix(&extension_btn);
     extension.add(&extension_row);
     if session_is_gnome() {
@@ -130,6 +134,7 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
         Some("document-save-symbolic"),
         &t("misc.export_button", "Xuất…"),
     );
+    sizes.add_widget(&export_btn);
     export_row.add_suffix(&export_btn);
     backup.add(&export_row);
     let import_row = action_row(
@@ -144,6 +149,7 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
         Some("document-revert-symbolic"),
         &t("misc.import_button", "Nhập…"),
     );
+    sizes.add_widget(&import_btn);
     import_row.add_suffix(&import_btn);
     backup.add(&import_row);
     page.add(&backup);
@@ -168,6 +174,7 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     // Label only and no red: the reference keeps the reset quiet, the
     // destructive confirmation dialog carries the warning.
     let reset_btn = action_button(None, &t("misc.reset_button", "Khôi phục…"));
+    sizes.add_widget(&reset_btn);
     reset_row.add_suffix(&reset_btn);
     advanced.add(&reset_row);
     page.add(&advanced);
