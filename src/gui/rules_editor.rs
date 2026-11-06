@@ -98,13 +98,16 @@ impl Ui {
     /// Row order is match priority — the engine takes the first rule that
     /// hits.
     fn rule_row(self: &Rc<Self>, idx: usize, total: usize, pattern: &str, mode: ModeConfig) {
-        let row = adw::ComboRow::builder()
-            .title(pattern)
-            .use_markup(false) // the title is a user-typed app id
-            .use_subtitle(true)
-            .model(&StringList::new(MODES))
-            .selected(mode_index(mode))
-            .build();
+        // Markup is off before the title is set (the builder applies its
+        // stored properties in declaration order, not call order): the
+        // title is a user-typed app id, and a bare `&` in it would warn
+        // (and blank) as Pango markup.
+        let row = adw::ComboRow::new();
+        row.set_use_markup(false);
+        row.set_title(pattern);
+        row.set_use_subtitle(true);
+        row.set_model(Some(&StringList::new(MODES)));
+        row.set_selected(mode_index(mode));
         // The theme ellipsize is END; a long id would hide its tail, and
         // the title label is not a public child — hence the helper.
         if let Some(title) = row_title(&row) {

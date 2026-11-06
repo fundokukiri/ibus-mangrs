@@ -55,46 +55,48 @@ pub(super) fn focused_app_name() -> Result<(String, String), String> {
 /// markup off: Adw rows parse Pango markup in title/subtitle by default,
 /// and a bare `&` in a text (the URL rule's subtitle) blanked it.
 pub(super) fn switch_row(title: &str, subtitle: &str) -> adw::SwitchRow {
-    adw::SwitchRow::builder()
-        .title(title)
-        .subtitle(subtitle)
-        .use_markup(false)
-        .build()
+    // Markup is turned off BEFORE the text: the builder applies its stored
+    // properties in declaration order (text first), and a bare `&` in a
+    // subtitle parsed as Pango would warn on every startup.
+    let row = adw::SwitchRow::new();
+    row.set_use_markup(false);
+    row.set_title(title);
+    row.set_subtitle(subtitle);
+    row
 }
 
 /// A boxed-list choice row; `selected` indexes into `items`.
 pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::ComboRow {
-    adw::ComboRow::builder()
-        .title(title)
-        .subtitle(subtitle)
-        .use_markup(false)
-        .model(&StringList::new(items))
-        .selected(0)
-        .build()
+    let row = adw::ComboRow::new();
+    row.set_use_markup(false);
+    row.set_title(title);
+    row.set_subtitle(subtitle);
+    row.set_model(Some(&StringList::new(items)));
+    row.set_selected(0);
+    row
 }
 
 /// A boxed-list number row; `step` is both the arrow increment and the
 /// page increment (x10).
 pub(super) fn spin_row(title: &str, subtitle: &str, min: f64, max: f64, step: f64) -> adw::SpinRow {
     let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
-    adw::SpinRow::builder()
-        .title(title)
-        .subtitle(subtitle)
-        .use_markup(false)
-        .adjustment(&adjustment)
-        .build()
+    let row = adw::SpinRow::new(Some(&adjustment), 0.0, 0);
+    row.set_use_markup(false);
+    row.set_title(title);
+    row.set_subtitle(subtitle);
+    row
 }
 
 /// An info row for a boxed list (title + dim subtitle, no control). Not
 /// activatable — the hover highlight on an activation-shaped row that does
 /// nothing reads as a broken button.
 pub(super) fn action_row(title: &str, subtitle: &str) -> adw::ActionRow {
-    adw::ActionRow::builder()
-        .title(title)
-        .subtitle(subtitle)
-        .use_markup(false)
-        .activatable(false)
-        .build()
+    let row = adw::ActionRow::new();
+    row.set_use_markup(false);
+    row.set_title(title);
+    row.set_subtitle(subtitle);
+    row.set_activatable(false);
+    row
 }
 
 pub(super) fn text_view(content: &str) -> TextView {
