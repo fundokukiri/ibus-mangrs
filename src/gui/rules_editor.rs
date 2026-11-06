@@ -32,6 +32,50 @@ impl Ui {
         self.fire_save();
     }
 
+    /// Refresh the focused-app detection for the merged add-rule group: the
+    /// hint lands in the entry's placeholder, copy/apply turn on, and the
+    /// pill tooltip carries the window title (or the detection error). The
+    /// D-Bus call is sync with a 300 ms timeout on the main thread — GTK
+    /// types are not Send — but the caller is the window's focus-leave, a
+    /// moment when the window is idle anyway; with the extension installed
+    /// the call is near-instant.
+    pub(crate) fn refresh_rule_focus(self: &Rc<Self>) {
+        let tooltip = match focused_app_name() {
+            Ok((class, title)) => {
+                *self.rule_focus_value.borrow_mut() = class;
+                Some(title)
+            }
+            Err(e) => {
+                self.rule_focus_value.borrow_mut().clear();
+                Some(e)
+            }
+        };
+        let hint = self.rule_focus_value.borrow().clone();
+        let placeholder = if hint.is_empty() {
+            t(
+                "rows.rule_name.placeholder",
+                "vd: firefox, org.gnome.Console",
+            )
+        } else {
+            hint
+        };
+        self.rule_name_entry
+            .set_placeholder_text(Some(&placeholder));
+        self.rule_pill.set_tooltip_text(tooltip.as_deref());
+        self.update_rule_add_state();
+    }
+
+    /// The add-rule form state: a typed name or the focused-app hint alone
+    /// enables Thêm (the hint is a valid pattern), and copy/apply only make
+    /// sense with an app actually detected.
+    pub(super) fn update_rule_add_state(self: &Rc<Self>) {
+        let typed = !self.rule_name_entry.text().trim().is_empty();
+        let hint = !self.rule_focus_value.borrow().is_empty();
+        self.rule_add_btn.set_sensitive(typed || hint);
+        self.rule_copy_btn.set_visible(hint);
+        self.rule_apply_btn.set_visible(hint);
+    }
+
     /// Rebuild the rule rows from `rules`. Also runs at refresh — that path
     /// must not save; only user edits do (`edit_rules`).
     pub(super) fn fill_rules(self: &Rc<Self>, rules: &[crate::config::AppRule]) {

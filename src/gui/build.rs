@@ -237,16 +237,58 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp. Ví dụ: Firefox / wayland:Firefox / xim",
     )));
     let rule_preview = action_row(&t("rules.result_title", "Kết quả"), "");
-    let rule_focus = gtk4::Label::new(Some("—"));
-    rule_focus.set_xalign(0.0);
-    rule_focus.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    rule_focus.set_selectable(true);
-    rule_focus.add_css_class("monospace");
-    rule_focus.add_css_class("dim-label");
-    rule_focus.set_tooltip_text(Some(&t(
-        "rows.rule_focus.chip_tooltip",
-        "Chuyển sang app đích rồi quay lại cửa sổ này — tên app sẽ hiện ở đây (cần extension MăngRS Focus)",
+    // The merged add-rule form ("Thêm luật"): the pill entry whose
+    // placeholder mirrors the focused app, the copy/apply pair shown only
+    // while an app is detected, and the Thêm button. The page lays them
+    // out; `refresh_rule_focus` feeds them.
+    let rule_pill = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    rule_pill.add_css_class("rule-fill");
+    rule_pill.add_css_class("rule-pill");
+    rule_pill.set_height_request(50);
+    rule_pill.set_valign(gtk4::Align::Center);
+    rule_pill.set_hexpand(true);
+    let rule_name_entry = gtk4::Entry::new();
+    rule_name_entry.set_hexpand(true);
+    rule_name_entry.set_margin_start(10);
+    rule_name_entry.set_margin_end(12);
+    rule_name_entry.set_margin_bottom(6);
+    rule_name_entry.set_placeholder_text(Some(&t(
+        "rows.rule_name.placeholder",
+        "vd: firefox, org.gnome.Console",
     )));
+    rule_name_entry.set_tooltip_text(Some(&t(
+        "rows.rule_name.tooltip",
+        "Tên app: khớp một phần, không phân biệt hoa/thường (vd firefox, sublime)",
+    )));
+    let rule_copy_btn = gtk4::Button::from_icon_name("edit-copy-symbolic");
+    rule_copy_btn.add_css_class("flat");
+    rule_copy_btn.add_css_class("circular");
+    rule_copy_btn.set_size_request(36, 36);
+    rule_copy_btn.set_valign(gtk4::Align::Center);
+    rule_copy_btn.set_visible(false);
+    rule_copy_btn.set_tooltip_text(Some(&t(
+        "rows.rule_copy.tooltip",
+        "Sao chép app đang focus",
+    )));
+    // insert-text has thin coverage in some icon themes; fall back to edit.
+    let rule_apply_icon = match gtk4::gdk::Display::default() {
+        Some(d) if gtk4::IconTheme::for_display(&d).has_icon("insert-text-symbolic") => {
+            "insert-text-symbolic"
+        }
+        _ => "document-edit-symbolic",
+    };
+    let rule_apply_btn = gtk4::Button::from_icon_name(rule_apply_icon);
+    rule_apply_btn.add_css_class("flat");
+    rule_apply_btn.add_css_class("circular");
+    rule_apply_btn.set_size_request(36, 36);
+    rule_apply_btn.set_valign(gtk4::Align::Center);
+    rule_apply_btn.set_visible(false);
+    rule_apply_btn.set_tooltip_text(Some(&t("rows.rule_apply.tooltip", "Dùng app đang focus")));
+    let rule_add_btn = gtk4::Button::with_label(&t("rules.add_button", "Thêm luật"));
+    rule_add_btn.add_css_class("suggested-action");
+    rule_add_btn.set_sensitive(false);
+    rule_add_btn.set_valign(gtk4::Align::Center);
+    rule_add_btn.set_hexpand(true);
     let rule_focus_value = Rc::new(RefCell::new(String::new()));
     let rules_loading = Rc::new(RefCell::new(false));
     let desktop_icon = switch_row(
@@ -537,7 +579,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         suppress_save,
         rule_preview_input,
         rule_preview,
-        rule_focus,
+        rule_pill,
+        rule_name_entry,
+        rule_copy_btn,
+        rule_apply_btn,
+        rule_add_btn,
         rule_focus_value,
         hide_underline,
         debug_log,

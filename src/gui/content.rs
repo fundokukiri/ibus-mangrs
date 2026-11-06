@@ -504,7 +504,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         let ui = ui.clone();
         let controller = gtk4::EventControllerFocus::new();
         controller.connect_leave(move |_| {
-            refresh_focused_app(&ui.rule_focus, &ui.rule_focus_value);
+            ui.refresh_rule_focus();
         });
         window.add_controller(controller);
     }
