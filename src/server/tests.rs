@@ -94,7 +94,7 @@ fn hotkey_registry_maps_the_new_custom_actions() {
 #[test]
 fn shift_punctuation_hotkeys_pass_the_key_through() {
     use crate::keymap::{CONTROL_MASK, MOD1_MASK, SHIFT_MASK};
-    // "Shift+~" types ~ as well as firing its action.
+    // The SECOND tap of "Shift+~" types ~ instead of re-firing.
     assert!(hotkey_passes_key(SHIFT_MASK, 0x7e));
     assert!(hotkey_passes_key(SHIFT_MASK, 0x2c));
     // Control and Alt block the character: regular combos consume.

@@ -87,20 +87,26 @@ impl EngineHandler {
 
         // Shortcuts are handled before any typing: they change the config
         // and refresh the panel state.
-        if self.try_hotkey(keyval, state, out) {
+        let (skip_menu_keys, consumed) = self.try_hotkey(keyval, state, out);
+        if consumed {
             return msg.method_return().append1(true);
         }
 
-        // While the app-rule picker is up, every key belongs to the menu:
-        // navigate, pick, or close-and-type-on.
-        if self.picker.is_some() && self.picker_key(keyval, state, out) {
-            return msg.method_return().append1(true);
-        }
+        // The second tap of a Shift+punctuation combo just closed the menus
+        // the first tap opened — the key belongs to the app, so the menu
+        // key handlers must not see it either.
+        if !skip_menu_keys {
+            // While the app-rule picker is up, every key belongs to the
+            // menu: navigate, pick, or close-and-type-on.
+            if self.picker.is_some() && self.picker_key(keyval, state, out) {
+                return msg.method_return().append1(true);
+            }
 
-        // Same for the emoji menu: digits pick, letters search, other keys
-        // close it and type on.
-        if self.emoji_picker.is_some() && self.emoji_picker_key(keyval, state, out) {
-            return msg.method_return().append1(true);
+            // Same for the emoji menu: digits pick, letters search, other
+            // keys close it and type on.
+            if self.emoji_picker.is_some() && self.emoji_picker_key(keyval, state, out) {
+                return msg.method_return().append1(true);
+            }
         }
 
         let mut engine = lock_engine(&self.engine);
@@ -109,24 +115,37 @@ impl EngineHandler {
     }
 
     /// Run the first registry entry matching this key event. Returns
-    /// whether the key was consumed.
-    fn try_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
+    /// `(skip_menu_keys, consumed)`. A Shift+punctuation combo is the only
+    /// shape that collides with typing: the single tap fires (and the menu
+    /// stays up), while a second tap within the repeat gap closes the menu
+    /// again and passes the key through — "Shift+~+~" types "~".
+    fn try_hotkey(&mut self, keyval: u32, state: u32, out: &mut Vec<Message>) -> (bool, bool) {
         let Some(&(mods, key, action)) = self
             .hotkeys
             .iter()
             .find(|(mods, key, _)| hotkey_matches(*mods, *key, keyval, state))
         else {
-            return false;
+            return (false, false);
         };
         // Autorepeat of the combo key: consume, do nothing (a deliberate
-        // second press is never this fast).
+        // second press is never this fast) — unless it is the typing tap of
+        // a Shift+punctuation combo.
         let now = Instant::now();
         if self
             .last_fire
             .iter()
             .any(|(a, t)| *a == action && now.duration_since(*t) < HOTKEY_REPEAT_GAP)
         {
-            return true;
+            if hotkey_passes_key(mods, key) {
+                let had_menu = self.picker.take().is_some();
+                let had_menu = had_menu || self.emoji_picker.take().is_some();
+                if had_menu {
+                    out.push(signal("HideLookupTable"));
+                    out.push(signal("HideAuxiliaryText"));
+                }
+                return (true, false);
+            }
+            return (false, true);
         }
         match self.last_fire.iter_mut().find(|(a, _)| *a == action) {
             Some((_, t)) => *t = now,
@@ -142,10 +161,7 @@ impl EngineHandler {
             HotkeyAction::QuickToggle(key) => self.quick_toggle_key(key, out),
             HotkeyAction::OpenSettings(page) => prop::open_settings(page),
         }
-        // A Shift+punctuation combo also types its key: the engine cannot
-        // tell the combo from typing the character ("Shift+~" stays usable
-        // as ~), so the key passes through after the action fired.
-        !hotkey_passes_key(mods, key)
+        (false, true)
     }
 
     /// Cycle the charset list: save, apply, per-item panel update.
@@ -388,10 +404,9 @@ pub(crate) fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
     Some((mods, key))
 }
 
-/// A Shift+punctuation combo also types its key: Control/Alt block the
-/// character and Shift+letters are refused by the parser, so this is the
-/// only colliding shape — the engine cannot tell the combo from the
-/// character, so the key passes through (the action still fires).
+/// A Shift+punctuation combo types its key on the SECOND tap within the
+/// repeat gap: Control/Alt block the character and Shift+letters are
+/// refused by the parser, so this is the only colliding shape.
 pub(super) fn hotkey_passes_key(mods: u32, key: u32) -> bool {
     mods == keymap::SHIFT_MASK && char::from_u32(key).is_some_and(|c| c.is_ascii_graphic())
 }
