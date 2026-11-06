@@ -8,7 +8,7 @@
 #   file to change it).
 # - Row titles and subtitles render as plain text (markup off in the row
 #   builders) - a bare & is safe there. Group titles and descriptions are
-#   Pango markup with no opt-out: escape & as &amp;
+#   Pango markup with no opt-out: escape & as &amp; (see "Sao lưu &amp;
 #   khôi phục").
 # - Icon names, the mode/charset/method lists and the menu design defaults
 #   are functional data, not content: they stay in the code.
@@ -375,7 +375,7 @@ title = "Tương thích X11/XIM"
 description = "Cho app X11 trực tiếp và app XIM (Java/JetBrains)"
 
 [groups.other.backup]
-title = "Sao lưu và khôi phục"
+title = "Sao lưu &amp; khôi phục"
 description = "Một tệp JSON chứa cấu hình, gõ tắt và từ điển."
 
 [rows.export]
