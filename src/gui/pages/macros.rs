@@ -128,6 +128,27 @@ fn editor_card(ui: &Rc<Ui>, hint_visible: &Rc<RefCell<bool>>) -> gtk4::ScrolledW
     scroll
 }
 
+/// The pencil (edit-icon) inside an AdwEntryRow has no API to hide it and
+/// CSS cannot remove a widget's paint. The template never toggles it in
+/// code, so hiding it once — and again on every map, for safety — sticks;
+/// the row stays fully editable without it.
+fn hide_edit_icon(row: &adw::EntryRow) {
+    fn hide(w: &gtk4::Widget) {
+        if let Some(img) = w.downcast_ref::<gtk4::Image>() {
+            if img.css_classes().iter().any(|c| c.as_str() == "edit-icon") {
+                img.set_visible(false);
+            }
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            hide(&c);
+            child = c.next_sibling();
+        }
+    }
+    hide(row.upcast_ref());
+    row.connect_map(|row| hide(row.upcast_ref()));
+}
+
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
@@ -147,6 +168,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .set_tooltip_text(Some(&t("rows.time_format.subtitle", "Ví dụ %H:%M")));
     ui.date_format
         .set_tooltip_text(Some(&t("rows.date_format.subtitle", "Ví dụ %d/%m/%Y")));
+    ui.time_format.add_css_class("format-row");
+    ui.date_format.add_css_class("format-row");
+    hide_edit_icon(&ui.time_format);
+    hide_edit_icon(&ui.date_format);
     add_preview(&ui.time_format);
     add_preview(&ui.date_format);
     settings.add(&ui.time_format);
@@ -207,6 +232,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     raw.add(&scroll);
     raw.add(&error_line);
     page.add(&raw);
+
+    // With Gõ tắt off the table is dead weight: it visibly disables with
+    // the switch, like the dictionary editor.
+    ui.macro_enabled
+        .bind_property("active", &scroll, "sensitive")
+        .sync_create()
+        .build();
 
     // The count and the error line follow the buffer; the save stays on
     // focus-leave (content.rs), untouched.
