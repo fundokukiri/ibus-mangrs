@@ -287,8 +287,9 @@ impl Ui {
     }
 
     /// One leaf editor row (real leaves and radio-group entries share it):
-    /// one compact line — handle, type icon, title, dim type caption, row
-    /// menu — with the same-parent drop and the drag dim.
+    /// handle, type icon, title with the dim type UNDER it (the owner's
+    /// preference over the end-of-row caption), row menu — plus the
+    /// same-parent drop and the drag dim.
     fn menu_leaf_row(
         self: &Rc<Self>,
         path: Vec<usize>,
@@ -303,6 +304,9 @@ impl Ui {
         let row = adw::ActionRow::new();
         row.set_use_markup(false);
         row.set_title(title);
+        if show_type {
+            row.set_subtitle(kind_label);
+        }
         row.set_activatable(false);
         // Rows never take keyboard focus: no initial focus ring on the
         // first row, and Tab walks the buttons directly.
@@ -314,13 +318,6 @@ impl Ui {
             }
         }
         row.add_prefix(&self.menu_lead(path.clone(), kind, &row));
-        if show_type {
-            let kind_label = gtk4::Label::new(Some(kind_label));
-            kind_label.add_css_class("dim-label");
-            kind_label.add_css_class("caption");
-            kind_label.set_valign(gtk4::Align::Center);
-            row.add_suffix(&kind_label);
-        }
         row.add_suffix(&self.menu_more_button(path.clone(), kind));
         self.menu_drop_target(&row, path);
         row.update_property(&[gtk4::accessible::Property::Description(&format!(
@@ -360,6 +357,7 @@ impl Ui {
         let header = adw::ExpanderRow::new();
         header.set_use_markup(false); // titles are user-typed labels
         header.set_title(title);
+        header.set_subtitle(kind_label);
         header.set_focusable(false);
         header.add_prefix(&self.menu_lead(path.clone(), kind, &header));
         header.add_suffix(&self.menu_more_button(path.clone(), kind));
