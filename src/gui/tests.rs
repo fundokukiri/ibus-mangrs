@@ -21,6 +21,25 @@ fn gtk_widget_scenarios() {
     rule_rows_and_preview_track_the_engine_match();
     macro_page_helpers_count_and_preview();
     macros_editor_follows_the_switch();
+    emoji_editor_follows_the_switch();
+}
+
+/// The editor card of a raw-table page: the page's only ScrolledWindow
+/// with the card class.
+fn find_card_scroll(w: &gtk4::Widget) -> Option<gtk4::ScrolledWindow> {
+    if let Some(s) = w.downcast_ref::<gtk4::ScrolledWindow>() {
+        if s.has_css_class("card") {
+            return Some(s.clone());
+        }
+    }
+    let mut child = w.first_child();
+    while let Some(c) = child {
+        if let Some(s) = find_card_scroll(&c) {
+            return Some(s);
+        }
+        child = c.next_sibling();
+    }
+    None
 }
 
 /// With "Bật gõ tắt" off, the macro editor visibly disables with the
@@ -28,22 +47,6 @@ fn gtk_widget_scenarios() {
 fn macros_editor_follows_the_switch() {
     let ui = widgets();
     let page = crate::gui::pages::macros::build(&ui);
-    // The editor card: the page's only ScrolledWindow with the card class.
-    fn find_card_scroll(w: &gtk4::Widget) -> Option<gtk4::ScrolledWindow> {
-        if let Some(s) = w.downcast_ref::<gtk4::ScrolledWindow>() {
-            if s.has_css_class("card") {
-                return Some(s.clone());
-            }
-        }
-        let mut child = w.first_child();
-        while let Some(c) = child {
-            if let Some(s) = find_card_scroll(&c) {
-                return Some(s);
-            }
-            child = c.next_sibling();
-        }
-        None
-    }
     let scroll = find_card_scroll(page.upcast_ref()).expect("the editor card");
     ui.macro_enabled.set_active(true);
     for _ in 0..5 {
@@ -57,12 +60,31 @@ fn macros_editor_follows_the_switch() {
     assert!(!scroll.is_sensitive(), "editor dead with Gõ tắt off");
 }
 
-/// The "Gõ tắt" page helpers: the preview rejects invalid strftime
-/// patterns (chrono's own verdict, the same call the engine's expand
-/// makes), and the line stats follow the parser's drop rule — only a
-/// non-blank line without '=' counts as an error line.
+/// Same gating on the Emoji page: with "Gõ tắt emoji" off the shortcode
+/// table is uneditable.
+fn emoji_editor_follows_the_switch() {
+    let ui = widgets();
+    let page = crate::gui::pages::emoji::build(&ui);
+    let scroll = find_card_scroll(page.upcast_ref()).expect("the editor card");
+    ui.emoji_enabled.set_active(true);
+    for _ in 0..5 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    assert!(scroll.is_sensitive(), "editor editable with the switch on");
+    ui.emoji_enabled.set_active(false);
+    for _ in 0..5 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    assert!(!scroll.is_sensitive(), "editor dead with the switch off");
+}
+
+/// The raw-table helpers: the preview rejects invalid strftime patterns
+/// (chrono's own verdict, the same call the engine's expand makes), and
+/// the line stats follow the parsers' drop rule — only a non-blank line
+/// without '=' counts as an error line.
 fn macro_page_helpers_count_and_preview() {
-    use crate::gui::pages::macros::{line_stats, preview};
+    use crate::gui::pages::macros::preview;
+    use crate::gui::widgets::line_stats;
     let shown = preview("%H:%M").expect("a valid pattern previews");
     assert_eq!(shown.len(), 5, "HH:MM shape");
     assert!(preview("%").is_none(), "a lone % is an invalid pattern");
@@ -71,10 +93,13 @@ fn macro_page_helpers_count_and_preview() {
         Some(""),
         "empty pattern, empty preview"
     );
-    let (valid, err) = line_stats("vn=Việt Nam\ntphcm=Thành phố Hồ Chí Minh\ndongloi");
+    let (valid, err) = line_stats(
+        "vn=Việt Nam\ntphcm=Thành phố Hồ Chí Minh\ndongloi",
+        "groups.macros.raw",
+    );
     assert_eq!(valid, 2);
     assert_eq!(err.as_deref(), Some("Dòng 3 thiếu dấu ="));
-    let (valid, err) = line_stats("a=1\nbad1\nb=2\nbad2\nbad3");
+    let (valid, err) = line_stats("a=1\nbad1\nb=2\nbad2\nbad3", "groups.macros.raw");
     assert_eq!(valid, 2);
     assert_eq!(
         err.as_deref(),
@@ -82,9 +107,13 @@ fn macro_page_helpers_count_and_preview() {
     );
     // Blank lines and empty key/value sides are dropped silently, as they
     // always were — they must not be reported as missing '='.
-    let (valid, err) = line_stats("a=1\n\nb=\n=x\n");
+    let (valid, err) = line_stats("a=1\n\nb=\n=x\n", "groups.macros.raw");
     assert_eq!(valid, 1);
     assert_eq!(err, None);
+    // The emoji page shares the helper with its own message keys.
+    let (valid, err) = line_stats("cuoi=😄\nbad", "groups.emoji.raw");
+    assert_eq!(valid, 1);
+    assert_eq!(err.as_deref(), Some("Dòng 2 thiếu dấu ="));
 }
 
 /// The reworked "Phím tắt" helpers: the stored spec renders as keycaps with
