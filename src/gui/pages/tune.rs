@@ -50,8 +50,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         ),
     ] {
         row.set_subtitle(&subtitle);
-        // Two lines at most, so the spin control keeps its natural width.
-        row.set_subtitle_lines(2);
         row.set_tooltip_text(Some(&t(
             "tips.commit_interval",
             "Nhịp gửi từng chữ ở mode uinput — giảm nếu app bị mất chữ, tăng nếu bị đơ.",
@@ -81,7 +79,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         "rows.unicode_channel.subtitle",
         "Clipboard sẽ tạm ghi đè nội dung clipboard của bạn.",
     ));
-    ui.unicode_channel.set_subtitle_lines(2);
     page.add(&channel);
 
     // X11/XIM workarounds.
@@ -102,9 +99,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         "rows.preedit_xim.subtitle",
         "Giữ gạch chân cho app XIM: chữ đang gõ hiện trong cửa sổ riêng, commit khi hết từ.",
     ));
-    for row in [&ui.x11_delete, &ui.preedit_xim] {
-        row.set_subtitle_lines(2);
-    }
     page.add(&xim);
 
     page
