@@ -17,8 +17,10 @@ fn action_button(icon_name: &str, label: &str) -> gtk4::Button {
     content.append(&text);
     let btn = gtk4::Button::new();
     btn.set_child(Some(&content));
-    // The default row-suffix button reads bulky (owner feedback): tighter
-    // padding, no minimum height.
+    // Two reasons the row-suffix button reads bulky (owner feedback): the
+    // theme padding, and GTK stretching the button to the full row height
+    // — center it and tighten the padding.
+    btn.set_valign(gtk4::Align::Center);
     btn.add_css_class("compact-button");
     btn
 }
