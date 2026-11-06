@@ -8,22 +8,22 @@ use super::*;
 pub(super) fn widgets() -> Rc<Ui> {
     let enabled = switch_row(
         &t("rows.enabled.title", "Bật tiếng Việt"),
+        // {page} is the macros page's real sidebar label, so the sentence
+        // cannot drift from the sidebar.
         &t(
             "rows.enabled.subtitle",
-            "Tắt để gõ thẳng mọi phím (gõ tắt vẫn chạy nếu bật ở tab Gõ tắt)",
-        ),
+            "Tắt để gõ thẳng mọi phím. Gõ tắt vẫn chạy nếu bật ở trang Gõ tắt.",
+        )
+        .replace("{page}", &t("pages.macros", "Gõ tắt")),
     );
     let method = combo_row(
         &t("rows.method.title", "Kiểu gõ"),
-        &t("rows.method.subtitle", "Telex, VNI, VIQR, Microsoft layout"),
+        &t("rows.method.subtitle", "Cách gõ dấu tiếng Việt"),
         METHODS,
     );
     let mode = combo_row(
         &t("rows.mode.title", "Chế độ gõ"),
-        &t(
-            "rows.mode.subtitle",
-            "Tự động, Gạch chân (mặc định), Không gạch chân, Surrounding, 3 mode uinput, 2 mode ForwardKeyEvent, OFF",
-        ),
+        &t("rows.mode.subtitle", "Cách đưa chữ vào ứng dụng"),
         MODES,
     );
     let charset = combo_row(
