@@ -50,6 +50,60 @@ pub(super) fn gdk_modifier_of_key(key: gtk4::gdk::Key) -> Option<gtk4::gdk::Modi
 /// The stored spec ("Control+Alt+v") as a GTK accelerator string for
 /// `ShortcutLabel`. `None` when there is nothing to render as keycaps —
 /// a modifier-only combo or an unusable key — the raw text shows instead.
+/// GDK keyval names of the printable ASCII keys that do not name
+/// themselves (letters and digits do). Fixed X11 names — the same table
+/// `gtk_accelerator_parse` reads.
+const ASCII_KEYVAL_NAMES: &[(u32, &str)] = &[
+    (0x20, "space"),
+    (0x21, "exclam"),
+    (0x22, "quotedbl"),
+    (0x23, "numbersign"),
+    (0x24, "dollar"),
+    (0x25, "percent"),
+    (0x26, "ampersand"),
+    (0x27, "apostrophe"),
+    (0x28, "parenleft"),
+    (0x29, "parenright"),
+    (0x2a, "asterisk"),
+    (0x2b, "plus"),
+    (0x2c, "comma"),
+    (0x2d, "minus"),
+    (0x2e, "period"),
+    (0x2f, "slash"),
+    (0x3a, "colon"),
+    (0x3b, "semicolon"),
+    (0x3c, "less"),
+    (0x3d, "equal"),
+    (0x3e, "greater"),
+    (0x3f, "question"),
+    (0x40, "at"),
+    (0x5b, "bracketleft"),
+    (0x5c, "backslash"),
+    (0x5d, "bracketright"),
+    (0x5e, "asciicircum"),
+    (0x5f, "underscore"),
+    (0x60, "grave"),
+    (0x7b, "braceleft"),
+    (0x7c, "bar"),
+    (0x7d, "braceright"),
+    (0x7e, "asciitilde"),
+];
+
+/// The GDK keyval name of one of the keys `parse_hotkey` accepts — letters
+/// and digits name themselves, punctuation and space come from the table,
+/// F-keys keep their `F1`..`F12` names.
+fn keyval_name(key: u32) -> Option<String> {
+    if let Ok(i) = ASCII_KEYVAL_NAMES.binary_search_by_key(&key, |e| e.0) {
+        return Some(ASCII_KEYVAL_NAMES[i].1.to_string());
+    }
+    if (0xffbe..=0xffc9).contains(&key) {
+        return Some(format!("F{}", key - 0xffbe + 1));
+    }
+    char::from_u32(key)
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase().to_string())
+}
+
 pub(super) fn accelerator_label(spec: &str) -> Option<String> {
     let (mods, key) = crate::server::parse_hotkey(spec)?;
     if key == 0 {
@@ -66,20 +120,13 @@ pub(super) fn accelerator_label(spec: &str) -> Option<String> {
             out.push_str(&format!("<{tag}>"));
         }
     }
-    // The parser accepts exactly three key shapes: one printable ASCII
-    // character, `space`, and `f1`..`f12`.
-    let name = match char::from_u32(key).filter(|c| c.is_ascii_graphic()) {
-        Some(c) => c.to_string(),
-        None => match key {
-            0x20 => "space".to_string(),
-            k @ 0xffbe..=0xffc9 => format!("F{}", k - 0xffbe + 1),
-            _ => return None,
-        },
-    };
-    out.push_str(&name);
-    // GtkShortcutLabel would warn on (and drop) an unparseable keycap, e.g.
-    // punctuation whose keyval name is not the character itself ("~" is
-    // "asciitilde"): the dim raw text shows instead.
+    // GTK's own accelerator parser only takes canonical keyval names, not
+    // the characters themselves ("~" is "asciitilde", "," is "comma"), so
+    // the keycap string is built from the keyval name and rendered by
+    // ShortcutLabel as the plain character again.
+    out.push_str(&keyval_name(key)?);
+    // GtkShortcutLabel would warn on (and drop) an unparseable keycap: the
+    // dim raw text shows instead.
     gtk4::accelerator_parse(out.as_str())?;
     Some(out)
 }
