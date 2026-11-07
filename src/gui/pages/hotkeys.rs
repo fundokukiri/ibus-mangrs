@@ -95,27 +95,29 @@ impl Ui {
             }
             {
                 let ui = self.clone();
-                let overlay = self.hotkey_overlay.clone();
                 trash.connect_clicked(move |_| {
                     let (spec, action) = ui.custom.borrow()[i].clone();
                     ui.custom.borrow_mut().remove(i);
                     ui.fill_custom();
                     ui.fire_save();
-                    // Undo re-inserts at the old slot while the toast lives.
-                    let toast = adw::Toast::new(&t("misc.deleted_toast", "Đã xóa"));
-                    toast.set_button_label(Some(&t("misc.undo", "Hoàn tác")));
-                    {
-                        let ui = ui.clone();
-                        toast.connect_button_clicked(move |_| {
-                            let at = i.min(ui.custom.borrow().len());
-                            ui.custom
-                                .borrow_mut()
-                                .insert(at, (spec.clone(), action.clone()));
-                            ui.fill_custom();
-                            ui.fire_save();
-                        });
+                    // Undo re-inserts at the old slot while the toast lives;
+                    // toasts silenced, the delete just stands.
+                    if ui.toasts_on() {
+                        let toast = adw::Toast::new(&t("misc.deleted_toast", "Đã xóa"));
+                        toast.set_button_label(Some(&t("misc.undo", "Hoàn tác")));
+                        {
+                            let ui = ui.clone();
+                            toast.connect_button_clicked(move |_| {
+                                let at = i.min(ui.custom.borrow().len());
+                                ui.custom
+                                    .borrow_mut()
+                                    .insert(at, (spec.clone(), action.clone()));
+                                ui.fill_custom();
+                                ui.fire_save();
+                            });
+                        }
+                        ui.hotkey_overlay.add_toast(toast);
                     }
-                    overlay.add_toast(toast);
                 });
             }
             row.add_suffix(&trash);

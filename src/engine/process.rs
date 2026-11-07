@@ -6,6 +6,31 @@ use super::*;
 impl Engine {
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
+        // The idle-commit clock: only stamped while the feature is on, so
+        // the default path costs nothing.
+        if self.idle_commit_enabled {
+            self.last_key_at = Some(Instant::now());
+        }
+        // Re-enter an idle-committed word: the next word character un-commits
+        // it (a protocol delete erases the committed text) and replays the
+        // raw keys into a live composition, so the word continues as if the
+        // pause never happened. Only when the delete is provably safe AND
+        // can undo the whole word (the last report must have seen it — the
+        // clamp hard rule): otherwise the commit stays final and the key
+        // starts a fresh word. Any terminator discards the re-entry instead.
+        let mut reentry_delete: Option<Action> = None;
+        if let Some((raw, committed)) = self.idle_committed.take() {
+            let need = committed.chars().count() as u32;
+            if !crate::bamboo_wrapper::is_word_terminator(c)
+                && self.effective_mode() == Mode::Preedit
+                && self.protocol_delete_ok()
+                && self.clamp_delete(need) == need
+            {
+                debug_log::log("idle commit re-entry → un-commit and re-compose");
+                self.wrapper.replay_raw(&raw);
+                reentry_delete = Some(Action::DeleteBefore(need));
+            }
+        }
         // Emoji shortcode candidate: a word glued directly after ':' types
         // raw (the URL bypass shape) and the closing ':' rewrites it. Runs
         // even with Vietnamese processing off — shortcodes are not marks,
@@ -37,9 +62,10 @@ impl Engine {
         // terminator, which `note_char` already recorded.
         if !self.url_word && !self.wrapper.has_composition() {
             self.url_word = self.bypass_url
-                && self
-                    .last_char
-                    .is_some_and(|p| URL_CONTEXT_CHARS.contains(&p));
+                && self.last_char.is_some_and(|p| {
+                    URL_CONTEXT_CHARS.contains(&p)
+                        || (!self.extra_url_chars.is_empty() && self.extra_url_chars.contains(&p))
+                });
         }
         if self.url_word {
             let mut actions = Vec::new();
@@ -106,6 +132,11 @@ impl Engine {
         // still on screen (mode resolved per client, ST data arriving later),
         // clear it first so the client never shows both preedit and commits.
         let mut actions = Vec::new();
+        if let Some(del) = reentry_delete {
+            // The un-commit delete must reach the client before the preedit
+            // string that replaces the committed text.
+            actions.push(del);
+        }
         if mode != Mode::Preedit && self.preedit_visible {
             actions.push(Action::HidePreedit);
         }
@@ -348,8 +379,10 @@ impl Engine {
         }
         // A key sequence that already forms a valid Vietnamese word is much
         // more likely normal typing than a shorthand ("cam", "moi") — do
-        // not expand it. Shorthand keys therefore must not be valid words.
-        if valid {
+        // not expand it. `macro_expand_valid_words` opts out of the guard:
+        // a colliding shorthand then makes that word reachable only by
+        // backspacing one key out.
+        if valid && !self.macro_expand_valid_words {
             return None;
         }
         self.macros.expand(

@@ -61,6 +61,7 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
         "Ẩn hay hiện dòng \u{201c}MăngRS Cấu hình\u{201d} trong lưới ứng dụng của GNOME (cần vài giây để GNOME nhận thay đổi).",
     )));
     interface.add(&ui.desktop_icon);
+    interface.add(&ui.show_toasts);
     page.add(&interface);
 
     // Focus extension: embedded, written into the user extension dir.
@@ -159,6 +160,17 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     let advanced = adw::PreferencesGroup::builder()
         .title(t("groups.other.advanced.title", "Nâng cao"))
         .build();
+    advanced.add(&ui.experimental_features);
+    // The gate toggles visibility itself (config save goes through
+    // wire_switch_saves): off hides every experimental row across the
+    // pages, on brings them back with their saved states.
+    {
+        let ui = Rc::clone(ui);
+        let switch = ui.experimental_features.clone();
+        switch.connect_active_notify(move |sw| {
+            ui.set_experimental_visible(sw.is_active());
+        });
+    }
     advanced.add(&ui.debug_log);
     advanced.add(&ui.debug_log_text);
     let reset_row = action_row(
@@ -200,10 +212,10 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                             "Đã hiện lại trong menu ứng dụng",
                         )
                     };
-                    overlay_toasts.add_toast(adw::Toast::new(&msg));
+                    ui.fire_toast(&overlay_toasts, &msg);
                 }
                 Err(e) => {
-                    overlay_toasts.add_toast(adw::Toast::new(&e));
+                    ui.fire_toast(&overlay_toasts, &e);
                     // Revert the switch so it shows the real disk state.
                     *ui.desktop_icon_loading.borrow_mut() = true;
                     ui.desktop_icon.set_active(!hide);
@@ -215,6 +227,7 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
 
     // Export: save the whole state as one JSON file.
     {
+        let ui = ui.clone();
         let overlay_toasts = toast_overlay.clone();
         export_btn.connect_clicked(move |btn| {
             let dialog = gtk4::FileDialog::builder()
@@ -224,6 +237,7 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                 .default_filter(&json_filter())
                 .build();
             let overlay_toasts = overlay_toasts.clone();
+            let ui = ui.clone();
             let window = window_of(btn);
             let dialog_parent = window.clone();
             dialog.save(
@@ -233,10 +247,10 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                 move |result| {
                     if let Ok(file) = result {
                         match export_json(file.path()) {
-                            Ok(()) => overlay_toasts.add_toast(adw::Toast::new(&t(
-                                "misc.exported_toast",
-                                "Đã xuất cấu hình",
-                            ))),
+                            Ok(()) => ui.fire_toast(
+                                &overlay_toasts,
+                                &t("misc.exported_toast", "Đã xuất cấu hình"),
+                            ),
                             Err(e) => {
                                 if let Some(window) = window {
                                     alert(&window, &e);
@@ -275,10 +289,10 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                         match import_json(file.path(), &ui) {
                             Ok(()) => {
                                 restart_btn.set_visible(true);
-                                overlay_toasts.add_toast(adw::Toast::new(&t(
-                                    "misc.imported_toast",
-                                    "Đã nhập cấu hình",
-                                )));
+                                ui.fire_toast(
+                                    &overlay_toasts,
+                                    &t("misc.imported_toast", "Đã nhập cấu hình"),
+                                );
                             }
                             Err(e) => {
                                 if let Some(window) = window {
@@ -292,25 +306,50 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
         });
     }
 
-    // Install: write the embedded extension, try to enable it, and report
-    // through a toast; the row flips to the installed state ("Cài lại").
+    // Install: confirmed like the destructive actions — the button writes
+    // files into the user extension dir and flips a GNOME setting, so a
+    // stray click must not do it. Same dialog shape as the reset.
     {
+        let ui = ui.clone();
         let overlay_toasts = toast_overlay.clone();
         let row = extension_row.clone();
-        extension_btn.connect_clicked(move |btn| match install_focus_extension() {
-            Ok(msg) => {
-                overlay_toasts.add_toast(adw::Toast::new(&msg));
-                row.set_subtitle(&t(
-                    "rows.focus_extension.subtitle_installed",
-                    "Đã cài vào <tt>~/.local/share/gnome-shell/extensions</tt>",
-                ));
-                btn.set_label(&t("misc.reinstall_button", "Cài lại"));
+        extension_btn.connect_clicked(move |btn| {
+            let dialog = adw::AlertDialog::builder()
+                .heading(t("other.extension_confirm_heading", "Cài extension MăngRS Focus?"))
+                .body(t(
+                    "other.extension_confirm_body",
+                    "Vài tệp sẽ được ghi vào ~/.local/share/gnome-shell/extensions và extension được bật — cần cho luật theo app trên Wayland.",
+                ))
+                .build();
+            dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
+            dialog.add_response("apply", &t("other.extension_apply", "Cài đặt"));
+            dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+            dialog.set_default_response(Some("cancel"));
+            dialog.set_close_response("cancel");
+            {
+                let ui = ui.clone();
+                let overlay_toasts = overlay_toasts.clone();
+                let row = row.clone();
+                let btn = btn.clone();
+                dialog.connect_response(Some("apply"), move |_, _| {
+                    match install_focus_extension() {
+                        Ok(msg) => {
+                            ui.fire_toast(&overlay_toasts, &msg);
+                            row.set_subtitle(&t(
+                                "rows.focus_extension.subtitle_installed",
+                                "Đã cài vào <tt>~/.local/share/gnome-shell/extensions</tt>",
+                            ));
+                            btn.set_label(&t("misc.reinstall_button", "Cài lại"));
+                        }
+                        Err(e) => {
+                            if let Some(window) = window_of(&btn) {
+                                alert(&window, &e);
+                            }
+                        }
+                    }
+                });
             }
-            Err(e) => {
-                if let Some(window) = window_of(btn) {
-                    alert(&window, &e);
-                }
-            }
+            dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
         });
     }
 
@@ -350,10 +389,10 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                     let dictionary = Dictionary::load();
                     ui.refresh(&config, &macros, &dictionary);
                     restart_btn.set_visible(true);
-                    overlay_toasts.add_toast(adw::Toast::new(&t(
-                        "misc.reset_toast",
-                        "Đã khôi phục mặc định",
-                    )));
+                    ui.fire_toast(
+                        &overlay_toasts,
+                        &t("misc.reset_toast", "Đã khôi phục mặc định"),
+                    );
                 });
             }
             dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());

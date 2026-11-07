@@ -24,6 +24,7 @@ fn gtk_widget_scenarios() {
     emoji_editor_follows_the_switch();
     toggling_off_releases_the_editor_caret();
     every_switch_triggers_save();
+    experimental_gate_hides_and_restores_rows();
 }
 
 /// While typing in a raw table, a switch turned off (by hand or by a live
@@ -361,14 +362,22 @@ fn refresh_round_trips_every_widget() {
         auto_correct: false,
         auto_restore: false,
         bypass_url: false,
+        // The switch off must NOT wipe the stored value: refresh shows it
+        // (locked) and read returns it — the value reapplies when the
+        // switch comes back on. Pinned by the read() round-trip below.
+        extra_url_chars: "`<".into(),
+        extra_url_chars_enabled: false,
         w2u: W2uConfig::NonStart,
         bracket: BracketConfig::Everywhere,
         em_dash: true,
         auto_capitalize: true,
+        auto_capitalize_after: ":".into(),
+        auto_capitalize_after_enabled: true,
         double_space_period: true,
         macro_enabled: false,
         capitalize_macro: false,
         macro_in_off_mode: true,
+        macro_expand_valid_words: true,
         time_format: "%H".into(),
         date_format: "%Y".into(),
         dictionary_enabled: false,
@@ -383,6 +392,14 @@ fn refresh_round_trips_every_widget() {
         backspace_interval_ms: 7,
         post_delay_ms: 12,
         unicode_channel: crate::config::UnicodeChannel::Clipboard,
+        clipboard_restore_delay_enabled: true,
+        clipboard_restore_delay_ms: 1500,
+        echo_stale_enabled: true,
+        echo_stale_ms: 250,
+        idle_commit_enabled: true,
+        idle_commit_ms: 800,
+        experimental_features: true,
+        show_toasts: false,
         debug_log: true,
         debug_log_text: true,
         x11_delete_without_report: true,
@@ -522,7 +539,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 19] = [
+    let rows: [&adw::SwitchRow; 27] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -530,12 +547,20 @@ fn every_switch_triggers_save() {
         &ui.auto_restore,
         &ui.abbrev,
         &ui.bypass_url,
+        &ui.extra_url_chars_switch,
         &ui.em_dash,
         &ui.auto_capitalize,
+        &ui.auto_capitalize_after_switch,
+        &ui.clipboard_restore_switch,
+        &ui.echo_stale_switch,
+        &ui.idle_commit_switch,
+        &ui.experimental_features,
+        &ui.show_toasts,
         &ui.double_space,
         &ui.macro_enabled,
         &ui.capitalize_macro,
         &ui.macro_in_off_mode,
+        &ui.macro_valid_words,
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,
@@ -555,4 +580,43 @@ fn every_switch_triggers_save() {
         ui.read().hide_underline,
         "read() must see the toggled switch"
     );
+}
+
+/// The experimental master gate: off hides every experimental row (the
+/// engine forces the features off), and the saved switch states and
+/// values survive the round trip — reopening the gate restores them.
+fn experimental_gate_hides_and_restores_rows() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+
+    let on = Config {
+        experimental_features: true,
+        macro_expand_valid_words: true,
+        extra_url_chars_enabled: true,
+        extra_url_chars: "`".into(),
+        ..Config::default()
+    };
+    ui.refresh(&on, &macros, &dictionary);
+    assert!(ui.macro_valid_words.is_visible());
+    assert!(ui.extra_url_chars_entry.is_visible());
+    assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
+
+    // Off: hidden — and the saved value is NOT wiped by the refresh.
+    let mut off = on.clone();
+    off.experimental_features = false;
+    ui.refresh(&off, &macros, &dictionary);
+    assert!(!ui.macro_valid_words.is_visible());
+    assert!(!ui.extra_url_chars_entry.is_visible());
+    assert_eq!(
+        ui.extra_url_chars_entry.text(),
+        "`",
+        "the value stays saved while hidden"
+    );
+
+    // Back on: the rows and their states reappear verbatim.
+    ui.refresh(&on, &macros, &dictionary);
+    assert!(ui.macro_valid_words.is_active());
+    assert!(ui.extra_url_chars_switch.is_active());
+    assert_eq!(ui.extra_url_chars_entry.text(), "`");
 }

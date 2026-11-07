@@ -207,6 +207,7 @@ pub struct Engine {
     macro_enabled: bool,
     capitalize_macro: bool,
     macro_in_off_mode: bool,
+    macro_expand_valid_words: bool,
     time_format: String,
     date_format: String,
     macros: Macros,
@@ -229,6 +230,28 @@ pub struct Engine {
     post_delay_ms: u64,
     /// How the Vietnamese word reaches the app in the uinput modes.
     unicode_channel: UnicodeChannel,
+    /// Custom clipboard restore delay (ms); the built-in default applies
+    /// while the switch is off.
+    clipboard_restore_delay_enabled: bool,
+    clipboard_restore_delay_ms: u64,
+    /// Custom lost-echo stale window (ms); the built-in default applies
+    /// while the switch is off. Too small risks flushing the deferred
+    /// commit over late echoes (lost characters); too large makes every
+    /// word appear late in apps that never route injected keys back.
+    echo_stale_enabled: bool,
+    echo_stale_ms: u64,
+    /// Commit a paused preedit word after `idle_commit_ms` of no keys.
+    idle_commit_enabled: bool,
+    idle_commit_ms: u64,
+    /// When the last key reached the engine — the idle-commit clock. Only
+    /// stamped while the feature is on, so the off path costs nothing.
+    last_key_at: Option<Instant>,
+    /// The word an idle commit just committed: `(raw keys, encoded word)`.
+    /// The next word character re-enters the composition (un-commit with a
+    /// protocol delete, replay the raw keys) so the word continues as if
+    /// the pause never happened. Cleared by any terminator, backspace,
+    /// focus loss or state reset.
+    idle_committed: Option<(String, String)>,
     /// Display mode locked for the word being typed. The daemon flips
     /// capabilities 1ms apart around focus changes and not at all on quick
     /// refocus; re-resolving the mode mid-word flips preedit↔non-preedit
@@ -240,6 +263,13 @@ pub struct Engine {
     url_word: bool,
     /// Keep words raw after URL/email/path characters (`bypass_url`).
     bypass_url: bool,
+    /// The filtered `extra_url_chars` — empty unless the switch is on
+    /// (see `apply_config` for the filter).
+    extra_url_chars: Vec<char>,
+    /// The filtered `auto_capitalize_after` — empty unless the switch is
+    /// on (same filter shape as `extra_url_chars`, without the `-` ban: a
+    /// hyphen trigger is legitimate here).
+    extra_capitalize_after: Vec<char>,
     /// Emoji shortcodes on: a word glued directly after `:` stays raw and a
     /// closing `:` rewrites `:name:` to the emoji (see `process_char_emoji`).
     emoji_enabled: bool,
@@ -287,10 +317,10 @@ const URL_CONTEXT_CHARS: &[char] = &['/', ':', '@', '.', '_', '~', '=', '#', '&'
 impl Engine {
     /// How long injected-key echoes may be missing before they count as
     /// lost and deferred commits flush anyway (ibus-bamboo's pacing
-    /// ballpark). One shared constant: the key handlers and the main-loop
+    /// ballpark). One shared value: the key handlers and the main-loop
     /// tick must agree or a lost echo holds the commit for different
-    /// lengths of time.
-    pub const ECHO_STALE: Duration = Duration::from_millis(150);
+    /// lengths of time — both read it through `echo_stale()`.
+    pub const DEFAULT_ECHO_STALE_MS: u64 = 150;
 
     pub fn new(method: Method, mode: Mode) -> Self {
         let mut engine = Self {
@@ -313,6 +343,7 @@ impl Engine {
             macro_enabled: true,
             capitalize_macro: true,
             macro_in_off_mode: false,
+            macro_expand_valid_words: false,
             time_format: "%H:%M".into(),
             date_format: "%d/%m/%Y".into(),
             macros: Macros::load(),
@@ -335,6 +366,8 @@ impl Engine {
             word_mode: None,
             url_word: false,
             bypass_url: true,
+            extra_url_chars: Vec::new(),
+            extra_capitalize_after: Vec::new(),
             emoji_enabled: false,
             emoji_word: false,
             emojis: UserEmoji::load(),
@@ -347,6 +380,14 @@ impl Engine {
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,
+            clipboard_restore_delay_enabled: false,
+            clipboard_restore_delay_ms: 600,
+            echo_stale_enabled: false,
+            echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
+            idle_commit_enabled: false,
+            idle_commit_ms: 700,
+            last_key_at: None,
+            idle_committed: None,
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -388,13 +429,35 @@ impl Engine {
         self.app_rules = config.app_rules.clone();
         // The cached rule resolution belongs to the previous rule set.
         self.rule_cache = None;
+        // The experimental master gate: with it off every experimental
+        // feature is forced off here, no matter what its own switch says —
+        // the switches and values stay saved for when the gate reopens.
+        let experimental = config.experimental_features;
         self.auto_restore = config.auto_restore;
         self.em_dash = config.em_dash;
         self.auto_capitalize = config.auto_capitalize;
+        self.extra_capitalize_after = if experimental && config.auto_capitalize_after_enabled {
+            // Same filter shape as `extra_url_chars` minus the `-` ban; a
+            // hyphen trigger is legitimate here.
+            let mut chars: Vec<char> = Vec::new();
+            for c in config.auto_capitalize_after.chars() {
+                if c.is_alphanumeric() || c.is_whitespace() || chars.contains(&c) {
+                    continue;
+                }
+                chars.push(c);
+                if chars.len() >= 10 {
+                    break;
+                }
+            }
+            chars
+        } else {
+            Vec::new()
+        };
         self.double_space_period = config.double_space_period;
         self.macro_enabled = config.macro_enabled;
         self.capitalize_macro = config.capitalize_macro;
         self.macro_in_off_mode = config.macro_in_off_mode;
+        self.macro_expand_valid_words = experimental && config.macro_expand_valid_words;
         self.x11_delete_without_report = config.x11_delete_without_report;
         self.preedit_for_xim = config.preedit_for_xim;
         self.time_format = config.time_format.clone();
@@ -422,7 +485,36 @@ impl Engine {
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
         self.unicode_channel = config.unicode_channel;
+        self.clipboard_restore_delay_enabled =
+            experimental && config.clipboard_restore_delay_enabled;
+        self.clipboard_restore_delay_ms = config.clipboard_restore_delay_ms;
+        self.echo_stale_enabled = experimental && config.echo_stale_enabled;
+        self.echo_stale_ms = config.echo_stale_ms;
+        self.idle_commit_enabled = experimental && config.idle_commit_enabled;
+        self.idle_commit_ms = config.idle_commit_ms;
+        if !self.idle_commit_enabled {
+            self.idle_committed = None;
+        }
         self.bypass_url = config.bypass_url;
+        self.extra_url_chars = if experimental && config.extra_url_chars_enabled {
+            // Defensive filter: `-` stays out of the start set (the `--`
+            // em dash would break), letters/digits/spaces are not URL
+            // context, and a hand-edited file must not smuggle in a huge
+            // list — the hot path scans this vec linearly.
+            let mut chars: Vec<char> = Vec::new();
+            for c in config.extra_url_chars.chars() {
+                if c == '-' || c.is_alphanumeric() || c.is_whitespace() || chars.contains(&c) {
+                    continue;
+                }
+                chars.push(c);
+                if chars.len() >= 10 {
+                    break;
+                }
+            }
+            chars
+        } else {
+            Vec::new()
+        };
         self.emoji_enabled = config.emoji_enabled;
         self.emoji_word = false;
         self.url_word = false;
@@ -440,6 +532,7 @@ impl Engine {
         if mode != self.mode {
             self.wrapper.reset();
             self.tail.clear();
+            self.idle_committed = None;
             self.mode = mode;
         }
     }
@@ -458,6 +551,7 @@ impl Engine {
         if charset != self.charset {
             self.wrapper.reset();
             self.tail.clear();
+            self.idle_committed = None;
             self.charset = charset;
         }
     }
@@ -509,6 +603,29 @@ impl Engine {
     /// How the Vietnamese word is delivered in the uinput modes.
     pub fn unicode_channel(&self) -> UnicodeChannel {
         self.unicode_channel
+    }
+
+    /// Effective clipboard restore delay: the custom value when the switch
+    /// is on, else the built-in default — the restore itself must always
+    /// run, or the user's clipboard stays replaced by the last word.
+    pub fn clipboard_restore_delay_ms(&self) -> u64 {
+        if self.clipboard_restore_delay_enabled {
+            self.clipboard_restore_delay_ms
+        } else {
+            crate::paste::DEFAULT_RESTORE_DELAY_MS
+        }
+    }
+
+    /// The lost-echo stale window: the custom value when the switch is on,
+    /// else the built-in default. The key handlers and the main-loop tick
+    /// must read the SAME value or a lost echo holds the commit for
+    /// different lengths of time — both go through this getter.
+    pub fn echo_stale(&self) -> Duration {
+        Duration::from_millis(if self.echo_stale_enabled {
+            self.echo_stale_ms
+        } else {
+            Self::DEFAULT_ECHO_STALE_MS
+        })
     }
 
     /// The client dropped the protocol delete at least once; the server
@@ -827,6 +944,11 @@ impl Engine {
         match c {
             '.' | '!' | '?' | '\n' | '\r' => self.capitalize_next = true,
             ' ' | '\t' => {}
+            _ if !self.extra_capitalize_after.is_empty()
+                && self.extra_capitalize_after.contains(&c) =>
+            {
+                self.capitalize_next = true;
+            }
             _ => self.capitalize_next = false,
         }
     }
@@ -1041,6 +1163,10 @@ impl Engine {
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
+        // The idle-commit clock, like process_char.
+        if self.idle_commit_enabled {
+            self.last_key_at = Some(Instant::now());
+        }
         // A word in flight follows the word-mode lock: a mid-word mode
         // re-resolution (capability flip, inline suggestions) must not send
         // the Backspace down a different branch than the keys around it —
@@ -1078,6 +1204,9 @@ impl Engine {
             // client held (an out-of-range delete, mutter aborts on it).
             self.tail = replace_tail(&self.tail, 1, "");
             self.note_backspace_forwarded();
+            // The user is erasing an idle-committed word — re-entering it
+            // would resurrect text they are deleting.
+            self.idle_committed = None;
             return None;
         };
         if !self.wrapper.has_composition() {
@@ -1211,6 +1340,7 @@ impl Engine {
         self.release_word_mode();
         self.url_word = false;
         self.emoji_word = false;
+        self.idle_committed = None;
         actions
     }
 
@@ -1270,22 +1400,56 @@ impl Engine {
     /// Server-loop tick: flush deferred commits whose injected-key echoes
     /// never came back — the uinput rewrite's commit would otherwise never
     /// land when the user simply stops typing (the word stays raw latin).
+    /// With `idle_commit` on, a preedit word left alone past the configured
+    /// pause commits here too, through the normal word-end path (macros,
+    /// auto-restore, capitalization — exactly like a terminator); the next
+    /// word character can re-enter the composition via `idle_committed`.
     pub fn tick(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
-        if self.take_stale_injection(Self::ECHO_STALE) {
+        if self.take_stale_injection(self.echo_stale()) {
             for text in self.flush_deferred() {
                 actions.push(Action::Commit(text));
             }
+        }
+        // The floor keeps a hand-edited 0 from committing between every
+        // keystroke; the GUI range starts at 300 ms.
+        let idle_ms = self.idle_commit_ms.max(50);
+        if self.idle_commit_enabled
+            && self.preedit_commit_pending()
+            && self
+                .last_key_at
+                .is_some_and(|t| t.elapsed().as_millis() as u64 >= idle_ms)
+        {
+            let pending = self.wrapper.output().to_string();
+            let raw = self.wrapper.raw().to_string();
+            let valid = self.wrapper.is_valid();
+            let valid_prefix = self.wrapper.is_valid_prefix();
+            let mut finished = self.on_finish(
+                Mode::Preedit,
+                pending.clone(),
+                raw.clone(),
+                valid,
+                valid_prefix,
+            );
+            finished.retain(|a| !matches!(a, Action::Forward));
+            self.wrapper.reset();
+            self.tail.clear();
+            self.repair_delete = None;
+            self.release_word_mode();
+            self.idle_committed = Some((raw, encode(self.charset, &pending)));
+            debug_log::log(&format!("idle commit len={}", pending.chars().count()));
+            actions.extend(finished);
         }
         actions
     }
 
     /// Milliseconds the main loop should wait before the next `tick` — the
-    /// lost-echo stale window, or None when nothing is pending (the loop
-    /// falls back to its 1 s poll).
+    /// lost-echo stale window, the idle-commit deadline, or None when
+    /// nothing is pending (the loop falls back to its 1 s poll).
     pub fn ms_until_tick(&self) -> Option<u64> {
         // Both echo kinds share the stale window; the earliest deadline wins.
-        [
+        let stale_ms = self.echo_stale().as_millis();
+        let mut deadlines: Vec<u64> = [
             (self.pending_injected > 0)
                 .then_some(self.last_inject)
                 .flatten(),
@@ -1295,12 +1459,16 @@ impl Engine {
         ]
         .into_iter()
         .flatten()
-        .map(|t| {
-            Self::ECHO_STALE.as_millis() as u64
-                - t.elapsed().as_millis().min(Self::ECHO_STALE.as_millis()) as u64
-        })
-        .min()
-        .map(|ms| ms.max(1))
+        .map(|t| stale_ms as u64 - t.elapsed().as_millis().min(stale_ms) as u64)
+        .collect();
+        // The idle-commit deadline: a paused preedit word must wake the loop.
+        if self.idle_commit_enabled && self.preedit_visible && !self.wrapper.output().is_empty() {
+            if let Some(t) = self.last_key_at {
+                let idle_ms = self.idle_commit_ms.max(50) as u128;
+                deadlines.push(idle_ms.saturating_sub(t.elapsed().as_millis()).max(1) as u64);
+            }
+        }
+        deadlines.into_iter().min().map(|ms| ms.max(1))
     }
 
     fn hide_if_visible(&mut self) -> Vec<Action> {

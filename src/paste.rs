@@ -17,8 +17,9 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// How long after the last paste the user's clipboard is restored.
-const RESTORE_DELAY_MS: u64 = 600;
+/// How long after the last paste the user's clipboard is restored when
+/// no customization applies (the config's switch off, or a value of 0).
+pub const DEFAULT_RESTORE_DELAY_MS: u64 = 600;
 
 /// The clipboard content the user had before our first paste in a burst.
 static ORIGINAL: Mutex<Option<String>> = Mutex::new(None);
@@ -99,14 +100,19 @@ fn burst_state() -> std::sync::MutexGuard<'static, Option<String>> {
 
 /// Put `text` on the clipboard (saving the user's content once per burst),
 /// then call `ctrl_v` to paste it. The clipboard is restored in the
-/// background after the debounce window. False when the write failed — the
-/// server then falls back to CommitText.
-pub fn paste_and_restore(text: &str, ctrl_v: &dyn Fn() -> bool) -> bool {
-    paste_with(text, ctrl_v, &write_clipboard)
+/// background after `delay_ms` (debounced across a typing burst). False
+/// when the write failed — the server then falls back to CommitText.
+pub fn paste_and_restore(text: &str, ctrl_v: &dyn Fn() -> bool, delay_ms: u64) -> bool {
+    paste_with(text, ctrl_v, &write_clipboard, delay_ms)
 }
 
 /// `write` is a seam for the tests: the real clipboard is the session's.
-fn paste_with(text: &str, ctrl_v: &dyn Fn() -> bool, write: &dyn Fn(&str) -> bool) -> bool {
+fn paste_with(
+    text: &str,
+    ctrl_v: &dyn Fn() -> bool,
+    write: &dyn Fn(&str) -> bool,
+    delay_ms: u64,
+) -> bool {
     // Snapshot the user's clipboard once per burst (before our first write).
     {
         let mut original = burst_state();
@@ -120,18 +126,21 @@ fn paste_with(text: &str, ctrl_v: &dyn Fn() -> bool, write: &dyn Fn(&str) -> boo
     if !ctrl_v() {
         // The word never reached the app, but the user's clipboard did get
         // replaced: restore it anyway.
-        schedule_restore();
+        schedule_restore(delay_ms);
         return false;
     }
-    schedule_restore();
+    schedule_restore(delay_ms);
     true
 }
 
 /// Arm the debounced restore and spawn a sleeper for it. One thread per
 /// paste is slightly wasteful but simple; the sleepers converge on the
 /// latest deadline and the first one past it performs the restore.
-fn schedule_restore() {
-    RESTORE_AT.store(now_ms() + RESTORE_DELAY_MS, Ordering::SeqCst);
+fn schedule_restore(delay_ms: u64) {
+    // A delay of 0 would fire instantly — clamp to the default so the app
+    // always has a window to read the paste.
+    let delay_ms = delay_ms.max(DEFAULT_RESTORE_DELAY_MS);
+    RESTORE_AT.store(now_ms() + delay_ms, Ordering::SeqCst);
     thread::spawn(|| loop {
         let deadline = RESTORE_AT.load(Ordering::SeqCst);
         let remaining = deadline.saturating_sub(now_ms());
@@ -176,10 +185,14 @@ mod tests {
     fn paste_schedules_a_debounced_restore() {
         reset_for_tests();
         static CALLS: AtomicUsize = AtomicUsize::new(0);
-        let ok = paste_and_restore("việt", &|| {
-            CALLS.fetch_add(1, Ordering::SeqCst);
-            true
-        });
+        let ok = paste_and_restore(
+            "việt",
+            &|| {
+                CALLS.fetch_add(1, Ordering::SeqCst);
+                true
+            },
+            DEFAULT_RESTORE_DELAY_MS,
+        );
         // No clipboard tool or no way to write (sandbox) → paste reports
         // failure and the engine falls back to CommitText; with a working
         // tool it succeeds and schedules the restore.
@@ -201,7 +214,7 @@ mod tests {
 
         // The write landed, so the user's clipboard is already replaced; the
         // paste never happened, but the restore still has to run.
-        let ok = paste_with("việt", &|| false, &|_| true);
+        let ok = paste_with("việt", &|| false, &|_| true, DEFAULT_RESTORE_DELAY_MS);
         assert!(!ok, "a failed paste reports failure");
         assert!(
             pending_restore_ms() > 0,

@@ -602,7 +602,7 @@ fn failed_press_delete_falls_back_to_backspace() {
         },
         keys: &|_, _| false,
         select_left: &|_, _| true,
-        paste: &|_| false,
+        paste: &|_, _| false,
     };
     // No SelectLeft: the only pending injection is the fallback key.
     emit_with(

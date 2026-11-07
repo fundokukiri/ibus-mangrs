@@ -100,7 +100,70 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         "rows.unicode_channel.subtitle",
         "Clipboard sẽ tạm ghi đè nội dung clipboard của bạn.",
     ));
+    channel.add(&ui.clipboard_restore_switch);
+    channel.add(&ui.clipboard_restore_spin);
+    decorate_experimental(&ui.clipboard_restore_switch);
+    decorate_experimental(&ui.clipboard_restore_spin);
+    // The switch gates its spin: off locks the input, and the engine
+    // applies the default while the typed value stays saved for when the
+    // switch returns. The save itself goes through wire_switch_saves.
+    {
+        let ui = Rc::clone(ui);
+        let switch = ui.clipboard_restore_switch.clone();
+        let spin = ui.clipboard_restore_spin.clone();
+        switch.connect_active_notify(move |sw| {
+            spin.set_sensitive(sw.is_active());
+        });
+    }
+    {
+        let ui = Rc::clone(ui);
+        let spin = ui.clipboard_restore_spin.clone();
+        spin.connect_value_notify(move |_| ui.fire_save());
+    }
     page.add(&channel);
+
+    // Advanced timing: the mis-tunable knobs. Two-way warning subtitles —
+    // too small loses characters, too large makes words appear late.
+    let advanced = adw::PreferencesGroup::builder()
+        .title(t("groups.tune.advanced.title", "Nâng cao"))
+        .build();
+    advanced.add(&ui.echo_stale_switch);
+    advanced.add(&ui.echo_stale_spin);
+    decorate_experimental(&ui.echo_stale_switch);
+    decorate_experimental(&ui.echo_stale_spin);
+    // Same pair shape: off locks the input, the value stays saved.
+    {
+        let ui = Rc::clone(ui);
+        let switch = ui.echo_stale_switch.clone();
+        let spin = ui.echo_stale_spin.clone();
+        switch.connect_active_notify(move |sw| {
+            spin.set_sensitive(sw.is_active());
+        });
+    }
+    {
+        let ui = Rc::clone(ui);
+        let spin = ui.echo_stale_spin.clone();
+        spin.connect_value_notify(move |_| ui.fire_save());
+    }
+    advanced.add(&ui.idle_commit_switch);
+    advanced.add(&ui.idle_commit_spin);
+    decorate_experimental(&ui.idle_commit_switch);
+    decorate_experimental(&ui.idle_commit_spin);
+    // Same pair shape: off locks the input, the value stays saved.
+    {
+        let ui = Rc::clone(ui);
+        let switch = ui.idle_commit_switch.clone();
+        let spin = ui.idle_commit_spin.clone();
+        switch.connect_active_notify(move |sw| {
+            spin.set_sensitive(sw.is_active());
+        });
+    }
+    {
+        let ui = Rc::clone(ui);
+        let spin = ui.idle_commit_spin.clone();
+        spin.connect_value_notify(move |_| ui.fire_save());
+    }
+    page.add(&advanced);
 
     // X11/XIM workarounds.
     let xim = adw::PreferencesGroup::builder()

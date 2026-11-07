@@ -30,6 +30,15 @@ pub struct Config {
     /// Keep words raw when they directly follow a URL/email/path character
     /// (`/ : @ . _ ~ = # & % ?`) — no Vietnamese marks, no macros.
     pub bypass_url: bool,
+    /// Extra characters that start a bypass word when typed directly before
+    /// it, on top of the built-in set. `-` is rejected (it stays out of the
+    /// start set so `--` can become an em dash), so are letters, digits and
+    /// whitespace.
+    pub extra_url_chars: String,
+    /// Whether `extra_url_chars` applies at all — the switch off means the
+    /// built-in set alone. The string itself stays saved in the file and
+    /// reapplies when the switch returns.
+    pub extra_url_chars_enabled: bool,
     /// When a plain `w` turns into `ư` (`disabled` / `nonstart` / `everywhere`).
     pub w2u: W2uConfig,
     /// When `[` `]` `{` `}` type `ơ` `ư` (`disabled` / `nonstart` / `everywhere`).
@@ -38,6 +47,14 @@ pub struct Config {
     pub em_dash: bool,
     /// Capitalize the first letter after `.`, `!`, `?` and Enter.
     pub auto_capitalize: bool,
+    /// Extra characters that turn the capitalize flag on when typed directly
+    /// before a word, on top of the built-in `. ! ?` + Enter. Letters,
+    /// digits and whitespace are rejected when the string is read.
+    pub auto_capitalize_after: String,
+    /// Whether `auto_capitalize_after` applies at all — the switch off
+    /// means the built-in set alone. The string itself stays saved in the
+    /// file and reapplies when the switch returns.
+    pub auto_capitalize_after_enabled: bool,
     /// Two spaces insert `. ` (experimental).
     pub double_space_period: bool,
     /// Expand macros on word end.
@@ -46,6 +63,11 @@ pub struct Config {
     pub capitalize_macro: bool,
     /// Expand macros even when Vietnamese processing is off.
     pub macro_in_off_mode: bool,
+    /// Let a macro win even when its key forms a valid Vietnamese word
+    /// (`cam` as a shorthand). Off by default: a real word stays a word,
+    /// and a colliding shorthand makes that word reachable only by
+    /// backspacing one key out.
+    pub macro_expand_valid_words: bool,
     /// `$TIME` expansion format (chrono strftime).
     pub time_format: String,
     /// `$DATE` expansion format (chrono strftime).
@@ -82,6 +104,29 @@ pub struct Config {
     /// How the Vietnamese word reaches the app in the uinput modes:
     /// `commit` = IBus CommitText, `clipboard` = clipboard paste (Ctrl+V).
     pub unicode_channel: UnicodeChannel,
+    /// Custom clipboard restore delay after a paste (ms) — the built-in
+    /// default applies while the switch is off.
+    pub clipboard_restore_delay_enabled: bool,
+    pub clipboard_restore_delay_ms: u64,
+    /// Custom lost-echo stale window (ms) for the uinput modes — the
+    /// built-in default applies while the switch is off. Too small risks
+    /// lost characters; too large makes words appear late.
+    pub echo_stale_enabled: bool,
+    pub echo_stale_ms: u64,
+    /// Commit a paused preedit word after `idle_commit_ms` of no keys.
+    /// Off by default: the underline then holds until a terminator, which
+    /// is the behavior users know.
+    pub idle_commit_enabled: bool,
+    pub idle_commit_ms: u64,
+    /// Master gate for every experimental feature: off hides their rows in
+    /// the settings window and forces them all off in the engine, while
+    /// each switch and value stays saved in this file and comes back when
+    /// the gate reopens.
+    pub experimental_features: bool,
+    /// GUI-only: show the settings window's toast notifications. Off
+    /// silences every toast (including the delete-undo ones); errors keep
+    /// their dialogs either way. The engine never reads this.
+    pub show_toasts: bool,
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
@@ -714,14 +759,19 @@ impl Default for Config {
             auto_correct: true,
             auto_restore: true,
             bypass_url: true,
+            extra_url_chars: String::new(),
+            extra_url_chars_enabled: false,
             w2u: W2uConfig::Disabled,
             bracket: BracketConfig::Disabled,
             em_dash: false,
             auto_capitalize: false,
+            auto_capitalize_after: String::new(),
+            auto_capitalize_after_enabled: false,
             double_space_period: false,
             macro_enabled: true,
             capitalize_macro: true,
             macro_in_off_mode: false,
+            macro_expand_valid_words: false,
             time_format: "%H:%M".into(),
             date_format: "%d/%m/%Y".into(),
             dictionary_enabled: false,
@@ -736,6 +786,14 @@ impl Default for Config {
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,
+            clipboard_restore_delay_enabled: false,
+            clipboard_restore_delay_ms: 600,
+            echo_stale_enabled: false,
+            echo_stale_ms: 150,
+            idle_commit_enabled: false,
+            idle_commit_ms: 700,
+            experimental_features: false,
+            show_toasts: true,
             debug_log: false,
             debug_log_text: false,
             x11_delete_without_report: false,
