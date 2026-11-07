@@ -106,6 +106,12 @@ impl Engine {
         // adopting that text deleted the real input ("em tun" → "g").
         if contains && suffix_gap(&actual, &tail).is_some_and(|gap| gap > 2) {
             debug_log::log(&format!(
+                "verify: ignore unanchored tail_len={} actual_len={} gap={}",
+                tail.len(),
+                actual.len(),
+                suffix_gap(&actual, &tail).unwrap_or(0),
+            ));
+            debug_log::log_text(&format!(
                 "verify: ignore unanchored tail={:?} actual={:?}",
                 brief(&tail.iter().collect::<String>()),
                 brief(&actual.iter().collect::<String>()),
@@ -118,6 +124,11 @@ impl Engine {
         let extra_in_middle = a2.len() > t2.len() && starts_with(a2, t2);
         if !extra_in_middle && !contains {
             debug_log::log(&format!(
+                "verify: ignore stale tail_len={} actual_len={}",
+                tail.len(),
+                actual.len(),
+            ));
+            debug_log::log_text(&format!(
                 "verify: ignore stale tail={:?} actual={:?}",
                 brief(&tail.iter().collect::<String>()),
                 brief(&actual.iter().collect::<String>()),
@@ -128,10 +139,13 @@ impl Engine {
             // The client holds extra characters right before the common
             // suffix — a `DeleteSurroundingText` it swallowed earlier.
             debug_log::log(&format!(
-                "verify: drift tail={:?} actual={:?} suffix={k} extra={}",
+                "verify: drift suffix={k} extra={}",
+                a2.len() - t2.len(),
+            ));
+            debug_log::log_text(&format!(
+                "verify: drift tail={:?} actual={:?}",
                 brief(&tail.iter().collect::<String>()),
                 brief(&actual.iter().collect::<String>()),
-                a2.len() - t2.len(),
             ));
             if self.repair_delete_forbidden() {
                 // Mutter-relayed contexts: a repair delete here segfaults the
@@ -164,6 +178,10 @@ impl Engine {
         // it...). Never delete blindly: rebuild the composition from what the
         // application actually holds.
         debug_log::log(&format!(
+            "verify: sync-from-surrounding prefix_len={}",
+            actual.len(),
+        ));
+        debug_log::log_text(&format!(
             "verify: sync-from-surrounding actual={:?}",
             brief(&actual.iter().collect::<String>()),
         ));

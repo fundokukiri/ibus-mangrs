@@ -15,6 +15,10 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
+/// Second tier: typed-text lines (surrounding-text content, verify diffs).
+/// Only effective while `ENABLED` is also on — the default log stays free of
+/// typed text so it can be attached to a bug report as-is.
+static TEXT_ENABLED: AtomicBool = AtomicBool::new(false);
 /// The opened log file, kept for the process lifetime: opening (plus
 /// create_dir_all) per line put several syscalls of overhead on every
 /// keystroke — exactly when latency was being diagnosed.
@@ -25,6 +29,17 @@ static PATH_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
 /// Enable or disable logging (mirrors `Config::debug_log`).
 pub fn set_enabled(on: bool) {
     ENABLED.store(on, Ordering::Relaxed);
+}
+
+/// Enable or disable the typed-text tier (mirrors `Config::debug_log_text`).
+pub fn set_text_enabled(on: bool) {
+    TEXT_ENABLED.store(on, Ordering::Relaxed);
+}
+
+/// Whether the decision log is on — call sites hot enough to build their
+/// message only when it will be used check this first.
+pub fn enabled() -> bool {
+    ENABLED.load(Ordering::Relaxed)
 }
 
 /// Append one line to the debug log. No-op unless enabled; never panics —
@@ -48,6 +63,16 @@ pub fn log(msg: &str) {
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let _ = writeln!(file, "{ms} {msg}");
+}
+
+/// Append one line that may carry typed text (the surrounding-text content,
+/// the verify diffs). Requires BOTH the decision log and the text tier, so a
+/// plain `debug_log = true` session never records what the user typed.
+pub fn log_text(msg: &str) {
+    if !TEXT_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    log(msg);
 }
 
 fn open_log_file() -> Option<File> {
@@ -125,6 +150,37 @@ mod tests {
         *LOG_FILE.lock().unwrap() = None;
         *PATH_OVERRIDE.lock().unwrap() = None;
         ENABLED.store(false, Ordering::Relaxed);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn text_tier_needs_both_switches() {
+        let _guard = test_guard();
+        let dir = std::env::temp_dir().join(format!("ibus-mangrs-logtest2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("debug.log");
+        let _ = std::fs::remove_file(&path);
+        *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+        set_enabled(true);
+        set_text_enabled(false);
+        log_text("text line while tier off");
+        log("decision only");
+        set_text_enabled(true);
+        log_text("text line while tier on");
+        set_enabled(false);
+        set_text_enabled(true);
+        log_text("text line while master off");
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(text.contains("decision only"), "{text}");
+        assert!(!text.contains("while tier off"), "{text}");
+        assert!(text.contains("while tier on"), "{text}");
+        assert!(!text.contains("while master off"), "{text}");
+        // Reset the globals: other tests share this process.
+        *LOG_FILE.lock().unwrap() = None;
+        *PATH_OVERRIDE.lock().unwrap() = None;
+        ENABLED.store(false, Ordering::Relaxed);
+        TEXT_ENABLED.store(false, Ordering::Relaxed);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir(&dir);
     }

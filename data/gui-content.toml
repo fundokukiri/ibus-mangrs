@@ -425,6 +425,10 @@ subtitle = "Cấu hình về mặc định; gõ tắt và từ điển giữ ngu
 title = "Ghi log gỡ lỗi"
 subtitle_markup = "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangrs/debug.log</tt>"
 
+[rows.debug_log_text]
+title = "Log cả nội dung đang gõ"
+subtitle = "Ghi cả nội dung đang gõ vào log — chỉ bật khi tái hiện lỗi mất chữ/sai ký tự, và không đính kèm log này lên issue"
+
 [rows.x11_delete]
 title = "Xoá đuôi từ ở app X11"
 subtitle = "App X11 xoá đuôi từ mà không báo cáo, giống ibus-bamboo. Có thể xoá nhầm ký tự nếu con trỏ bị đổi chỗ."

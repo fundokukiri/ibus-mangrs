@@ -603,9 +603,11 @@ impl Engine {
     /// A commit that must wait until `n` more injected nav-key echoes have
     /// been forwarded (same transport race as `defer_commit`).
     pub fn defer_nav_commit(&mut self, n: usize, text: String) {
+        // Length only: the queued text is the word being typed; its landing
+        // is visible on screen, the queue size is what diagnosis needs.
         debug_log::log(&format!(
-            "defer commit after {n} nav echoes: {:?}",
-            brief(&text)
+            "defer commit after {n} nav echoes len={}",
+            text.chars().count()
         ));
         self.nav_deferred.push((n, text));
     }
@@ -619,7 +621,10 @@ impl Engine {
             if left > 1 {
                 remaining.push((left - 1, text));
             } else {
-                debug_log::log(&format!("flush deferred commit (nav): {:?}", brief(&text)));
+                debug_log::log(&format!(
+                    "flush deferred commit (nav) len={}",
+                    text.chars().count()
+                ));
                 ready.push(text);
             }
         }
@@ -633,8 +638,8 @@ impl Engine {
     pub fn defer_commit(&mut self, n: u32, text: String) {
         let threshold = self.echoes_forwarded + n;
         debug_log::log(&format!(
-            "defer commit after {n} echoes: {:?}",
-            brief(&text)
+            "defer commit after {n} echoes len={}",
+            text.chars().count()
         ));
         self.deferred.push((threshold, text));
     }
@@ -650,7 +655,10 @@ impl Engine {
             .is_some_and(|(t, _)| self.echoes_forwarded >= *t)
         {
             let (_, text) = self.deferred.remove(0);
-            debug_log::log(&format!("flush deferred commit: {:?}", brief(&text)));
+            debug_log::log(&format!(
+                "flush deferred commit len={}",
+                text.chars().count()
+            ));
             ready.push(text);
         }
         ready
@@ -665,16 +673,16 @@ impl Engine {
             .drain(..)
             .map(|(_, text)| {
                 debug_log::log(&format!(
-                    "flush deferred commit (forced): {:?}",
-                    brief(&text)
+                    "flush deferred commit (forced) len={}",
+                    text.chars().count()
                 ));
                 text
             })
             .collect();
         all.extend(self.nav_deferred.drain(..).map(|(_, text)| {
             debug_log::log(&format!(
-                "flush deferred commit (nav, forced): {:?}",
-                brief(&text)
+                "flush deferred commit (nav, forced) len={}",
+                text.chars().count()
             ));
             text
         }));

@@ -298,6 +298,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         "rows.debug_log.subtitle_markup",
         "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangrs/debug.log</tt>",
     ));
+    let debug_log_text = switch_row(
+        &t("rows.debug_log_text.title", "Log cả nội dung đang gõ"),
+        &t(
+            "rows.debug_log_text.subtitle",
+            "Ghi cả nội dung đang gõ vào log — chỉ bật khi tái hiện lỗi mất chữ/sai ký tự, và không đính kèm log này lên issue",
+        ),
+    );
     let x11_delete = switch_row(
         &t("rows.x11_delete.title", "Xoá đuôi từ ở app X11"),
         &t(
@@ -560,6 +567,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         rule_focus_value,
         hide_underline,
         debug_log,
+        debug_log_text,
         x11_delete,
         preedit_xim,
         commit_interval,
