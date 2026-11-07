@@ -1676,6 +1676,7 @@ fn macro_on_valid_word_is_opt_in() {
         let mut e = engine(
             mode,
             Config {
+                experimental_features: true,
                 macro_expand_valid_words: true,
                 ..Config::default()
             },
@@ -1696,6 +1697,7 @@ fn extra_url_char_bypass_is_opt_in() {
         let mut e = engine(
             mode,
             Config {
+                experimental_features: true,
                 extra_url_chars_enabled: true,
                 extra_url_chars: "`".into(),
                 ..Config::default()
@@ -1713,6 +1715,7 @@ fn extra_url_chars_never_accept_a_hyphen() {
         Mode::NonPreedit,
         Config {
             em_dash: true,
+            experimental_features: true,
             extra_url_chars_enabled: true,
             extra_url_chars: "-".into(),
             ..Config::default()
@@ -1723,6 +1726,55 @@ fn extra_url_chars_never_accept_a_hyphen() {
         type_replay(&mut e, "-"),
         "—",
         "`--` still becomes an em dash"
+    );
+}
+
+#[test]
+fn experimental_gate_forces_every_feature_off() {
+    // Every switch on, master gate closed: the engine must behave exactly
+    // like the defaults — the saved switches and values stay in the file
+    // but apply nothing.
+    let mut e = engine(
+        Mode::NonPreedit,
+        Config {
+            macro_expand_valid_words: true,
+            extra_url_chars_enabled: true,
+            extra_url_chars: "`".into(),
+            clipboard_restore_delay_enabled: true,
+            clipboard_restore_delay_ms: 1500,
+            echo_stale_enabled: true,
+            echo_stale_ms: 400,
+            ..Config::default()
+        },
+    );
+    e.macros
+        .set_entries([("cam".to_string(), "cảm ơn".to_string())].into_iter());
+    assert_eq!(type_replay(&mut e, "cam "), "cam ", "macro must not expand");
+    assert_eq!(
+        type_replay(&mut e, "`vieejt` "),
+        "`việt` ",
+        "no extra bypass"
+    );
+    assert_eq!(e.clipboard_restore_delay_ms(), 600, "default delay");
+    assert_eq!(e.echo_stale(), Duration::from_millis(150), "default window");
+    assert!(!e.macro_expand_valid_words && !e.idle_commit_enabled);
+    assert!(e.extra_url_chars.is_empty() && e.extra_capitalize_after.is_empty());
+    // Gate open: the same switches apply again.
+    let mut e = engine(
+        Mode::NonPreedit,
+        Config {
+            experimental_features: true,
+            macro_expand_valid_words: true,
+            extra_url_chars_enabled: true,
+            extra_url_chars: "`".into(),
+            ..Config::default()
+        },
+    );
+    assert!(e.macro_expand_valid_words);
+    assert_eq!(
+        type_replay(&mut e, "`vieejt` "),
+        "`vieejt` ",
+        "bypass applies"
     );
 }
 
@@ -1748,6 +1800,7 @@ fn clipboard_restore_delay_is_flag_gated() {
     let e = engine(
         Mode::NonPreedit,
         Config {
+            experimental_features: true,
             clipboard_restore_delay_enabled: true,
             clipboard_restore_delay_ms: 1500,
             ..Config::default()
@@ -1778,6 +1831,7 @@ fn echo_stale_window_is_flag_gated() {
     let e = engine(
         Mode::NonPreedit,
         Config {
+            experimental_features: true,
             echo_stale_enabled: true,
             echo_stale_ms: 400,
             ..Config::default()
@@ -1791,6 +1845,7 @@ fn idle_commit_commits_a_paused_preedit_word() {
     let mut e = engine(
         Mode::Preedit,
         Config {
+            experimental_features: true,
             idle_commit_enabled: true,
             idle_commit_ms: 700,
             ..Config::default()
@@ -1845,6 +1900,7 @@ fn idle_commit_disabled_by_default_and_terminators_reset_reentry() {
     let mut e = engine(
         Mode::Preedit,
         Config {
+            experimental_features: true,
             idle_commit_enabled: true,
             idle_commit_ms: 700,
             ..Config::default()
@@ -1891,6 +1947,7 @@ fn extra_capitalize_triggers_are_opt_in() {
             mode,
             Config {
                 auto_capitalize: true,
+                experimental_features: true,
                 auto_capitalize_after_enabled: true,
                 auto_capitalize_after: ":".into(),
                 ..Config::default()

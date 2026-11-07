@@ -429,10 +429,14 @@ impl Engine {
         self.app_rules = config.app_rules.clone();
         // The cached rule resolution belongs to the previous rule set.
         self.rule_cache = None;
+        // The experimental master gate: with it off every experimental
+        // feature is forced off here, no matter what its own switch says —
+        // the switches and values stay saved for when the gate reopens.
+        let experimental = config.experimental_features;
         self.auto_restore = config.auto_restore;
         self.em_dash = config.em_dash;
         self.auto_capitalize = config.auto_capitalize;
-        self.extra_capitalize_after = if config.auto_capitalize_after_enabled {
+        self.extra_capitalize_after = if experimental && config.auto_capitalize_after_enabled {
             // Same filter shape as `extra_url_chars` minus the `-` ban; a
             // hyphen trigger is legitimate here.
             let mut chars: Vec<char> = Vec::new();
@@ -453,7 +457,7 @@ impl Engine {
         self.macro_enabled = config.macro_enabled;
         self.capitalize_macro = config.capitalize_macro;
         self.macro_in_off_mode = config.macro_in_off_mode;
-        self.macro_expand_valid_words = config.macro_expand_valid_words;
+        self.macro_expand_valid_words = experimental && config.macro_expand_valid_words;
         self.x11_delete_without_report = config.x11_delete_without_report;
         self.preedit_for_xim = config.preedit_for_xim;
         self.time_format = config.time_format.clone();
@@ -481,17 +485,18 @@ impl Engine {
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
         self.unicode_channel = config.unicode_channel;
-        self.clipboard_restore_delay_enabled = config.clipboard_restore_delay_enabled;
+        self.clipboard_restore_delay_enabled =
+            experimental && config.clipboard_restore_delay_enabled;
         self.clipboard_restore_delay_ms = config.clipboard_restore_delay_ms;
-        self.echo_stale_enabled = config.echo_stale_enabled;
+        self.echo_stale_enabled = experimental && config.echo_stale_enabled;
         self.echo_stale_ms = config.echo_stale_ms;
-        self.idle_commit_enabled = config.idle_commit_enabled;
+        self.idle_commit_enabled = experimental && config.idle_commit_enabled;
         self.idle_commit_ms = config.idle_commit_ms;
-        if !config.idle_commit_enabled {
+        if !self.idle_commit_enabled {
             self.idle_committed = None;
         }
         self.bypass_url = config.bypass_url;
-        self.extra_url_chars = if config.extra_url_chars_enabled {
+        self.extra_url_chars = if experimental && config.extra_url_chars_enabled {
             // Defensive filter: `-` stays out of the start set (the `--`
             // em dash would break), letters/digits/spaces are not URL
             // context, and a hand-edited file must not smuggle in a huge

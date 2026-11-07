@@ -456,6 +456,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         50.0,
     );
     idle_commit_spin.set_sensitive(false);
+    let experimental_features = switch_row(
+        &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
+        &t(
+            "rows.experimental_features.subtitle",
+            "Hiện các tính năng đang thử nghiệm trên các trang. Tắt sẽ ẩn và tắt hết chúng; giá trị đã chỉnh vẫn được giữ để dùng lại khi bật",
+        ),
+    );
 
     // Panel-menu editor: the design vector is the source of truth; the
     // boxed list is its view (rebuilt on every edit).
@@ -684,6 +691,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         echo_stale_spin,
         idle_commit_switch,
         idle_commit_spin,
+        experimental_features,
         menu,
         menu_box,
         menu_open,

@@ -68,7 +68,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     automatic.add(&ui.double_space);
     decorate_experimental(&ui.auto_capitalize_after_switch);
     decorate_experimental(&ui.auto_capitalize_after_entry);
-    decorate_experimental(&ui.double_space);
+    // double_space graduated: no "Thử nghiệm" badge, not gated by the
+    // experimental master switch.
     // Same pair shape: off locks the input, the value stays saved.
     {
         let ui = Rc::clone(ui);
