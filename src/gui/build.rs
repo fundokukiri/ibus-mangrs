@@ -88,6 +88,19 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
         ),
     );
+    let extra_url_chars_switch = switch_row(
+        &t("rows.extra_url_chars.title", "Né thêm ký tự riêng"),
+        &t(
+            "rows.extra_url_chars.subtitle",
+            "Từ đứng ngay sau ký tự bên dưới cũng giữ nguyên phím thô",
+        ),
+    );
+    let extra_url_chars_entry = adw::EntryRow::builder()
+        .use_markup(false)
+        .title(t("rows.extra_url_chars_entry.title", "Ký tự riêng"))
+        .show_apply_button(false)
+        .build();
+    extra_url_chars_entry.set_sensitive(false);
     let w2u = combo_row(
         &t("rows.w2u.title", "W thành ư"),
         &t("rows.w2u.subtitle", "Chọn vị trí áp dụng"),
@@ -109,6 +122,25 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.auto_capitalize.title", "Tự viết hoa"),
         &t("rows.auto_capitalize.subtitle", "Sau . ! ? và Enter"),
     );
+    let auto_capitalize_after_switch = switch_row(
+        &t(
+            "rows.auto_capitalize_after.title",
+            "Viết hoa sau ký tự thêm",
+        ),
+        &t(
+            "rows.auto_capitalize_after.subtitle",
+            "Cùng bộ . ! ? + Enter: từ ngay sau ký tự bên dưới cũng viết hoa",
+        ),
+    );
+    let auto_capitalize_after_entry = adw::EntryRow::builder()
+        .use_markup(false)
+        .title(t(
+            "rows.auto_capitalize_after_entry.title",
+            "Ký tự kích hoạt",
+        ))
+        .show_apply_button(false)
+        .build();
+    auto_capitalize_after_entry.set_sensitive(false);
     let double_space = switch_row(
         &t(
             "rows.double_space.title",
@@ -135,6 +167,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t(
             "rows.macro_in_off_mode.subtitle",
             "Vẫn mở rộng khi tiếng Việt đang tắt",
+        ),
+    );
+    let macro_valid_words = switch_row(
+        &t("rows.macro_valid_words.title", "Nở gõ tắt cả trên từ hợp lệ"),
+        &t(
+            "rows.macro_valid_words.subtitle",
+            "Phím tắt trùng từ thật (vd “cam”) sẽ nở thay vì giữ nguyên — Backspace một phím để gõ từ thật",
         ),
     );
     // The formats live in native EntryRows (the row carries the title, the
@@ -279,6 +318,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Icon MăngRS Cấu hình trong lưới ứng dụng của GNOME",
         ),
     );
+    let show_toasts = switch_row(
+        &t("rows.show_toasts.title", "Thông báo nhanh"),
+        &t(
+            "rows.show_toasts.subtitle",
+            "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại",
+        ),
+    );
     let desktop_icon_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
     let suppress_save = Cell::new(false);
@@ -356,6 +402,73 @@ pub(super) fn widgets() -> Rc<Ui> {
             "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
         ),
         CHANNELS,
+    );
+    let clipboard_restore_switch = switch_row(
+        &t("rows.clipboard_restore.title", "Tùy chỉnh hồi clipboard"),
+        &t(
+            "rows.clipboard_restore.subtitle",
+            "Đổi khoảng chờ trả lại clipboard cũ sau khi dán — chỉ tác dụng khi kênh là Clipboard",
+        ),
+    );
+    let clipboard_restore_spin = spin_row(
+        &t(
+            "rows.clipboard_restore_spin.title",
+            "Hồi clipboard sau (ms)",
+        ),
+        &t(
+            "rows.clipboard_restore_spin.subtitle",
+            "100–5000 ms. Mặc định: 600",
+        ),
+        100.0,
+        5000.0,
+        50.0,
+    );
+    clipboard_restore_spin.set_sensitive(false);
+    let echo_stale_switch = switch_row(
+        &t("rows.echo_stale.title", "Cửa sổ xả commit"),
+        &t(
+            "rows.echo_stale.subtitle",
+            "Chờ bao lâu thì bỏ đợi phím Backspace ảo quay về mà xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ",
+        ),
+    );
+    let echo_stale_spin = spin_row(
+        &t("rows.echo_stale_spin.title", "Cửa sổ xả sau (ms)"),
+        &t(
+            "rows.echo_stale_spin.subtitle",
+            "50–1000 ms. Mặc định: 150. Quá thấp dễ mất chữ, quá cao làm chữ hiện trễ",
+        ),
+        50.0,
+        1000.0,
+        10.0,
+    );
+    echo_stale_spin.set_sensitive(false);
+    let idle_commit_switch = switch_row(
+        &t("rows.idle_commit.title", "Chấp nhận từ khi nghỉ gõ"),
+        &t(
+            "rows.idle_commit.subtitle",
+            "Dừng tay quá lâu trên một từ có gạch chân thì từ đó được chấp nhận luôn, như bấm dấu cách",
+        ),
+    );
+    let idle_commit_spin = spin_row(
+        &t(
+            "rows.idle_commit_spin.title",
+            "Nghỉ bao lâu thì chấp nhận (ms)",
+        ),
+        &t(
+            "rows.idle_commit_spin.subtitle",
+            "300–2000 ms. Mặc định: 700",
+        ),
+        300.0,
+        2000.0,
+        50.0,
+    );
+    idle_commit_spin.set_sensitive(false);
+    let experimental_features = switch_row(
+        &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
+        &t(
+            "rows.experimental_features.subtitle",
+            "Hiện các tính năng đang thử nghiệm trên các trang. Tắt sẽ ẩn và tắt hết chúng; giá trị đã chỉnh vẫn được giữ để dùng lại khi bật",
+        ),
     );
 
     // Panel-menu editor: the design vector is the source of truth; the
@@ -529,14 +642,19 @@ pub(super) fn widgets() -> Rc<Ui> {
         auto_restore,
         abbrev,
         bypass_url,
+        extra_url_chars_switch,
+        extra_url_chars_entry,
         w2u,
         bracket,
         em_dash,
         auto_capitalize,
+        auto_capitalize_after_switch,
+        auto_capitalize_after_entry,
         double_space,
         macro_enabled,
         capitalize_macro,
         macro_in_off_mode,
+        macro_valid_words,
         time_format,
         date_format,
         macros_text,
@@ -553,6 +671,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         rules_overlay,
         rules_loading,
         desktop_icon,
+        show_toasts,
         desktop_icon_loading,
         save_cb,
         suppress_save,
@@ -574,6 +693,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         backspace_interval,
         post_delay,
         unicode_channel,
+        clipboard_restore_switch,
+        clipboard_restore_spin,
+        echo_stale_switch,
+        echo_stale_spin,
+        idle_commit_switch,
+        idle_commit_spin,
+        experimental_features,
         menu,
         menu_box,
         menu_open,

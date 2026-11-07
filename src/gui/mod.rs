@@ -167,14 +167,19 @@ struct Ui {
     auto_restore: adw::SwitchRow,
     abbrev: adw::SwitchRow,
     bypass_url: adw::SwitchRow,
+    extra_url_chars_switch: adw::SwitchRow,
+    extra_url_chars_entry: adw::EntryRow,
     w2u: adw::ComboRow,
     bracket: adw::ComboRow,
     em_dash: adw::SwitchRow,
     auto_capitalize: adw::SwitchRow,
+    auto_capitalize_after_switch: adw::SwitchRow,
+    auto_capitalize_after_entry: adw::EntryRow,
     double_space: adw::SwitchRow,
     macro_enabled: adw::SwitchRow,
     capitalize_macro: adw::SwitchRow,
     macro_in_off_mode: adw::SwitchRow,
+    macro_valid_words: adw::SwitchRow,
     time_format: adw::EntryRow,
     date_format: adw::EntryRow,
     /// Emoji shortcodes ("Emoji" tab): the on/off switch, the picker
@@ -254,6 +259,14 @@ struct Ui {
     backspace_interval: adw::SpinRow,
     post_delay: adw::SpinRow,
     unicode_channel: adw::ComboRow,
+    clipboard_restore_switch: adw::SwitchRow,
+    clipboard_restore_spin: adw::SpinRow,
+    echo_stale_switch: adw::SwitchRow,
+    echo_stale_spin: adw::SpinRow,
+    idle_commit_switch: adw::SwitchRow,
+    idle_commit_spin: adw::SpinRow,
+    experimental_features: adw::SwitchRow,
+    show_toasts: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
     /// (`read` clones it, so the round-trip holds without walking rows);
     /// the boxed list is its view, rebuilt on every edit. Folders nest one
@@ -376,6 +389,14 @@ impl Ui {
         self.auto_restore.set_active(config.auto_restore);
         self.abbrev.set_active(config.abbreviations);
         self.bypass_url.set_active(config.bypass_url);
+        self.extra_url_chars_switch
+            .set_active(config.extra_url_chars_enabled);
+        self.extra_url_chars_entry
+            .set_sensitive(config.extra_url_chars_enabled);
+        // The typed characters stay saved even while the switch is off —
+        // they reapply when the switch returns; the off state itself
+        // applies the built-in set only.
+        self.extra_url_chars_entry.set_text(&config.extra_url_chars);
         self.w2u.set_selected(on_off_index(
             &config.w2u,
             W2uConfig::Disabled,
@@ -388,10 +409,18 @@ impl Ui {
         ));
         self.em_dash.set_active(config.em_dash);
         self.auto_capitalize.set_active(config.auto_capitalize);
+        self.auto_capitalize_after_switch
+            .set_active(config.auto_capitalize_after_enabled);
+        self.auto_capitalize_after_entry
+            .set_sensitive(config.auto_capitalize_after_enabled);
+        self.auto_capitalize_after_entry
+            .set_text(&config.auto_capitalize_after);
         self.double_space.set_active(config.double_space_period);
         self.macro_enabled.set_active(config.macro_enabled);
         self.capitalize_macro.set_active(config.capitalize_macro);
         self.macro_in_off_mode.set_active(config.macro_in_off_mode);
+        self.macro_valid_words
+            .set_active(config.macro_expand_valid_words);
         self.time_format.set_text(&config.time_format);
         self.date_format.set_text(&config.date_format);
         self.emoji_enabled.set_active(config.emoji_enabled);
@@ -419,6 +448,32 @@ impl Ui {
                 crate::config::UnicodeChannel::Clipboard => 1,
                 crate::config::UnicodeChannel::Commit => 0,
             });
+        self.clipboard_restore_switch
+            .set_active(config.clipboard_restore_delay_enabled);
+        self.clipboard_restore_spin
+            .set_sensitive(config.clipboard_restore_delay_enabled);
+        // The typed value stays saved even while the switch is off — it
+        // reapplies when the switch returns; the off state itself applies
+        // the built-in default (the engine's flag-aware getters).
+        self.clipboard_restore_spin
+            .set_value(config.clipboard_restore_delay_ms as f64);
+        self.echo_stale_switch.set_active(config.echo_stale_enabled);
+        self.echo_stale_spin
+            .set_sensitive(config.echo_stale_enabled);
+        self.echo_stale_spin.set_value(config.echo_stale_ms as f64);
+        self.idle_commit_switch
+            .set_active(config.idle_commit_enabled);
+        self.idle_commit_spin
+            .set_sensitive(config.idle_commit_enabled);
+        self.idle_commit_spin
+            .set_value(config.idle_commit_ms as f64);
+        self.experimental_features
+            .set_active(config.experimental_features);
+        self.show_toasts.set_active(config.show_toasts);
+        // The master gate: off hides every experimental row (its feature is
+        // also forced off in the engine); back on, they reappear with their
+        // saved switch states and values.
+        self.set_experimental_visible(config.experimental_features);
         let menu = config.menu.clone().unwrap_or_else(|| config.default_menu());
         *self.menu.borrow_mut() = normalize_menu(&menu);
         self.fill_menu_list();
@@ -500,6 +555,8 @@ impl Ui {
         config.abbreviations = self.abbrev.is_active();
         config.hide_underline = self.hide_underline.is_active();
         config.bypass_url = self.bypass_url.is_active();
+        config.extra_url_chars_enabled = self.extra_url_chars_switch.is_active();
+        config.extra_url_chars = self.extra_url_chars_entry.text().trim().to_string();
         config.w2u = match self.w2u.selected() {
             1 => W2uConfig::NonStart,
             2 => W2uConfig::Everywhere,
@@ -512,10 +569,13 @@ impl Ui {
         };
         config.em_dash = self.em_dash.is_active();
         config.auto_capitalize = self.auto_capitalize.is_active();
+        config.auto_capitalize_after_enabled = self.auto_capitalize_after_switch.is_active();
+        config.auto_capitalize_after = self.auto_capitalize_after_entry.text().trim().to_string();
         config.double_space_period = self.double_space.is_active();
         config.macro_enabled = self.macro_enabled.is_active();
         config.capitalize_macro = self.capitalize_macro.is_active();
         config.macro_in_off_mode = self.macro_in_off_mode.is_active();
+        config.macro_expand_valid_words = self.macro_valid_words.is_active();
         config.time_format = self.time_format.text().trim().to_string();
         config.date_format = self.date_format.text().trim().to_string();
         config.emoji_enabled = self.emoji_enabled.is_active();
@@ -528,6 +588,14 @@ impl Ui {
             1 => crate::config::UnicodeChannel::Clipboard,
             _ => crate::config::UnicodeChannel::Commit,
         };
+        config.clipboard_restore_delay_enabled = self.clipboard_restore_switch.is_active();
+        config.clipboard_restore_delay_ms = self.clipboard_restore_spin.value() as u64;
+        config.echo_stale_enabled = self.echo_stale_switch.is_active();
+        config.echo_stale_ms = self.echo_stale_spin.value() as u64;
+        config.idle_commit_enabled = self.idle_commit_switch.is_active();
+        config.idle_commit_ms = self.idle_commit_spin.value() as u64;
+        config.experimental_features = self.experimental_features.is_active();
+        config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());
@@ -585,6 +653,46 @@ impl Ui {
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
             .map(str::to_string)
             .collect()
+    }
+
+    /// Show or hide every experimental row across the pages — the master
+    /// "Tính năng thử nghiệm" switch ("Cài đặt khác"). Hiding is display
+    /// only: the saved switch states and values stay in config.toml and
+    /// come back verbatim when the gate reopens; the engine forces the
+    /// features off while the gate is closed.
+    fn set_experimental_visible(&self, on: bool) {
+        let rows: [&gtk4::Widget; 11] = [
+            self.macro_valid_words.upcast_ref(),
+            self.extra_url_chars_switch.upcast_ref(),
+            self.extra_url_chars_entry.upcast_ref(),
+            self.auto_capitalize_after_switch.upcast_ref(),
+            self.auto_capitalize_after_entry.upcast_ref(),
+            self.clipboard_restore_switch.upcast_ref(),
+            self.clipboard_restore_spin.upcast_ref(),
+            self.echo_stale_switch.upcast_ref(),
+            self.echo_stale_spin.upcast_ref(),
+            self.idle_commit_switch.upcast_ref(),
+            self.idle_commit_spin.upcast_ref(),
+        ];
+        for row in rows {
+            row.set_visible(on);
+        }
+    }
+
+    /// True while the "Thông báo nhanh" switch is on — the single gate
+    /// every toast goes through. Off silences the settings window
+    /// completely, the delete-undo toasts included; error dialogs are not
+    /// toasts and always show.
+    fn toasts_on(&self) -> bool {
+        self.show_toasts.is_active()
+    }
+
+    /// The one funnel for plain toast notifications: shows `text` unless
+    /// the user silenced toasts.
+    fn fire_toast(&self, overlay: &adw::ToastOverlay, text: &str) {
+        if self.toasts_on() {
+            overlay.add_toast(adw::Toast::new(text));
+        }
     }
 
     /// Run the save funnel if the window wired it (headless tests skip it).

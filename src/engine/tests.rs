@@ -1662,6 +1662,302 @@ fn macro_can_be_disabled() {
 }
 
 #[test]
+fn macro_on_valid_word_is_opt_in() {
+    // Default: a shorthand keyed like a real word ("cam") never expands —
+    // the word itself wins, in every core mode.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(mode, Config::default());
+        e.macros
+            .set_entries([("cam".to_string(), "cảm ơn".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "cam "), "cam ", "{mode:?}");
+    }
+    // Opt in (`macro_expand_valid_words`): the same key expands.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(
+            mode,
+            Config {
+                experimental_features: true,
+                macro_expand_valid_words: true,
+                ..Config::default()
+            },
+        );
+        e.macros
+            .set_entries([("cam".to_string(), "cảm ơn".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "cam "), "cảm ơn ", "{mode:?}");
+    }
+}
+
+#[test]
+fn extra_url_char_bypass_is_opt_in() {
+    // Default: a backtick is not URL context — `` `vieejt` `` composes.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(mode, Config::default());
+        assert_eq!(type_replay(&mut e, "`vieejt` "), "`việt` ", "{mode:?}");
+        // With the character added, the word between the backticks stays raw.
+        let mut e = engine(
+            mode,
+            Config {
+                experimental_features: true,
+                extra_url_chars_enabled: true,
+                extra_url_chars: "`".into(),
+                ..Config::default()
+            },
+        );
+        assert_eq!(type_replay(&mut e, "`vieejt` "), "`vieejt` ", "{mode:?}");
+    }
+}
+
+#[test]
+fn extra_url_chars_never_accept_a_hyphen() {
+    // `-` is filtered out of the start set so `--` keeps becoming an em
+    // dash, even when a hand-edited file smuggles it in.
+    let mut e = engine(
+        Mode::NonPreedit,
+        Config {
+            em_dash: true,
+            experimental_features: true,
+            extra_url_chars_enabled: true,
+            extra_url_chars: "-".into(),
+            ..Config::default()
+        },
+    );
+    assert_eq!(type_replay(&mut e, "a-"), "a-", "the hyphen must stay raw");
+    assert_eq!(
+        type_replay(&mut e, "-"),
+        "—",
+        "`--` still becomes an em dash"
+    );
+}
+
+#[test]
+fn experimental_gate_forces_every_feature_off() {
+    // Every switch on, master gate closed: the engine must behave exactly
+    // like the defaults — the saved switches and values stay in the file
+    // but apply nothing.
+    let mut e = engine(
+        Mode::NonPreedit,
+        Config {
+            macro_expand_valid_words: true,
+            extra_url_chars_enabled: true,
+            extra_url_chars: "`".into(),
+            clipboard_restore_delay_enabled: true,
+            clipboard_restore_delay_ms: 1500,
+            echo_stale_enabled: true,
+            echo_stale_ms: 400,
+            ..Config::default()
+        },
+    );
+    e.macros
+        .set_entries([("cam".to_string(), "cảm ơn".to_string())].into_iter());
+    assert_eq!(type_replay(&mut e, "cam "), "cam ", "macro must not expand");
+    assert_eq!(
+        type_replay(&mut e, "`vieejt` "),
+        "`việt` ",
+        "no extra bypass"
+    );
+    assert_eq!(e.clipboard_restore_delay_ms(), 600, "default delay");
+    assert_eq!(e.echo_stale(), Duration::from_millis(150), "default window");
+    assert!(!e.macro_expand_valid_words && !e.idle_commit_enabled);
+    assert!(e.extra_url_chars.is_empty() && e.extra_capitalize_after.is_empty());
+    // Gate open: the same switches apply again.
+    let mut e = engine(
+        Mode::NonPreedit,
+        Config {
+            experimental_features: true,
+            macro_expand_valid_words: true,
+            extra_url_chars_enabled: true,
+            extra_url_chars: "`".into(),
+            ..Config::default()
+        },
+    );
+    assert!(e.macro_expand_valid_words);
+    assert_eq!(
+        type_replay(&mut e, "`vieejt` "),
+        "`vieejt` ",
+        "bypass applies"
+    );
+}
+
+#[test]
+fn clipboard_restore_delay_is_flag_gated() {
+    // Default: the built-in 600 ms, whatever a hand edit put in the value.
+    let e = engine(Mode::NonPreedit, Config::default());
+    assert_eq!(e.clipboard_restore_delay_ms(), 600);
+    let e = engine(
+        Mode::NonPreedit,
+        Config {
+            clipboard_restore_delay_enabled: false,
+            clipboard_restore_delay_ms: 1500,
+            ..Config::default()
+        },
+    );
+    assert_eq!(
+        e.clipboard_restore_delay_ms(),
+        600,
+        "the switch off must ignore the stored value"
+    );
+    // Switch on: the custom value applies.
+    let e = engine(
+        Mode::NonPreedit,
+        Config {
+            experimental_features: true,
+            clipboard_restore_delay_enabled: true,
+            clipboard_restore_delay_ms: 1500,
+            ..Config::default()
+        },
+    );
+    assert_eq!(e.clipboard_restore_delay_ms(), 1500);
+}
+
+#[test]
+fn echo_stale_window_is_flag_gated() {
+    // Default: the built-in 150 ms, whatever a hand edit put in the value.
+    let e = engine(Mode::NonPreedit, Config::default());
+    assert_eq!(e.echo_stale(), Duration::from_millis(150));
+    let e = engine(
+        Mode::NonPreedit,
+        Config {
+            echo_stale_enabled: false,
+            echo_stale_ms: 400,
+            ..Config::default()
+        },
+    );
+    assert_eq!(
+        e.echo_stale(),
+        Duration::from_millis(150),
+        "the switch off must ignore the stored value"
+    );
+    // Switch on: the custom window applies.
+    let e = engine(
+        Mode::NonPreedit,
+        Config {
+            experimental_features: true,
+            echo_stale_enabled: true,
+            echo_stale_ms: 400,
+            ..Config::default()
+        },
+    );
+    assert_eq!(e.echo_stale(), Duration::from_millis(400));
+}
+
+#[test]
+fn idle_commit_commits_a_paused_preedit_word() {
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            experimental_features: true,
+            idle_commit_enabled: true,
+            idle_commit_ms: 700,
+            ..Config::default()
+        },
+    );
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    for c in "viet".chars() {
+        e.process_char(c);
+    }
+    // Backdate the clock: the pause is far past the configured window.
+    e.last_key_at = Some(Instant::now() - Duration::from_millis(2000));
+    let actions = e.tick();
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "viet")),
+        "the tick must commit the paused word: {actions:?}"
+    );
+    // The client reports the buffer holding the committed word — the proof
+    // the re-entry delete needs before it may erase it again.
+    e.set_surrounding("viet".into(), 4);
+    // Re-entry: the next word character un-commits (the committed word is
+    // 4 chars) and restores the composition as preedit.
+    let actions = e.process_char('n');
+    assert!(
+        actions.iter().any(|a| matches!(a, Action::DeleteBefore(4))),
+        "the committed word must be erased back: {actions:?}"
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+        "the word must live again as preedit: {actions:?}"
+    );
+}
+
+#[test]
+fn idle_commit_disabled_by_default_and_terminators_reset_reentry() {
+    // Off (the default): the tick never commits.
+    let mut e = engine(Mode::Preedit, Config::default());
+    for c in "viet".chars() {
+        e.process_char(c);
+    }
+    e.last_key_at = Some(Instant::now() - Duration::from_secs(5));
+    assert!(
+        e.tick().is_empty(),
+        "the default must leave the word pending"
+    );
+    // A terminator after an idle commit starts a fresh word instead of
+    // re-entering the committed one.
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            experimental_features: true,
+            idle_commit_enabled: true,
+            idle_commit_ms: 700,
+            ..Config::default()
+        },
+    );
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    for c in "viet".chars() {
+        e.process_char(c);
+    }
+    e.last_key_at = Some(Instant::now() - Duration::from_secs(2));
+    let actions = e.tick();
+    assert!(actions.iter().any(|a| matches!(a, Action::Commit(_))));
+    let actions = e.process_char(' ');
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+        "a terminator must not un-commit: {actions:?}"
+    );
+    // A report that never saw the committed word (stale, 1 char): the
+    // un-commit delete cannot be proven in range, so no re-entry.
+    e.set_surrounding("v".into(), 1);
+    e.idle_committed = Some(("viet".into(), "viet".into()));
+    let actions = e.process_char('n');
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+        "a stale report must keep the commit final: {actions:?}"
+    );
+}
+
+#[test]
+fn extra_capitalize_triggers_are_opt_in() {
+    // Default: a colon does not start a sentence.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(
+            mode,
+            Config {
+                auto_capitalize: true,
+                ..Config::default()
+            },
+        );
+        assert_eq!(type_replay(&mut e, "tra: cam "), "tra: cam ", "{mode:?}");
+        // With the colon added, the next word capitalizes.
+        let mut e = engine(
+            mode,
+            Config {
+                auto_capitalize: true,
+                experimental_features: true,
+                auto_capitalize_after_enabled: true,
+                auto_capitalize_after: ":".into(),
+                ..Config::default()
+            },
+        );
+        assert_eq!(type_replay(&mut e, "tra: cam "), "tra: Cam ", "{mode:?}");
+    }
+}
+
+#[test]
 fn macro_rewrite_never_deletes_past_the_text() {
     // `ttlt` → "Tôi tên là Tùng": the expansion used to stay in `tail`
     // after the word ended, so backspacing part of it and typing the key

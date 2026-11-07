@@ -35,6 +35,7 @@ none = "Không có kết quả"
 page_kind = "Trang"
 
 [misc]
+experimental_badge = "Thử nghiệm"
 reinstall_button = "Cài lại"
 exported_toast = "Đã xuất cấu hình"
 imported_toast = "Đã nhập cấu hình"
@@ -177,8 +178,57 @@ subtitle = "Sau . ! ? và Enter"
 [rows.double_space]
 title = "Nhấn “Space” hai lần thành dấu chấm"
 subtitle = "Hai dấu cách thành dấu chấm"
-badge = "Thử nghiệm"
-a11y = "Nhấn Space hai lần thành dấu chấm, thử nghiệm"
+
+[rows.macro_valid_words]
+title = "Nở gõ tắt cả trên từ hợp lệ"
+subtitle = "Phím tắt trùng từ thật (vd “cam”) sẽ nở thay vì giữ nguyên — Backspace một phím để gõ từ thật"
+
+[rows.extra_url_chars]
+title = "Né thêm ký tự riêng"
+subtitle = "Từ đứng ngay sau ký tự bên dưới cũng giữ nguyên phím thô"
+
+[rows.extra_url_chars_entry]
+title = "Ký tự riêng"
+subtitle = "Ví dụ: ` ' ! — không nhận -, chữ, số, khoảng trắng"
+
+[rows.auto_capitalize_after]
+title = "Viết hoa sau ký tự thêm"
+subtitle = "Cùng bộ . ! ? + Enter: từ ngay sau ký tự bên dưới cũng viết hoa"
+
+[rows.auto_capitalize_after_entry]
+title = "Ký tự kích hoạt"
+subtitle = "Ví dụ : ” — không nhận chữ, số, khoảng trắng"
+
+[rows.clipboard_restore]
+title = "Tùy chỉnh hồi clipboard"
+subtitle = "Đổi khoảng chờ trả lại clipboard cũ sau khi dán — chỉ tác dụng khi kênh là Clipboard"
+
+[rows.clipboard_restore_spin]
+title = "Hồi clipboard sau (ms)"
+subtitle = "100–5000 ms. Mặc định: 600"
+
+[rows.echo_stale]
+title = "Cửa sổ xả commit"
+subtitle = "Chờ bao lâu thì bỏ đợi phím Backspace ảo quay về mà xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ"
+
+[rows.echo_stale_spin]
+title = "Cửa sổ xả sau (ms)"
+subtitle = "50–1000 ms. Mặc định: 150. Quá thấp dễ mất chữ, quá cao làm chữ hiện trễ"
+
+[rows.idle_commit]
+title = "Chấp nhận từ khi nghỉ gõ"
+subtitle = "Dừng tay quá lâu trên một từ có gạch chân thì từ đó được chấp nhận luôn, như bấm dấu cách"
+
+[rows.idle_commit_spin]
+title = "Nghỉ bao lâu thì chấp nhận (ms)"
+subtitle = "300–2000 ms. Mặc định: 700"
+
+[rows.experimental_features]
+title = "Tính năng thử nghiệm"
+subtitle = "Hiện các tính năng đang thử nghiệm trên các trang. Tắt sẽ ẩn và tắt hết chúng; giá trị đã chỉnh vẫn được giữ để dùng lại khi bật"
+
+[groups.tune.advanced]
+title = "Nâng cao"
 
 # --- page Gõ tắt ------------------------------------------------------------
 
@@ -405,8 +455,17 @@ title = "Giao diện"
 title = "GNOME Shell extension"
 description = "Cần cho luật theo app trên Wayland."
 
+[other]
+extension_confirm_heading = "Cài extension MăngRS Focus?"
+extension_confirm_body = "Vài tệp sẽ được ghi vào ~/.local/share/gnome-shell/extensions và extension được bật — cần cho luật theo app trên Wayland."
+extension_apply = "Cài đặt"
+
 [groups.other.advanced]
 title = "Nâng cao"
+
+[rows.show_toasts]
+title = "Thông báo nhanh"
+subtitle = "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại"
 
 [rows.desktop_icon]
 title = "Hiện trong menu ứng dụng"
