@@ -1278,9 +1278,9 @@ impl Engine {
         // bamboo follows so the composition stays aligned (unikey
         // convention: Backspace undoes the last raw key).
         if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
-            // Per-key display: the app holds the progressively committed
-            // word, so the composed-space edit runs through the injected
-            // transport — forwarding would delete the engine's own commit.
+            // Per-key display: the app holds the composed word, so the
+            // Backspace passes through with a reverse-mapped raw buffer —
+            // the user's real key, the one transport the relay never drops.
             if self.smooth_per_key && !matches!(mode, Mode::Select) {
                 return Some(self.backspace_per_key());
             }
