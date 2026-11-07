@@ -249,6 +249,11 @@ pub struct Engine {
     /// Commit a paused preedit word after `idle_commit_ms` of no keys.
     idle_commit_enabled: bool,
     idle_commit_ms: u64,
+    /// The smooth modes show the composed word progressively: every
+    /// composition-changing key erases the committed tail and commits the
+    /// new one through the injected transport. Experimental mirror of
+    /// `config.smooth_per_key` (gated by the master switch).
+    smooth_per_key: bool,
     /// When the last key reached the engine — the idle-commit clock. Only
     /// stamped while the feature is on, so the off path costs nothing.
     last_key_at: Option<Instant>,
@@ -401,6 +406,7 @@ impl Engine {
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
+            smooth_per_key: false,
             last_key_at: None,
             idle_committed: None,
         };
@@ -507,6 +513,7 @@ impl Engine {
         self.echo_stale_ms = config.echo_stale_ms;
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;
         self.idle_commit_ms = config.idle_commit_ms;
+        self.smooth_per_key = experimental && config.smooth_per_key;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
         }
@@ -1235,6 +1242,12 @@ impl Engine {
         // bamboo follows so the composition stays aligned (unikey
         // convention: Backspace undoes the last raw key).
         if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+            // Per-key display: the app holds the progressively committed
+            // word, so the composed-space edit runs through the injected
+            // transport — forwarding would delete the engine's own commit.
+            if self.smooth_per_key && !matches!(mode, Mode::Select) {
+                return Some(self.backspace_per_key());
+            }
             self.wrapper.backspace();
             if !self.wrapper.has_composition() {
                 self.release_word_mode();

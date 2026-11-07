@@ -265,6 +265,7 @@ struct Ui {
     echo_stale_spin: adw::SpinRow,
     idle_commit_switch: adw::SwitchRow,
     idle_commit_spin: adw::SpinRow,
+    smooth_per_key_switch: adw::SwitchRow,
     experimental_features: adw::SwitchRow,
     show_toasts: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
@@ -467,6 +468,7 @@ impl Ui {
             .set_sensitive(config.idle_commit_enabled);
         self.idle_commit_spin
             .set_value(config.idle_commit_ms as f64);
+        self.smooth_per_key_switch.set_active(config.smooth_per_key);
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
@@ -594,6 +596,7 @@ impl Ui {
         config.echo_stale_ms = self.echo_stale_spin.value() as u64;
         config.idle_commit_enabled = self.idle_commit_switch.is_active();
         config.idle_commit_ms = self.idle_commit_spin.value() as u64;
+        config.smooth_per_key = self.smooth_per_key_switch.is_active();
         config.experimental_features = self.experimental_features.is_active();
         config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
@@ -661,7 +664,7 @@ impl Ui {
     /// come back verbatim when the gate reopens; the engine forces the
     /// features off while the gate is closed.
     fn set_experimental_visible(&self, on: bool) {
-        let rows: [&gtk4::Widget; 11] = [
+        let rows: [&gtk4::Widget; 12] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_switch.upcast_ref(),
             self.extra_url_chars_entry.upcast_ref(),
@@ -673,6 +676,7 @@ impl Ui {
             self.echo_stale_spin.upcast_ref(),
             self.idle_commit_switch.upcast_ref(),
             self.idle_commit_spin.upcast_ref(),
+            self.smooth_per_key_switch.upcast_ref(),
         ];
         for row in rows {
             row.set_visible(on);

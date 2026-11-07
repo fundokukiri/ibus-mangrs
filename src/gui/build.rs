@@ -449,6 +449,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Dừng tay quá lâu trên một từ có gạch chân thì từ đó được chấp nhận luôn, như bấm dấu cách",
         ),
     );
+    let smooth_per_key_switch = switch_row(
+        &t("rows.smooth_per_key.title", "Hiện dấu từng bước ở Smooth"),
+        &t(
+            "rows.smooth_per_key.subtitle",
+            "(Thử nghiệm) Smooth/Super Smooth hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — mỗi phím trễ ~60 ms, gõ cực nhanh có thể lệch; Select không đổi",
+        ),
+    );
     let idle_commit_spin = spin_row(
         &t(
             "rows.idle_commit_spin.title",
@@ -699,6 +706,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         echo_stale_spin,
         idle_commit_switch,
         idle_commit_spin,
+        smooth_per_key_switch,
         experimental_features,
         menu,
         menu_box,
