@@ -1727,6 +1727,32 @@ fn extra_url_chars_never_accept_a_hyphen() {
 }
 
 #[test]
+fn extra_capitalize_triggers_are_opt_in() {
+    // Default: a colon does not start a sentence.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(
+            mode,
+            Config {
+                auto_capitalize: true,
+                ..Config::default()
+            },
+        );
+        assert_eq!(type_replay(&mut e, "tra: cam "), "tra: cam ", "{mode:?}");
+        // With the colon added, the next word capitalizes.
+        let mut e = engine(
+            mode,
+            Config {
+                auto_capitalize: true,
+                auto_capitalize_after_enabled: true,
+                auto_capitalize_after: ":".into(),
+                ..Config::default()
+            },
+        );
+        assert_eq!(type_replay(&mut e, "tra: cam "), "tra: Cam ", "{mode:?}");
+    }
+}
+
+#[test]
 fn macro_rewrite_never_deletes_past_the_text() {
     // `ttlt` → "Tôi tên là Tùng": the expansion used to stay in `tail`
     // after the word ended, so backspacing part of it and typing the key

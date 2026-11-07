@@ -244,6 +244,10 @@ pub struct Engine {
     /// The filtered `extra_url_chars` — empty unless the switch is on
     /// (see `apply_config` for the filter).
     extra_url_chars: Vec<char>,
+    /// The filtered `auto_capitalize_after` — empty unless the switch is
+    /// on (same filter shape as `extra_url_chars`, without the `-` ban: a
+    /// hyphen trigger is legitimate here).
+    extra_capitalize_after: Vec<char>,
     /// Emoji shortcodes on: a word glued directly after `:` stays raw and a
     /// closing `:` rewrites `:name:` to the emoji (see `process_char_emoji`).
     emoji_enabled: bool,
@@ -341,6 +345,7 @@ impl Engine {
             url_word: false,
             bypass_url: true,
             extra_url_chars: Vec::new(),
+            extra_capitalize_after: Vec::new(),
             emoji_enabled: false,
             emoji_word: false,
             emojis: UserEmoji::load(),
@@ -397,6 +402,23 @@ impl Engine {
         self.auto_restore = config.auto_restore;
         self.em_dash = config.em_dash;
         self.auto_capitalize = config.auto_capitalize;
+        self.extra_capitalize_after = if config.auto_capitalize_after_enabled {
+            // Same filter shape as `extra_url_chars` minus the `-` ban; a
+            // hyphen trigger is legitimate here.
+            let mut chars: Vec<char> = Vec::new();
+            for c in config.auto_capitalize_after.chars() {
+                if c.is_alphanumeric() || c.is_whitespace() || chars.contains(&c) {
+                    continue;
+                }
+                chars.push(c);
+                if chars.len() >= 10 {
+                    break;
+                }
+            }
+            chars
+        } else {
+            Vec::new()
+        };
         self.double_space_period = config.double_space_period;
         self.macro_enabled = config.macro_enabled;
         self.capitalize_macro = config.capitalize_macro;
@@ -853,6 +875,11 @@ impl Engine {
         match c {
             '.' | '!' | '?' | '\n' | '\r' => self.capitalize_next = true,
             ' ' | '\t' => {}
+            _ if !self.extra_capitalize_after.is_empty()
+                && self.extra_capitalize_after.contains(&c) =>
+            {
+                self.capitalize_next = true;
+            }
             _ => self.capitalize_next = false,
         }
     }

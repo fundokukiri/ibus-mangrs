@@ -367,6 +367,8 @@ fn refresh_round_trips_every_widget() {
         bracket: BracketConfig::Everywhere,
         em_dash: true,
         auto_capitalize: true,
+        auto_capitalize_after: ":".into(),
+        auto_capitalize_after_enabled: true,
         double_space_period: true,
         macro_enabled: false,
         capitalize_macro: false,
@@ -525,7 +527,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 21] = [
+    let rows: [&adw::SwitchRow; 22] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -536,6 +538,7 @@ fn every_switch_triggers_save() {
         &ui.extra_url_chars_switch,
         &ui.em_dash,
         &ui.auto_capitalize,
+        &ui.auto_capitalize_after_switch,
         &ui.double_space,
         &ui.macro_enabled,
         &ui.capitalize_macro,
