@@ -254,6 +254,12 @@ pub struct Engine {
     /// inline autocomplete). Its rewrite delete is dropped and repairs crash
     /// mutter, so show the following words as preedit — no delete needed.
     suggestions: bool,
+    /// Cached `client_rule_mode` result keyed on the name pair that produced
+    /// it. Resolution lowercases the pattern and the target and the key path
+    /// asks for the mode more than once per keystroke; the cache turns that
+    /// into two string compares. The key covers `app_name`/`client` changes
+    /// by itself; `apply_config` clears it because the rules changed.
+    rule_cache: Option<(Option<String>, Option<String>, Option<Mode>)>,
 }
 
 /// `IBUS_CAP_PREEDIT_TEXT` and `IBUS_CAP_SURROUNDING_TEXT` from ibustypes.h.
@@ -334,6 +340,7 @@ impl Engine {
             emojis: UserEmoji::load(),
             emoji_mtime: None,
             suggestions: false,
+            rule_cache: None,
             capitalize_next: false,
             cap_word: false,
             commit_interval_ms: 20,
@@ -379,6 +386,8 @@ impl Engine {
             self.tail.clear();
         }
         self.app_rules = config.app_rules.clone();
+        // The cached rule resolution belongs to the previous rule set.
+        self.rule_cache = None;
         self.auto_restore = config.auto_restore;
         self.em_dash = config.em_dash;
         self.auto_capitalize = config.auto_capitalize;
@@ -839,9 +848,19 @@ impl Engine {
     /// when present, else the IBus client string. The special pattern `none`
     /// matches clients with neither — the only way to target them, since
     /// there is no name to substring-match.
-    fn client_rule_mode(&self) -> Option<Mode> {
+    fn client_rule_mode(&mut self) -> Option<Mode> {
+        // Cache hit without cloning: both name sources compare by reference.
+        if let Some((cached_app, cached_client, mode)) = &self.rule_cache {
+            if self.app_name.as_deref() == cached_app.as_deref()
+                && self.client.as_deref() == cached_client.as_deref()
+            {
+                return *mode;
+            }
+        }
         let effective = self.app_name.as_deref().or(self.client.as_deref());
-        crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from)
+        let resolved = crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from);
+        self.rule_cache = Some((self.app_name.clone(), self.client.clone(), resolved));
+        resolved
     }
 
     /// True when the focused app drops `DeleteSurroundingText`, so non-preedit
@@ -885,8 +904,9 @@ impl Engine {
     }
 
     /// Resolve the mode actually used for the focused client: hard fallbacks
-    /// first, then the app rule, then the built-in heuristic.
-    fn effective_mode(&self) -> Mode {
+    /// first, then the app rule, then the built-in heuristic. `&mut self`
+    /// because the rule resolution is cached (see `client_rule_mode`).
+    fn effective_mode(&mut self) -> Mode {
         let can_preedit = self.caps & CAP_PREEDIT_TEXT != 0;
         let ruled = self.client_rule_mode();
         let requested = ruled.unwrap_or(self.mode);
@@ -1128,7 +1148,7 @@ impl Engine {
     /// forwarded key travel different transports, so a burst of arrow keys
     /// can move the caret before the commit lands — the word is then
     /// inserted mid-text ("em tên tùng" → "etùngm tên").
-    pub fn preedit_commit_pending(&self) -> bool {
+    pub fn preedit_commit_pending(&mut self) -> bool {
         // The visible preedit itself is what matters: capabilities can flip
         // mid-word and would otherwise make this report false while the word
         // is still on screen.
