@@ -1538,6 +1538,74 @@ fn double_space_disabled_by_default() {
     assert_eq!(type_replay(&mut e, "a  b"), "a  b");
 }
 
+/// Regression: after a forwarded Backspace the engine kept the deleted
+/// character in `last_char`, so the next one fired the pair-rewrite against
+/// text that was no longer on screen and the paired delete ate the real
+/// letter before it ("a-" BS "-" turned the whole "a-" into "—").
+#[test]
+fn em_dash_after_a_backspace_stays_literal() {
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        em_dash: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(type_replay_backspaces(&mut e, "a-\u{8}-").0, "a-");
+    // The healthy pair still rewrites: "a" + "-" + "-" (no backspace).
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        em_dash: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(type_replay(&mut e, "a--"), "a—");
+}
+
+#[test]
+fn double_space_after_a_backspace_stays_two_spaces() {
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        double_space_period: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(type_replay_backspaces(&mut e, "a \u{8} ").0, "a ");
+    // The healthy pair still inserts the period.
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        double_space_period: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(type_replay(&mut e, "a  b"), "a. b");
+}
+
+/// Regression: deleting a fired emoji and retyping the shortcode re-armed
+/// the state from the stale `last_char` (':' was gone from the screen) and
+/// the rewrite carried a phantom ':' in its delete count — "x:fire:" BS
+/// "fire:" ate the "x".
+#[test]
+fn emoji_shortcode_after_a_backspace_needs_its_colon() {
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        emoji_enabled: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(
+        type_replay_backspaces(&mut e, "x:fire:\u{8}fire:").0,
+        "xfire:"
+    );
+    // A shortcode whose ':' is still on screen keeps rewriting.
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        emoji_enabled: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(type_replay(&mut e, "x:fire:"), "x🔥");
+}
+
 #[test]
 fn auto_capitalize_after_sentence_end() {
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
