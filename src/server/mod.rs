@@ -574,7 +574,11 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
 /// Handle one key event, pushing resulting signals into `out`.
 /// Returns whether the engine consumed the key.
 fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
-    debug_log::log(&format!("key keyval={keyval:#x} state={state:#x}"));
+    // Hottest log site (every key event, every mode): the format! would
+    // allocate per keystroke even with the log off, so gate it first.
+    if debug_log::enabled() {
+        debug_log::log(&format!("key keyval={keyval:#x} state={state:#x}"));
+    }
     // Key releases are never ours.
     if state & keymap::RELEASE_MASK != 0 {
         return false;
