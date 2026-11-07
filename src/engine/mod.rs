@@ -1006,6 +1006,18 @@ impl Engine {
         self.word_mode = None;
     }
 
+    /// The Backspace was forwarded: the application's buffer lost its last
+    /// character. The per-key features keyed on `last_char` (em-dash,
+    /// double space, the emoji/URL arms) must not fire on the deleted
+    /// character — their pair-rewrite would delete real text in front of it
+    /// ("a-" BS "-" turned the whole "a-" into "—"). `tail` mirrors the
+    /// screen for the raw forwarders, so its last char is the new context;
+    /// when it holds nothing of ours the context is unknown and stays empty.
+    fn note_backspace_forwarded(&mut self) {
+        self.last_char = self.tail.chars().last();
+        self.capitalize_next = false;
+    }
+
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
@@ -1035,6 +1047,7 @@ impl Engine {
                 // characters — the raw forwarders (URL/emoji bypass) track
                 // the screen in `tail`, so it has to shrink with the text.
                 self.tail = replace_tail(&self.tail, 1, "");
+                self.note_backspace_forwarded();
             }
             return None;
         }
@@ -1044,6 +1057,7 @@ impl Engine {
             // stale, the next macro rewrite deleted more characters than the
             // client held (an out-of-range delete, mutter aborts on it).
             self.tail = replace_tail(&self.tail, 1, "");
+            self.note_backspace_forwarded();
             return None;
         };
         if !self.wrapper.has_composition() {
@@ -1073,6 +1087,7 @@ impl Engine {
                     // exactly what the wrapper's raw-key undo models.
                     debug_log::log("backspace forwarded (no delete transport)");
                     self.tail = replace_tail(&self.tail, 1, "");
+                    self.note_backspace_forwarded();
                     return Some(vec![Action::Forward]);
                 }
                 let actions = if self.charset == Charset::Unicode {
