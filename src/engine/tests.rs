@@ -1538,6 +1538,74 @@ fn double_space_disabled_by_default() {
     assert_eq!(type_replay(&mut e, "a  b"), "a  b");
 }
 
+/// Regression: after a forwarded Backspace the engine kept the deleted
+/// character in `last_char`, so the next one fired the pair-rewrite against
+/// text that was no longer on screen and the paired delete ate the real
+/// letter before it ("a-" BS "-" turned the whole "a-" into "—").
+#[test]
+fn em_dash_after_a_backspace_stays_literal() {
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        em_dash: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(type_replay_backspaces(&mut e, "a-\u{8}-").0, "a-");
+    // The healthy pair still rewrites: "a" + "-" + "-" (no backspace).
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        em_dash: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(type_replay(&mut e, "a--"), "a—");
+}
+
+#[test]
+fn double_space_after_a_backspace_stays_two_spaces() {
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        double_space_period: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(type_replay_backspaces(&mut e, "a \u{8} ").0, "a ");
+    // The healthy pair still inserts the period.
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        double_space_period: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(type_replay(&mut e, "a  b"), "a. b");
+}
+
+/// Regression: deleting a fired emoji and retyping the shortcode re-armed
+/// the state from the stale `last_char` (':' was gone from the screen) and
+/// the rewrite carried a phantom ':' in its delete count — "x:fire:" BS
+/// "fire:" ate the "x".
+#[test]
+fn emoji_shortcode_after_a_backspace_needs_its_colon() {
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        emoji_enabled: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(
+        type_replay_backspaces(&mut e, "x:fire:\u{8}fire:").0,
+        "xfire:"
+    );
+    // A shortcode whose ':' is still on screen keeps rewriting.
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        emoji_enabled: true,
+        mode: ModeConfig::NonPreedit,
+        ..Config::default()
+    });
+    assert_eq!(type_replay(&mut e, "x:fire:"), "x🔥");
+}
+
 #[test]
 fn auto_capitalize_after_sentence_end() {
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
@@ -1807,6 +1875,51 @@ fn repeated_letters_do_not_duplicate_in_any_mode() {
         assert_eq!(typed(mode, "toool11"), "tool11", "{mode:?}");
         assert_eq!(typed(mode, "toool  "), "tool  ", "{mode:?}");
     }
+}
+
+/// Regression for the slice-based verify: a long report whose prefix ends
+/// with a fragment containing the tail far from the caret (unanchored) is
+/// ignored, never repaired.
+#[test]
+fn unanchored_tail_in_a_long_report_is_ignored() {
+    // Chrome's find bar reports a page fragment containing the word with the
+    // caret far past it; adopting that text used to delete the real input.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    type_str(&mut e, "tooi ");
+    let mut page = "t".repeat(4000);
+    page.push_str("tooi noisy fragment");
+    let len = page.chars().count();
+    e.set_surrounding(page, len as u32);
+    // The next key verifies against a report whose prefix does not end with
+    // the tail: the unanchored-tail case must ignore it, not repair.
+    let actions = type_str(&mut e, "x");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+        "{actions:?}"
+    );
+}
+
+/// The verification compares string slices now; a long report with the caret
+/// at its end (the normal healthy path) must still classify as healthy.
+#[test]
+fn long_report_with_the_tail_at_the_caret_is_healthy() {
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    type_str(&mut e, "tooi ");
+    let mut doc = "x".repeat(20_000);
+    doc.push_str("tôi ");
+    let len = doc.chars().count();
+    e.set_surrounding(doc, len as u32);
+    let actions = type_str(&mut e, "x");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+        "healthy tail must not trigger a repair: {actions:?}"
+    );
+    // The replay covers only this key: the plain commit of the typed char.
+    assert_eq!(replay(&actions), "x");
 }
 
 #[test]
@@ -2672,6 +2785,28 @@ fn app_rule_wins_over_auto() {
             .any(|a| matches!(a, Action::ForwardSelectLeft(_))),
         "a pinned rule must bypass the auto ladder: {actions:?}"
     );
+}
+
+/// The rule resolution is cached per client; a config reload with different
+/// rules must invalidate it or the old mode sticks until the app refocuses.
+#[test]
+fn app_rule_cache_follows_a_config_reload() {
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.set_client(Some("gtk4-im:chrome".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    // The built-in safety net pins chrome to Preedit.
+    assert_eq!(e.effective_mode(), Mode::Preedit);
+    // Rewriting the rules must reach the next resolution, not the cache.
+    e.apply_config(&Config {
+        app_rules: vec![crate::config::AppRule {
+            pattern: "chrome".into(),
+            mode: ModeConfig::Off,
+        }],
+        ..Config::default()
+    });
+    assert_eq!(e.effective_mode(), Mode::Off);
+    // Same client, no rule change: the cache serves the repeated call.
+    assert_eq!(e.effective_mode(), Mode::Off);
 }
 
 // --- emoji shortcodes ---

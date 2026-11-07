@@ -254,6 +254,12 @@ pub struct Engine {
     /// inline autocomplete). Its rewrite delete is dropped and repairs crash
     /// mutter, so show the following words as preedit — no delete needed.
     suggestions: bool,
+    /// Cached `client_rule_mode` result keyed on the name pair that produced
+    /// it. Resolution lowercases the pattern and the target and the key path
+    /// asks for the mode more than once per keystroke; the cache turns that
+    /// into two string compares. The key covers `app_name`/`client` changes
+    /// by itself; `apply_config` clears it because the rules changed.
+    rule_cache: Option<(Option<String>, Option<String>, Option<Mode>)>,
 }
 
 /// `IBUS_CAP_PREEDIT_TEXT` and `IBUS_CAP_SURROUNDING_TEXT` from ibustypes.h.
@@ -334,6 +340,7 @@ impl Engine {
             emojis: UserEmoji::load(),
             emoji_mtime: None,
             suggestions: false,
+            rule_cache: None,
             capitalize_next: false,
             cap_word: false,
             commit_interval_ms: 20,
@@ -379,6 +386,8 @@ impl Engine {
             self.tail.clear();
         }
         self.app_rules = config.app_rules.clone();
+        // The cached rule resolution belongs to the previous rule set.
+        self.rule_cache = None;
         self.auto_restore = config.auto_restore;
         self.em_dash = config.em_dash;
         self.auto_capitalize = config.auto_capitalize;
@@ -603,9 +612,11 @@ impl Engine {
     /// A commit that must wait until `n` more injected nav-key echoes have
     /// been forwarded (same transport race as `defer_commit`).
     pub fn defer_nav_commit(&mut self, n: usize, text: String) {
+        // Length only: the queued text is the word being typed; its landing
+        // is visible on screen, the queue size is what diagnosis needs.
         debug_log::log(&format!(
-            "defer commit after {n} nav echoes: {:?}",
-            brief(&text)
+            "defer commit after {n} nav echoes len={}",
+            text.chars().count()
         ));
         self.nav_deferred.push((n, text));
     }
@@ -619,7 +630,10 @@ impl Engine {
             if left > 1 {
                 remaining.push((left - 1, text));
             } else {
-                debug_log::log(&format!("flush deferred commit (nav): {:?}", brief(&text)));
+                debug_log::log(&format!(
+                    "flush deferred commit (nav) len={}",
+                    text.chars().count()
+                ));
                 ready.push(text);
             }
         }
@@ -633,8 +647,8 @@ impl Engine {
     pub fn defer_commit(&mut self, n: u32, text: String) {
         let threshold = self.echoes_forwarded + n;
         debug_log::log(&format!(
-            "defer commit after {n} echoes: {:?}",
-            brief(&text)
+            "defer commit after {n} echoes len={}",
+            text.chars().count()
         ));
         self.deferred.push((threshold, text));
     }
@@ -650,7 +664,10 @@ impl Engine {
             .is_some_and(|(t, _)| self.echoes_forwarded >= *t)
         {
             let (_, text) = self.deferred.remove(0);
-            debug_log::log(&format!("flush deferred commit: {:?}", brief(&text)));
+            debug_log::log(&format!(
+                "flush deferred commit len={}",
+                text.chars().count()
+            ));
             ready.push(text);
         }
         ready
@@ -665,16 +682,16 @@ impl Engine {
             .drain(..)
             .map(|(_, text)| {
                 debug_log::log(&format!(
-                    "flush deferred commit (forced): {:?}",
-                    brief(&text)
+                    "flush deferred commit (forced) len={}",
+                    text.chars().count()
                 ));
                 text
             })
             .collect();
         all.extend(self.nav_deferred.drain(..).map(|(_, text)| {
             debug_log::log(&format!(
-                "flush deferred commit (nav, forced): {:?}",
-                brief(&text)
+                "flush deferred commit (nav, forced) len={}",
+                text.chars().count()
             ));
             text
         }));
@@ -831,9 +848,19 @@ impl Engine {
     /// when present, else the IBus client string. The special pattern `none`
     /// matches clients with neither — the only way to target them, since
     /// there is no name to substring-match.
-    fn client_rule_mode(&self) -> Option<Mode> {
+    fn client_rule_mode(&mut self) -> Option<Mode> {
+        // Cache hit without cloning: both name sources compare by reference.
+        if let Some((cached_app, cached_client, mode)) = &self.rule_cache {
+            if self.app_name.as_deref() == cached_app.as_deref()
+                && self.client.as_deref() == cached_client.as_deref()
+            {
+                return *mode;
+            }
+        }
         let effective = self.app_name.as_deref().or(self.client.as_deref());
-        crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from)
+        let resolved = crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from);
+        self.rule_cache = Some((self.app_name.clone(), self.client.clone(), resolved));
+        resolved
     }
 
     /// True when the focused app drops `DeleteSurroundingText`, so non-preedit
@@ -877,8 +904,9 @@ impl Engine {
     }
 
     /// Resolve the mode actually used for the focused client: hard fallbacks
-    /// first, then the app rule, then the built-in heuristic.
-    fn effective_mode(&self) -> Mode {
+    /// first, then the app rule, then the built-in heuristic. `&mut self`
+    /// because the rule resolution is cached (see `client_rule_mode`).
+    fn effective_mode(&mut self) -> Mode {
         let can_preedit = self.caps & CAP_PREEDIT_TEXT != 0;
         let ruled = self.client_rule_mode();
         let requested = ruled.unwrap_or(self.mode);
@@ -998,6 +1026,18 @@ impl Engine {
         self.word_mode = None;
     }
 
+    /// The Backspace was forwarded: the application's buffer lost its last
+    /// character. The per-key features keyed on `last_char` (em-dash,
+    /// double space, the emoji/URL arms) must not fire on the deleted
+    /// character — their pair-rewrite would delete real text in front of it
+    /// ("a-" BS "-" turned the whole "a-" into "—"). `tail` mirrors the
+    /// screen for the raw forwarders, so its last char is the new context;
+    /// when it holds nothing of ours the context is unknown and stays empty.
+    fn note_backspace_forwarded(&mut self) {
+        self.last_char = self.tail.chars().last();
+        self.capitalize_next = false;
+    }
+
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
@@ -1027,6 +1067,7 @@ impl Engine {
                 // characters — the raw forwarders (URL/emoji bypass) track
                 // the screen in `tail`, so it has to shrink with the text.
                 self.tail = replace_tail(&self.tail, 1, "");
+                self.note_backspace_forwarded();
             }
             return None;
         }
@@ -1036,6 +1077,7 @@ impl Engine {
             // stale, the next macro rewrite deleted more characters than the
             // client held (an out-of-range delete, mutter aborts on it).
             self.tail = replace_tail(&self.tail, 1, "");
+            self.note_backspace_forwarded();
             return None;
         };
         if !self.wrapper.has_composition() {
@@ -1065,6 +1107,7 @@ impl Engine {
                     // exactly what the wrapper's raw-key undo models.
                     debug_log::log("backspace forwarded (no delete transport)");
                     self.tail = replace_tail(&self.tail, 1, "");
+                    self.note_backspace_forwarded();
                     return Some(vec![Action::Forward]);
                 }
                 let actions = if self.charset == Charset::Unicode {
@@ -1105,7 +1148,7 @@ impl Engine {
     /// forwarded key travel different transports, so a burst of arrow keys
     /// can move the caret before the commit lands — the word is then
     /// inserted mid-text ("em tên tùng" → "etùngm tên").
-    pub fn preedit_commit_pending(&self) -> bool {
+    pub fn preedit_commit_pending(&mut self) -> bool {
         // The visible preedit itself is what matters: capabilities can flip
         // mid-word and would otherwise make this report false while the word
         // is still on screen.

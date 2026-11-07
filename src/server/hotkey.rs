@@ -330,6 +330,7 @@ impl EngineHandler {
             self.last_config_mtime = mtime;
             let config = Config::load();
             debug_log::set_enabled(config.debug_log);
+            debug_log::set_text_enabled(config.debug_log_text);
             self.refresh_hotkey_cache(&config);
             let mut engine = lock_engine(&self.engine);
             let actions = engine.apply_config(&config);

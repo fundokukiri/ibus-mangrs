@@ -738,7 +738,7 @@ fn check_safety_invariants(e: &Engine, actions: &[Action], where_: &str) {
 /// After a focus change nothing may be left pending (audit invariant:
 /// "sau focus out/reset không còn preedit, không còn chờ echo").
 #[cfg(test)]
-fn assert_clean_after_focus_out(e: &Engine, where_: &str) {
+fn assert_clean_after_focus_out(e: &mut Engine, where_: &str) {
     assert!(
         !e.preedit_commit_pending(),
         "{where_}: preedit still pending after focus out"
@@ -776,7 +776,7 @@ mod matrix {
             }
         }
         fc.focus_out(&mut e);
-        assert_clean_after_focus_out(&e, &format!("{mode:?} {faults:?}"));
+        assert_clean_after_focus_out(&mut e, &format!("{mode:?} {faults:?}"));
         fc.text()
     }
 
@@ -879,7 +879,7 @@ mod matrix {
                     .unwrap_or_else(|| panic!("no expectation for {method:?} {keys:?}"));
                 assert_eq!(got, want, "ideal {mode:?} {method:?} {keys:?}");
                 fc.focus_out(&mut e);
-                assert_clean_after_focus_out(&e, &format!("ideal {mode:?} {method:?}"));
+                assert_clean_after_focus_out(&mut e, &format!("ideal {mode:?} {method:?}"));
             }
         }
     }
@@ -1145,7 +1145,7 @@ mod matrix {
                     9 => {
                         fc.focus_out(&mut e);
                         assert_clean_after_focus_out(
-                            &e,
+                            &mut e,
                             &format!("fuzz {SEED} it{iteration} {mode:?} {faults:?}"),
                         );
                         fc.focus_in(&mut e, client);
@@ -1163,7 +1163,7 @@ mod matrix {
             }
             fc.focus_out(&mut e);
             assert_clean_after_focus_out(
-                &e,
+                &mut e,
                 &format!("fuzz {SEED} it{iteration} final {mode:?} {faults:?}"),
             );
         }

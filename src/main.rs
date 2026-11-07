@@ -17,6 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::load();
     ibus_mangrs::debug_log::set_enabled(config.debug_log);
+    ibus_mangrs::debug_log::set_text_enabled(config.debug_log_text);
     ibus_mangrs::debug_log::log(&format!(
         "engine start uinput={}",
         ibus_mangrs::uinput::Uinput::available()

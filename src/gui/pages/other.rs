@@ -160,6 +160,7 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
         .title(t("groups.other.advanced.title", "Nâng cao"))
         .build();
     advanced.add(&ui.debug_log);
+    advanced.add(&ui.debug_log_text);
     let reset_row = action_row(
         &t("rows.reset_defaults.title", "Khôi phục mặc định"),
         &t(

@@ -137,27 +137,24 @@ impl Server {
     pub fn run(&self) {
         loop {
             // Wake at the next engine deadline (the preedit idle commit)
-            // instead of sleeping a fixed second past it.
-            let timeout = self
-                .engine
-                .lock()
-                .ok()
-                .and_then(|e| e.ms_until_tick())
+            // instead of sleeping a fixed second past it. lock_engine, not
+            // .ok(): a poisoned mutex must degrade one keystroke, not stop
+            // the loop's stale-echo flushes for the rest of the session.
+            let timeout = lock_engine(&self.engine)
+                .ms_until_tick()
                 .map_or(1000, |ms| ms.min(1000)) as i32;
             for item in self.conn.iter(timeout) {
                 if matches!(item, dbus::ffidisp::ConnectionItem::Nothing) {
                     break;
                 }
             }
-            let out = match self.engine.lock() {
-                Ok(mut e) => {
-                    let actions = e.tick();
-                    let mut out = Vec::new();
-                    let injected = emit(&mut e, &actions, &mut out);
-                    e.add_injected(injected);
-                    out
-                }
-                Err(_) => Vec::new(),
+            let out = {
+                let mut e = lock_engine(&self.engine);
+                let actions = e.tick();
+                let mut out = Vec::new();
+                let injected = emit(&mut e, &actions, &mut out);
+                e.add_injected(injected);
+                out
             };
             for msg in out {
                 send(&self.conn, msg);
@@ -370,7 +367,10 @@ impl EngineHandler {
                     msg.read3::<dbus::arg::Variant<Box<dyn dbus::arg::RefArg>>, u32, u32>()
                 {
                     if let Some(s) = text_from_variant(&text) {
-                        debug_log::log(&format!(
+                        // The report content is typed text — text tier only;
+                        // `set_surrounding_with_anchor` logs cursor/len on the
+                        // decision tier.
+                        debug_log::log_text(&format!(
                             "surrounding cursor={cursor} tail={:?} text={:?}",
                             brief(engine.tail()),
                             brief(&s),
@@ -429,6 +429,7 @@ impl EngineHandler {
                 // Pick up settings changed in the GUI since the last focus.
                 let config = Config::load();
                 debug_log::set_enabled(config.debug_log);
+                debug_log::set_text_enabled(config.debug_log_text);
                 // Direct field assignment: the engine guard held by this
                 // branch borrows part of self, so the &mut self helper
                 // cannot be called here.
@@ -570,7 +571,11 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
 /// Handle one key event, pushing resulting signals into `out`.
 /// Returns whether the engine consumed the key.
 fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
-    debug_log::log(&format!("key keyval={keyval:#x} state={state:#x}"));
+    // Hottest log site (every key event, every mode): the format! would
+    // allocate per keystroke even with the log off, so gate it first.
+    if debug_log::enabled() {
+        debug_log::log(&format!("key keyval={keyval:#x} state={state:#x}"));
+    }
     // Key releases are never ours.
     if state & keymap::RELEASE_MASK != 0 {
         return false;
@@ -961,10 +966,9 @@ fn emit_with(
             }
             Action::Paste(text) => {
                 if (t.paste)(text) {
-                    debug_log::log(&format!(
-                        "paste channel: {:?}",
-                        crate::debug_log::brief(text)
-                    ));
+                    // Length only: the word itself is what the user just
+                    // typed, and the paste result is visible on screen.
+                    debug_log::log(&format!("paste channel len={}", text.chars().count()));
                     // The Ctrl+V we injected comes back as a key event; forward it.
                     engine.add_injected_nav(&[keymap::V]);
                 } else {

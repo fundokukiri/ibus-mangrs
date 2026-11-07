@@ -240,6 +240,9 @@ struct Ui {
     rule_focus_value: Rc<RefCell<String>>,
     hide_underline: adw::SwitchRow,
     debug_log: adw::SwitchRow,
+    /// Second log tier: typed-text lines (verify diffs, surrounding content).
+    /// Only effective while `debug_log` is on — see `Config::debug_log_text`.
+    debug_log_text: adw::SwitchRow,
     /// App-grid icon visibility ("Cài đặt khác"). Filesystem state, not a
     /// config key: the override file under ~/.local/share/applications.
     desktop_icon: adw::SwitchRow,
@@ -397,6 +400,7 @@ impl Ui {
         self.dictionary_enabled
             .set_active(config.dictionary_enabled);
         self.debug_log.set_active(config.debug_log);
+        self.debug_log_text.set_active(config.debug_log_text);
         // Not a config key: the app-grid override file on disk decides.
         *self.desktop_icon_loading.borrow_mut() = true;
         self.desktop_icon.set_active(!desktop_icon_hidden());
@@ -486,6 +490,7 @@ impl Ui {
         config.enabled_hotkey = self.enabled_hotkey_value.borrow().clone();
         config.app_rule_hotkey = self.app_rule_hotkey_value.borrow().clone();
         config.debug_log = self.debug_log.is_active();
+        config.debug_log_text = self.debug_log_text.is_active();
         config.x11_delete_without_report = self.x11_delete.is_active();
         config.preedit_for_xim = self.preedit_xim.is_active();
         config.modern_tone_style = self.modern.is_active();
@@ -767,6 +772,10 @@ fn export_json(path: Option<PathBuf>) -> Result<(), String> {
             .map(|(k, v)| (k.into(), v.into()))
             .collect(),
         Dictionary::load().words().map(str::to_string).collect(),
+        crate::emoji::UserEmoji::load()
+            .entries()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect(),
     )?;
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
@@ -785,6 +794,13 @@ fn import_json(path: Option<PathBuf>, ui: &Rc<Ui>) -> Result<(), String> {
     let mut dict = Dictionary::load();
     dict.set_words(backup.dictionary.into_iter());
     dict.save().map_err(|e| e.to_string())?;
+    // Version 1 files carry no emoji section: restoring one must leave the
+    // user's `emoji.toml` alone instead of wiping it with an empty table.
+    if backup.version >= 2 {
+        let mut emoji = crate::emoji::UserEmoji::load();
+        emoji.set_entries(backup.emoji.into_iter());
+        emoji.save().map_err(|e| e.to_string())?;
+    }
     // Every widget, not just the visible ones: a stale switch is written
     // back over the imported file by the next save.
     let config = Config::load();
