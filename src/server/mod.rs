@@ -585,9 +585,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         // The Ctrl+V of a clipboard-channel paste comes back as a shortcut:
         // it is our own injection and must reach the application untouched.
         if let Some(commits) = engine.take_nav_echo(keymap::V) {
-            for text in commits {
-                out.push(signal("CommitText").append1(plain_text(&text)));
-            }
+            park_nav_commits(engine, commits);
             return false;
         }
         if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
@@ -643,15 +641,11 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         }
     }
 
-    // An echo of an injected character key (the uinput rewrite's
-    // terminator): forward it once, like the editing-key echoes below.
-    // Space is not an editing key, so the check cannot live in that
-    // branch — without it the echo would run through process_char as a
-    // real terminator and the application would see the space twice.
+    // A nav echo whose keyval is neither an editing key nor a shortcut
+    // has no other consumption site; forward it once rather than letting
+    // process_char treat it as a real keystroke.
     if let Some(commits) = engine.take_nav_echo(keyval) {
-        for text in commits {
-            out.push(signal("CommitText").append1(plain_text(&text)));
-        }
+        park_nav_commits(engine, commits);
         return false;
     }
 
@@ -659,10 +653,11 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     if keymap::is_editing_key(keyval) {
         // Echoes of keys the uinput modes injected (Select's Shift+Left and
         // Delete): forward them so the selection/erase actually happens.
+        // Their commits park like the Backspace path's — an inline commit
+        // overtook the selection+delete on the relay and the word erased
+        // itself right after landing ("xin chaofchào " → "xin chaof").
         if let Some(commits) = engine.take_nav_echo(keyval) {
-            for text in commits {
-                out.push(signal("CommitText").append1(plain_text(&text)));
-            }
+            park_nav_commits(engine, commits);
             return false;
         }
         if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
@@ -715,6 +710,17 @@ fn emit(engine: &mut Engine, actions: &[Action], out: &mut Vec<Message>) -> u32 
         paste: &|text, delay| crate::paste::paste_and_restore(text, &|| Uinput::ctrl_v(), delay),
     };
     emit_with(engine, actions, out, &transports)
+}
+
+/// Park the commits a nav-echo flush just made deliverable — the same
+/// grace as the Backspace path. On a mutter relay the app applies the
+/// forwarded keys a beat behind the commit channel, and an inline commit
+/// landed before the selection+erase that clears the raw tail (the
+/// Select rewrite's word deleted itself right after landing).
+fn park_nav_commits(engine: &mut Engine, commits: Vec<String>) {
+    for text in commits {
+        engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
+    }
 }
 
 /// A paced key-press transport: (keycode, shift) pairs and the gap in ms.
