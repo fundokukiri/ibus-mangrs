@@ -432,31 +432,38 @@ impl Engine {
 
     /// The uinput modes (Smooth / SuperSmooth / Select): the application
     /// keeps the raw keystroke; bamboo transforms internally. The rewrite
-    /// happens once, at word end. With the per-key display on (Smooth /
-    /// SuperSmooth only), the keys route through the INLINE machinery
-    /// instead — every composition-changing key is applied immediately via
-    /// the IM channel (delete + commit, ordered by construction), because
-    /// the injected-key echo loop has proven unable to carry the per-key
-    /// deletes on mutter relays (echo presses lost, "việtêt").
-    fn process_char_smooth(&mut self, mode: Mode, mut c: char) -> Vec<Action> {
-        let per_key = self.smooth_per_key && matches!(mode, Mode::Smooth | Mode::SuperSmooth);
-        // Per-key capitalization happens at the first key (the inline way):
-        // the composition enters uppercase and commits that way.
-        if per_key
-            && !self.wrapper.has_composition()
-            && self.auto_capitalize
-            && self.capitalize_next
-            && c.is_alphabetic()
-        {
-            c = c.to_uppercase().next().unwrap_or(c);
-        }
-        if !per_key && !self.wrapper.has_composition() {
+    /// happens once, at word end — unless the per-key display is on, where
+    /// every composition-changing key applies immediately.
+    fn process_char_smooth(&mut self, mode: Mode, c: char) -> Vec<Action> {
+        // Auto-capitalize: the application keeps the raw key, so the capital
+        // can only appear in the word-end rewrite. Decide at the first key —
+        // the per-key `note_char` below clears `capitalize_next` as soon as
+        // the word starts.
+        if !self.wrapper.has_composition() {
             self.cap_word = self.auto_capitalize && self.capitalize_next && c.is_alphabetic();
+            // Per-key display: the previous word's region has landed (its
+            // own commit or the batch's) — this word's region starts empty,
+            // so the coalesce diffs and erases stay INSIDE the word and can
+            // never touch what came before it. A batch still in flight
+            // spans the boundary: keep coalescing onto it.
+            if self.smooth_per_key && self.per_key_park.is_none() {
+                self.tail.clear();
+            }
         }
+        let per_key = self.smooth_per_key && matches!(mode, Mode::Smooth | Mode::SuperSmooth);
         match self.wrapper.process_char(c) {
             Outcome::PassThrough => {
                 // The key produced no composition change (an inapplicable
                 // mark key, say) — it is still a literal on screen.
+                if per_key {
+                    // The literal joins the coalesced batch; the wrapper
+                    // re-syncs its own delta tracking to the raw keys on
+                    // this path. `want` is built from the pre-key tail —
+                    // coalescing with the tail already grown would look
+                    // like "no change" and cancel the pending insert.
+                    let want = format!("{}{}", self.tail, c);
+                    return self.per_key_coalesce(want);
+                }
                 self.tail.push(c);
                 self.note_char(c);
                 vec![Action::Forward]
@@ -465,31 +472,89 @@ impl Engine {
                 // The transformed output stays internal; the application
                 // shows the raw key until the word ends. With the per-key
                 // display the composed delta applies immediately through
-                // the inline (IM-channel) machinery.
+                // the injected transport.
                 if per_key {
-                    return self.on_edit(mode, edit);
+                    let want = if self.charset == Charset::Unicode {
+                        replace_tail(&self.tail, edit.delete_chars, &edit.insert)
+                    } else {
+                        // Legacy encodings change the character count: the
+                        // screen must hold the whole re-encoded tail.
+                        encode(self.charset, &self.wrapper.output())
+                    };
+                    return self.per_key_coalesce(want);
                 }
                 vec![Action::Forward]
             }
             Outcome::Finish {
-                word,
-                raw,
-                valid,
-                valid_prefix,
-            } => {
-                if per_key {
-                    // The word is already on screen, committed per key: the
-                    // inline finish runs only its word-end features (macro,
-                    // restore) — it commits nothing for non-preedit modes.
-                    let actions = self.on_finish(mode, word, raw, valid, valid_prefix);
-                    // The inline path notes the terminator after its finish;
-                    // the capitalize window reads it (`. t` -> `T`).
-                    self.note_char(c);
-                    return actions;
+                word, raw, valid, ..
+            } => self.on_finish_smooth(mode, word, raw, valid, c),
+        }
+    }
+
+    /// The per-key display's single in-flight batch: `want` is the text the
+    /// screen must hold once the batch lands. The diff against what the
+    /// application certainly holds (the tail minus the pending insert)
+    /// becomes extra injected Backspaces, and the pending commit's text is
+    /// REPLACED — one commit per batch, emitted by the main-loop tick past
+    /// the deadline, so deletes can never overtake it and fast typing
+    /// coalesces instead of mis-ordering. An empty diff cancels the park.
+    fn per_key_coalesce(&mut self, want: String) -> Vec<Action> {
+        let pending_len = self
+            .per_key_park
+            .as_ref()
+            .map_or(0, |(_, t)| t.chars().count());
+        let h_len = self.tail.chars().count().saturating_sub(pending_len);
+        let h: String = self.tail.chars().take(h_len).collect();
+        let common = h
+            .chars()
+            .zip(want.chars())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let d = h.chars().count() - common;
+        let insert: String = want.chars().skip(common).collect();
+        let mut actions = Vec::new();
+        if d > 0 {
+            actions.push(Action::InjectBackspaces(d as u32));
+        }
+        if insert.is_empty() {
+            // The pending insert is fully retracted: cancel the park — the
+            // deletes erase back to the common prefix on their own.
+            self.per_key_park = None;
+        } else {
+            let deadline = Instant::now() + Duration::from_millis(Self::ECHO_APPLY_GRACE_MS);
+            match &mut self.per_key_park {
+                Some((dl, text)) => {
+                    text.clear();
+                    text.push_str(&insert);
+                    *dl = deadline;
                 }
-                self.on_finish_smooth(mode, word, raw, valid, c)
+                slot @ None => *slot = Some((deadline, insert)),
             }
         }
+        self.tail = want;
+        if let Some(c) = self.tail.chars().last() {
+            self.note_char(c);
+        }
+        actions
+    }
+
+    /// The smooth modes' Backspace under the per-key display: the app holds
+    /// the coalesced batch, so the composed-space edit the wrapper produces
+    /// joins it instead of being forwarded (forwarding would delete the
+    /// engine's own commit).
+    pub(super) fn backspace_per_key(&mut self) -> Vec<Action> {
+        let Some(edit) = self.wrapper.backspace() else {
+            // Nothing composed: the app deletes its own last character.
+            self.tail = replace_tail(&self.tail, 1, "");
+            self.note_backspace_forwarded();
+            self.idle_committed = None;
+            return vec![Action::Forward];
+        };
+        if !self.wrapper.has_composition() {
+            self.release_word_mode();
+        }
+        let want = replace_tail(&self.tail, edit.delete_chars, &edit.insert);
+        self.per_key_coalesce(want)
     }
 
     /// Word end in a uinput mode: erase the latin tail with real keys and
@@ -508,7 +573,13 @@ impl Engine {
         // Taken before `note_char` below updates the flag for the next word.
         let cap = std::mem::take(&mut self.cap_word);
         self.release_word_mode();
-        self.tail.clear();
+        // Per-key display: `tail` is the text the application holds (the
+        // progressively committed word) — the word-end rewrites below erase
+        // by it, so it must survive.
+        let per_key = self.smooth_per_key && matches!(mode, Mode::Smooth | Mode::SuperSmooth);
+        if !per_key {
+            self.tail.clear();
+        }
         self.note_char(c);
 
         // Macros win, as in every mode: the expansion replaces the raw keys.
@@ -520,7 +591,12 @@ impl Engine {
 
         let word = if cap { capitalize_first(&word) } else { word };
         if word == raw || word.is_empty() {
-            // Nothing was transformed: no rewrite, no flash.
+            // Nothing was transformed: no rewrite, no flash. Per-key: the
+            // terminator still joins the in-flight batch — a forwarded key
+            // would race the pending commit.
+            if per_key {
+                return self.smooth_rewrite(mode, &raw, &word, Some(c));
+            }
             return vec![Action::Forward];
         }
 
@@ -535,13 +611,15 @@ impl Engine {
         if self.auto_restore && !valid && !dict_hit && !self.wrapper.undo_in_word() {
             self.wrapper.reset();
             // The app holds the raw keys, so auto-capitalize still needs the
-            // rewrite — otherwise the sentence starts lowercase.
+            // rewrite — otherwise the sentence starts lowercase. Per-key: the
+            // app holds the composed word, so even an unchanged `text` needs
+            // the rewrite (the coalesce diffs against what really landed).
             let text = if cap {
                 capitalize_first(&raw)
             } else {
                 raw.clone()
             };
-            if text == raw {
+            if text == raw && !per_key {
                 return vec![Action::Forward];
             }
             return self.smooth_rewrite(mode, &raw, &text, Some(c));
@@ -550,8 +628,9 @@ impl Engine {
         // Smooth (unlike Super Smooth) defers to app autofill: the app
         // appended suggestion text after the caret, and a rewrite would eat
         // it. Super Smooth rewrites regardless — minimum latency, the owner
-        // accepted the risk.
-        if mode == Mode::Smooth && self.suggestions {
+        // accepted the risk. Per-key rewrites are backward-only (the
+        // suggestion sits after the caret), so the hold-back is moot.
+        if mode == Mode::Smooth && self.suggestions && !per_key {
             self.wrapper.reset();
             return vec![Action::Forward];
         }
@@ -575,6 +654,17 @@ impl Engine {
         text: &str,
         terminator: Option<char>,
     ) -> Vec<Action> {
+        // Per-key display: the whole rewrite coalesces into the in-flight
+        // batch — the diff against what the app certainly holds becomes
+        // extra Backspaces and the pending commit's text is replaced. The
+        // terminator joins the batch too (a forwarded key would race it).
+        if self.smooth_per_key && matches!(mode, Mode::Smooth | Mode::SuperSmooth) {
+            let want = match terminator {
+                Some(c) => format!("{text}{c}"),
+                None => text.to_string(),
+            };
+            return self.per_key_coalesce(want);
+        }
         let mut actions = Vec::new();
         match mode {
             Mode::Select => {
