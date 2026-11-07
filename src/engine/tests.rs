@@ -2523,12 +2523,8 @@ fn smooth_runs_on_the_relay() {
     assert!(
         actions
             .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "việt")),
-        "{actions:?}"
-    );
-    assert!(
-        actions.iter().any(|a| matches!(a, Action::InjectChar(' '))),
-        "the terminator rides the batch: {actions:?}"
+            .any(|a| matches!(a, Action::Commit(t) if t == "việt ")),
+        "the terminator rides the parked commit: {actions:?}"
     );
     assert!(
         !actions
@@ -2539,12 +2535,13 @@ fn smooth_runs_on_the_relay() {
 }
 
 #[test]
-fn smooth_word_end_injects_the_terminator_instead_of_forwarding() {
-    // The terminator rides the injected batch (the same kernel queue as
-    // the Backspaces) so it cannot overtake them; a forwarded key raced
-    // ahead on the relay, the erase ate it and one raw letter survived
-    // ("ttiếng"). The last forward of the stream must predate the
-    // rewrite, and the terminator must come after the Backspaces.
+fn smooth_word_end_carries_the_terminator_in_the_commit() {
+    // The terminator travels inside the parked commit so it is applied
+    // strictly after the deletes; a forwarded key raced ahead of the
+    // Backspaces on the relay, the erase ate it and one raw letter
+    // survived ("ttiếng"), and the terminator's own injected-key echo
+    // never returned through the relay's ibus path at all. No key may be
+    // forwarded past the rewrite.
     let mut e = Engine::new(Method::Telex, Mode::Smooth);
     e.set_uinput_available(true);
     let actions = type_str(&mut e, "vieetj.");
@@ -2552,11 +2549,11 @@ fn smooth_word_end_injects_the_terminator_instead_of_forwarding() {
         .iter()
         .position(|a| matches!(a, Action::InjectBackspaces(_)))
         .expect("the rewrite must inject Backspaces");
-    let terminator = actions
+    let commit = actions
         .iter()
-        .position(|a| matches!(a, Action::InjectChar('.')))
-        .expect("the terminator must ride the batch: {actions:?}");
-    assert!(terminator > inject, "{actions:?}");
+        .position(|a| matches!(a, Action::Commit(t) if t == "việt."))
+        .expect("the commit must carry the word and the terminator: {actions:?}");
+    assert!(commit > inject, "{actions:?}");
     let last_forward = actions
         .iter()
         .rposition(|a| matches!(a, Action::Forward))
@@ -2753,7 +2750,7 @@ fn smooth_forwards_raw_keys_and_rewrites_at_word_end() {
         .any(|a| matches!(a, Action::InjectBackspaces(6))));
     assert!(actions
         .iter()
-        .any(|a| matches!(a, Action::Commit(t) if t == "việt")));
+        .any(|a| matches!(a, Action::Commit(t) if t == "việt ")));
     assert!(actions.iter().any(|a| matches!(a, Action::PostDelay(_))));
     assert!(!actions
         .iter()
@@ -2793,7 +2790,7 @@ fn smooth_modes_auto_capitalize_at_sentence_start() {
         assert!(
             actions
                 .iter()
-                .any(|a| matches!(a, Action::Commit(t) if t == "Tiếng")),
+                .any(|a| matches!(a, Action::Commit(t) if t == "Tiếng ")),
             "{mode:?}: the sentence must start capitalized: {actions:?}"
         );
         assert!(
@@ -2835,7 +2832,7 @@ fn select_uses_selection_then_delete() {
     assert!(actions.iter().any(|a| matches!(a, Action::PressDelete)));
     assert!(actions
         .iter()
-        .any(|a| matches!(a, Action::Commit(t) if t == "việt")));
+        .any(|a| matches!(a, Action::Commit(t) if t == "việt ")));
     assert!(
         !actions
             .iter()
@@ -2858,7 +2855,7 @@ fn super_smooth_rewrites_even_with_app_suggestions() {
         .any(|a| matches!(a, Action::InjectBackspaces(6))));
     assert!(actions
         .iter()
-        .any(|a| matches!(a, Action::Commit(t) if t == "việt")));
+        .any(|a| matches!(a, Action::Commit(t) if t == "việt ")));
 }
 
 #[test]
@@ -3307,10 +3304,6 @@ fn emoji_rewrite_in_smooth_injects_backspaces_without_the_closing_colon() {
     assert!(
         !actions.contains(&Action::Forward),
         "the closing ':' belongs to the shortcode, it must not reach the app: {actions:?}"
-    );
-    assert!(
-        !actions.contains(&Action::InjectChar(':')),
-        "the injected terminator must be stripped for shortcodes too: {actions:?}"
     );
 }
 

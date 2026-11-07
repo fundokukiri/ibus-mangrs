@@ -981,27 +981,6 @@ fn emit_with(
                     debug_log::log("press-delete FAILED: selection stays selected");
                 }
             }
-            // The uinput rewrite's terminator key: pressed after the
-            // batch's Backspaces on the same kernel queue, so it cannot
-            // overtake them on any display server.
-            Action::InjectChar(c) => {
-                if let Some((code, shift)) = crate::uinput::char_key(*c) {
-                    if (t.keys)(&[(code, shift)], bs_gap) {
-                        // The echo comes back through ibus; forward it
-                        // exactly once (take_nav_echo in the key path).
-                        engine.add_injected_nav(&[*c as u32]);
-                    } else {
-                        // Device lost mid-session: the terminator must
-                        // still reach the application — send it as text.
-                        // It is not parked: this commit does not follow
-                        // injected Backspaces (those already fell back to
-                        // the protocol delete with the device gone).
-                        out.push(signal("CommitText").append1(plain_text(&c.to_string())));
-                    }
-                } else {
-                    out.push(signal("CommitText").append1(plain_text(&c.to_string())));
-                }
-            }
             Action::Paste(text) => {
                 if (t.paste)(text, engine.clipboard_restore_delay_ms()) {
                     // Length only: the word itself is what the user just
