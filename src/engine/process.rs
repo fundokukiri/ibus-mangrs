@@ -231,12 +231,9 @@ impl Engine {
             debug_log::log("emoji shortcode: matched");
             let mode = self.effective_mode();
             if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
-                let mut actions = self.smooth_rewrite(mode, &typed, &replacement, c);
-                // smooth_rewrite's trailing terminator action delivers the
-                // word-end key; the closing ':' is part of the shortcode and
-                // must not reach the application.
-                actions.retain(|a| !matches!(a, Action::Forward | Action::InjectChar(_)));
-                return actions;
+                // None: the closing ':' is part of the shortcode and must
+                // not reach the application.
+                return self.smooth_rewrite(mode, &typed, &replacement, None);
             }
             if self.deletes_allowed() || forwards_delete(mode) {
                 actions.push(self.delete_action(
@@ -483,7 +480,7 @@ impl Engine {
         // Macros win, as in every mode: the expansion replaces the raw keys.
         if !raw.is_empty() {
             if let Some(exp) = self.expand_macro(&raw, valid) {
-                return self.smooth_rewrite(mode, &raw, &exp, c);
+                return self.smooth_rewrite(mode, &raw, &exp, Some(c));
             }
         }
 
@@ -513,7 +510,7 @@ impl Engine {
             if text == raw {
                 return vec![Action::Forward];
             }
-            return self.smooth_rewrite(mode, &raw, &text, c);
+            return self.smooth_rewrite(mode, &raw, &text, Some(c));
         }
 
         // Smooth (unlike Super Smooth) defers to app autofill: the app
@@ -525,19 +522,24 @@ impl Engine {
             return vec![Action::Forward];
         }
 
-        self.smooth_rewrite(mode, &raw, &word, c)
+        self.smooth_rewrite(mode, &raw, &word, Some(c))
     }
 
     /// The shared word-end rewrite: erase `raw` with real keys, deliver
     /// `text` over the configured Unicode channel. `terminator` is the key
-    /// that ended the word; it rides the same injected batch so it cannot
-    /// overtake the deletes on any display server.
+    /// that ended the word; it travels inside the parked commit so it is
+    /// applied strictly after the deletes on every display server (a
+    /// mutter relay delivered a forwarded terminator ahead of the
+    /// Backspaces, the erase ate it and one raw letter survived — and the
+    /// terminator's own injected-key echo never returned through the
+    /// relay's ibus path at all, so a key-event terminator is unusable
+    /// there).
     fn smooth_rewrite(
         &mut self,
         mode: Mode,
         raw: &str,
         text: &str,
-        terminator: char,
+        terminator: Option<char>,
     ) -> Vec<Action> {
         let mut actions = Vec::new();
         match mode {
@@ -559,25 +561,22 @@ impl Engine {
         }
         let encoded = encode(self.charset, text);
         match self.unicode_channel {
-            UnicodeChannel::Commit => actions.push(Action::Commit(encoded)),
-            UnicodeChannel::Clipboard => actions.push(Action::Paste(encoded)),
+            UnicodeChannel::Commit => actions.push(Action::Commit(match terminator {
+                Some(c) => format!("{encoded}{c}"),
+                None => encoded,
+            })),
+            UnicodeChannel::Clipboard => actions.push(Action::Paste(match terminator {
+                Some(c) => format!("{encoded}{c}"),
+                None => encoded,
+            })),
         }
         if self.post_delay_ms > 0 {
             actions.push(Action::PostDelay(self.post_delay_ms));
         }
         self.tail = text.to_string();
-        if let Some(c) = text.chars().last() {
-            self.note_char(c);
-        }
-        // Injected after the Backspaces on the same kernel queue, the
-        // terminator cannot overtake them; on a mutter relay a forwarded
-        // key landed first, the erase ate it and one raw letter survived.
-        // Non-injectable characters fall back to a plain forward.
-        if crate::uinput::char_key(terminator).is_some() {
-            actions.push(Action::InjectChar(terminator));
-        } else {
-            actions.push(Action::Forward);
-        }
+        // The application's last character is the terminator, not the
+        // word's — the per-key features read it from there.
+        self.note_char(terminator.unwrap_or_else(|| text.chars().last().unwrap_or(' ')));
         actions
     }
 

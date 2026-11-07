@@ -126,13 +126,6 @@ pub enum Action {
     Paste(String),
     /// Idle pause (ms) after a uinput rewrite, before the app sees more keys.
     PostDelay(u64),
-    /// Press a character key through /dev/uinput as part of a rewrite
-    /// batch (the word-end terminator of the uinput modes). Riding the
-    /// same kernel queue as the batch's Backspaces keeps it ordered with
-    /// them on every display server; on a mutter relay a forwarded key
-    /// raced ahead of the Backspaces and one raw letter survived the
-    /// erase. Its echo is forwarded like the other injected keys'.
-    InjectChar(char),
 }
 
 pub struct Engine {
