@@ -613,6 +613,12 @@ impl FakeClient {
                         .splice(self.caret..self.caret, t.chars().collect::<Vec<char>>());
                     self.caret += t.chars().count();
                 }
+                // The injected terminator is a real key press on the
+                // virtual keyboard: it lands like a forwarded key.
+                Action::InjectChar(c) => {
+                    self.buf.insert(self.caret, *c);
+                    self.caret += 1;
+                }
                 // Preedit text never sits in the application buffer; commits
                 // are the only way it lands.
                 Action::UpdatePreedit { .. } | Action::HidePreedit => {}

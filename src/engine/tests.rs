@@ -2501,29 +2501,111 @@ fn smooth_falls_back_to_preedit_without_uinput() {
 }
 
 #[test]
-fn smooth_falls_back_to_preedit_in_relay_context() {
-    // Empirical (31/10): with the gate open, 52 smooth rewrites injected
-    // fine but the rewrite products never reached the relayed app (raw
-    // latin stayed, no deletion, no commit). Relayed contexts must
-    // render as preedit.
+fn smooth_runs_on_the_relay() {
+    // The 31/10 belief ("injection never reaches a relayed app") was
+    // refuted by the 08/11 re-measurement: injection, echoes, deletes and
+    // commits all land on a mutter relay — what raced was the ordering,
+    // fixed by the parked commit and the batch-carried terminator. A
+    // relayed context now types through the uinput modes like a direct
+    // one.
     let mut e = Engine::new(Method::Telex, Mode::Smooth);
     e.set_uinput_available(true);
     // A mutter-owned IBus context (type_str would replace None).
     e.set_client(Some("gnome-shell:gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT);
-    let actions = type_str(&mut e, "vieetj");
+    let actions = type_str(&mut e, "vieetj ");
     assert!(
         actions
             .iter()
-            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
-        "relay context -> must render as preedit: {actions:?}"
+            .any(|a| matches!(a, Action::InjectBackspaces(6))),
+        "the relay must run the smooth rewrite: {actions:?}"
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "việt")),
+        "{actions:?}"
+    );
+    assert!(
+        actions.iter().any(|a| matches!(a, Action::InjectChar(' '))),
+        "the terminator rides the batch: {actions:?}"
     );
     assert!(
         !actions
             .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(_))),
-        "no uinput rewrite may be emitted on a relay: {actions:?}"
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+        "{actions:?}"
     );
+}
+
+#[test]
+fn smooth_word_end_injects_the_terminator_instead_of_forwarding() {
+    // The terminator rides the injected batch (the same kernel queue as
+    // the Backspaces) so it cannot overtake them; a forwarded key raced
+    // ahead on the relay, the erase ate it and one raw letter survived
+    // ("ttiếng"). The last forward of the stream must predate the
+    // rewrite, and the terminator must come after the Backspaces.
+    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    e.set_uinput_available(true);
+    let actions = type_str(&mut e, "vieetj.");
+    let inject = actions
+        .iter()
+        .position(|a| matches!(a, Action::InjectBackspaces(_)))
+        .expect("the rewrite must inject Backspaces");
+    let terminator = actions
+        .iter()
+        .position(|a| matches!(a, Action::InjectChar('.')))
+        .expect("the terminator must ride the batch: {actions:?}");
+    assert!(terminator > inject, "{actions:?}");
+    let last_forward = actions
+        .iter()
+        .rposition(|a| matches!(a, Action::Forward))
+        .expect("the raw keys are forwarded while typing");
+    assert!(last_forward < inject, "{actions:?}");
+}
+
+#[test]
+fn parked_commit_flushes_only_past_its_deadline() {
+    // Measured on a mutter relay (08/11): the app applies the forwarded
+    // Backspaces a beat behind the commit channel, and a commit emitted
+    // with the last echo overtook the final deletes ("titiến"). The
+    // server parks it; the main-loop tick delivers it past the deadline.
+    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    e.park_commit(
+        "tiếng".into(),
+        Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS),
+    );
+    assert!(e.has_deferred());
+    assert!(
+        e.tick().is_empty(),
+        "before the deadline nothing is deliverable"
+    );
+    assert!(
+        e.ms_until_tick().is_some(),
+        "the loop must wake for the deadline"
+    );
+    // Backdate the park deadline instead of sleeping through it.
+    let parked = std::mem::take(&mut e.timed_commits);
+    e.timed_commits = parked
+        .into_iter()
+        .map(|(_, text)| (Instant::now() - Duration::from_millis(10), text))
+        .collect();
+    assert_eq!(
+        e.tick(),
+        vec![Action::Commit("tiếng".into())],
+        "past the deadline the tick delivers the commit"
+    );
+    assert!(!e.has_deferred());
+}
+
+#[test]
+fn parked_commit_flushes_when_forced() {
+    // A focus change must not strand the parked commit: delivering late
+    // beats never (the same rule as the echo deferral).
+    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    e.park_commit("việt".into(), Duration::from_secs(60));
+    assert_eq!(e.flush_deferred(), vec!["việt".to_string()]);
+    assert!(!e.has_deferred());
 }
 
 #[test]
@@ -3225,6 +3307,10 @@ fn emoji_rewrite_in_smooth_injects_backspaces_without_the_closing_colon() {
     assert!(
         !actions.contains(&Action::Forward),
         "the closing ':' belongs to the shortcode, it must not reach the app: {actions:?}"
+    );
+    assert!(
+        !actions.contains(&Action::InjectChar(':')),
+        "the injected terminator must be stripped for shortcodes too: {actions:?}"
     );
 }
 

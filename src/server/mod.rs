@@ -613,8 +613,13 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         // application — that key press IS the deletion mechanism. Once the
         // last echo of a rewrite is forwarded, its deferred commit can go.
         if engine.take_injected_echo() {
+            // The reply carries the forwarded key out immediately; the
+            // commit must NOT ride the same dispatch — on a mutter relay
+            // the commit channel beats the key events and the commit
+            // overtook the last deletes ("titiến"). Park it for the main
+            // loop to emit after the app has applied the deletes.
             for text in engine.note_echo_forwarded() {
-                out.push(signal("CommitText").append1(plain_text(&text)));
+                engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
             }
             return false;
         }
@@ -636,6 +641,18 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         for text in engine.flush_deferred() {
             out.push(signal("CommitText").append1(plain_text(&text)));
         }
+    }
+
+    // An echo of an injected character key (the uinput rewrite's
+    // terminator): forward it once, like the editing-key echoes below.
+    // Space is not an editing key, so the check cannot live in that
+    // branch — without it the echo would run through process_char as a
+    // real terminator and the application would see the space twice.
+    if let Some(commits) = engine.take_nav_echo(keyval) {
+        for text in commits {
+            out.push(signal("CommitText").append1(plain_text(&text)));
+        }
+        return false;
     }
 
     // Arrows, Tab, Escape, Delete... end the word and belong to the app.
@@ -962,6 +979,27 @@ fn emit_with(
                     injected_total += 1;
                 } else {
                     debug_log::log("press-delete FAILED: selection stays selected");
+                }
+            }
+            // The uinput rewrite's terminator key: pressed after the
+            // batch's Backspaces on the same kernel queue, so it cannot
+            // overtake them on any display server.
+            Action::InjectChar(c) => {
+                if let Some((code, shift)) = crate::uinput::char_key(*c) {
+                    if (t.keys)(&[(code, shift)], bs_gap) {
+                        // The echo comes back through ibus; forward it
+                        // exactly once (take_nav_echo in the key path).
+                        engine.add_injected_nav(&[*c as u32]);
+                    } else {
+                        // Device lost mid-session: the terminator must
+                        // still reach the application — send it as text.
+                        // It is not parked: this commit does not follow
+                        // injected Backspaces (those already fell back to
+                        // the protocol delete with the device gone).
+                        out.push(signal("CommitText").append1(plain_text(&c.to_string())));
+                    }
+                } else {
+                    out.push(signal("CommitText").append1(plain_text(&c.to_string())));
                 }
             }
             Action::Paste(text) => {

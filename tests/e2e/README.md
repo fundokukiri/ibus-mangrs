@@ -72,8 +72,10 @@ without the wrapper automatically.
 - Capability fallback: a client without `CAP_PREEDIT_TEXT` types via commits.
 - Safety invariants: a mutter-relayed client (`gnome-shell`) without
   surrounding-text reports must never receive a protocol delete and must
-  never trigger key injection — raw keys pass through untouched; a uinput
-  mode requested on a relay must resolve to preedit (nothing pressed).
+  never trigger key injection — raw keys pass through untouched. (The uinput
+  modes now run on a relay — 08/11 re-measurement — so there is no
+  smooth-to-preedit fallback case here anymore: firing one would press real
+  keys on the live desktop, which this harness never does.)
 
 ## What is deliberately NOT covered
 
