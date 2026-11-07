@@ -538,23 +538,61 @@ impl Engine {
         actions
     }
 
-    /// The smooth modes' Backspace under the per-key display: the app holds
-    /// the coalesced batch, so the composed-space edit the wrapper produces
-    /// joins it instead of being forwarded (forwarding would delete the
-    /// engine's own commit).
+    /// The smooth modes' Backspace under the per-key display. The screen
+    /// holds the committed word, so the user's real Backspace — the one key
+    /// that never needs injecting — deletes the last character through the
+    /// pass-through path: on a mutter relay the injected Backspaces lost
+    /// their echo presses while the commit landed, and the word duplicated.
+    /// The raw↔screen mapping survives by reverse-mapping: raw keys are
+    /// popped until the recomposition matches the post-delete screen, so
+    /// later keys keep transforming the word (`tieng` BS `g` `s` still
+    /// gives `tiếng`). A word whose post-delete screen no raw prefix
+    /// reproduces (no raw keys at all — the rebuild repair path — or an
+    /// encoding that changes character counts) is released — plain text
+    /// from there, the accepted cost of dropping the injection.
     pub(super) fn backspace_per_key(&mut self) -> Vec<Action> {
-        let Some(edit) = self.wrapper.backspace() else {
-            // Nothing composed: the app deletes its own last character.
-            self.tail = replace_tail(&self.tail, 1, "");
-            self.note_backspace_forwarded();
-            self.idle_committed = None;
-            return vec![Action::Forward];
-        };
-        if !self.wrapper.has_composition() {
-            self.release_word_mode();
+        let mut actions = Vec::new();
+        // The pass-through Backspace deletes one character of the FINAL
+        // screen: land the in-flight batch first, or the key deletes a
+        // character the batch was still going to add.
+        if let Some((_, text)) = self.per_key_park.take() {
+            debug_log::log(&format!(
+                "per-key backspace lands the batch len={}",
+                text.chars().count()
+            ));
+            actions.push(Action::CommitNow(text));
         }
-        let want = replace_tail(&self.tail, edit.delete_chars, &edit.insert);
-        self.per_key_coalesce(want)
+        let target = replace_tail(&self.tail, 1, "");
+        let raw_len = self.wrapper.raw().chars().count();
+        let mut matched = false;
+        for _ in 0..raw_len {
+            if self.wrapper.backspace().is_none() {
+                break;
+            }
+            if encode(self.charset, &self.wrapper.output()) == target {
+                matched = true;
+                break;
+            }
+        }
+        if matched {
+            // Tracking survives: the recomposition IS the post-delete
+            // screen, so the next keys keep transforming the word.
+            self.tail = target;
+            if !self.wrapper.has_composition() {
+                self.release_word_mode();
+            }
+        } else {
+            // The word cannot stay tracked; reset also clears the pops a
+            // failed search left behind. The screen edit is still the
+            // user's own Backspace — the word just becomes plain text.
+            self.wrapper.reset();
+            self.release_word_mode();
+            self.tail = target;
+            self.idle_committed = None;
+        }
+        self.note_backspace_forwarded();
+        actions.push(Action::Forward);
+        actions
     }
 
     /// Word end in a uinput mode: erase the latin tail with real keys and

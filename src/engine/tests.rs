@@ -2719,10 +2719,11 @@ fn smooth_per_key_word_end_carries_the_terminator_in_the_batch() {
 }
 
 #[test]
-fn smooth_per_key_backspace_edits_the_landed_tail() {
-    // After a flush the word has landed; Backspace pops the last raw key,
-    // erases the landed tail's diff and re-parks the recomposed word:
-    // unikey mark-editing, visible immediately.
+fn smooth_per_key_backspace_forwards_and_keeps_tracking() {
+    // After a flush the word has landed; the user's real Backspace deletes
+    // its last character through the pass-through path — zero injections,
+    // the transport that loses echo presses on a relay is gone entirely.
+    // The reverse-map pops the mark key so the word stays tracked.
     let mut e = per_key_engine(Mode::Smooth);
     type_str(&mut e, "tie");
     flush_per_key(&mut e); // "tie" lands
@@ -2734,18 +2735,20 @@ fn smooth_per_key_backspace_edits_the_landed_tail() {
     flush_per_key(&mut e); // `ê` lands
     assert_eq!(e.tail, "tiê");
     let actions = e.backspace().expect("backspace");
-    // Popping the mark key recomposes `tiê` -> `tie`: the diff is a
-    // one-char replace (erase `ê`, commit `e`), not a pure delete.
-    assert!(
-        actions.contains(&Action::InjectBackspaces(1)),
-        "{actions:?}"
-    );
-    assert_eq!(e.tail, "tie");
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert!(e.per_key_park.is_none());
+    // The screen's last character (`ê`) is gone — the text-editing model:
+    // the reverse-map popped both raw `e` keys behind it.
+    assert_eq!(e.tail, "ti");
+    // Tracking survived: the retyped key appends through the batch.
+    type_str(&mut e, "e");
     assert_eq!(
         e.per_key_park.as_ref().map(|(_, t)| t.as_str()),
         Some("e"),
-        "the replacement is re-parked"
+        "the word is still tracked after the backspace"
     );
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "tie");
 }
 
 #[test]
@@ -2819,19 +2822,69 @@ fn smooth_per_key_legacy_charset_rewrites_the_tail() {
 }
 
 #[test]
-fn smooth_per_key_cancels_the_batch_on_immediate_backspace() {
-    // Type a key and Backspace before the batch lands: the park cancels
-    // outright — nothing was delivered, nothing needs erasing.
+fn smooth_per_key_backspace_lands_the_batch_before_deleting() {
+    // Backspace within the grace window: the pending batch must land first
+    // (the pass-through key deletes a character of the FINAL screen), then
+    // the real Backspace deletes its last character.
     let mut e = per_key_engine(Mode::Smooth);
-    type_str(&mut e, "e");
+    type_str(&mut e, "vie");
     assert!(e.per_key_park.is_some());
     let actions = e.backspace().expect("backspace");
-    assert!(actions.is_empty(), "{actions:?}");
+    assert_eq!(
+        actions,
+        vec![Action::CommitNow("vie".into()), Action::Forward],
+        "{actions:?}"
+    );
     assert!(e.per_key_park.is_none());
-    assert_eq!(e.tail, "");
-    assert!(
-        flush_per_key(&mut e).is_empty(),
-        "nothing to deliver after the cancel"
+    assert_eq!(e.tail, "vi");
+}
+
+#[test]
+fn smooth_per_key_backspace_keeps_tracking_across_mark_keys() {
+    // `việt` = raw `vieejt`. The Backspace deletes the screen's `t`; the
+    // reverse-map pops raw keys until the recomposition matches, so the
+    // retype restores the word and a further delete stays tracked too.
+    let mut e = per_key_engine(Mode::Smooth);
+    type_str(&mut e, "vieejt");
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "việt");
+    let actions = e.backspace().expect("backspace");
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert_eq!(e.tail, "việ");
+    // Deleting into the marked vowel: four raw keys (`t`, `j` and both
+    // `e`) map to the one screen char this Backspace removes.
+    let actions = e.backspace().expect("backspace");
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert_eq!(e.tail, "vi");
+    // Retyping the tail re-marks the whole word through one batch.
+    type_str(&mut e, "eejt");
+    assert_eq!(
+        e.per_key_park.as_ref().map(|(_, t)| t.as_str()),
+        Some("ệt"),
+        "the retype parks through the tracked word"
+    );
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "việt");
+}
+
+#[test]
+fn smooth_per_key_backspace_releases_words_it_cannot_remap() {
+    // A word with no raw keys (the surrounding-text repair rebuilds the
+    // composition from text) has no prefix to reverse-map: the word is
+    // released. The real Backspace still deletes the last character —
+    // zero injections — and the next key starts a fresh word.
+    let mut e = per_key_engine(Mode::Smooth);
+    type_str(&mut e, "tie");
+    flush_per_key(&mut e);
+    e.wrapper.rebuild("tiê");
+    let actions = e.backspace().expect("backspace");
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert_eq!(e.tail, "ti");
+    type_str(&mut e, "n");
+    assert_eq!(
+        e.per_key_park.as_ref().map(|(_, t)| t.as_str()),
+        Some("n"),
+        "the next key is a fresh word"
     );
 }
 
