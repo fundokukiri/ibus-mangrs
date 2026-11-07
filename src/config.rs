@@ -85,6 +85,12 @@ pub struct Config {
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
+    /// Second log tier: record the surrounding-text content and verify diffs
+    /// — the typed text itself. Only read while `debug_log` is on, so a
+    /// default log stays free of typed text and can be attached to a bug
+    /// report as-is. Turn both on only when reproducing a lost/wrong
+    /// character bug.
+    pub debug_log_text: bool,
     /// Allow the protocol delete for a DIRECT client (never through a mutter
     /// relay) that advertises surrounding-text support but never reported its
     /// text: X11 clients such as Sublime Text apply the delete inside their
@@ -731,6 +737,7 @@ impl Default for Config {
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,
             debug_log: false,
+            debug_log_text: false,
             x11_delete_without_report: false,
             preedit_for_xim: false,
             app_rules: default_app_rules(),

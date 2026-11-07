@@ -370,7 +370,10 @@ impl EngineHandler {
                     msg.read3::<dbus::arg::Variant<Box<dyn dbus::arg::RefArg>>, u32, u32>()
                 {
                     if let Some(s) = text_from_variant(&text) {
-                        debug_log::log(&format!(
+                        // The report content is typed text — text tier only;
+                        // `set_surrounding_with_anchor` logs cursor/len on the
+                        // decision tier.
+                        debug_log::log_text(&format!(
                             "surrounding cursor={cursor} tail={:?} text={:?}",
                             brief(engine.tail()),
                             brief(&s),
@@ -429,6 +432,7 @@ impl EngineHandler {
                 // Pick up settings changed in the GUI since the last focus.
                 let config = Config::load();
                 debug_log::set_enabled(config.debug_log);
+                debug_log::set_text_enabled(config.debug_log_text);
                 // Direct field assignment: the engine guard held by this
                 // branch borrows part of self, so the &mut self helper
                 // cannot be called here.
@@ -961,10 +965,9 @@ fn emit_with(
             }
             Action::Paste(text) => {
                 if (t.paste)(text) {
-                    debug_log::log(&format!(
-                        "paste channel: {:?}",
-                        crate::debug_log::brief(text)
-                    ));
+                    // Length only: the word itself is what the user just
+                    // typed, and the paste result is visible on screen.
+                    debug_log::log(&format!("paste channel len={}", text.chars().count()));
                     // The Ctrl+V we injected comes back as a key event; forward it.
                     engine.add_injected_nav(&[keymap::V]);
                 } else {
