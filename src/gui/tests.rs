@@ -384,6 +384,7 @@ fn refresh_round_trips_every_widget() {
         post_delay_ms: 12,
         unicode_channel: crate::config::UnicodeChannel::Clipboard,
         debug_log: true,
+        debug_log_text: true,
         x11_delete_without_report: true,
         preedit_for_xim: true,
         app_rules: vec![crate::config::AppRule {
