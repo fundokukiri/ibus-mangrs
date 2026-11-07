@@ -315,7 +315,6 @@ ibus engine ibus-mangrs
   [GPL-3.0 License](LICENSE).
 - [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Copyright (C) 2018 Luong
   Thanh Lam. [GPL-3.0 License](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file)
-- [**bamboo-core (Rust):**](https://github.com/bamboo-vi/bamboo-core) thư viện thuật toán gõ
-  tiếng Việt viết bằng Rust. [MIT License](https://github.com/bamboo-vi/bamboo-core?tab=MIT-1-ov-file)
+- [**bamboo-core (Rust):**](https://github.com/bamboo-vi/bamboo-core) Một nhân bộ gõ tiếng Việt hiệu năng cao được viết bằng ngôn ngữ Rust [MIT License](https://github.com/bamboo-vi/bamboo-core?tab=MIT-1-ov-file)
 - [**bamboo-core (Go):**](https://github.com/BambooEngine/bamboo-core) Copyright (C) 2018
   Luong Thanh Lam. [MIT License](https://github.com/BambooEngine/bamboo-core?tab=MIT-1-ov-file)
