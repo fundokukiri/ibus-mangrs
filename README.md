@@ -120,7 +120,7 @@ curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scri
 (Bơm script vào `sh` nghĩa là chạy code từ mạng — bạn nên đọc qua nó trước nếu điều đó quan
 trọng với mình.)
 
-### Từ bản checkout cục bộ
+### Cài từ mã nguồn
 
 Build, cài và khởi động lại IBus:
 
