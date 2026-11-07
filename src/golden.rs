@@ -613,6 +613,12 @@ impl FakeClient {
                         .splice(self.caret..self.caret, t.chars().collect::<Vec<char>>());
                     self.caret += t.chars().count();
                 }
+                // The per-key batch's parked commit: delivered as text.
+                Action::CommitNow(t) => {
+                    self.buf
+                        .splice(self.caret..self.caret, t.chars().collect::<Vec<char>>());
+                    self.caret += t.chars().count();
+                }
                 // Preedit text never sits in the application buffer; commits
                 // are the only way it lands.
                 Action::UpdatePreedit { .. } | Action::HidePreedit => {}

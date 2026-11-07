@@ -126,6 +126,11 @@ pub enum Action {
     Paste(String),
     /// Idle pause (ms) after a uinput rewrite, before the app sees more keys.
     PostDelay(u64),
+    /// Emit CommitText immediately, bypassing the injected-echo deferral —
+    /// the per-key batch's parked commit. Its deletes were injected and
+    /// their echoes accounted when the batch armed; a normal Commit here
+    /// would defer behind that stale count and land ~150 ms late.
+    CommitNow(String),
 }
 
 pub struct Engine {
@@ -204,6 +209,12 @@ pub struct Engine {
     /// batch even though every echo has already been forwarded; the
     /// server parks them here and the main-loop tick emits them.
     timed_commits: Vec<(Instant, String)>,
+    /// The per-key display's single in-flight batch: the parked commit
+    /// whose text each new key REPLACES (coalescing). Kept apart from
+    /// `timed_commits` so a macro/emoji park from another producer can
+    /// never be clobbered by a per-key replace. `None` = no batch in
+    /// flight; the next key starts one.
+    per_key_park: Option<(Instant, String)>,
     // --- settings, mirrors of the config file ---
     app_rules: Vec<AppRule>,
     auto_restore: bool,
@@ -383,6 +394,7 @@ impl Engine {
             last_nav_inject: None,
             nav_deferred: Vec::new(),
             timed_commits: Vec::new(),
+            per_key_park: None,
             word_mode: None,
             url_word: false,
             bypass_url: true,
@@ -843,11 +855,21 @@ impl Engine {
             ));
             text
         }));
+        if let Some((_, text)) = self.per_key_park.take() {
+            debug_log::log(&format!(
+                "flush deferred commit (per-key, forced) len={}",
+                text.chars().count()
+            ));
+            all.push(text);
+        }
         all
     }
 
     pub fn has_deferred(&self) -> bool {
-        !self.deferred.is_empty() || !self.nav_deferred.is_empty() || !self.timed_commits.is_empty()
+        !self.deferred.is_empty()
+            || !self.nav_deferred.is_empty()
+            || !self.timed_commits.is_empty()
+            || self.per_key_park.is_some()
     }
 
     /// Hold `text` back for `delay` before it may be emitted: the relay
@@ -871,6 +893,20 @@ impl Engine {
             .partition(|(deadline, _)| *deadline <= now);
         self.timed_commits = later;
         due.into_iter().map(|(_, text)| text).collect()
+    }
+
+    /// The per-key batch's parked commit, past its deadline. Emitted as
+    /// `CommitNow`: the deferral counter counts this batch's own deletes,
+    /// whose echoes have long been forwarded.
+    fn take_due_per_key_commit(&mut self) -> Option<Action> {
+        let now = Instant::now();
+        match &self.per_key_park {
+            Some((deadline, _)) if *deadline <= now => {
+                let (_, text) = self.per_key_park.take().unwrap();
+                Some(Action::CommitNow(text))
+            }
+            _ => None,
+        }
     }
 
     /// Whether the server can inject keys (called once at startup).
@@ -1474,6 +1510,10 @@ impl Engine {
             debug_log::log(&format!("timed commit flush len={}", text.chars().count()));
             actions.push(Action::Commit(text));
         }
+        if let Some(action) = self.take_due_per_key_commit() {
+            debug_log::log("timed commit flush (per-key)");
+            actions.push(action);
+        }
         if self.take_stale_injection(self.echo_stale()) {
             for text in self.flush_deferred() {
                 actions.push(Action::Commit(text));
@@ -1539,6 +1579,14 @@ impl Engine {
         // The earliest parked-commit deadline must wake the loop for its
         // timed flush.
         if let Some((deadline, _)) = self.timed_commits.iter().min_by_key(|(d, _)| *d) {
+            deadlines.push(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_millis()
+                    .max(1) as u64,
+            );
+        }
+        if let Some((deadline, _)) = &self.per_key_park {
             deadlines.push(
                 deadline
                     .saturating_duration_since(Instant::now())
