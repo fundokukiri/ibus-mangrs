@@ -746,6 +746,7 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.auto_restore);
     on_change!(ui.abbrev);
     on_change!(ui.bypass_url);
+    on_change!(ui.extra_url_chars_switch);
     on_change!(ui.em_dash);
     on_change!(ui.auto_capitalize);
     on_change!(ui.double_space);

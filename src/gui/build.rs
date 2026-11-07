@@ -88,6 +88,19 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
         ),
     );
+    let extra_url_chars_switch = switch_row(
+        &t("rows.extra_url_chars.title", "Né thêm ký tự riêng"),
+        &t(
+            "rows.extra_url_chars.subtitle",
+            "Từ đứng ngay sau ký tự bên dưới cũng giữ nguyên phím thô",
+        ),
+    );
+    let extra_url_chars_entry = adw::EntryRow::builder()
+        .use_markup(false)
+        .title(t("rows.extra_url_chars_entry.title", "Ký tự riêng"))
+        .show_apply_button(false)
+        .build();
+    extra_url_chars_entry.set_sensitive(false);
     let w2u = combo_row(
         &t("rows.w2u.title", "W thành ư"),
         &t("rows.w2u.subtitle", "Chọn vị trí áp dụng"),
@@ -536,6 +549,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         auto_restore,
         abbrev,
         bypass_url,
+        extra_url_chars_switch,
+        extra_url_chars_entry,
         w2u,
         bracket,
         em_dash,
