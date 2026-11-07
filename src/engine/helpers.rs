@@ -39,35 +39,3 @@ pub(super) fn replace_tail(tail: &str, delete: usize, insert: &str) -> String {
     s.push_str(insert);
     s
 }
-
-pub(super) fn starts_with(haystack: &[char], needle: &[char]) -> bool {
-    haystack.len() >= needle.len() && &haystack[..needle.len()] == needle
-}
-
-pub(super) fn ends_with(haystack: &[char], needle: &[char]) -> bool {
-    haystack.len() >= needle.len() && &haystack[haystack.len() - needle.len()..] == needle
-}
-
-pub(super) fn contains_sub(haystack: &[char], needle: &[char]) -> bool {
-    haystack.windows(needle.len().max(1)).any(|w| w == needle)
-}
-
-/// Distance from the end of the last occurrence of `needle` to the end of
-/// `haystack`, or `None` when it does not occur.
-pub(super) fn suffix_gap(haystack: &[char], needle: &[char]) -> Option<usize> {
-    if needle.is_empty() || haystack.len() < needle.len() {
-        return None;
-    }
-    haystack
-        .windows(needle.len())
-        .rposition(|w| w == needle)
-        .map(|i| haystack.len() - (i + needle.len()))
-}
-
-pub(super) fn common_suffix_len(a: &[char], b: &[char]) -> usize {
-    a.iter()
-        .rev()
-        .zip(b.iter().rev())
-        .take_while(|(x, y)| x == y)
-        .count()
-}
