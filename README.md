@@ -7,10 +7,11 @@
 **English** | [Tiếng Việt](vi/README-vi.md)
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
-[`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts, ten display modes (Preedit, NonPreedit, Surrounding, two
-ForwardKeyEvent modes, three uinput modes, OFF, Default Typing), a GTK4 settings window, macros,
-a custom dictionary, emoji shortcodes with a picker window, per-app rules and an editable
-panel menu.
+[`bamboo-core`](https://crates.io/crates/bamboo-core). Nine input method presets (Telex, VNI,
+VIQR, Microsoft layout and five combinations), ten display modes (Auto, Preedit, NonPreedit,
+Surrounding, three uinput modes, two ForwardKeyEvent modes, OFF), a GTK4 settings window,
+macros, a custom dictionary, emoji shortcodes with a picker at the caret, per-app rules and an
+editable panel menu.
 
 > **Platform status:** developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland;
 > X11 smoke-tested). Other distributions and desktop environments have **not** been tested yet —
@@ -21,7 +22,9 @@ panel menu.
 
 ## Features
 
-- **Four input methods**: Telex (`tieengs` → `tiếng`), VNI (`tie6ng1`), VIQR, Microsoft layout.
+- **Nine input method presets**: Telex (`tieengs` → `tiếng`), Telex 2 (`[`/`]` type ơ/ư),
+  Telex W (`z` removes the tone), Telex + VNI, Telex + VNI + VIQR, VNI (`tie6ng1`),
+  VNI for French/AZERTY keyboards, VIQR and the Microsoft layout (`ti3ng8` → `tiếng`).
 - **Eleven output charsets**: Unicode (default), Unicode NFD, TCVN3, VNI, VIQR, VISCII, VPS,
   CP1258, BKHCM, Vietware X, Vietware Full.
 - **Ten display modes** (see below), selectable per application via App Rules.
@@ -34,31 +37,34 @@ panel menu.
   auto-restore of non-Vietnamese words, raw-key bypass after URL/email/path characters
   (`/ : @ . _ ~ = # & % ?`), `w` → `ư`, `[`/`]` → `ơ`/`ư`, `--` → `—`, auto-capitalize,
   double space → period.
-- **Pending-word behavior on mouse clicks and idle** (three actions, selectable in the
-  panel): Bamboo (default — a word left idle for 800 ms commits in place and a late tone
-  key still applies the mark: `tung` + wait + `f` → `tùng`), Keep word (a click hides it,
-  clicking back restores it) and Relocate (the word is always delivered to the position
-  where it was typed). Vietnamese abbreviations stay intact (`ddc` → `đc`, `ddk` → `đk`).
+- **A click never loses the half-typed word**: the preedit is committed by the app itself when
+  it resets the input context (mouse click, focus change), so the word being composed lands in
+  the text on every interruption. Vietnamese abbreviations stay intact (`ddc` → `đc`,
+  `ddk` → `đk`, `ddt` → `đt`).
 - **Macros** with `$TIME` / `$DATE` expansion and smart capitalization; shorthand keys that are
   valid Vietnamese words never expand while you are typing that word normally.
 - **Custom dictionary**: words that must never be auto-restored.
 - **Emoji shortcodes and picker**: typing `:name:` rewrites to the emoji (off by default), and an
-  assignable hotkey opens a picker at the caret — ~1,900 built-in emoji with Vietnamese and
+  assignable hotkey opens a picker at the caret — 1,940 built-in emoji with Vietnamese and
   English keywords, navigable by keyboard (arrows, pages, digits, type-to-search, Enter). Your
   own `name = "glyph"` pairs in `~/.config/ibus-mangrs/emoji.toml` override or extend the table.
 - **Editable panel menu and custom shortcuts**: the panel menu (folders, functions, radio
   groups, separators, order, names) is redesigned in the settings window, and the shipped menu
-  stays when no design is saved; 14 functions take assignable shortcuts, plus a second hotkey
-  that toggles Vietnamese.
+  stays when no design is saved; 14 functions take assignable shortcuts, alongside four
+  built-in ones (toggle Vietnamese, cycle the display mode, the app-rule picker and the emoji
+  picker).
 - **GTK4 + libadwaita settings window** (GNOME Settings style: grouped sidebar, 11 pages,
-  Vietnamese, page search with Ctrl+F); every change hot-reloads within ~1 second.
-- **Backup/restore** of all settings as one JSON file.
-- 292 unit tests including an 894-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR + 72 extra-method rows x 3 case variants, 12 Microsoft rows); the GTK widget-scenario test adds 1 more when built with `--features gui`.
+  Vietnamese, page search that opens collapsed sections while a query is active); every change
+  hot-reloads within ~1 second.
+- **Backup/restore** of all settings — config, macros, dictionary and the emoji table — as one
+  JSON file.
+- 300 unit tests including an 894-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR + 72 extra-method rows x 3 case variants, 12 Microsoft rows); the GTK widget tests add one more when built with `--features gui` (301).
 
 ## Display modes
 
 | Mode                  | How it works                                                                            | Best for                                                                          |
 | --------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Auto                  | the engine picks the safest mode per app from what the app reports                      | set it and forget it (new from v1.1.6)                                            |
 | Preedit (default)     | word shows inline with underline, commits at word end                                   | widest compatibility                                                              |
 | Non-preedit           | every key commits immediately, tail rewritten on marks                                  | Firefox, GTK apps                                                                 |
 | Surrounding text      | non-preedit + verifies against the app's own text report                                | Sublime Text                                                                      |
@@ -68,7 +74,6 @@ panel menu.
 | ForwardKeyEvent       | non-preedit whose tail rewrite deletes with Backspace key events forwarded through IBus | apps that ignore the delete signal: Chrome, Electron, GNOME Console, Sublime Text |
 | ForwardKeyEvent II    | the same, but the tail is selected with forwarded Shift+← and the commit replaces it    | apps where a forwarded Backspace is mishandled, X11/XIM apps (JetBrains)          |
 | OFF                   | Vietnamese off, macros still work                                                       | mixed Vietnamese/English sessions                                                 |
-| Default Typing        | engine fully inert, every key forwarded                                                 | apps that resent any processing                                                   |
 
 Switch modes from the input-source menu, the settings window, an assignable cycle hotkey, or per
 app with **App Rules**. The uinput modes need `/dev/uinput` and fall back to preedit wherever
@@ -166,7 +171,7 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | ------------------------- | -------------------------------------------------------------------------------------- |
 | Toggle Vietnamese         | input-source menu → _Enable Vietnamese_, or `Super+Space`                              |
 | Open settings window      | input-source menu → _Cài đặt…_, or `ibus-engine-ibus-mangrs -gui`                      |
-| Change input method       | menu → _Input Method_ (Telex / VNI / VIQR / Microsoft), or GUI                         |
+| Change input method       | menu → _Input Method_ (9 presets), or GUI                                              |
 | Change charset            | menu → _Charset_ (11 charsets), or GUI                                                 |
 | Change display mode       | menu → _Display_ (4 modes by default; the menu is editable), or GUI (10 modes), or the cycle hotkey |
 | Display mode cycle hotkey | GUI _Phím tắt_ page → _Thứ tự khi đổi chế độ_ (e.g. `Control+Alt+v`)                   |
@@ -215,10 +220,11 @@ rule like `pattern = "jetbrains"` targets them too. Short patterns match
 broadly (`term` also matches `xterm`). `pattern = "none"` targets apps with no
 name at all — the only way to match them.
 
-**Modes:** `preedit` (default), `nonpreedit`, `surrounding`, `smooth`,
+**Modes:** `auto`, `preedit` (default), `nonpreedit`, `surrounding`, `smooth`,
 `supersmooth`, `select` (these three need `/dev/uinput` and are meant for X11),
-`forwardkeyevent`, `forwardselect` (alias `forwardkeyevent2`), `off`,
-`defaulttyping`. The two forward modes commit like `nonpreedit` but delete the
+`forwardkeyevent`, `forwardselect` (alias `forwardkeyevent2`), `off` (a config still carrying
+the removed `defaulttyping` migrates to it). The two forward modes commit like `nonpreedit`
+but delete the
 rewritten tail by forwarding key events through IBus instead of the delete
 signal, which reaches clients that ignore `DeleteSurroundingText` (Chrome,
 Electron, GNOME Console) even on Wayland, where `/dev/uinput` does not, and
@@ -268,13 +274,17 @@ for apps that reach the engine in unusual ways:
   `debug_log = true` in `config.toml`), reproduce the issue, and attach
   `~/.cache/ibus-mangrs/debug.log` — the engine logs every focus change,
   capability, keystroke decision and delete/inject with millisecond timestamps
-  cross-referenceable with `journalctl`. Never shares your typed text.
+  cross-referenceable with `journalctl`. That log records engine decisions only — cursors,
+  sizes, delete counts — never your typed text. To debug lost or wrong characters there is a
+  second switch, _Log cả nội dung đang gõ_ (`debug_log_text`), which adds the surrounding-text
+  content and the verify diffs to the same file: turn it on only while reproducing, and do
+  **not** attach that log to an issue.
 
 ## Testing
 
 ```sh
-cargo test                      # 292 unit tests, including the 894-case golden table
-cargo clippy --all-targets
+cargo test                      # 300 unit tests, including the 894-case golden table
+cargo clippy --all-targets      # (301 with --features gui)
 ```
 
 Live test against a real daemon without installing:
@@ -286,18 +296,18 @@ ibus engine ibus-mangrs
 
 ## Architecture
 
-- `src/server/` — D-Bus, message filter, panel menu, hotkeys, config watch, key transports, the emoji picker window
+- `src/server/` — D-Bus, message filter, panel menu, hotkeys, config watch, key transports, the app-rule and emoji pickers (IBus lookup tables at the caret)
 - `src/engine/` — state machine: display modes, App Rules, macros, restore, verify/repair
 - `src/bamboo_wrapper.rs` — the only code touching `bamboo-core`; computes its own output delta
 - `src/uinput.rs` — virtual keyboard: paced Backspaces, selection, Ctrl+V (US-QWERTY key table)
 - `src/paste.rs` — clipboard Unicode channel for the uinput modes (debounced restore)
 - `src/macros.rs` — macro table + custom dictionary
 - `src/emoji.rs` — shortcode tables: the embedded list and the user's `emoji.toml`
-- `src/backup.rs` — one-file JSON backup/restore of settings, macros and the dictionary
+- `src/backup.rs` — one-file JSON backup/restore: settings, macros, dictionary, emoji table
 - `src/golden.rs` — 894 keystroke→text golden cases
 - `src/ibus_prop.rs` — IBus property-menu encoding; `src/keymap.rs` — keysym decoding
-- `src/debug_log.rs` — opt-in debug log at `~/.cache/ibus-mangrs/debug.log`
-- `src/config.rs` — TOML settings shared by engine + GUI; `src/gui/` — libadwaita settings window (`gui` feature), texts from `data/gui-content.toml`
+- `src/debug_log.rs` — two-tier debug log at `~/.cache/ibus-mangrs/debug.log` (decisions only by default; typed text behind a second switch)
+- `src/config.rs` — TOML settings shared by engine + GUI; `src/gui/` — libadwaita settings window, 11 pages (`gui` feature), texts from `data/gui-content.toml`
 
 ## License
 
