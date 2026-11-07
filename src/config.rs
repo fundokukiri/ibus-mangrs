@@ -46,6 +46,11 @@ pub struct Config {
     pub capitalize_macro: bool,
     /// Expand macros even when Vietnamese processing is off.
     pub macro_in_off_mode: bool,
+    /// Let a macro win even when its key forms a valid Vietnamese word
+    /// (`cam` as a shorthand). Off by default: a real word stays a word,
+    /// and a colliding shorthand makes that word reachable only by
+    /// backspacing one key out.
+    pub macro_expand_valid_words: bool,
     /// `$TIME` expansion format (chrono strftime).
     pub time_format: String,
     /// `$DATE` expansion format (chrono strftime).
@@ -722,6 +727,7 @@ impl Default for Config {
             macro_enabled: true,
             capitalize_macro: true,
             macro_in_off_mode: false,
+            macro_expand_valid_words: false,
             time_format: "%H:%M".into(),
             date_format: "%d/%m/%Y".into(),
             dictionary_enabled: false,
