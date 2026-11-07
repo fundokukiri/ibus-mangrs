@@ -37,9 +37,10 @@ impl Engine {
         // terminator, which `note_char` already recorded.
         if !self.url_word && !self.wrapper.has_composition() {
             self.url_word = self.bypass_url
-                && self
-                    .last_char
-                    .is_some_and(|p| URL_CONTEXT_CHARS.contains(&p));
+                && self.last_char.is_some_and(|p| {
+                    URL_CONTEXT_CHARS.contains(&p)
+                        || (!self.extra_url_chars.is_empty() && self.extra_url_chars.contains(&p))
+                });
         }
         if self.url_word {
             let mut actions = Vec::new();

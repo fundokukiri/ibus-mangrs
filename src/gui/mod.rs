@@ -167,6 +167,8 @@ struct Ui {
     auto_restore: adw::SwitchRow,
     abbrev: adw::SwitchRow,
     bypass_url: adw::SwitchRow,
+    extra_url_chars_switch: adw::SwitchRow,
+    extra_url_chars_entry: adw::EntryRow,
     w2u: adw::ComboRow,
     bracket: adw::ComboRow,
     em_dash: adw::SwitchRow,
@@ -377,6 +379,18 @@ impl Ui {
         self.auto_restore.set_active(config.auto_restore);
         self.abbrev.set_active(config.abbreviations);
         self.bypass_url.set_active(config.bypass_url);
+        self.extra_url_chars_switch
+            .set_active(config.extra_url_chars_enabled);
+        self.extra_url_chars_entry
+            .set_sensitive(config.extra_url_chars_enabled);
+        // A switched-off customization shows its default (empty), not the
+        // stored string — the same shape the engine applies.
+        self.extra_url_chars_entry
+            .set_text(if config.extra_url_chars_enabled {
+                config.extra_url_chars.as_str()
+            } else {
+                ""
+            });
         self.w2u.set_selected(on_off_index(
             &config.w2u,
             W2uConfig::Disabled,
@@ -503,6 +517,8 @@ impl Ui {
         config.abbreviations = self.abbrev.is_active();
         config.hide_underline = self.hide_underline.is_active();
         config.bypass_url = self.bypass_url.is_active();
+        config.extra_url_chars_enabled = self.extra_url_chars_switch.is_active();
+        config.extra_url_chars = self.extra_url_chars_entry.text().trim().to_string();
         config.w2u = match self.w2u.selected() {
             1 => W2uConfig::NonStart,
             2 => W2uConfig::Everywhere,

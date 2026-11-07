@@ -361,6 +361,8 @@ fn refresh_round_trips_every_widget() {
         auto_correct: false,
         auto_restore: false,
         bypass_url: false,
+        extra_url_chars: "`<".into(),
+        extra_url_chars_enabled: true,
         w2u: W2uConfig::NonStart,
         bracket: BracketConfig::Everywhere,
         em_dash: true,
@@ -523,7 +525,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 20] = [
+    let rows: [&adw::SwitchRow; 21] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -531,6 +533,7 @@ fn every_switch_triggers_save() {
         &ui.auto_restore,
         &ui.abbrev,
         &ui.bypass_url,
+        &ui.extra_url_chars_switch,
         &ui.em_dash,
         &ui.auto_capitalize,
         &ui.double_space,
