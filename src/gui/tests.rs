@@ -24,6 +24,7 @@ fn gtk_widget_scenarios() {
     emoji_editor_follows_the_switch();
     toggling_off_releases_the_editor_caret();
     every_switch_triggers_save();
+    experimental_gate_hides_and_restores_rows();
 }
 
 /// While typing in a raw table, a switch turned off (by hand or by a live
@@ -587,11 +588,13 @@ fn experimental_gate_hides_and_restores_rows() {
     let macros = Macros::load();
     let dictionary = Dictionary::load();
 
-    let mut on = Config::default();
-    on.experimental_features = true;
-    on.macro_expand_valid_words = true;
-    on.extra_url_chars_enabled = true;
-    on.extra_url_chars = "`".into();
+    let on = Config {
+        experimental_features: true,
+        macro_expand_valid_words: true,
+        extra_url_chars_enabled: true,
+        extra_url_chars: "`".into(),
+        ..Config::default()
+    };
     ui.refresh(&on, &macros, &dictionary);
     assert!(ui.macro_valid_words.is_visible());
     assert!(ui.extra_url_chars_entry.is_visible());
