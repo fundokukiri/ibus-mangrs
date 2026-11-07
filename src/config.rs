@@ -102,6 +102,10 @@ pub struct Config {
     /// How the Vietnamese word reaches the app in the uinput modes:
     /// `commit` = IBus CommitText, `clipboard` = clipboard paste (Ctrl+V).
     pub unicode_channel: UnicodeChannel,
+    /// Custom clipboard restore delay after a paste (ms) — the built-in
+    /// default applies while the switch is off.
+    pub clipboard_restore_delay_enabled: bool,
+    pub clipboard_restore_delay_ms: u64,
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
@@ -761,6 +765,8 @@ impl Default for Config {
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,
+            clipboard_restore_delay_enabled: false,
+            clipboard_restore_delay_ms: 600,
             debug_log: false,
             debug_log_text: false,
             x11_delete_without_report: false,

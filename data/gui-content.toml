@@ -199,6 +199,14 @@ subtitle = "Cùng bộ . ! ? + Enter: từ ngay sau ký tự bên dưới cũng 
 title = "Ký tự kích hoạt"
 subtitle = "Ví dụ : ” — không nhận chữ, số, khoảng trắng"
 
+[rows.clipboard_restore]
+title = "Tùy chỉnh hồi clipboard"
+subtitle = "Đổi khoảng chờ trả lại clipboard cũ sau khi dán — chỉ tác dụng khi kênh là Clipboard"
+
+[rows.clipboard_restore_spin]
+title = "Hồi clipboard sau (ms)"
+subtitle = "100–5000 ms. Mặc định: 600"
+
 # --- page Gõ tắt ------------------------------------------------------------
 
 [groups.macros.settings]

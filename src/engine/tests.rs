@@ -1727,6 +1727,36 @@ fn extra_url_chars_never_accept_a_hyphen() {
 }
 
 #[test]
+fn clipboard_restore_delay_is_flag_gated() {
+    // Default: the built-in 600 ms, whatever a hand edit put in the value.
+    let e = engine(Mode::NonPreedit, Config::default());
+    assert_eq!(e.clipboard_restore_delay_ms(), 600);
+    let e = engine(
+        Mode::NonPreedit,
+        Config {
+            clipboard_restore_delay_enabled: false,
+            clipboard_restore_delay_ms: 1500,
+            ..Config::default()
+        },
+    );
+    assert_eq!(
+        e.clipboard_restore_delay_ms(),
+        600,
+        "the switch off must ignore the stored value"
+    );
+    // Switch on: the custom value applies.
+    let e = engine(
+        Mode::NonPreedit,
+        Config {
+            clipboard_restore_delay_enabled: true,
+            clipboard_restore_delay_ms: 1500,
+            ..Config::default()
+        },
+    );
+    assert_eq!(e.clipboard_restore_delay_ms(), 1500);
+}
+
+#[test]
 fn extra_capitalize_triggers_are_opt_in() {
     // Default: a colon does not start a sentence.
     for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {

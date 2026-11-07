@@ -100,6 +100,30 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         "rows.unicode_channel.subtitle",
         "Clipboard sẽ tạm ghi đè nội dung clipboard của bạn.",
     ));
+    channel.add(&ui.clipboard_restore_switch);
+    channel.add(&ui.clipboard_restore_spin);
+    decorate_experimental(&ui.clipboard_restore_switch);
+    decorate_experimental(&ui.clipboard_restore_spin);
+    // The switch gates its spin: off locks the value and resets it to the
+    // default. The save itself goes through wire_switch_saves, connected
+    // after this — the reset runs first.
+    {
+        let ui = Rc::clone(ui);
+        let switch = ui.clipboard_restore_switch.clone();
+        let spin = ui.clipboard_restore_spin.clone();
+        switch.connect_active_notify(move |sw| {
+            let on = sw.is_active();
+            spin.set_sensitive(on);
+            if !on {
+                spin.set_value(crate::paste::DEFAULT_RESTORE_DELAY_MS as f64);
+            }
+        });
+    }
+    {
+        let ui = Rc::clone(ui);
+        let spin = ui.clipboard_restore_spin.clone();
+        spin.connect_value_notify(move |_| ui.fire_save());
+    }
     page.add(&channel);
 
     // X11/XIM workarounds.

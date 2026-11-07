@@ -695,7 +695,7 @@ fn emit(engine: &mut Engine, actions: &[Action], out: &mut Vec<Message>) -> u32 
         backspaces: &|n, gap| Uinput::inject_backspaces(n, gap),
         keys: &|keys, gap| Uinput::press_keys(keys, gap),
         select_left: &|n, gap| Uinput::select_left(n, gap),
-        paste: &|text| crate::paste::paste_and_restore(text, &|| Uinput::ctrl_v()),
+        paste: &|text, delay| crate::paste::paste_and_restore(text, &|| Uinput::ctrl_v(), delay),
     };
     emit_with(engine, actions, out, &transports)
 }
@@ -712,7 +712,7 @@ struct Transports<'a> {
     backspaces: &'a dyn Fn(u32, u64) -> bool,
     keys: PressKeys<'a>,
     select_left: &'a dyn Fn(u32, u64) -> bool,
-    paste: &'a dyn Fn(&str) -> bool,
+    paste: &'a dyn Fn(&str, u64) -> bool,
 }
 
 /// `emit` with injectable transports. Tests use it to exercise the injection
@@ -965,7 +965,7 @@ fn emit_with(
                 }
             }
             Action::Paste(text) => {
-                if (t.paste)(text) {
+                if (t.paste)(text, engine.clipboard_restore_delay_ms()) {
                     // Length only: the word itself is what the user just
                     // typed, and the paste result is visible on screen.
                     debug_log::log(&format!("paste channel len={}", text.chars().count()));
@@ -1063,6 +1063,6 @@ fn fake_transports<'a>(backspaces: &'a dyn Fn(u32, u64) -> bool) -> Transports<'
         backspaces,
         keys: &|_, _| true,
         select_left: &|_, _| true,
-        paste: &|_| false,
+        paste: &|_, _| false,
     }
 }

@@ -259,6 +259,8 @@ struct Ui {
     backspace_interval: adw::SpinRow,
     post_delay: adw::SpinRow,
     unicode_channel: adw::ComboRow,
+    clipboard_restore_switch: adw::SwitchRow,
+    clipboard_restore_spin: adw::SpinRow,
     /// The panel-menu editor: the design vector is the source of truth
     /// (`read` clones it, so the round-trip holds without walking rows);
     /// the boxed list is its view, rebuilt on every edit. Folders nest one
@@ -450,6 +452,18 @@ impl Ui {
                 crate::config::UnicodeChannel::Clipboard => 1,
                 crate::config::UnicodeChannel::Commit => 0,
             });
+        self.clipboard_restore_switch
+            .set_active(config.clipboard_restore_delay_enabled);
+        self.clipboard_restore_spin
+            .set_sensitive(config.clipboard_restore_delay_enabled);
+        // A switched-off customization shows its default, not the stored
+        // value — the same shape the engine applies.
+        self.clipboard_restore_spin
+            .set_value(if config.clipboard_restore_delay_enabled {
+                config.clipboard_restore_delay_ms as f64
+            } else {
+                crate::paste::DEFAULT_RESTORE_DELAY_MS as f64
+            });
         let menu = config.menu.clone().unwrap_or_else(|| config.default_menu());
         *self.menu.borrow_mut() = normalize_menu(&menu);
         self.fill_menu_list();
@@ -564,6 +578,8 @@ impl Ui {
             1 => crate::config::UnicodeChannel::Clipboard,
             _ => crate::config::UnicodeChannel::Commit,
         };
+        config.clipboard_restore_delay_enabled = self.clipboard_restore_switch.is_active();
+        config.clipboard_restore_delay_ms = self.clipboard_restore_spin.value() as u64;
         // The designed menu tree; never empty (the editor refuses to remove
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());

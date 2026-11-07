@@ -230,6 +230,10 @@ pub struct Engine {
     post_delay_ms: u64,
     /// How the Vietnamese word reaches the app in the uinput modes.
     unicode_channel: UnicodeChannel,
+    /// Custom clipboard restore delay (ms); the built-in default applies
+    /// while the switch is off.
+    clipboard_restore_delay_enabled: bool,
+    clipboard_restore_delay_ms: u64,
     /// Display mode locked for the word being typed. The daemon flips
     /// capabilities 1ms apart around focus changes and not at all on quick
     /// refocus; re-resolving the mode mid-word flips preedit↔non-preedit
@@ -358,6 +362,8 @@ impl Engine {
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,
+            clipboard_restore_delay_enabled: false,
+            clipboard_restore_delay_ms: 600,
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -451,6 +457,8 @@ impl Engine {
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
         self.unicode_channel = config.unicode_channel;
+        self.clipboard_restore_delay_enabled = config.clipboard_restore_delay_enabled;
+        self.clipboard_restore_delay_ms = config.clipboard_restore_delay_ms;
         self.bypass_url = config.bypass_url;
         self.extra_url_chars = if config.extra_url_chars_enabled {
             // Defensive filter: `-` stays out of the start set (the `--`
@@ -557,6 +565,17 @@ impl Engine {
     /// How the Vietnamese word is delivered in the uinput modes.
     pub fn unicode_channel(&self) -> UnicodeChannel {
         self.unicode_channel
+    }
+
+    /// Effective clipboard restore delay: the custom value when the switch
+    /// is on, else the built-in default — the restore itself must always
+    /// run, or the user's clipboard stays replaced by the last word.
+    pub fn clipboard_restore_delay_ms(&self) -> u64 {
+        if self.clipboard_restore_delay_enabled {
+            self.clipboard_restore_delay_ms
+        } else {
+            crate::paste::DEFAULT_RESTORE_DELAY_MS
+        }
     }
 
     /// The client dropped the protocol delete at least once; the server

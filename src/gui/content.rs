@@ -750,6 +750,7 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.em_dash);
     on_change!(ui.auto_capitalize);
     on_change!(ui.auto_capitalize_after_switch);
+    on_change!(ui.clipboard_restore_switch);
     on_change!(ui.double_space);
     on_change!(ui.macro_enabled);
     on_change!(ui.capitalize_macro);
