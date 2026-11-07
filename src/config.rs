@@ -36,7 +36,8 @@ pub struct Config {
     /// whitespace.
     pub extra_url_chars: String,
     /// Whether `extra_url_chars` applies at all — the switch off means the
-    /// built-in set alone, whatever the string holds.
+    /// built-in set alone. The string itself stays saved in the file and
+    /// reapplies when the switch returns.
     pub extra_url_chars_enabled: bool,
     /// When a plain `w` turns into `ư` (`disabled` / `nonstart` / `everywhere`).
     pub w2u: W2uConfig,
@@ -51,7 +52,8 @@ pub struct Config {
     /// digits and whitespace are rejected when the string is read.
     pub auto_capitalize_after: String,
     /// Whether `auto_capitalize_after` applies at all — the switch off
-    /// means the built-in set alone, whatever the string holds.
+    /// means the built-in set alone. The string itself stays saved in the
+    /// file and reapplies when the switch returns.
     pub auto_capitalize_after_enabled: bool,
     /// Two spaces insert `. ` (experimental).
     pub double_space_period: bool,

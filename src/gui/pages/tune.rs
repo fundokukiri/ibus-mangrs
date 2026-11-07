@@ -104,19 +104,15 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     channel.add(&ui.clipboard_restore_spin);
     decorate_experimental(&ui.clipboard_restore_switch);
     decorate_experimental(&ui.clipboard_restore_spin);
-    // The switch gates its spin: off locks the value and resets it to the
-    // default. The save itself goes through wire_switch_saves, connected
-    // after this — the reset runs first.
+    // The switch gates its spin: off locks the input, and the engine
+    // applies the default while the typed value stays saved for when the
+    // switch returns. The save itself goes through wire_switch_saves.
     {
         let ui = Rc::clone(ui);
         let switch = ui.clipboard_restore_switch.clone();
         let spin = ui.clipboard_restore_spin.clone();
         switch.connect_active_notify(move |sw| {
-            let on = sw.is_active();
-            spin.set_sensitive(on);
-            if !on {
-                spin.set_value(crate::paste::DEFAULT_RESTORE_DELAY_MS as f64);
-            }
+            spin.set_sensitive(sw.is_active());
         });
     }
     {
@@ -135,19 +131,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     advanced.add(&ui.echo_stale_spin);
     decorate_experimental(&ui.echo_stale_switch);
     decorate_experimental(&ui.echo_stale_spin);
-    // The switch gates its spin: off locks the value and resets it to the
-    // default. The save itself goes through wire_switch_saves, connected
-    // after this — the reset runs first.
+    // Same pair shape: off locks the input, the value stays saved.
     {
         let ui = Rc::clone(ui);
         let switch = ui.echo_stale_switch.clone();
         let spin = ui.echo_stale_spin.clone();
         switch.connect_active_notify(move |sw| {
-            let on = sw.is_active();
-            spin.set_sensitive(on);
-            if !on {
-                spin.set_value(crate::engine::Engine::DEFAULT_ECHO_STALE_MS as f64);
-            }
+            spin.set_sensitive(sw.is_active());
         });
     }
     {
@@ -159,17 +149,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     advanced.add(&ui.idle_commit_spin);
     decorate_experimental(&ui.idle_commit_switch);
     decorate_experimental(&ui.idle_commit_spin);
-    // Same pair shape: the switch gates its spin.
+    // Same pair shape: off locks the input, the value stays saved.
     {
         let ui = Rc::clone(ui);
         let switch = ui.idle_commit_switch.clone();
         let spin = ui.idle_commit_spin.clone();
         switch.connect_active_notify(move |sw| {
-            let on = sw.is_active();
-            spin.set_sensitive(on);
-            if !on {
-                spin.set_value(700.0);
-            }
+            spin.set_sensitive(sw.is_active());
         });
     }
     {
