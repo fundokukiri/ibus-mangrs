@@ -1877,6 +1877,51 @@ fn repeated_letters_do_not_duplicate_in_any_mode() {
     }
 }
 
+/// Regression for the slice-based verify: a long report whose prefix ends
+/// with a fragment containing the tail far from the caret (unanchored) is
+/// ignored, never repaired.
+#[test]
+fn unanchored_tail_in_a_long_report_is_ignored() {
+    // Chrome's find bar reports a page fragment containing the word with the
+    // caret far past it; adopting that text used to delete the real input.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    type_str(&mut e, "tooi ");
+    let mut page = "t".repeat(4000);
+    page.push_str("tooi noisy fragment");
+    let len = page.chars().count();
+    e.set_surrounding(page, len as u32);
+    // The next key verifies against a report whose prefix does not end with
+    // the tail: the unanchored-tail case must ignore it, not repair.
+    let actions = type_str(&mut e, "x");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+        "{actions:?}"
+    );
+}
+
+/// The verification compares string slices now; a long report with the caret
+/// at its end (the normal healthy path) must still classify as healthy.
+#[test]
+fn long_report_with_the_tail_at_the_caret_is_healthy() {
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    type_str(&mut e, "tooi ");
+    let mut doc = "x".repeat(20_000);
+    doc.push_str("tôi ");
+    let len = doc.chars().count();
+    e.set_surrounding(doc, len as u32);
+    let actions = type_str(&mut e, "x");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::DeleteSurrounding { .. })),
+        "healthy tail must not trigger a repair: {actions:?}"
+    );
+    // The replay covers only this key: the plain commit of the typed char.
+    assert_eq!(replay(&actions), "x");
+}
+
 #[test]
 fn report_with_the_word_far_from_the_caret_is_ignored() {
     // Chrome's find bar reports a page fragment that merely contains the
