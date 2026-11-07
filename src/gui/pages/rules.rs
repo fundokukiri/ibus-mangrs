@@ -225,7 +225,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let add_rule: Rc<dyn Fn()> = {
         let ui = ui.clone();
         let mode_pick = mode_pick.clone();
-        let overlay = ui.rules_overlay.clone();
         Rc::new(move || {
             let typed = ui.rule_name_entry.text().trim().to_string();
             let pattern = if typed.is_empty() {
@@ -245,9 +244,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             });
             // Ready for the next rule; the mode choice stays.
             ui.rule_name_entry.set_text("");
-            overlay.add_toast(adw::Toast::new(
+            ui.fire_toast(
+                &ui.rules_overlay,
                 &t("rules.add_toast", "Đã thêm luật cho {app}").replace("{app}", &pattern),
-            ));
+            );
         })
     };
     {
@@ -276,7 +276,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     }
     {
         let ui = ui.clone();
-        let overlay = ui.rules_overlay.clone();
         let copy = ui.rule_copy_btn.clone();
         copy.connect_clicked(move |_| {
             let value = ui.rule_focus_value.borrow().clone();
@@ -284,9 +283,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 return;
             }
             ui.rule_name_entry.clipboard().set_text(&value);
-            overlay.add_toast(adw::Toast::new(
+            ui.fire_toast(
+                &ui.rules_overlay,
                 &t("rules.copy_toast", "Đã sao chép {app}").replace("{app}", &value),
-            ));
+            );
         });
     }
     // The preview follows typing live; mode changes and edits re-run it

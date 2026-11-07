@@ -273,20 +273,23 @@ impl Ui {
                     }
                 });
                 // Undo puts the rule back at its old slot while the toast
-                // lives, like the custom shortcuts' trash.
-                let toast = adw::Toast::new(&t("rules.deleted_toast", "Đã xóa luật"));
-                toast.set_button_label(Some(&t("misc.undo", "Hoàn tác")));
-                {
-                    let ui = ui.clone();
-                    let rule = rule.clone();
-                    toast.connect_button_clicked(move |_| {
-                        ui.edit_rules(|rules| {
-                            let at = idx.min(rules.len());
-                            rules.insert(at, rule.clone());
+                // lives, like the custom shortcuts' trash; toasts silenced,
+                // the delete just stands.
+                if ui.toasts_on() {
+                    let toast = adw::Toast::new(&t("rules.deleted_toast", "Đã xóa luật"));
+                    toast.set_button_label(Some(&t("misc.undo", "Hoàn tác")));
+                    {
+                        let ui = ui.clone();
+                        let rule = rule.clone();
+                        toast.connect_button_clicked(move |_| {
+                            ui.edit_rules(|rules| {
+                                let at = idx.min(rules.len());
+                                rules.insert(at, rule.clone());
+                            });
                         });
-                    });
+                    }
+                    ui.rules_overlay.add_toast(toast);
                 }
-                ui.rules_overlay.add_toast(toast);
             });
         }
         menu.append(&del_btn);

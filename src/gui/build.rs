@@ -318,6 +318,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Icon MăngRS Cấu hình trong lưới ứng dụng của GNOME",
         ),
     );
+    let show_toasts = switch_row(
+        &t("rows.show_toasts.title", "Thông báo nhanh"),
+        &t(
+            "rows.show_toasts.subtitle",
+            "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại",
+        ),
+    );
     let desktop_icon_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
     let suppress_save = Cell::new(false);
@@ -664,6 +671,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         rules_overlay,
         rules_loading,
         desktop_icon,
+        show_toasts,
         desktop_icon_loading,
         save_cb,
         suppress_save,
