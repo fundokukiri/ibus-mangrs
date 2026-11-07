@@ -7,10 +7,11 @@
 **Tiếng Việt** | [English](../README.md)
 
 Bộ máy gõ tiếng Việt cho **IBus**, viết bằng **Rust** trên nền
-[`bamboo-core`](https://crates.io/crates/bamboo-core). Hỗ trợ các bố cục Telex, VNI, VIQR và
-Microsoft, mười kiểu hiển thị (Preedit, NonPreedit, Surrounding, hai kiểu ForwardKeyEvent, ba
-kiểu uinput, OFF, Default Typing), cửa sổ cài đặt GTK4, macro, từ điển tùy chọn, emoji qua
-shortcode kèm bảng chọn, luật theo từng ứng dụng và menu panel tùy chỉnh được.
+[`bamboo-core`](https://crates.io/crates/bamboo-core). Chín preset kiểu gõ (Telex, VNI, VIQR,
+bố cục Microsoft và năm tổ hợp), mười kiểu hiển thị (Auto, Preedit, NonPreedit, Surrounding,
+ba kiểu uinput, hai kiểu ForwardKeyEvent, OFF), cửa sổ cài đặt GTK4, macro, từ điển tùy chọn,
+emoji qua shortcode kèm bảng chọn ngay tại con trỏ, luật theo từng ứng dụng và menu panel
+tùy chỉnh được.
 
 > **Trạng thái nền tảng:** phát triển và kiểm thử trên **Arch Linux** (IBus 1.5.34, GNOME 51,
 > Wayland; X11 đã kiểm thử nhanh). Các bản phân phối và môi trường desktop khác **chưa được
@@ -21,7 +22,9 @@ shortcode kèm bảng chọn, luật theo từng ứng dụng và menu panel tù
 
 ## Tính năng
 
-- **Bốn kiểu gõ**: Telex (`tieengs` → `tiếng`), VNI (`tie6ng1`), VIQR, bố cục Microsoft.
+- **Chín preset kiểu gõ**: Telex (`tieengs` → `tiếng`), Telex 2 (`[`/`]` gõ ơ/ư), Telex W
+  (`z` bỏ dấu thanh), Telex + VNI, Telex + VNI + VIQR, VNI (`tie6ng1`), VNI cho bàn phím
+  Pháp/AZERTY, VIQR và bố cục Microsoft (`ti3ng8` → `tiếng`).
 - **Mười một bộ bảng mã đầu ra**: Unicode (mặc định), Unicode NFD, TCVN3, VNI, VIQR, VISCII,
   VPS, CP1258, BKHCM, Vietware X, Vietware Full.
 - **Mười kiểu hiển thị** (xem bên dưới), chọn được riêng cho từng ứng dụng qua Luật ứng dụng.
@@ -34,34 +37,37 @@ shortcode kèm bảng chọn, luật theo từng ứng dụng và menu panel tù
   khôi phục từ không phải tiếng Việt, bỏ qua phím thô sau các ký tự URL/email/đường dẫn
   (`/ : @ . _ ~ = # & % ?`), `w` → `ư`, `[`/`]` → `ơ`/`ư`, `--` → `—`, tự viết hoa, hai dấu
   cách → dấu chấm.
-- **Hành vi với từ đang gõ khi nhấp chuột hoặc để máy nghỉ** (ba hành động, chọn trong menu):
-  Bamboo (mặc định — một từ để nghỉ 800 ms sẽ commit tại chỗ và phím dấu đến muộn vẫn áp dụng
-  được: `tung` + chờ + `f` → `tùng`), Giữ từ (một cú nhấp ẩn nó đi, nhấp lại sẽ khôi phục) và
-  Định vị lại (từ luôn được đưa tới đúng vị trí nó được gõ). Các từ viết tắt tiếng Việt được
-  giữ nguyên (`ddc` → `đc`, `ddk` → `đk`).
+- **Cú nhấp chuột không làm mất từ đang gõ dở**: preedit được chính ứng dụng commit khi nó
+  reset input context (nhấp chuột, đổi focus), nên từ đang soạn luôn lọt vào văn bản ở mọi
+  thời điểm gián đoạn. Các từ viết tắt tiếng Việt được giữ nguyên (`ddc` → `đc`, `ddk` →
+  `đk`, `ddt` → `đt`).
 - **Macro** với mở rộng `$TIME` / `$DATE` và viết hoa thông minh; phím tắt macro là một từ
   tiếng Việt hợp lệ thì không bao giờ tự mở rộng khi bạn đang gõ từ đó bình thường.
 - **Từ điển tùy chọn**: những từ không bao giờ bị tự khôi phục.
 - **Emoji qua shortcode và bảng chọn**: gõ `:name:` sẽ được thay bằng emoji (tắt theo mặc
-  định), và một phím tắt có thể gán mở bảng chọn ngay tại con trỏ — khoảng 1.900 emoji có sẵn
+  định), và một phím tắt có thể gán mở bảng chọn ngay tại con trỏ — 1.940 emoji có sẵn
   với từ khóa tiếng Việt và tiếng Anh, điều hướng được bằng bàn phím (mũi tên, đổi trang, chữ
   số, gõ để tìm, Enter). Các cặp `name = "glyph"` riêng trong `~/.config/ibus-mangrs/emoji.toml`
   ghi đè hoặc mở rộng bảng này.
 - **Menu panel tùy chỉnh và phím tắt riêng**: menu trên panel (thư mục, chức năng, nhóm radio,
   dấu phân cách, thứ tự, tên) được thiết kế lại trong cửa sổ cài đặt, và menu mặc định được giữ
-  nguyên khi chưa có thiết kế nào được lưu; 14 chức năng nhận phím tắt gán được, cùng một phím
-  tắt thứ hai để bật/tắt tiếng Việt.
+  nguyên khi chưa có thiết kế nào được lưu; 14 chức năng nhận phím tắt gán được, bên cạnh bốn
+  phím tắt có sẵn (bật/tắt tiếng Việt, xoay kiểu hiển thị, bảng chọn luật theo app và bảng
+  chọn emoji).
 - **Cửa sổ cài đặt GTK4 + libadwaita** (kiểu GNOME Settings: thanh bên có nhóm, 11 trang,
-  tiếng Việt, tìm kiếm trang bằng Ctrl+F); mọi thay đổi được nạp lại nóng trong khoảng 1 giây.
-- **Sao lưu/khôi phục** toàn bộ cài đặt thành một file JSON.
-- 292 unit test, trong đó có bảng golden 894 ca phím→văn bản (102 hàng Telex + 96 hàng VNI +
-  24 hàng VIQR + 72 hàng kiểu gõ bổ sung x 3 biến thể hoa/thường, 12 hàng Microsoft); một test
-  kịch bản widget GTK thêm vào khi build với `--features gui`.
+  tiếng Việt, ô tìm kiếm mở sẵn các mục đang thu gọn khi có truy vấn); mọi thay đổi được nạp
+  lại nóng trong khoảng 1 giây.
+- **Sao lưu/khôi phục** toàn bộ cài đặt — config, macro, từ điển và bảng emoji — thành một
+  file JSON.
+- 300 unit test, trong đó có bảng golden 894 ca phím→văn bản (102 hàng Telex + 96 hàng VNI +
+  24 hàng VIQR + 72 hàng kiểu gõ bổ sung x 3 biến thể hoa/thường, 12 hàng Microsoft); các test
+  widget GTK thêm một ca nữa khi build với `--features gui` (301).
 
 ## Các kiểu hiển thị
 
 | Kiểu                  | Cách hoạt động                                                                          | Phù hợp nhất với                                                                  |
 | --------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Auto                  | engine tự chọn kiểu an toàn nhất cho từng ứng dụng dựa trên những gì ứng dụng báo cáo   | đặt một lần rồi thôi (mới từ v1.1.6)                                              |
 | Preedit (mặc định)    | từ hiển thị ngay trong dòng với gạch chân, commit khi hết từ                            | tương thích rộng nhất                                                             |
 | Non-preedit           | mỗi phím commit ngay, phần đuôi được viết lại khi có dấu                                | Firefox, ứng dụng GTK                                                             |
 | Surrounding text      | non-preedit + đối chiếu với báo cáo văn bản của chính ứng dụng                          | Sublime Text                                                                      |
@@ -71,7 +77,6 @@ shortcode kèm bảng chọn, luật theo từng ứng dụng và menu panel tù
 | ForwardKeyEvent       | non-preedit nhưng phần đuôi được viết lại bằng cách xóa qua sự kiện phím Backspace chuyển tiếp qua IBus | ứng dụng bỏ qua tín hiệu xóa: Chrome, Electron, GNOME Console, Sublime Text |
 | ForwardKeyEvent II    | tương tự, nhưng phần đuôi được chọn bằng Shift+← chuyển tiếp và commit sẽ thay thế nó   | ứng dụng xử lý sai Backspace chuyển tiếp, ứng dụng X11/XIM (JetBrains)            |
 | OFF                   | tắt tiếng Việt, macro vẫn hoạt động                                                     | phiên gõ trộn tiếng Việt/tiếng Anh                                                 |
-| Default Typing        | engine hoàn toàn không can thiệp, mọi phím được chuyển tiếp                             | ứng dụng không chịu bất kỳ sự can thiệp nào                                       |
 
 Chuyển kiểu từ menu nguồn nhập, cửa sổ cài đặt, một phím tắt xoay vòng có thể gán, hoặc theo
 từng ứng dụng bằng **Luật ứng dụng**. Các kiểu uinput cần `/dev/uinput` và sẽ quay về preedit
@@ -170,7 +175,7 @@ Kiểm tra: `ls -l /dev/uinput` phải hiện `crw-rw---- root input`.
 | ------------------------- | -------------------------------------------------------------------------------------- |
 | Bật/tắt tiếng Việt        | menu nguồn nhập → _Enable Vietnamese_, hoặc `Super+Space`                              |
 | Mở cửa sổ cài đặt         | menu nguồn nhập → _Cài đặt…_, hoặc `ibus-engine-ibus-mangrs -gui`                      |
-| Đổi kiểu gõ               | menu → _Input Method_ (Telex / VNI / VIQR / Microsoft), hoặc GUI                       |
+| Đổi kiểu gõ               | menu → _Input Method_ (9 preset), hoặc GUI                                             |
 | Đổi bảng mã               | menu → _Charset_ (11 bảng mã), hoặc GUI                                                |
 | Đổi kiểu hiển thị         | menu → _Display_ (4 kiểu theo mặc định; menu tùy chỉnh được), hoặc GUI (10 kiểu), hoặc phím tắt xoay vòng |
 | Phím tắt đổi kiểu hiển thị | GUI trang _Phím tắt_ → _Thứ tự khi đổi chế độ_ (vd. `Control+Alt+v`)                  |
@@ -217,9 +222,10 @@ X11/XIM (JetBrains và các ứng dụng Java khác) chỉ báo cáo tên cố �
 Pattern ngắn khớp rộng (`term` cũng khớp `xterm`). `pattern = "none"` nhắm tới các ứng dụng
 không có tên nào cả — cách duy nhất để khớp chúng.
 
-**Các kiểu:** `preedit` (mặc định), `nonpreedit`, `surrounding`, `smooth`, `supersmooth`,
-`select` (ba kiểu này cần `/dev/uinput` và dành cho X11), `forwardkeyevent`, `forwardselect`
-(bí danh `forwardkeyevent2`), `off`, `defaulttyping`. Hai kiểu forward commit giống
+**Các kiểu:** `auto`, `preedit` (mặc định), `nonpreedit`, `surrounding`, `smooth`,
+`supersmooth`, `select` (ba kiểu này cần `/dev/uinput` và dành cho X11), `forwardkeyevent`,
+`forwardselect` (bí danh `forwardkeyevent2`), `off` (config còn giữ `defaulttyping` đã bỏ sẽ
+tự chuyển về đây). Hai kiểu forward commit giống
 `nonpreedit` nhưng xóa phần đuôi đã viết lại bằng cách chuyển tiếp sự kiện phím qua IBus
 thay vì dùng tín hiệu xóa — điều này với tới được các client bỏ qua `DeleteSurroundingText`
 (Chrome, Electron, GNOME Console) ngay cả trên Wayland, nơi `/dev/uinput` không với tới
@@ -269,13 +275,16 @@ bất thường:
   `debug_log = true` trong `config.toml`), tái hiện sự cố, và đính kèm
   `~/.cache/ibus-mangrs/debug.log` — engine ghi log mọi thay đổi focus, capability, quyết
   định xử lý phím và xóa/bơm phím với dấu thời gian đến mili giây, đối chiếu được với
-  `journalctl`. Không bao giờ chia sẻ văn bản bạn đã gõ.
+  `journalctl`. Log đó chỉ ghi quyết định của engine — con trỏ, độ dài, số lần xóa — không
+  bao giờ ghi văn bản bạn đã gõ. Để gỡ lỗi mất chữ/sai ký tự còn một công tắc thứ hai, _Log
+  cả nội dung đang gõ_ (`debug_log_text`), sẽ thêm nội dung văn bản xung quanh con trỏ và các
+  diff verify vào cùng file: chỉ bật khi đang tái hiện, và **không** đính kèm log đó lên issue.
 
 ## Kiểm thử
 
 ```sh
-cargo test                      # 292 unit test, gồm cả bảng golden 894 ca
-cargo clippy --all-targets
+cargo test                      # 300 unit test, gồm cả bảng golden 894 ca
+cargo clippy --all-targets      # (301 với --features gui)
 ```
 
 Kiểm thử trực tiếp với daemon thật mà không cần cài:
@@ -287,18 +296,18 @@ ibus engine ibus-mangrs
 
 ## Kiến trúc
 
-- `src/server/` — D-Bus, message filter, menu panel, phím tắt, theo dõi cấu hình, các key transport, cửa sổ bảng chọn emoji
+- `src/server/` — D-Bus, message filter, menu panel, phím tắt, theo dõi cấu hình, các key transport, bảng chọn luật theo app và bảng chọn emoji (IBus lookup table ngay tại con trỏ)
 - `src/engine/` — máy trạng thái: kiểu hiển thị, Luật ứng dụng, macro, khôi phục, xác minh/sửa chữa
 - `src/bamboo_wrapper.rs` — nơi duy nhất chạm vào `bamboo-core`; tự tính delta đầu ra
 - `src/uinput.rs` — bàn phím ảo: Backspace có nhịp, chọn vùng, Ctrl+V (bảng phím US-QWERTY)
 - `src/paste.rs` — kênh Unicode qua clipboard cho các kiểu uinput (khôi phục có debounce)
 - `src/macros.rs` — bảng macro + từ điển tùy chọn
 - `src/emoji.rs` — các bảng shortcode: bảng nhúng và `emoji.toml` của người dùng
-- `src/backup.rs` — sao lưu/khôi phục cài đặt, macro và từ điển trong một file JSON
+- `src/backup.rs` — sao lưu/khôi phục trong một file JSON: cài đặt, macro, từ điển, bảng emoji
 - `src/golden.rs` — 894 ca golden phím→văn bản
 - `src/ibus_prop.rs` — mã hóa menu property của IBus; `src/keymap.rs` — giải mã keysym
-- `src/debug_log.rs` — log gỡ lỗi tùy chọn tại `~/.cache/ibus-mangrs/debug.log`
-- `src/config.rs` — cài đặt TOML dùng chung bởi engine + GUI; `src/gui/` — cửa sổ cài đặt libadwaita (feature `gui`)
+- `src/debug_log.rs` — log gỡ lỗi hai tầng tại `~/.cache/ibus-mangrs/debug.log` (mặc định chỉ ghi quyết định; văn bản gõ nằm sau một công tắc thứ hai)
+- `src/config.rs` — cài đặt TOML dùng chung bởi engine + GUI; `src/gui/` — cửa sổ cài đặt libadwaita, 11 trang (feature `gui`)
 
 ## Giấy phép
 
