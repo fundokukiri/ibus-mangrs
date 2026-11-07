@@ -7,9 +7,9 @@
 [Tiếng Việt](README.md) | **English**
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
-[`bamboo-core`](https://crates.io/crates/bamboo-core). Nine input method presets (Telex, VNI,
-VIQR, Microsoft layout and five combinations), ten display modes (Auto, Preedit, NonPreedit,
-Surrounding, three uinput modes, two ForwardKeyEvent modes, OFF), a GTK4 settings window,
+[`bamboo-core`](https://crates.io/crates/bamboo-core). 9 input method presets (Telex, VNI,
+VIQR, Microsoft layout and 5 combinations), 10 display modes (Auto, Preedit, NonPreedit,
+Surrounding, 3 uinput modes, 2 ForwardKeyEvent modes, OFF), a GTK4 settings window,
 macros, a custom dictionary, emoji shortcodes with a picker at the caret, per-app rules and an
 editable panel menu.
 
@@ -22,12 +22,12 @@ editable panel menu.
 
 ## Features
 
-- **Nine input method presets**: Telex (`tieengs` → `tiếng`), Telex 2 (`[`/`]` type ơ/ư),
+- **9 input method presets**: Telex (`tieengs` → `tiếng`), Telex 2 (`[`/`]` type ơ/ư),
   Telex W (`z` removes the tone), Telex + VNI, Telex + VNI + VIQR, VNI (`tie6ng1`),
   VNI for French/AZERTY keyboards, VIQR and the Microsoft layout (`ti3ng8` → `tiếng`).
-- **Eleven output charsets**: Unicode (default), Unicode NFD, TCVN3, VNI, VIQR, VISCII, VPS,
+- **11 output charsets**: Unicode (default), Unicode NFD, TCVN3, VNI, VIQR, VISCII, VPS,
   CP1258, BKHCM, Vietware X, Vietware Full.
-- **Ten display modes** (see below), selectable per application via App Rules.
+- **10 display modes** (see below), selectable per application via App Rules.
 - **Per-app rules for Wayland-native apps** (Chrome, Firefox, Sublime Text, ...) through the
   companion GNOME Shell extension: IBus reports those apps only as an anonymous mutter relay,
   so the extension names the focused window from inside the Shell. Optional — without it rules
@@ -50,7 +50,7 @@ editable panel menu.
   own `name = "glyph"` pairs in `~/.config/ibus-mangrs/emoji.toml` override or extend the table.
 - **Editable panel menu and custom shortcuts**: the panel menu (folders, functions, radio
   groups, separators, order, names) is redesigned in the settings window, and the shipped menu
-  stays when no design is saved; 14 functions take assignable shortcuts, alongside four
+  stays when no design is saved; 14 functions take assignable shortcuts, alongside 4
   built-in ones (toggle Vietnamese, cycle the display mode, the app-rule picker and the emoji
   picker).
 - **GTK4 + libadwaita settings window** (GNOME Settings style: grouped sidebar, 11 pages,

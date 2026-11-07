@@ -7,9 +7,9 @@
 **Tiếng Việt** | [English](README-en.md)
 
 Bộ máy gõ tiếng Việt cho **IBus**, viết bằng **Rust** trên nền
-[`bamboo-core`](https://crates.io/crates/bamboo-core). Chín preset kiểu gõ (Telex, VNI, VIQR,
-bố cục Microsoft và năm tổ hợp), mười kiểu hiển thị (Auto, Preedit, NonPreedit, Surrounding,
-ba kiểu uinput, hai kiểu ForwardKeyEvent, OFF), cửa sổ cài đặt GTK4, macro, từ điển tùy chọn,
+[`bamboo-core`](https://crates.io/crates/bamboo-core). 9 preset kiểu gõ (Telex, VNI, VIQR,
+bố cục Microsoft và 5 tổ hợp), 10 kiểu hiển thị (Auto, Preedit, NonPreedit, Surrounding,
+3 kiểu uinput, 2 kiểu ForwardKeyEvent, OFF), cửa sổ cài đặt GTK4, macro, từ điển tùy chọn,
 emoji qua shortcode kèm bảng chọn ngay tại con trỏ, luật theo từng ứng dụng và menu panel
 tùy chỉnh được.
 
@@ -22,12 +22,12 @@ tùy chỉnh được.
 
 ## Tính năng
 
-- **Chín preset kiểu gõ**: Telex (`tieengs` → `tiếng`), Telex 2 (`[`/`]` gõ ơ/ư), Telex W
+- **9 preset kiểu gõ**: Telex (`tieengs` → `tiếng`), Telex 2 (`[`/`]` gõ ơ/ư), Telex W
   (`z` bỏ dấu thanh), Telex + VNI, Telex + VNI + VIQR, VNI (`tie6ng1`), VNI cho bàn phím
   Pháp/AZERTY, VIQR và bố cục Microsoft (`ti3ng8` → `tiếng`).
-- **Mười một bộ bảng mã đầu ra**: Unicode (mặc định), Unicode NFD, TCVN3, VNI, VIQR, VISCII,
+- **11 bộ bảng mã đầu ra**: Unicode (mặc định), Unicode NFD, TCVN3, VNI, VIQR, VISCII,
   VPS, CP1258, BKHCM, Vietware X, Vietware Full.
-- **Mười kiểu hiển thị** (xem bên dưới), chọn được riêng cho từng ứng dụng qua Luật ứng dụng.
+- **10 kiểu hiển thị** (xem bên dưới), chọn được riêng cho từng ứng dụng qua Luật ứng dụng.
 - **Luật theo ứng dụng cho các ứng dụng Wayland thuần** (Chrome, Firefox, Sublime Text, ...)
   thông qua extension GNOME Shell đi kèm: IBus chỉ báo cáo các ứng dụng đó như một mutter
   relay ẩn danh, nên extension sẽ định danh cửa sổ đang focus từ bên trong Shell. Tùy chọn —
@@ -51,7 +51,7 @@ tùy chỉnh được.
   ghi đè hoặc mở rộng bảng này.
 - **Menu panel tùy chỉnh và phím tắt riêng**: menu trên panel (thư mục, chức năng, nhóm radio,
   dấu phân cách, thứ tự, tên) được thiết kế lại trong cửa sổ cài đặt, và menu mặc định được giữ
-  nguyên khi chưa có thiết kế nào được lưu; 14 chức năng nhận phím tắt gán được, bên cạnh bốn
+  nguyên khi chưa có thiết kế nào được lưu; 14 chức năng nhận phím tắt gán được, bên cạnh 4
   phím tắt có sẵn (bật/tắt tiếng Việt, xoay kiểu hiển thị, bảng chọn luật theo app và bảng
   chọn emoji).
 - **Cửa sổ cài đặt GTK4 + libadwaita** (kiểu GNOME Settings: thanh bên có nhóm, 11 trang,
