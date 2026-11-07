@@ -156,6 +156,13 @@ pub struct BambooWrapper {
     /// `abbreviations` config: whether reverted non-syllable compositions
     /// get the dd→đ transform re-applied (đc, đk, đt, đg).
     abbrev: bool,
+    /// The current word's composition was kept over bamboo's raw revert (a
+    /// VNI-family digit could not extend a complete syllable, `hạo` + '6'):
+    /// bamboo sits in its raw-append bypass, the visible output is the kept
+    /// composition plus literal keys, and the word counts as valid so the
+    /// word-end auto-restore cannot resurrect the consumed digits. Cleared
+    /// with the other per-word flags on word end, reset, recomposition.
+    kept_composition: bool,
     /// True while a word is being composed (raw belongs to it).
     composing: bool,
     /// The composition output after the last operation (process, backspace,
@@ -179,6 +186,7 @@ impl BambooWrapper {
             undo_in_word: false,
             abbrev_fixed: false,
             abbrev: true,
+            kept_composition: false,
             composing: false,
             last_output: String::new(),
         }
@@ -193,6 +201,7 @@ impl BambooWrapper {
             self.last_output.clear();
             self.output_override = None;
             self.undo_in_word = false;
+            self.kept_composition = false;
             self.composing = false;
             true
         } else {
@@ -209,6 +218,7 @@ impl BambooWrapper {
             self.last_output.clear();
             self.output_override = None;
             self.undo_in_word = false;
+            self.kept_composition = false;
             self.composing = false;
             true
         } else {
@@ -223,6 +233,7 @@ impl BambooWrapper {
             self.last_output.clear();
             self.output_override = None;
             self.undo_in_word = false;
+            self.kept_composition = false;
             self.composing = false;
         }
         self.enabled = enabled;
@@ -247,18 +258,88 @@ impl BambooWrapper {
         self.composing = !raw.is_empty();
         self.undo_in_word = false;
         self.abbrev_fixed = false;
+        self.kept_composition = false;
         self.output_override = None;
         self.last_output.clear();
+        let mut output = String::new();
         for r in raw.chars() {
-            let _ = self.engine.process_key_edit(r, Mode::Vietnamese);
+            output = self.feed_compose(r);
         }
-        self.last_output = self.engine.output_str().to_string();
+        self.last_output = output;
     }
 
     /// `abbreviations` config: keep the đ in reverted non-syllable
     /// compositions (`ddc` → `đc`). See the reversion fix in `process_char`.
     pub fn set_abbreviations(&mut self, on: bool) {
         self.abbrev = on;
+    }
+
+    /// Feed one in-word key to bamboo-core and return the visible output.
+    ///
+    /// Shared by `process_char`, the `backspace` recomposition and
+    /// `replay_raw`: every path that replays raw keys must run the same
+    /// guards, or a word kept in one path resurrects its raw keys through
+    /// another (Backspace, the idle-commit re-entry).
+    fn feed_compose(&mut self, c: char) -> String {
+        // While a kept composition is live, bamboo-core sits in its raw
+        // append bypass for this word: the key lands literally on the kept
+        // word, and the engine only follows to stay in sync.
+        if self.kept_composition {
+            let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
+            let kept = format!("{}{}", self.output(), c);
+            self.output_override = Some(kept.clone());
+            return kept;
+        }
+        let prev = self.output();
+        let prev_valid_word = !prev.is_empty() && self.engine.is_valid_word();
+        let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
+        let mut new_output = self.engine.output_str().to_string();
+        // bamboo's auto_correct reverts a composition that is not a valid
+        // Vietnamese syllable back to the raw keys — and the common
+        // abbreviations are not syllables: typing `ddc` ("đc" for "được")
+        // had the dd→đ transform undone and came out as "ddc". Vietnamese
+        // abbreviations keep their đ: when the raw keys start with the `dd`
+        // rule and the composition was reverted to exactly those raw keys,
+        // re-apply the transform. Real words ("ddau" → "đau") never hit
+        // this — their compositions are valid and never reverted.
+        if self.abbrev && new_output == self.raw && self.raw.starts_with("dd") && self.raw.len() > 2
+        {
+            debug_log::log("abbreviation reverted by auto_correct → keep the đ");
+            new_output = format!("đ{}", &self.raw[2..]);
+            self.output_override = Some(new_output.clone());
+            self.abbrev_fixed = true;
+        }
+        // bamboo's auto_correct reverts the WHOLE composition to the raw
+        // keys when the total stops being a valid prefix ("hạo" + '6'). The
+        // rule layer already refused that key and appended it literally, so
+        // the revert resurrects the digits consumed as marks ("hao123456").
+        // A complete valid syllable before the key keeps its composition and
+        // the key lands literally; a partial one keeps the revert — that is
+        // what still returns Telex "street" to its raw keys. Only the
+        // digit-mark presets are covered: Telex letter tone keys keep the
+        // revert, which English typing leans on.
+        if !self.abbrev_fixed
+            && new_output == self.raw
+            && prev_valid_word
+            && self.is_digit_mark_key(c)
+            && format!("{prev}{c}") != new_output
+        {
+            debug_log::log("auto_correct reverted a complete syllable → keep it, key literal");
+            new_output = format!("{prev}{c}");
+            self.output_override = Some(new_output.clone());
+            self.kept_composition = true;
+        }
+        new_output
+    }
+
+    /// Whether `c` is a digit mark key of the VNI-family presets — the keys
+    /// that reach bamboo-core as in-word marks there.
+    fn is_digit_mark_key(&self, c: char) -> bool {
+        c.is_ascii_digit()
+            && matches!(
+                self.method,
+                Method::Vni | Method::TelexVni | Method::TelexVniViqr
+            )
     }
 
     /// Feed one character. The returned `Edit` describes how to rewrite the
@@ -326,6 +407,7 @@ impl BambooWrapper {
             self.last_output.clear();
             self.output_override = None;
             self.abbrev_fixed = false;
+            self.kept_composition = false;
             return Outcome::Finish {
                 word,
                 raw,
@@ -341,6 +423,7 @@ impl BambooWrapper {
             self.composing = true;
             self.undo_in_word = false;
             self.abbrev_fixed = false;
+            self.kept_composition = false;
         }
         self.raw.push(c);
 
@@ -348,23 +431,7 @@ impl BambooWrapper {
             return Outcome::PassThrough;
         }
 
-        let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
-        let mut new_output = self.engine.output_str().to_string();
-        // bamboo's auto_correct reverts a composition that is not a valid
-        // Vietnamese syllable back to the raw keys — and the common
-        // abbreviations are not syllables: typing `ddc` ("đc" for "được")
-        // had the dd→đ transform undone and came out as "ddc". Vietnamese
-        // abbreviations keep their đ: when the raw keys start with the `dd`
-        // rule and the composition was reverted to exactly those raw keys,
-        // re-apply the transform. Real words ("ddau" → "đau") never hit
-        // this — their compositions are valid and never reverted.
-        if self.abbrev && new_output == self.raw && self.raw.starts_with("dd") && self.raw.len() > 2
-        {
-            debug_log::log("abbreviation reverted by auto_correct → keep the đ");
-            new_output = format!("đ{}", &self.raw[2..]);
-            self.output_override = Some(new_output.clone());
-            self.abbrev_fixed = true;
-        }
+        let mut new_output = self.feed_compose(c);
         // The composition output can never be longer than the raw keystrokes
         // (marks combine characters, they never add). When it is, bamboo's
         // internal state is poisoned by an undone mark — "too" (undone "tô")
@@ -415,7 +482,7 @@ impl BambooWrapper {
                     insert: c.to_string(),
                 };
             }
-        } else if !self.abbrev_fixed {
+        } else if !self.abbrev_fixed && !self.kept_composition {
             self.output_override = None;
         }
         // Mark removed while the same base letter comes back unmarked = the
@@ -482,11 +549,14 @@ impl BambooWrapper {
         // retype-after-BS corrupted marks — open-questions #9/#10).
         self.raw.pop();
         self.engine.reset();
-        for c in self.raw.chars() {
-            let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
-        }
-        let new = self.engine.output_str().to_string();
+        // The recomposition re-derives every guard from scratch.
         self.output_override = None;
+        self.kept_composition = false;
+        let mut new = String::new();
+        let raw_chars: Vec<char> = self.raw.chars().collect();
+        for c in raw_chars {
+            new = self.feed_compose(c);
+        }
         self.last_output = new.clone();
         // undo_in_word stays: the raw keys may still contain the undo
         // sequence ("tooo"), so the poison guard must keep watching this word
@@ -536,18 +606,22 @@ impl BambooWrapper {
     /// same verdict `Outcome::Finish` carries, for word ends the engine
     /// decides itself (the idle timeout) where `process_char` is not involved.
     /// An abbreviation (`ddc` → `đc`) counts as valid: its đ must survive.
+    /// So does a kept composition (`hạo6`): restoring its raw keys would
+    /// resurrect the digits consumed as marks.
     pub fn is_valid(&self) -> bool {
-        !self.output().is_empty() && (self.abbrev_fixed || self.engine.is_valid_word())
+        !self.output().is_empty()
+            && (self.abbrev_fixed || self.kept_composition || self.engine.is_valid_word())
     }
 
     /// Valid, possibly incomplete syllable prefix — bamboo-core's
     /// `is_valid_prefix` (`IsValid(false)`), the verdict ibus-bamboo uses
     /// while typing; `is_valid` is the complete-syllable one. An abbreviation
     /// (`ddc` → `đc`) counts as a valid prefix, or the preedit would flash the
-    /// raw keys and a click would commit them. Only meaningful while a
-    /// composition is live.
+    /// raw keys and a click would commit them. Same for a kept composition
+    /// (`hạo6`). Only meaningful while a composition is live.
     pub fn is_valid_prefix(&self) -> bool {
-        !self.output().is_empty() && (self.abbrev_fixed || self.engine.is_valid_prefix())
+        !self.output().is_empty()
+            && (self.abbrev_fixed || self.kept_composition || self.engine.is_valid_prefix())
     }
 
     pub fn has_composition(&self) -> bool {
@@ -591,6 +665,7 @@ impl BambooWrapper {
         self.raw.clear();
         self.output_override = None;
         self.undo_in_word = false;
+        self.kept_composition = false;
         self.composing = false;
     }
 
@@ -887,6 +962,113 @@ mod tests {
         let mut w = wrapper(Method::Vni);
         type_str(&mut w, "tie6ng1");
         assert_eq!(w.output(), "tiếng");
+    }
+
+    #[test]
+    fn vni_digit_that_cannot_extend_keeps_the_syllable() {
+        // "hạo" + '6': the circumflex cannot apply, bamboo's auto_correct
+        // reverts the whole composition to the raw keys and resurrects the
+        // digits consumed as tones ("hao123456"). The word keeps its
+        // composed form and the key lands literally (unikey convention).
+        let mut w = wrapper(Method::Vni);
+        type_str(&mut w, "hao12345");
+        assert_eq!(w.output(), "hạo");
+        let Outcome::Edit(e) = w.process_char('6') else {
+            panic!("expected an edit");
+        };
+        assert_eq!(e.delete_chars, 0, "the word must not be rewritten");
+        assert_eq!(e.insert, "6");
+        assert_eq!(w.output(), "hạo6");
+        // The word counts as valid: no auto-restore to the raw keys.
+        if let Outcome::Finish {
+            word,
+            raw,
+            valid,
+            valid_prefix,
+        } = w.process_char(' ')
+        {
+            assert_eq!(word, "hạo6");
+            assert_eq!(raw, "hao123456");
+            assert!(valid && valid_prefix);
+        } else {
+            panic!("space must finish the word");
+        }
+    }
+
+    #[test]
+    fn kept_word_survives_later_keys_and_backspaces() {
+        let mut w = wrapper(Method::Vni);
+        type_str(&mut w, "hao123456");
+        assert_eq!(w.output(), "hạo6");
+        // The next key stays literal on the kept word.
+        type_str(&mut w, "x");
+        assert_eq!(w.output(), "hạo6x");
+        // Backspace recomposes from the raw keys: the guard re-fires.
+        w.backspace();
+        assert_eq!(w.output(), "hạo6");
+        w.backspace();
+        assert_eq!(w.output(), "hạo");
+        // The tone cycle still works on the recomposed word.
+        let _ = w.process_char('1');
+        assert_eq!(w.output(), "háo");
+    }
+
+    #[test]
+    fn combined_digit_presets_keep_the_syllable_too() {
+        for m in [Method::TelexVni, Method::TelexVniViqr] {
+            let mut w = wrapper(m);
+            type_str(&mut w, "hao12345");
+            assert_eq!(w.output(), "hạo", "{m:?}");
+            type_str(&mut w, "6");
+            assert_eq!(w.output(), "hạo6", "{m:?}");
+        }
+    }
+
+    #[test]
+    fn inapplicable_digit_stays_literal_from_scratch() {
+        // Without consumed marks the revert equals the literal append —
+        // "hao6" comes out the same either way.
+        let mut w = wrapper(Method::Vni);
+        type_str(&mut w, "hao6");
+        assert_eq!(w.output(), "hao6");
+    }
+
+    #[test]
+    fn english_digit_runs_keep_the_revert() {
+        // English typing has no consumed marks: the guard never fires and
+        // the raw keys survive verbatim.
+        let mut w = wrapper(Method::Vni);
+        type_str(&mut w, "abc123");
+        assert_eq!(w.output(), "abc123");
+        let mut w = wrapper(Method::TelexVni);
+        type_str(&mut w, "abc123");
+        assert_eq!(w.output(), "abc123");
+    }
+
+    #[test]
+    fn telex_letter_marks_keep_the_revert() {
+        // Out of scope on purpose: a Telex tone key on a complete syllable
+        // still reverts (the raw keys are what English typing leans on) —
+        // only the digit-mark presets are covered by the guard.
+        let mut w = wrapper(Method::Telex);
+        type_str(&mut w, "vieejt");
+        assert_eq!(w.output(), "việt");
+        type_str(&mut w, "f");
+        assert_eq!(w.output(), "vieejtf");
+    }
+
+    #[test]
+    fn replay_raw_applies_the_shared_guards() {
+        // The idle-commit re-entry replays the raw keys through the same
+        // feed: the abbreviation shows composed and a kept word recomposes.
+        let mut w = wrapper(Method::Telex);
+        w.replay_raw("ddc");
+        assert_eq!(w.output(), "đc");
+        assert!(w.is_valid());
+        let mut w = wrapper(Method::Vni);
+        w.replay_raw("hao123456");
+        assert_eq!(w.output(), "hạo6");
+        assert!(w.is_valid());
     }
 
     #[test]
