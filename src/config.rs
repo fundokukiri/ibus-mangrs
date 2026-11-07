@@ -46,6 +46,13 @@ pub struct Config {
     pub em_dash: bool,
     /// Capitalize the first letter after `.`, `!`, `?` and Enter.
     pub auto_capitalize: bool,
+    /// Extra characters that turn the capitalize flag on when typed directly
+    /// before a word, on top of the built-in `. ! ?` + Enter. Letters,
+    /// digits and whitespace are rejected when the string is read.
+    pub auto_capitalize_after: String,
+    /// Whether `auto_capitalize_after` applies at all — the switch off
+    /// means the built-in set alone, whatever the string holds.
+    pub auto_capitalize_after_enabled: bool,
     /// Two spaces insert `. ` (experimental).
     pub double_space_period: bool,
     /// Expand macros on word end.
@@ -733,6 +740,8 @@ impl Default for Config {
             bracket: BracketConfig::Disabled,
             em_dash: false,
             auto_capitalize: false,
+            auto_capitalize_after: String::new(),
+            auto_capitalize_after_enabled: false,
             double_space_period: false,
             macro_enabled: true,
             capitalize_macro: true,

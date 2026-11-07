@@ -173,6 +173,8 @@ struct Ui {
     bracket: adw::ComboRow,
     em_dash: adw::SwitchRow,
     auto_capitalize: adw::SwitchRow,
+    auto_capitalize_after_switch: adw::SwitchRow,
+    auto_capitalize_after_entry: adw::EntryRow,
     double_space: adw::SwitchRow,
     macro_enabled: adw::SwitchRow,
     capitalize_macro: adw::SwitchRow,
@@ -403,6 +405,18 @@ impl Ui {
         ));
         self.em_dash.set_active(config.em_dash);
         self.auto_capitalize.set_active(config.auto_capitalize);
+        self.auto_capitalize_after_switch
+            .set_active(config.auto_capitalize_after_enabled);
+        self.auto_capitalize_after_entry
+            .set_sensitive(config.auto_capitalize_after_enabled);
+        // A switched-off customization shows its default (empty), not the
+        // stored string — the same shape the engine applies.
+        self.auto_capitalize_after_entry
+            .set_text(if config.auto_capitalize_after_enabled {
+                config.auto_capitalize_after.as_str()
+            } else {
+                ""
+            });
         self.double_space.set_active(config.double_space_period);
         self.macro_enabled.set_active(config.macro_enabled);
         self.capitalize_macro.set_active(config.capitalize_macro);
@@ -531,6 +545,8 @@ impl Ui {
         };
         config.em_dash = self.em_dash.is_active();
         config.auto_capitalize = self.auto_capitalize.is_active();
+        config.auto_capitalize_after_enabled = self.auto_capitalize_after_switch.is_active();
+        config.auto_capitalize_after = self.auto_capitalize_after_entry.text().trim().to_string();
         config.double_space_period = self.double_space.is_active();
         config.macro_enabled = self.macro_enabled.is_active();
         config.capitalize_macro = self.capitalize_macro.is_active();

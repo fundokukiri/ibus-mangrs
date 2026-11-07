@@ -122,6 +122,25 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.auto_capitalize.title", "Tự viết hoa"),
         &t("rows.auto_capitalize.subtitle", "Sau . ! ? và Enter"),
     );
+    let auto_capitalize_after_switch = switch_row(
+        &t(
+            "rows.auto_capitalize_after.title",
+            "Viết hoa sau ký tự thêm",
+        ),
+        &t(
+            "rows.auto_capitalize_after.subtitle",
+            "Cùng bộ . ! ? + Enter: từ ngay sau ký tự bên dưới cũng viết hoa",
+        ),
+    );
+    let auto_capitalize_after_entry = adw::EntryRow::builder()
+        .use_markup(false)
+        .title(t(
+            "rows.auto_capitalize_after_entry.title",
+            "Ký tự kích hoạt",
+        ))
+        .show_apply_button(false)
+        .build();
+    auto_capitalize_after_entry.set_sensitive(false);
     let double_space = switch_row(
         &t(
             "rows.double_space.title",
@@ -555,6 +574,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         bracket,
         em_dash,
         auto_capitalize,
+        auto_capitalize_after_switch,
+        auto_capitalize_after_entry,
         double_space,
         macro_enabled,
         capitalize_macro,
