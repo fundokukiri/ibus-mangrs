@@ -1687,6 +1687,46 @@ fn macro_on_valid_word_is_opt_in() {
 }
 
 #[test]
+fn extra_url_char_bypass_is_opt_in() {
+    // Default: a backtick is not URL context — `` `vieejt` `` composes.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(mode, Config::default());
+        assert_eq!(type_replay(&mut e, "`vieejt` "), "`việt` ", "{mode:?}");
+        // With the character added, the word between the backticks stays raw.
+        let mut e = engine(
+            mode,
+            Config {
+                extra_url_chars_enabled: true,
+                extra_url_chars: "`".into(),
+                ..Config::default()
+            },
+        );
+        assert_eq!(type_replay(&mut e, "`vieejt` "), "`vieejt` ", "{mode:?}");
+    }
+}
+
+#[test]
+fn extra_url_chars_never_accept_a_hyphen() {
+    // `-` is filtered out of the start set so `--` keeps becoming an em
+    // dash, even when a hand-edited file smuggles it in.
+    let mut e = engine(
+        Mode::NonPreedit,
+        Config {
+            em_dash: true,
+            extra_url_chars_enabled: true,
+            extra_url_chars: "-".into(),
+            ..Config::default()
+        },
+    );
+    assert_eq!(type_replay(&mut e, "a-"), "a-", "the hyphen must stay raw");
+    assert_eq!(
+        type_replay(&mut e, "-"),
+        "—",
+        "`--` still becomes an em dash"
+    );
+}
+
+#[test]
 fn macro_rewrite_never_deletes_past_the_text() {
     // `ttlt` → "Tôi tên là Tùng": the expansion used to stay in `tail`
     // after the word ended, so backspacing part of it and typing the key

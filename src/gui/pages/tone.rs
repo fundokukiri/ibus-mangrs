@@ -32,7 +32,31 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     spelling.add(&ui.auto_correct);
     spelling.add(&ui.auto_restore);
     spelling.add(&ui.bypass_url);
+    spelling.add(&ui.extra_url_chars_switch);
+    spelling.add(&ui.extra_url_chars_entry);
     spelling.add(&ui.abbrev);
+    decorate_experimental(&ui.extra_url_chars_switch);
+    decorate_experimental(&ui.extra_url_chars_entry);
+    // The switch gates its entry: off locks the value and resets it to the
+    // default (empty). The save itself goes through wire_switch_saves,
+    // connected after this — the reset runs first.
+    {
+        let ui = Rc::clone(ui);
+        let switch = ui.extra_url_chars_switch.clone();
+        let entry = ui.extra_url_chars_entry.clone();
+        switch.connect_active_notify(move |sw| {
+            let on = sw.is_active();
+            entry.set_sensitive(on);
+            if !on {
+                entry.set_text("");
+            }
+        });
+    }
+    {
+        let ui = Rc::clone(ui);
+        let entry = ui.extra_url_chars_entry.clone();
+        entry.connect_changed(move |_| ui.fire_save());
+    }
     page.add(&spelling);
 
     let automatic = adw::PreferencesGroup::builder()

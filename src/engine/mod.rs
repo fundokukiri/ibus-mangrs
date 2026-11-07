@@ -241,6 +241,9 @@ pub struct Engine {
     url_word: bool,
     /// Keep words raw after URL/email/path characters (`bypass_url`).
     bypass_url: bool,
+    /// The filtered `extra_url_chars` — empty unless the switch is on
+    /// (see `apply_config` for the filter).
+    extra_url_chars: Vec<char>,
     /// Emoji shortcodes on: a word glued directly after `:` stays raw and a
     /// closing `:` rewrites `:name:` to the emoji (see `process_char_emoji`).
     emoji_enabled: bool,
@@ -337,6 +340,7 @@ impl Engine {
             word_mode: None,
             url_word: false,
             bypass_url: true,
+            extra_url_chars: Vec::new(),
             emoji_enabled: false,
             emoji_word: false,
             emojis: UserEmoji::load(),
@@ -426,6 +430,25 @@ impl Engine {
         self.post_delay_ms = config.post_delay_ms;
         self.unicode_channel = config.unicode_channel;
         self.bypass_url = config.bypass_url;
+        self.extra_url_chars = if config.extra_url_chars_enabled {
+            // Defensive filter: `-` stays out of the start set (the `--`
+            // em dash would break), letters/digits/spaces are not URL
+            // context, and a hand-edited file must not smuggle in a huge
+            // list — the hot path scans this vec linearly.
+            let mut chars: Vec<char> = Vec::new();
+            for c in config.extra_url_chars.chars() {
+                if c == '-' || c.is_alphanumeric() || c.is_whitespace() || chars.contains(&c) {
+                    continue;
+                }
+                chars.push(c);
+                if chars.len() >= 10 {
+                    break;
+                }
+            }
+            chars
+        } else {
+            Vec::new()
+        };
         self.emoji_enabled = config.emoji_enabled;
         self.emoji_word = false;
         self.url_word = false;
