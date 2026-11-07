@@ -240,6 +240,18 @@ pub struct Engine {
     /// word appear late in apps that never route injected keys back.
     echo_stale_enabled: bool,
     echo_stale_ms: u64,
+    /// Commit a paused preedit word after `idle_commit_ms` of no keys.
+    idle_commit_enabled: bool,
+    idle_commit_ms: u64,
+    /// When the last key reached the engine — the idle-commit clock. Only
+    /// stamped while the feature is on, so the off path costs nothing.
+    last_key_at: Option<Instant>,
+    /// The word an idle commit just committed: `(raw keys, encoded word)`.
+    /// The next word character re-enters the composition (un-commit with a
+    /// protocol delete, replay the raw keys) so the word continues as if
+    /// the pause never happened. Cleared by any terminator, backspace,
+    /// focus loss or state reset.
+    idle_committed: Option<(String, String)>,
     /// Display mode locked for the word being typed. The daemon flips
     /// capabilities 1ms apart around focus changes and not at all on quick
     /// refocus; re-resolving the mode mid-word flips preedit↔non-preedit
@@ -372,6 +384,10 @@ impl Engine {
             clipboard_restore_delay_ms: 600,
             echo_stale_enabled: false,
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
+            idle_commit_enabled: false,
+            idle_commit_ms: 700,
+            last_key_at: None,
+            idle_committed: None,
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -469,6 +485,11 @@ impl Engine {
         self.clipboard_restore_delay_ms = config.clipboard_restore_delay_ms;
         self.echo_stale_enabled = config.echo_stale_enabled;
         self.echo_stale_ms = config.echo_stale_ms;
+        self.idle_commit_enabled = config.idle_commit_enabled;
+        self.idle_commit_ms = config.idle_commit_ms;
+        if !config.idle_commit_enabled {
+            self.idle_committed = None;
+        }
         self.bypass_url = config.bypass_url;
         self.extra_url_chars = if config.extra_url_chars_enabled {
             // Defensive filter: `-` stays out of the start set (the `--`
@@ -506,6 +527,7 @@ impl Engine {
         if mode != self.mode {
             self.wrapper.reset();
             self.tail.clear();
+            self.idle_committed = None;
             self.mode = mode;
         }
     }
@@ -524,6 +546,7 @@ impl Engine {
         if charset != self.charset {
             self.wrapper.reset();
             self.tail.clear();
+            self.idle_committed = None;
             self.charset = charset;
         }
     }
@@ -1135,6 +1158,10 @@ impl Engine {
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
+        // The idle-commit clock, like process_char.
+        if self.idle_commit_enabled {
+            self.last_key_at = Some(Instant::now());
+        }
         // A word in flight follows the word-mode lock: a mid-word mode
         // re-resolution (capability flip, inline suggestions) must not send
         // the Backspace down a different branch than the keys around it —
@@ -1172,6 +1199,9 @@ impl Engine {
             // client held (an out-of-range delete, mutter aborts on it).
             self.tail = replace_tail(&self.tail, 1, "");
             self.note_backspace_forwarded();
+            // The user is erasing an idle-committed word — re-entering it
+            // would resurrect text they are deleting.
+            self.idle_committed = None;
             return None;
         };
         if !self.wrapper.has_composition() {
@@ -1305,6 +1335,7 @@ impl Engine {
         self.release_word_mode();
         self.url_word = false;
         self.emoji_word = false;
+        self.idle_committed = None;
         actions
     }
 
@@ -1364,6 +1395,10 @@ impl Engine {
     /// Server-loop tick: flush deferred commits whose injected-key echoes
     /// never came back — the uinput rewrite's commit would otherwise never
     /// land when the user simply stops typing (the word stays raw latin).
+    /// With `idle_commit` on, a preedit word left alone past the configured
+    /// pause commits here too, through the normal word-end path (macros,
+    /// auto-restore, capitalization — exactly like a terminator); the next
+    /// word character can re-enter the composition via `idle_committed`.
     pub fn tick(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
         if self.take_stale_injection(self.echo_stale()) {
@@ -1371,16 +1406,45 @@ impl Engine {
                 actions.push(Action::Commit(text));
             }
         }
+        // The floor keeps a hand-edited 0 from committing between every
+        // keystroke; the GUI range starts at 300 ms.
+        let idle_ms = self.idle_commit_ms.max(50);
+        if self.idle_commit_enabled
+            && self.preedit_commit_pending()
+            && self
+                .last_key_at
+                .is_some_and(|t| t.elapsed().as_millis() as u64 >= idle_ms)
+        {
+            let pending = self.wrapper.output().to_string();
+            let raw = self.wrapper.raw().to_string();
+            let valid = self.wrapper.is_valid();
+            let valid_prefix = self.wrapper.is_valid_prefix();
+            let mut finished = self.on_finish(
+                Mode::Preedit,
+                pending.clone(),
+                raw.clone(),
+                valid,
+                valid_prefix,
+            );
+            finished.retain(|a| !matches!(a, Action::Forward));
+            self.wrapper.reset();
+            self.tail.clear();
+            self.repair_delete = None;
+            self.release_word_mode();
+            self.idle_committed = Some((raw, encode(self.charset, &pending)));
+            debug_log::log(&format!("idle commit len={}", pending.chars().count()));
+            actions.extend(finished);
+        }
         actions
     }
 
     /// Milliseconds the main loop should wait before the next `tick` — the
-    /// lost-echo stale window, or None when nothing is pending (the loop
-    /// falls back to its 1 s poll).
+    /// lost-echo stale window, the idle-commit deadline, or None when
+    /// nothing is pending (the loop falls back to its 1 s poll).
     pub fn ms_until_tick(&self) -> Option<u64> {
         // Both echo kinds share the stale window; the earliest deadline wins.
-        let stale_ms = self.echo_stale().as_millis() as u64;
-        [
+        let stale_ms = self.echo_stale().as_millis() as u128;
+        let mut deadlines: Vec<u64> = [
             (self.pending_injected > 0)
                 .then_some(self.last_inject)
                 .flatten(),
@@ -1390,9 +1454,16 @@ impl Engine {
         ]
         .into_iter()
         .flatten()
-        .map(|t| stale_ms - t.elapsed().as_millis().min(stale_ms as u128) as u64)
-        .min()
-        .map(|ms| ms.max(1))
+        .map(|t| stale_ms as u64 - t.elapsed().as_millis().min(stale_ms) as u64)
+        .collect();
+        // The idle-commit deadline: a paused preedit word must wake the loop.
+        if self.idle_commit_enabled && self.preedit_visible && !self.wrapper.output().is_empty() {
+            if let Some(t) = self.last_key_at {
+                let idle_ms = (self.idle_commit_ms.max(50)) as u128;
+                deadlines.push(idle_ms.saturating_sub(t.elapsed().as_millis()).max(1) as u64);
+            }
+        }
+        deadlines.into_iter().min().map(|ms| ms.max(1))
     }
 
     fn hide_if_visible(&mut self) -> Vec<Action> {

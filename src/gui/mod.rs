@@ -263,6 +263,8 @@ struct Ui {
     clipboard_restore_spin: adw::SpinRow,
     echo_stale_switch: adw::SwitchRow,
     echo_stale_spin: adw::SpinRow,
+    idle_commit_switch: adw::SwitchRow,
+    idle_commit_spin: adw::SpinRow,
     /// The panel-menu editor: the design vector is the source of truth
     /// (`read` clones it, so the round-trip holds without walking rows);
     /// the boxed list is its view, rebuilt on every edit. Folders nest one
@@ -477,6 +479,17 @@ impl Ui {
             } else {
                 crate::engine::Engine::DEFAULT_ECHO_STALE_MS as f64
             });
+        self.idle_commit_switch
+            .set_active(config.idle_commit_enabled);
+        self.idle_commit_spin
+            .set_sensitive(config.idle_commit_enabled);
+        // A switched-off feature shows its default, not the stored value.
+        self.idle_commit_spin
+            .set_value(if config.idle_commit_enabled {
+                config.idle_commit_ms as f64
+            } else {
+                700.0
+            });
         let menu = config.menu.clone().unwrap_or_else(|| config.default_menu());
         *self.menu.borrow_mut() = normalize_menu(&menu);
         self.fill_menu_list();
@@ -595,6 +608,8 @@ impl Ui {
         config.clipboard_restore_delay_ms = self.clipboard_restore_spin.value() as u64;
         config.echo_stale_enabled = self.echo_stale_switch.is_active();
         config.echo_stale_ms = self.echo_stale_spin.value() as u64;
+        config.idle_commit_enabled = self.idle_commit_switch.is_active();
+        config.idle_commit_ms = self.idle_commit_spin.value() as u64;
         // The designed menu tree; never empty (the editor refuses to remove
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());

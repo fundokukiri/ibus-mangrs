@@ -6,6 +6,31 @@ use super::*;
 impl Engine {
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
+        // The idle-commit clock: only stamped while the feature is on, so
+        // the default path costs nothing.
+        if self.idle_commit_enabled {
+            self.last_key_at = Some(Instant::now());
+        }
+        // Re-enter an idle-committed word: the next word character un-commits
+        // it (a protocol delete erases the committed text) and replays the
+        // raw keys into a live composition, so the word continues as if the
+        // pause never happened. Only when the delete is provably safe AND
+        // can undo the whole word (the last report must have seen it — the
+        // clamp hard rule): otherwise the commit stays final and the key
+        // starts a fresh word. Any terminator discards the re-entry instead.
+        let mut reentry_delete: Option<Action> = None;
+        if let Some((raw, committed)) = self.idle_committed.take() {
+            let need = committed.chars().count() as u32;
+            if !crate::bamboo_wrapper::is_word_terminator(c)
+                && self.effective_mode() == Mode::Preedit
+                && self.protocol_delete_ok()
+                && self.clamp_delete(need) == need
+            {
+                debug_log::log("idle commit re-entry → un-commit and re-compose");
+                self.wrapper.replay_raw(&raw);
+                reentry_delete = Some(Action::DeleteBefore(need));
+            }
+        }
         // Emoji shortcode candidate: a word glued directly after ':' types
         // raw (the URL bypass shape) and the closing ':' rewrites it. Runs
         // even with Vietnamese processing off — shortcodes are not marks,
@@ -107,6 +132,11 @@ impl Engine {
         // still on screen (mode resolved per client, ST data arriving later),
         // clear it first so the client never shows both preedit and commits.
         let mut actions = Vec::new();
+        if let Some(del) = reentry_delete {
+            // The un-commit delete must reach the client before the preedit
+            // string that replaces the committed text.
+            actions.push(del);
+        }
         if mode != Mode::Preedit && self.preedit_visible {
             actions.push(Action::HidePreedit);
         }

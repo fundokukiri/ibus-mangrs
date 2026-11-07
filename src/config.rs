@@ -111,6 +111,11 @@ pub struct Config {
     /// lost characters; too large makes words appear late.
     pub echo_stale_enabled: bool,
     pub echo_stale_ms: u64,
+    /// Commit a paused preedit word after `idle_commit_ms` of no keys.
+    /// Off by default: the underline then holds until a terminator, which
+    /// is the behavior users know.
+    pub idle_commit_enabled: bool,
+    pub idle_commit_ms: u64,
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
@@ -774,6 +779,8 @@ impl Default for Config {
             clipboard_restore_delay_ms: 600,
             echo_stale_enabled: false,
             echo_stale_ms: 150,
+            idle_commit_enabled: false,
+            idle_commit_ms: 700,
             debug_log: false,
             debug_log_text: false,
             x11_delete_without_report: false,

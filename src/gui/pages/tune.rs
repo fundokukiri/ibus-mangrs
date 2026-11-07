@@ -155,6 +155,28 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         let spin = ui.echo_stale_spin.clone();
         spin.connect_value_notify(move |_| ui.fire_save());
     }
+    advanced.add(&ui.idle_commit_switch);
+    advanced.add(&ui.idle_commit_spin);
+    decorate_experimental(&ui.idle_commit_switch);
+    decorate_experimental(&ui.idle_commit_spin);
+    // Same pair shape: the switch gates its spin.
+    {
+        let ui = Rc::clone(ui);
+        let switch = ui.idle_commit_switch.clone();
+        let spin = ui.idle_commit_spin.clone();
+        switch.connect_active_notify(move |sw| {
+            let on = sw.is_active();
+            spin.set_sensitive(on);
+            if !on {
+                spin.set_value(700.0);
+            }
+        });
+    }
+    {
+        let ui = Rc::clone(ui);
+        let spin = ui.idle_commit_spin.clone();
+        spin.connect_value_notify(move |_| ui.fire_save());
+    }
     page.add(&advanced);
 
     // X11/XIM workarounds.
