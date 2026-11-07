@@ -1,92 +1,100 @@
 <p align="center">
-  <img src="data/logo.png" alt="MăngRS logo" width="360">
+  <img src="data/logo.png" alt="Logo MăngRS" width="360">
 </p>
 
 # MăngRS
 
-**English** | [Tiếng Việt](vi/README-vi.md)
+**Tiếng Việt** | [English](README-en.md)
 
-A Vietnamese input method engine for **IBus**, written in **Rust** on top of
-[`bamboo-core`](https://crates.io/crates/bamboo-core). Telex, VNI, VIQR and Microsoft layouts, ten display modes (Preedit, NonPreedit, Surrounding, two
-ForwardKeyEvent modes, three uinput modes, OFF, Default Typing), a GTK4 settings window, macros,
-a custom dictionary, emoji shortcodes with a picker window, per-app rules and an editable
-panel menu.
+Bộ máy gõ tiếng Việt cho **IBus**, viết bằng **Rust** trên nền
+[`bamboo-core`](https://crates.io/crates/bamboo-core). 9 preset kiểu gõ (Telex, VNI, VIQR,
+bố cục Microsoft và 5 tổ hợp), 10 kiểu hiển thị (Auto, Preedit, NonPreedit, Surrounding,
+3 kiểu uinput, 2 kiểu ForwardKeyEvent, OFF), cửa sổ cài đặt GTK4, macro, từ điển tùy chọn,
+emoji qua shortcode kèm bảng chọn ngay tại con trỏ, luật theo từng ứng dụng và menu panel
+tùy chỉnh được.
 
-> **Platform status:** developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland;
-> X11 smoke-tested). Other distributions and desktop environments have **not** been tested yet —
-> IBus ≥ 1.5 and GTK4 + libadwaita are the only hard requirements, so it should work wherever IBus works.
-> Reports from other distros are welcome.
+> **Trạng thái nền tảng:** phát triển và kiểm thử trên **Arch Linux** (IBus 1.5.34, GNOME 51,
+> Wayland; X11 đã kiểm thử nhanh). Các bản phân phối và môi trường desktop khác **chưa được
+> kiểm thử** — IBus ≥ 1.5 và GTK4 + libadwaita là các yêu cầu bắt buộc duy nhất, nên nó phải hoạt động ở
+> bất cứ đâu IBus hoạt động. Rất mong nhận phản hồi từ các distro khác.
 
 ---
 
-## Features
+## Tính năng
 
-- **Four input methods**: Telex (`tieengs` → `tiếng`), VNI (`tie6ng1`), VIQR, Microsoft layout.
-- **Eleven output charsets**: Unicode (default), Unicode NFD, TCVN3, VNI, VIQR, VISCII, VPS,
-  CP1258, BKHCM, Vietware X, Vietware Full.
-- **Ten display modes** (see below), selectable per application via App Rules.
-- **Per-app rules for Wayland-native apps** (Chrome, Firefox, Sublime Text, ...) through the
-  companion GNOME Shell extension: IBus reports those apps only as an anonymous mutter relay,
-  so the extension names the focused window from inside the Shell. Optional — without it rules
-  still match apps IBus names itself and X11 windows.
-- **Typing options**: modern tone placement (`hòa` vs traditional `hoà`), free tone marking
-  (`hoangf` → `hoàng`), auto-correction of invalid syllables (the phonotactic check),
-  auto-restore of non-Vietnamese words, raw-key bypass after URL/email/path characters
-  (`/ : @ . _ ~ = # & % ?`), `w` → `ư`, `[`/`]` → `ơ`/`ư`, `--` → `—`, auto-capitalize,
-  double space → period.
-- **Pending-word behavior on mouse clicks and idle** (three actions, selectable in the
-  panel): Bamboo (default — a word left idle for 800 ms commits in place and a late tone
-  key still applies the mark: `tung` + wait + `f` → `tùng`), Keep word (a click hides it,
-  clicking back restores it) and Relocate (the word is always delivered to the position
-  where it was typed). Vietnamese abbreviations stay intact (`ddc` → `đc`, `ddk` → `đk`).
-- **Macros** with `$TIME` / `$DATE` expansion and smart capitalization; shorthand keys that are
-  valid Vietnamese words never expand while you are typing that word normally.
-- **Custom dictionary**: words that must never be auto-restored.
-- **Emoji shortcodes and picker**: typing `:name:` rewrites to the emoji (off by default), and an
-  assignable hotkey opens a picker at the caret — ~1,900 built-in emoji with Vietnamese and
-  English keywords, navigable by keyboard (arrows, pages, digits, type-to-search, Enter). Your
-  own `name = "glyph"` pairs in `~/.config/ibus-mangrs/emoji.toml` override or extend the table.
-- **Editable panel menu and custom shortcuts**: the panel menu (folders, functions, radio
-  groups, separators, order, names) is redesigned in the settings window, and the shipped menu
-  stays when no design is saved; 14 functions take assignable shortcuts, plus a second hotkey
-  that toggles Vietnamese.
-- **GTK4 + libadwaita settings window** (GNOME Settings style: grouped sidebar, 11 pages,
-  Vietnamese, page search with Ctrl+F); every change hot-reloads within ~1 second.
-- **Backup/restore** of all settings as one JSON file.
-- 292 unit tests including a 678-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR rows x 3 case variants, 12 Microsoft rows); the GTK widget-scenario test adds 1 more when built with `--features gui`.
+- **9 preset kiểu gõ**: Telex (`tieengs` → `tiếng`), Telex 2 (`[`/`]` gõ ơ/ư), Telex W
+  (`z` bỏ dấu thanh), Telex + VNI, Telex + VNI + VIQR, VNI (`tie6ng1`), VNI cho bàn phím
+  Pháp/AZERTY, VIQR và bố cục Microsoft (`ti3ng8` → `tiếng`).
+- **11 bộ bảng mã đầu ra**: Unicode (mặc định), Unicode NFD, TCVN3, VNI, VIQR, VISCII,
+  VPS, CP1258, BKHCM, Vietware X, Vietware Full.
+- **10 kiểu hiển thị** (xem bên dưới), chọn được riêng cho từng ứng dụng qua Luật ứng dụng.
+- **Luật theo ứng dụng cho các ứng dụng Wayland thuần** (Chrome, Firefox, Sublime Text, ...)
+  thông qua extension GNOME Shell đi kèm: IBus chỉ báo cáo các ứng dụng đó như một mutter
+  relay ẩn danh, nên extension sẽ định danh cửa sổ đang focus từ bên trong Shell. Tùy chọn —
+  nếu không cài, luật vẫn khớp với các ứng dụng IBus tự định danh và các cửa sổ X11.
+- **Tùy chọn gõ**: đặt dấu theo kiểu hiện đại (`hòa`) so với kiểu truyền thống (`hoà`), đánh
+  dấu tự do (`hoangf` → `hoàng`), tự sửa âm tiết không hợp lệ (kiểm tra kết hợp âm vị), tự
+  khôi phục từ không phải tiếng Việt, bỏ qua phím thô sau các ký tự URL/email/đường dẫn
+  (`/ : @ . _ ~ = # & % ?`), `w` → `ư`, `[`/`]` → `ơ`/`ư`, `--` → `—`, tự viết hoa, hai dấu
+  cách → dấu chấm.
+- **Cú nhấp chuột không làm mất từ đang gõ dở**: preedit được chính ứng dụng commit khi nó
+  reset input context (nhấp chuột, đổi focus), nên từ đang soạn luôn lọt vào văn bản ở mọi
+  thời điểm gián đoạn. Các từ viết tắt tiếng Việt được giữ nguyên (`ddc` → `đc`, `ddk` →
+  `đk`, `ddt` → `đt`).
+- **Macro** với mở rộng `$TIME` / `$DATE` và viết hoa thông minh; phím tắt macro là một từ
+  tiếng Việt hợp lệ thì không bao giờ tự mở rộng khi bạn đang gõ từ đó bình thường.
+- **Từ điển tùy chọn**: những từ không bao giờ bị tự khôi phục.
+- **Emoji qua shortcode và bảng chọn**: gõ `:name:` sẽ được thay bằng emoji (tắt theo mặc
+  định), và một phím tắt có thể gán mở bảng chọn ngay tại con trỏ — 1.940 emoji có sẵn
+  với từ khóa tiếng Việt và tiếng Anh, điều hướng được bằng bàn phím (mũi tên, đổi trang, chữ
+  số, gõ để tìm, Enter). Các cặp `name = "glyph"` riêng trong `~/.config/ibus-mangrs/emoji.toml`
+  ghi đè hoặc mở rộng bảng này.
+- **Menu panel tùy chỉnh và phím tắt riêng**: menu trên panel (thư mục, chức năng, nhóm radio,
+  dấu phân cách, thứ tự, tên) được thiết kế lại trong cửa sổ cài đặt, và menu mặc định được giữ
+  nguyên khi chưa có thiết kế nào được lưu; 14 chức năng nhận phím tắt gán được, bên cạnh 4
+  phím tắt có sẵn (bật/tắt tiếng Việt, xoay kiểu hiển thị, bảng chọn luật theo app và bảng
+  chọn emoji).
+- **Cửa sổ cài đặt GTK4 + libadwaita** (kiểu GNOME Settings: thanh bên có nhóm, 11 trang,
+  tiếng Việt, ô tìm kiếm mở sẵn các mục đang thu gọn khi có truy vấn); mọi thay đổi được nạp
+  lại nóng trong khoảng 1 giây.
+- **Sao lưu/khôi phục** toàn bộ cài đặt — config, macro, từ điển và bảng emoji — thành một
+  file JSON.
+- 300 unit test, trong đó có bảng golden 894 ca phím→văn bản (102 hàng Telex + 96 hàng VNI +
+  24 hàng VIQR + 72 hàng kiểu gõ bổ sung x 3 biến thể hoa/thường, 12 hàng Microsoft); các test
+  widget GTK thêm một ca nữa khi build với `--features gui` (301).
 
-## Display modes
+## Các kiểu hiển thị
 
-| Mode                  | How it works                                                                            | Best for                                                                          |
+| Kiểu                  | Cách hoạt động                                                                          | Phù hợp nhất với                                                                  |
 | --------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Preedit (default)     | word shows inline with underline, commits at word end                                   | widest compatibility                                                              |
-| Non-preedit           | every key commits immediately, tail rewritten on marks                                  | Firefox, GTK apps                                                                 |
-| Surrounding text      | non-preedit + verifies against the app's own text report                                | Sublime Text                                                                      |
-| Smooth (uinput)       | raw keys forwarded while typing, latin tail erased with real Backspaces at word end     | terminals, quirky apps (X11)                                                      |
-| Super Smooth (uinput) | same, without the safety check before rewriting                                         | fast typing (X11)                                                                 |
-| Select (uinput)       | Shift+← selects the tail, Delete erases it, word commits                                | apps where Backspaces misbehave (X11)                                             |
-| ForwardKeyEvent       | non-preedit whose tail rewrite deletes with Backspace key events forwarded through IBus | apps that ignore the delete signal: Chrome, Electron, GNOME Console, Sublime Text |
-| ForwardKeyEvent II    | the same, but the tail is selected with forwarded Shift+← and the commit replaces it    | apps where a forwarded Backspace is mishandled, X11/XIM apps (JetBrains)          |
-| OFF                   | Vietnamese off, macros still work                                                       | mixed Vietnamese/English sessions                                                 |
-| Default Typing        | engine fully inert, every key forwarded                                                 | apps that resent any processing                                                   |
+| Auto                  | engine tự chọn kiểu an toàn nhất cho từng ứng dụng dựa trên những gì ứng dụng báo cáo   | đặt một lần rồi thôi (mới từ v1.1.6)                                              |
+| Preedit (mặc định)    | từ hiển thị ngay trong dòng với gạch chân, commit khi hết từ                            | tương thích rộng nhất                                                             |
+| Non-preedit           | mỗi phím commit ngay, phần đuôi được viết lại khi có dấu                                | Firefox, ứng dụng GTK                                                             |
+| Surrounding text      | non-preedit + đối chiếu với báo cáo văn bản của chính ứng dụng                          | Sublime Text                                                                      |
+| Smooth (uinput)       | phím thô được chuyển tiếp trong lúc gõ, phần đuôi latin bị xóa bằng Backspace thật khi hết từ | terminal, ứng dụng khó tính (X11)                                            |
+| Super Smooth (uinput) | như trên, nhưng bỏ bước kiểm tra an toàn trước khi viết lại                             | gõ nhanh (X11)                                                                    |
+| Select (uinput)       | Shift+← chọn phần đuôi, Delete xóa nó, từ được commit                                   | ứng dụng xử lý Backspace sai (X11)                                                |
+| ForwardKeyEvent       | non-preedit nhưng phần đuôi được viết lại bằng cách xóa qua sự kiện phím Backspace chuyển tiếp qua IBus | ứng dụng bỏ qua tín hiệu xóa: Chrome, Electron, GNOME Console, Sublime Text |
+| ForwardKeyEvent II    | tương tự, nhưng phần đuôi được chọn bằng Shift+← chuyển tiếp và commit sẽ thay thế nó   | ứng dụng xử lý sai Backspace chuyển tiếp, ứng dụng X11/XIM (JetBrains)            |
+| OFF                   | tắt tiếng Việt, macro vẫn hoạt động                                                     | phiên gõ trộn tiếng Việt/tiếng Anh                                                 |
 
-Switch modes from the input-source menu, the settings window, an assignable cycle hotkey, or per
-app with **App Rules**. The uinput modes need `/dev/uinput` and fall back to preedit wherever
-real-key injection cannot reach the application (on GNOME Wayland they resolve to preedit; they
-are intended for X11 sessions).
+Chuyển kiểu từ menu nguồn nhập, cửa sổ cài đặt, một phím tắt xoay vòng có thể gán, hoặc theo
+từng ứng dụng bằng **Luật ứng dụng**. Các kiểu uinput cần `/dev/uinput` và sẽ quay về preedit
+ở bất cứ đâu việc bơm phím thật không với tới ứng dụng (trên GNOME Wayland chúng chuyển thành
+preedit; chúng dành cho phiên X11).
 
-## Requirements
+## Yêu cầu
 
-| Distro          | Installed by the one-line installer                 |
-| --------------- | --------------------------------------------------- |
-| Arch            | `ibus` `gtk4` `libadwaita` `dbus`, `gcc` `make` `pkgconf` |
-| Debian / Ubuntu | `ibus` `libgtk-4-dev` `libadwaita-1-dev` `libdbus-1-dev`, build-essential |
-| Fedora          | `ibus` `gtk4-devel` `libadwaita-devel` `dbus-devel`, `gcc` `make` |
+| Distro          | Gói do trình cài một dòng cài                                              |
+| --------------- | -------------------------------------------------------------------------- |
+| Arch            | `ibus` `gtk4` `libadwaita` `dbus`, `gcc` `make` `pkgconf`                  |
+| Debian / Ubuntu | `ibus` `libgtk-4-dev` `libadwaita-1-dev` `libdbus-1-dev`, build-essential  |
+| Fedora          | `ibus` `gtk4-devel` `libadwaita-devel` `dbus-devel`, `gcc` `make`          |
 
-The installer detects the distro (apt / pacman / dnf), installs only what is missing and leaves
-Rust to rustup; GTK 4.10+ and libadwaita 1.5+ are required (Ubuntu 22.04 ships 4.6). Only the Arch path is tested —
-the Debian/Ubuntu and Fedora package names are the standard ones but unverified there. IBus must
-be your active input-method framework (on GNOME it is).
+Trình cài nhận diện distro (apt / pacman / dnf), chỉ cài những gói còn thiếu và để Rust cho
+rustup; cần GTK 4.10+ và libadwaita 1.5+ (Ubuntu 22.04 chỉ có GTK 4.6). Chỉ đường dẫn Arch là
+đã được kiểm thử — tên gói Debian/Ubuntu và Fedora là tên chuẩn nhưng chưa được xác minh ở đó.
+IBus phải là khung phương thức nhập đang hoạt động (trên GNOME thì mặc định đã là vậy).
 
 ## Build
 
@@ -94,26 +102,27 @@ be your active input-method framework (on GNOME it is).
 cargo build --release --features gui
 ```
 
-The engine core comes from the `bamboo-core` crate on crates.io. Source browsing of the pinned
-`v0.5.3` is available via `git submodule update --init` (optional; the build uses crates.io).
+Phần lõi engine đến từ crate `bamboo-core` trên crates.io. Có thể xem mã nguồn của bản ghim
+`v0.5.3` qua `git submodule update --init` (tùy chọn; bản build dùng crates.io).
 
-## Install
+## Cài đặt
 
-### One-line install (online)
+### Cài một dòng (online)
 
-Downloads the source, builds it and installs; missing build dependencies (IBus, GTK4, the build
-toolchain, Rust) are installed for you, so only `curl` and `sudo` are needed up front. The
-`/dev/uinput` udev rule and the `input` group are set up too:
+Tải mã nguồn, build và cài; các phụ thuộc build còn thiếu (IBus, GTK4, toolchain build, Rust)
+được cài giúp bạn, nên ban đầu chỉ cần `curl` và `sudo`. Udev rule cho `/dev/uinput` và nhóm
+`input` cũng được thiết lập sẵn:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
 ```
 
-(Piping a script to `sh` runs code from the network — review it first if that matters to you.)
+(Bơm script vào `sh` nghĩa là chạy code từ mạng — bạn nên đọc qua nó trước nếu điều đó quan
+trọng với mình.)
 
-### From a local checkout
+### Cài từ mã nguồn
 
-Build, install and restart IBus:
+Build, cài và khởi động lại IBus:
 
 ```sh
 cargo build --release --features gui
@@ -121,80 +130,79 @@ sudo ./scripts/install.sh
 ibus restart
 ```
 
-The install script copies the engine to `/usr/lib/ibus-mangrs/`, registers the component in
-`/usr/share/ibus/component/`, installs the `/dev/uinput` udev rule and adds your user to the
-`input` group (group membership takes effect at next login). Uninstall:
-`sudo ./scripts/uninstall.sh` — keeps your config.
+Script cài đặt sao chép engine vào `/usr/lib/ibus-mangrs/`, đăng ký component vào
+`/usr/share/ibus/component/`, cài udev rule cho `/dev/uinput` và thêm người dùng của bạn vào
+nhóm `input` (thành viên nhóm có hiệu lực ở lần đăng nhập kế tiếp). Gỡ cài đặt:
+`sudo ./scripts/uninstall.sh` — giữ lại cấu hình của bạn.
 
-Arch package (uses the system udev directory for the udev rule):
+Gói Arch (dùng thư mục udev của hệ thống cho udev rule):
 
 ```sh
 makepkg -si
 ```
 
-### /dev/uinput permissions (manual fallback)
+### Quyền `/dev/uinput` (cách thủ công dự phòng)
 
-The engine presses **real Backspace keys** through `/dev/uinput` when an app cannot delete text
-over IBus. Without write permission those apps cannot type tone marks. Create
-`/etc/udev/rules.d/80-uinput.rules` (shipped as `data/80-uinput.rules`):
+Engine nhấn **phím Backspace thật** qua `/dev/uinput` khi một ứng dụng không thể xóa văn bản
+qua IBus. Không có quyền ghi, các ứng dụng đó không thể gõ dấu thanh. Tạo
+`/etc/udev/rules.d/80-uinput.rules` (kèm sẵn dưới dạng `data/80-uinput.rules`):
 
 ```
 KERNEL=="uinput", MODE="0660", GROUP="input"
 ```
 
-Then:
+Sau đó:
 
 ```sh
-sudo modprobe uinput                      # load the kernel module now
-sudo usermod -aG input $USER              # takes effect at next login
+sudo modprobe uinput                      # nạp module nhân ngay bây giờ
+sudo usermod -aG input $USER              # có hiệu lực ở lần đăng nhập kế tiếp
 sudo udevadm control --reload-rules && sudo udevadm trigger /dev/uinput
-echo uinput | sudo tee /etc/modules-load.d/uinput.conf   # load at every boot
+echo uinput | sudo tee /etc/modules-load.d/uinput.conf   # nạp ở mỗi lần khởi động
 ```
 
-Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
+Kiểm tra: `ls -l /dev/uinput` phải hiện `crw-rw---- root input`.
 
-## Enable the input source
+## Bật nguồn nhập
 
-1. `ibus restart` (after installing or upgrading the binary).
+1. `ibus restart` (sau khi cài hoặc nâng cấp binary).
 2. **Settings → Keyboard → Input Sources → +** → _Vietnamese_ → **MăngRS**
-   (or `ibus engine ibus-mangrs`).
-3. `Super+Space` switches input sources; the gear next to the engine opens the settings window.
+   (hoặc `ibus engine ibus-mangrs`).
+3. `Super+Space` chuyển giữa các nguồn nhập; bánh răng cạnh engine mở cửa sổ cài đặt.
 
-## Usage
+## Sử dụng
 
-| Action                    | How                                                                                    |
+| Hành động                 | Cách                                                                                   |
 | ------------------------- | -------------------------------------------------------------------------------------- |
-| Toggle Vietnamese         | input-source menu → _Enable Vietnamese_, or `Super+Space`                              |
-| Open settings window      | input-source menu → _Cài đặt…_, or `ibus-engine-ibus-mangrs -gui`                      |
-| Change input method       | menu → _Input Method_ (Telex / VNI / VIQR / Microsoft), or GUI                         |
-| Change charset            | menu → _Charset_ (11 charsets), or GUI                                                 |
-| Change display mode       | menu → _Display_ (4 modes by default; the menu is editable), or GUI (10 modes), or the cycle hotkey |
-| Display mode cycle hotkey | GUI _Phím tắt_ page → _Thứ tự khi đổi chế độ_ (e.g. `Control+Alt+v`)                   |
-| Quick settings            | menu → _Quick Settings_ (macros, auto-capitalize, abbreviations, foreign-word restore) |
-| Type an emoji             | type `:name:` (enable in GUI _Emoji_ page), or the emoji hotkey opens the picker at the caret |
-| Rearrange the panel menu  | GUI _Menu trên panel_ page (folders, functions, radio groups, separators)              |
-| Assign a shortcut         | GUI _Phím tắt_ page (14 functions — click a row, press the combo)                      |
-| Type English / code       | just type — invalid words revert to raw keystrokes; URLs/emails/paths stay raw         |
-| Per-app display mode      | GUI _Luật theo app_ page (see App Rules below)                                         |
+| Bật/tắt tiếng Việt        | menu nguồn nhập → _Enable Vietnamese_, hoặc `Super+Space`                              |
+| Mở cửa sổ cài đặt         | menu nguồn nhập → _Cài đặt…_, hoặc `ibus-engine-ibus-mangrs -gui`                      |
+| Đổi kiểu gõ               | menu → _Input Method_ (9 preset), hoặc GUI                                             |
+| Đổi bảng mã               | menu → _Charset_ (11 bảng mã), hoặc GUI                                                |
+| Đổi kiểu hiển thị         | menu → _Display_ (4 kiểu theo mặc định; menu tùy chỉnh được), hoặc GUI (10 kiểu), hoặc phím tắt xoay vòng |
+| Phím tắt đổi kiểu hiển thị | GUI trang _Phím tắt_ → _Thứ tự khi đổi chế độ_ (vd. `Control+Alt+v`)                  |
+| Cài đặt nhanh             | menu → _Quick Settings_ (macro, tự viết hoa, từ viết tắt, khôi phục từ ngoại lai)      |
+| Gõ emoji                  | gõ `:name:` (bật ở trang _Emoji_), hoặc phím tắt emoji mở bảng chọn tại con trỏ        |
+| Sắp lại menu trên panel   | GUI trang _Menu trên panel_ (thư mục, chức năng, nhóm radio, dấu phân cách)            |
+| Gán phím tắt              | GUI trang _Phím tắt_ (14 chức năng — nhấp vào hàng, nhấn tổ hợp)                       |
+| Gõ tiếng Anh / code       | cứ gõ bình thường — từ không hợp lệ quay về phím thô; URL/email/đường dẫn giữ nguyên   |
+| Kiểu hiển thị theo ứng dụng | GUI trang _Luật theo app_ (xem Luật ứng dụng bên dưới)                               |
 
-## App Rules (per-app display mode)
+## Luật ứng dụng (kiểu hiển thị theo từng ứng dụng)
 
-A rule forces one display mode for one application and overrides the global
-mode. Rules are evaluated in order and the **first match wins**, so list
-specific patterns above general ones.
+Một luật ép một kiểu hiển thị cho một ứng dụng và ghi đè kiểu toàn cục. Các luật được đánh
+giá theo thứ tự và **luật khớp đầu tiên thắng**, nên hãy đặt các pattern cụ thể phía trên các
+pattern tổng quát.
 
-**In the settings window:** _Luật theo app_ page. Pick an app in the name
-field (or copy the focused app), pick a mode, press _Thêm luật_: the rule is
-saved with the rest of the settings. Each rule is one line you reorder by
-dragging (a ⋮ menu offers Lên/Xuống/Xóa; deleting toasts with Hoàn tác), and
-_Thử luật_ shows which rule a given app name matches. The dropdown lists
-only apps the engine has already seen (newest 50, `~/.cache/ibus-mangrs/clients`)
-plus two pseudo-targets: `gnome-shell (app Wayland)` — every Wayland app while
-the focus extension is not installed — and `(app không báo tên)` — apps that
-report no name at all. Type once in an app to make it appear.
+**Trong cửa sổ cài đặt:** trang _Luật theo app_. Chọn một ứng dụng trong ô tên (hoặc chép ứng
+dụng đang focus), chọn một kiểu, nhấn _Thêm luật_: luật được lưu cùng phần còn lại của cài
+đặt. Mỗi luật là một dòng, kéo để sắp xếp lại (menu ⋮ có Lên/Xuống/Xóa; xóa có toast Hoàn
+tác), và _Thử luật_ cho biết một tên ứng dụng khớp luật nào. Dropdown chỉ liệt kê các ứng
+dụng engine đã từng thấy (50 mục mới nhất,
+`~/.cache/ibus-mangrs/clients`) cùng hai đích giả: `gnome-shell (app Wayland)` — mọi ứng dụng
+Wayland khi chưa cài extension focus — và `(app không báo tên)` — các ứng dụng không báo tên
+nào cả. Gõ một lần trong ứng dụng để nó xuất hiện trong danh sách.
 
-**By hand:** one `[[app_rules]]` block per rule in
-`~/.config/ibus-mangrs/config.toml` (hot-reloaded within ~1 s):
+**Bằng tay:** mỗi luật một khối `[[app_rules]]` trong `~/.config/ibus-mangrs/config.toml`
+(nạp lại nóng trong khoảng 1 giây):
 
 ```toml
 [[app_rules]]
@@ -206,102 +214,107 @@ pattern = "sublime_text"
 mode = "surrounding"
 ```
 
-**Matching:** case-insensitive substring of the app name; a toolkit prefix
-(`gtk4-im:`, `wayland:`, `x11:`) is ignored. The name comes from the companion
-focus extension first, then the X active window (`xprop`), then the prgname
-IBus reports. X11/XIM apps (JetBrains and other Java apps) report only the
-fixed name `xim`, so they are named from the extension/`xprop` instead — a
-rule like `pattern = "jetbrains"` targets them too. Short patterns match
-broadly (`term` also matches `xterm`). `pattern = "none"` targets apps with no
-name at all — the only way to match them.
+**Cách khớp:** so khớp chuỗi con không phân biệt hoa thường trên tên ứng dụng; tiền tố
+toolkit (`gtk4-im:`, `wayland:`, `x11:`) bị bỏ qua. Tên lấy từ extension focus đi kèm trước,
+rồi đến cửa sổ active của X (`xprop`), rồi đến prgname mà IBus báo cáo. Các ứng dụng
+X11/XIM (JetBrains và các ứng dụng Java khác) chỉ báo cáo tên cố định `xim`, nên chúng được
+định danh từ extension/`xprop` — một luật như `pattern = "jetbrains"` cũng nhắm tới chúng.
+Pattern ngắn khớp rộng (`term` cũng khớp `xterm`). `pattern = "none"` nhắm tới các ứng dụng
+không có tên nào cả — cách duy nhất để khớp chúng.
 
-**Modes:** `preedit` (default), `nonpreedit`, `surrounding`, `smooth`,
-`supersmooth`, `select` (these three need `/dev/uinput` and are meant for X11),
-`forwardkeyevent`, `forwardselect` (alias `forwardkeyevent2`), `off`,
-`defaulttyping`. The two forward modes commit like `nonpreedit` but delete the
-rewritten tail by forwarding key events through IBus instead of the delete
-signal, which reaches clients that ignore `DeleteSurroundingText` (Chrome,
-Electron, GNOME Console) even on Wayland, where `/dev/uinput` does not, and
-X11/XIM apps (JetBrains), whose input context has no capabilities at all:
-`forwardkeyevent` forwards Backspace, `forwardselect` selects the tail with
-Shift+← and lets the commit replace it. They work only if the app accepts
-forwarded key events, so try them per app.
+**Các kiểu:** `auto`, `preedit` (mặc định), `nonpreedit`, `surrounding`, `smooth`,
+`supersmooth`, `select` (ba kiểu này cần `/dev/uinput` và dành cho X11), `forwardkeyevent`,
+`forwardselect` (bí danh `forwardkeyevent2`), `off` (config còn giữ `defaulttyping` đã bỏ sẽ
+tự chuyển về đây). Hai kiểu forward commit giống
+`nonpreedit` nhưng xóa phần đuôi đã viết lại bằng cách chuyển tiếp sự kiện phím qua IBus
+thay vì dùng tín hiệu xóa — điều này với tới được các client bỏ qua `DeleteSurroundingText`
+(Chrome, Electron, GNOME Console) ngay cả trên Wayland, nơi `/dev/uinput` không với tới
+được, và các ứng dụng X11/XIM (JetBrains), vốn không có capability nào trong input context:
+`forwardkeyevent` chuyển tiếp Backspace, `forwardselect` chọn phần đuôi bằng Shift+← và để
+commit thay thế nó. Chúng chỉ hoạt động nếu ứng dụng chấp nhận sự kiện phím chuyển tiếp, nên
+hãy thử theo từng ứng dụng.
 
-**Built-in rules**, shown in the text box when `config.toml` has no `app_rules`
-key (edit or delete them there; saving writes them to the file): Chrome,
-Chromium, Brave, Edge, Vivaldi, Electron apps (VS Code, Slack, Discord) and
-GNOME Console → `preedit`; Sublime Text → `surrounding`. Those clients drop
-`DeleteSurroundingText`, so rewriting there duplicates text.
+**Luật có sẵn**, hiển thị trong ô văn bản khi `config.toml` chưa có khóa `app_rules` (sửa
+hoặc xóa tại đó; lưu sẽ ghi chúng ra file): Chrome, Chromium, Brave, Edge, Vivaldi, các ứng
+dụng Electron (VS Code, Slack, Discord) và GNOME Console → `preedit`; Sublime Text →
+`surrounding`. Các client này bỏ qua `DeleteSurroundingText`, nên việc viết lại tại đó làm
+nhân đôi văn bản.
 
-## X11/XIM options
+## Tùy chọn X11/XIM
 
-Two compatibility switches in the settings window (_Tinh chỉnh_ tab →
-_Tương thích X11/XIM_). Both are **off by default**, and both are needed only
-for apps that reach the engine in unusual ways:
+Hai công tắc tương thích trong cửa sổ cài đặt (trang _Tinh chỉnh_ → _Tương thích X11/XIM_). Cả
+hai đều **tắt theo mặc định**, và cả hai chỉ cần cho các ứng dụng tiếp cận engine theo cách
+bất thường:
 
-| Switch                            | `config.toml`               | What it does                                                                                                                                                                                                                                                                                                                                                                                   |
+| Công tắc                          | `config.toml`               | Tác dụng                                                                                                                                                                                                                                                                                                                                                                                       |
 | --------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Delete without reporting surrounding elements | `x11_delete_without_report` | Lets a direct X11 client (Sublime Text, other GTK3 X11 apps) delete the rewritten tail over IBus even though it never reported its text — what ibus-bamboo does. Without it those clients keep the raw keystrokes when real-key injection is unavailable (`tungf`). Risk: without a report the delete count is unclamped, so a caret moved behind the engine's back can lose a few characters. |
-| Preedit cho app XIM               | `preedit_for_xim`           | Keeps the underlined mode for XIM clients (JetBrains and other Java apps, which all report the fixed name `xim`). XIM servers draw the composing text in their own window and commit it at the word end. Without it those apps cannot use the default mode at all and need a `forwardkeyevent` rule. Risk: an app that negotiated `XIMPreeditNothing` shows nothing until the word ends.       |
+| Xoá không cần báo cáo surrounding | `x11_delete_without_report` | Cho phép client X11 trực tiếp (Sublime Text, các ứng dụng GTK3 trên X11 khác) xóa phần đuôi đã viết lại qua IBus dù nó chưa từng báo cáo văn bản của mình — như cách ibus-bamboo vẫn làm. Không có nó, các client đó giữ nguyên phím thô khi không thể bơm phím thật (`tungf`). Rủi ro: không có báo cáo, số ký tự xóa không bị kẹp giới hạn, nên con trỏ bị di chuyển sau lưng engine có thể làm mất vài ký tự. |
+| Preedit cho app XIM               | `preedit_for_xim`           | Giữ kiểu gạch chân cho các client XIM (JetBrains và các ứng dụng Java khác, vốn đều báo cáo tên cố định `xim`). Máy chủ XIM tự vẽ văn bản đang soạn trong cửa sổ của nó và commit khi hết từ. Không có nó, các ứng dụng đó không thể dùng kiểu mặc định và cần một luật `forwardkeyevent`. Rủi ro: ứng dụng đàm phán `XIMPreeditNothing` sẽ không hiển thị gì cho đến khi từ kết thúc.             |
 
-## Configuration files
+## File cấu hình
 
 ```
-~/.config/ibus-mangrs/config.toml     # all settings, hot-reloaded within ~1 s
-~/.config/ibus-mangrs/macros.toml     # one key=expansion per line, $TIME / $DATE
-~/.config/ibus-mangrs/emoji.toml      # name = "glyph" pairs, same shape as macros.toml
-~/.config/ibus-mangrs/dictionary.txt  # words never auto-restored
+~/.config/ibus-mangrs/config.toml     # toàn bộ cài đặt, nạp lại nóng trong khoảng 1 giây
+~/.config/ibus-mangrs/macros.toml     # mỗi dòng một key=expansion, $TIME / $DATE
+~/.config/ibus-mangrs/emoji.toml      # các cặp name = "glyph", cùng định dạng với macros.toml
+~/.config/ibus-mangrs/dictionary.txt  # các từ không bao giờ bị tự khôi phục
 ```
 
-## Troubleshooting
+## Xử lý sự cố
 
-- **Engine not listed in Input Sources**: run `ibus write-cache --system` then `ibus-daemon -drx`;
-  make sure `/usr/share/ibus/component/ibus-mangrs.xml` exists.
-- **Marks do not appear in some apps** (Sublime, XWayland clients): `/dev/uinput` is missing or
-  not writable — see the permissions section above.
-- **Mode changes seem ignored**: an App Rule for the app overrides the global mode.
-- **App Rule ignored for Chrome, Firefox or Sublime Text on GNOME Wayland**: IBus reports those
-  apps only as an anonymous mutter relay, so the engine has no name to match. Install the
-  companion GNOME Shell extension (`data/gnome-shell-extension/README.md`), then log out and back
-  in — editing or enabling it in place is not enough.
-- **Something else**: enable _Ghi log gỡ lỗi_ (GUI _Cài đặt khác_ page, or
-  `debug_log = true` in `config.toml`), reproduce the issue, and attach
-  `~/.cache/ibus-mangrs/debug.log` — the engine logs every focus change,
-  capability, keystroke decision and delete/inject with millisecond timestamps
-  cross-referenceable with `journalctl`. Never shares your typed text.
+- **Engine không xuất hiện trong Input Sources**: chạy `ibus write-cache --system` rồi
+  `ibus-daemon -drx`; chắc chắn `/usr/share/ibus/component/ibus-mangrs.xml` tồn tại.
+- **Dấu không xuất hiện trong một số ứng dụng** (Sublime, client XWayland): thiếu hoặc không
+  ghi được vào `/dev/uinput` — xem phần quyền ở trên.
+- **Đổi kiểu như bị bỏ qua**: một Luật ứng dụng cho ứng dụng đó đang ghi đè kiểu toàn cục.
+- **Luật ứng dụng bị bỏ qua với Chrome, Firefox hoặc Sublime Text trên GNOME Wayland**: IBus
+  chỉ báo cáo các ứng dụng đó như một mutter relay ẩn danh, nên engine không có tên để khớp.
+  Cài extension GNOME Shell đi kèm (`data/gnome-shell-extension/README.md`), rồi đăng xuất và
+  đăng nhập lại — sửa hoặc bật tại chỗ là chưa đủ.
+- **Trường hợp khác**: bật _Ghi log gỡ lỗi_ (GUI trang _Cài đặt khác_, hoặc
+  `debug_log = true` trong `config.toml`), tái hiện sự cố, và đính kèm
+  `~/.cache/ibus-mangrs/debug.log` — engine ghi log mọi thay đổi focus, capability, quyết
+  định xử lý phím và xóa/bơm phím với dấu thời gian đến mili giây, đối chiếu được với
+  `journalctl`. Log đó chỉ ghi quyết định của engine — con trỏ, độ dài, số lần xóa — không
+  bao giờ ghi văn bản bạn đã gõ. Để gỡ lỗi mất chữ/sai ký tự còn một công tắc thứ hai, _Log
+  cả nội dung đang gõ_ (`debug_log_text`), sẽ thêm nội dung văn bản xung quanh con trỏ và các
+  diff verify vào cùng file: chỉ bật khi đang tái hiện, và **không** đính kèm log đó lên issue.
 
-## Testing
+## Kiểm thử
 
 ```sh
-cargo test                      # 292 unit tests, including the 678-case golden table
-cargo clippy --all-targets
+cargo test                      # 300 unit test, gồm cả bảng golden 894 ca
+cargo clippy --all-targets      # (301 với --features gui)
 ```
 
-Live test against a real daemon without installing:
+Kiểm thử trực tiếp với daemon thật mà không cần cài:
 
 ```sh
 IBUS_COMPONENT_PATH=$PWD/data:/usr/share/ibus/component ibus-daemon -rx -t refresh
 ibus engine ibus-mangrs
 ```
 
-## Architecture
+## Kiến trúc
 
-- `src/server/` — D-Bus, message filter, panel menu, hotkeys, config watch, key transports, the emoji picker window
-- `src/engine/` — state machine: display modes, App Rules, macros, restore, verify/repair
-- `src/bamboo_wrapper.rs` — the only code touching `bamboo-core`; computes its own output delta
-- `src/uinput.rs` — virtual keyboard: paced Backspaces, selection, Ctrl+V (US-QWERTY key table)
-- `src/paste.rs` — clipboard Unicode channel for the uinput modes (debounced restore)
-- `src/macros.rs` — macro table + custom dictionary
-- `src/emoji.rs` — shortcode tables: the embedded list and the user's `emoji.toml`
-- `src/backup.rs` — one-file JSON backup/restore of settings, macros and the dictionary
-- `src/golden.rs` — 678 keystroke→text golden cases
-- `src/ibus_prop.rs` — IBus property-menu encoding; `src/keymap.rs` — keysym decoding
-- `src/debug_log.rs` — opt-in debug log at `~/.cache/ibus-mangrs/debug.log`
-- `src/config.rs` — TOML settings shared by engine + GUI; `src/gui/` — libadwaita settings window (`gui` feature), texts from `data/gui-content.toml`
+- `src/server/` — D-Bus, message filter, menu panel, phím tắt, theo dõi cấu hình, các key transport, bảng chọn luật theo app và bảng chọn emoji (IBus lookup table ngay tại con trỏ)
+- `src/engine/` — máy trạng thái: kiểu hiển thị, Luật ứng dụng, macro, khôi phục, xác minh/sửa chữa
+- `src/bamboo_wrapper.rs` — nơi duy nhất chạm vào `bamboo-core`; tự tính delta đầu ra
+- `src/uinput.rs` — bàn phím ảo: Backspace có nhịp, chọn vùng, Ctrl+V (bảng phím US-QWERTY)
+- `src/paste.rs` — kênh Unicode qua clipboard cho các kiểu uinput (khôi phục có debounce)
+- `src/macros.rs` — bảng macro + từ điển tùy chọn
+- `src/emoji.rs` — các bảng shortcode: bảng nhúng và `emoji.toml` của người dùng
+- `src/backup.rs` — sao lưu/khôi phục trong một file JSON: cài đặt, macro, từ điển, bảng emoji
+- `src/golden.rs` — 894 ca golden phím→văn bản
+- `src/ibus_prop.rs` — mã hóa menu property của IBus; `src/keymap.rs` — giải mã keysym
+- `src/debug_log.rs` — log gỡ lỗi hai tầng tại `~/.cache/ibus-mangrs/debug.log` (mặc định chỉ ghi quyết định; văn bản gõ nằm sau một công tắc thứ hai)
+- `src/config.rs` — cài đặt TOML dùng chung bởi engine + GUI; `src/gui/` — cửa sổ cài đặt libadwaita, 11 trang (feature `gui`)
 
-## License
+## Giấy phép
 
-- [**MăngRS**](https://github.com/fundokukiri/ibus-mangrs) is licensed under the [GPL-3.0 License](LICENSE).
-- [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Copyright (C) 2018 Luong Thanh Lam. [GPL-3.0 License](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file)
-- [**bamboo-core (Rust):**](https://github.com/bamboo-vi/bamboo-core) Vietnamese input algorithm library written in Rust. [MIT License](https://github.com/bamboo-vi/bamboo-core?tab=MIT-1-ov-file)
-- [**bamboo-core (Go):**](https://github.com/BambooEngine/bamboo-core) Copyright (C) 2018 Luong Thanh Lam. [MIT License](https://github.com/BambooEngine/bamboo-core?tab=MIT-1-ov-file)
+- [**MăngRS**](https://github.com/fundokukiri/ibus-mangrs) được cấp phép theo
+  [GPL-3.0 License](LICENSE).
+- [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Copyright (C) 2018 Luong
+  Thanh Lam. [GPL-3.0 License](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file)
+- [**bamboo-core (Rust):**](https://github.com/bamboo-vi/bamboo-core) Một nhân bộ gõ tiếng Việt hiệu năng cao được viết bằng ngôn ngữ Rust [MIT License](https://github.com/bamboo-vi/bamboo-core?tab=MIT-1-ov-file)
+- [**bamboo-core (Go):**](https://github.com/BambooEngine/bamboo-core) Copyright (C) 2018
+  Luong Thanh Lam. [MIT License](https://github.com/BambooEngine/bamboo-core?tab=MIT-1-ov-file)

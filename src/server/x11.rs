@@ -75,6 +75,12 @@ pub(super) fn note_prgname(prgname: &str) {
     let mut names: Vec<String> = std::fs::read_to_string(&path)
         .map(|t| t.lines().map(str::to_string).collect())
         .unwrap_or_default();
+    // The first FocusIn of an already-known app is the common case — focus
+    // changes read this file otherwise, so skip the rewrite when the entry
+    // already leads the list.
+    if names.first().map(String::as_str) == Some(prgname) {
+        return;
+    }
     names.retain(|n| n != prgname);
     names.insert(0, prgname.to_string());
     names.truncate(50);
