@@ -571,13 +571,12 @@ impl Ui {
         {
             let ui = self.clone();
             let p = path.clone();
-            let overlay = self.menu_overlay.clone();
             let popover = popover.clone();
             del.connect_clicked(move |_| {
                 if ui.menu_delete(&p) {
                     ui.fill_menu_list();
                     ui.fire_save();
-                    overlay.add_toast(adw::Toast::new(&t("panel.deleted_toast", "Đã xóa")));
+                    ui.fire_toast(&ui.menu_overlay, &t("panel.deleted_toast", "Đã xóa"));
                 }
                 popover.popdown();
             });
@@ -624,8 +623,7 @@ impl Ui {
                             ui.menu_last_path(&scope).map(|p| menu_path_key(&p));
                         ui.fill_menu_list();
                         ui.fire_save();
-                        ui.menu_overlay
-                            .add_toast(adw::Toast::new(&t("panel.added_toast", "Đã thêm mục")));
+                        ui.fire_toast(&ui.menu_overlay, &t("panel.added_toast", "Đã thêm mục"));
                     }
                     popover.popdown();
                 });

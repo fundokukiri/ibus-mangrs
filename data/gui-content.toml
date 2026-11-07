@@ -463,6 +463,10 @@ extension_apply = "Cài đặt"
 [groups.other.advanced]
 title = "Nâng cao"
 
+[rows.show_toasts]
+title = "Thông báo nhanh"
+subtitle = "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại"
+
 [rows.desktop_icon]
 title = "Hiện trong menu ứng dụng"
 subtitle = "Hiện biểu tượng MăngRS Cấu hình trong lưới ứng dụng của GNOME"

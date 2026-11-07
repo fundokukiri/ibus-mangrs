@@ -266,6 +266,7 @@ struct Ui {
     idle_commit_switch: adw::SwitchRow,
     idle_commit_spin: adw::SpinRow,
     experimental_features: adw::SwitchRow,
+    show_toasts: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
     /// (`read` clones it, so the round-trip holds without walking rows);
     /// the boxed list is its view, rebuilt on every edit. Folders nest one
@@ -468,6 +469,7 @@ impl Ui {
             .set_value(config.idle_commit_ms as f64);
         self.experimental_features
             .set_active(config.experimental_features);
+        self.show_toasts.set_active(config.show_toasts);
         // The master gate: off hides every experimental row (its feature is
         // also forced off in the engine); back on, they reappear with their
         // saved switch states and values.
@@ -593,6 +595,7 @@ impl Ui {
         config.idle_commit_enabled = self.idle_commit_switch.is_active();
         config.idle_commit_ms = self.idle_commit_spin.value() as u64;
         config.experimental_features = self.experimental_features.is_active();
+        config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());
@@ -673,6 +676,22 @@ impl Ui {
         ];
         for row in rows {
             row.set_visible(on);
+        }
+    }
+
+    /// True while the "Thông báo nhanh" switch is on — the single gate
+    /// every toast goes through. Off silences the settings window
+    /// completely, the delete-undo toasts included; error dialogs are not
+    /// toasts and always show.
+    fn toasts_on(&self) -> bool {
+        self.show_toasts.is_active()
+    }
+
+    /// The one funnel for plain toast notifications: shows `text` unless
+    /// the user silenced toasts.
+    fn fire_toast(&self, overlay: &adw::ToastOverlay, text: &str) {
+        if self.toasts_on() {
+            overlay.add_toast(adw::Toast::new(text));
         }
     }
 
