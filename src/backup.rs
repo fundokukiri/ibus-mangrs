@@ -1,6 +1,7 @@
-//! Backup/restore of settings as one JSON file: config + macros + dictionary.
-//! Pure serialization here; `gui.rs` owns the file dialogs and the widget
-//! refresh, so round-trip and corrupt-input handling can be tested without GTK.
+//! Backup/restore of settings as one JSON file: config, macros, dictionary
+//! and the user's emoji table. Pure serialization here; `gui.rs` owns the file
+//! dialogs and the widget refresh, so round-trip and corrupt-input handling
+//! can be tested without GTK.
 
 use serde::{Deserialize, Serialize};
 
@@ -12,22 +13,28 @@ pub struct Backup {
     pub config: Config,
     pub macros: Vec<(String, String)>,
     pub dictionary: Vec<String>,
+    /// Version 2. Absent in a version-1 file: the import leaves the user's
+    /// `emoji.toml` alone instead of wiping it with an empty table.
+    #[serde(default)]
+    pub emoji: Vec<(String, String)>,
 }
 
 /// Bump when the layout changes incompatibly; import rejects newer versions
 /// rather than half-applying unknown fields.
-pub const BACKUP_VERSION: u32 = 1;
+pub const BACKUP_VERSION: u32 = 2;
 
 pub fn to_json(
     config: Config,
     macros: Vec<(String, String)>,
     dictionary: Vec<String>,
+    emoji: Vec<(String, String)>,
 ) -> Result<String, String> {
     let backup = Backup {
         version: BACKUP_VERSION,
         config,
         macros,
         dictionary,
+        emoji,
     };
     serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())
 }
@@ -48,7 +55,15 @@ mod tests {
     use super::*;
     use crate::config::{MethodConfig, ModeConfig};
 
-    fn sample() -> (Config, Vec<(String, String)>, Vec<String>) {
+    /// (config, macros, dictionary, emoji) the round-trip must preserve.
+    type Sample = (
+        Config,
+        Vec<(String, String)>,
+        Vec<String>,
+        Vec<(String, String)>,
+    );
+
+    fn sample() -> Sample {
         let mut config = Config::default();
         config.method = MethodConfig::Vni;
         config.mode = ModeConfig::Surrounding;
@@ -60,13 +75,20 @@ mod tests {
             config,
             vec![("ddq".into(), "đại đội trưởng".into())],
             vec!["asl".into(), "tr".into()],
+            vec![("vnu".into(), "🇻🇳".into())],
         )
     }
 
     #[test]
     fn roundtrip_preserves_all_sections() {
-        let (config, macros, dictionary) = sample();
-        let text = to_json(config.clone(), macros.clone(), dictionary.clone()).unwrap();
+        let (config, macros, dictionary, emoji) = sample();
+        let text = to_json(
+            config.clone(),
+            macros.clone(),
+            dictionary.clone(),
+            emoji.clone(),
+        )
+        .unwrap();
         let back = from_json(&text).unwrap();
         assert_eq!(back.version, BACKUP_VERSION);
         assert_eq!(back.config.method, MethodConfig::Vni);
@@ -74,6 +96,22 @@ mod tests {
         assert_eq!(back.config.app_rules, config.app_rules);
         assert_eq!(back.macros, macros);
         assert_eq!(back.dictionary, dictionary);
+        assert_eq!(back.emoji, emoji);
+    }
+
+    /// A version-1 file has no emoji section: it must parse (empty table)
+    /// and still be importable — the GUI restores it without touching the
+    /// user's `emoji.toml`.
+    #[test]
+    fn version1_file_without_emoji_still_imports() {
+        let (config, _, _, _) = sample();
+        let v1 = format!(
+            "{{\"version\": 1, \"config\": {}, \"macros\": [], \"dictionary\": []}}",
+            serde_json::to_string(&config).unwrap()
+        );
+        let back = from_json(&v1).unwrap();
+        assert_eq!(back.version, 1);
+        assert!(back.emoji.is_empty(), "absent section deserializes empty");
     }
 
     #[test]
@@ -86,7 +124,7 @@ mod tests {
     #[test]
     fn missing_sections_are_rejected() {
         // A truncated file must not silently import a default config.
-        let text = to_json(Config::default(), vec![], vec![]).unwrap();
+        let text = to_json(Config::default(), vec![], vec![], vec![]).unwrap();
         let stripped = text.split("\"macros\"").next().unwrap();
         let broken = format!("{stripped}}}");
         assert!(from_json(&broken).is_err());
@@ -94,9 +132,9 @@ mod tests {
 
     #[test]
     fn newer_backup_version_is_rejected() {
-        let text = to_json(Config::default(), vec![], vec![])
+        let text = to_json(Config::default(), vec![], vec![], vec![])
             .unwrap()
-            .replacen("\"version\": 1", "\"version\": 99", 1);
+            .replacen("\"version\": 2", "\"version\": 99", 1);
         let err = match from_json(&text) {
             Err(e) => e,
             Ok(_) => panic!("newer backup version must be rejected"),

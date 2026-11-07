@@ -772,6 +772,10 @@ fn export_json(path: Option<PathBuf>) -> Result<(), String> {
             .map(|(k, v)| (k.into(), v.into()))
             .collect(),
         Dictionary::load().words().map(str::to_string).collect(),
+        crate::emoji::UserEmoji::load()
+            .entries()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect(),
     )?;
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
@@ -790,6 +794,13 @@ fn import_json(path: Option<PathBuf>, ui: &Rc<Ui>) -> Result<(), String> {
     let mut dict = Dictionary::load();
     dict.set_words(backup.dictionary.into_iter());
     dict.save().map_err(|e| e.to_string())?;
+    // Version 1 files carry no emoji section: restoring one must leave the
+    // user's `emoji.toml` alone instead of wiping it with an empty table.
+    if backup.version >= 2 {
+        let mut emoji = crate::emoji::UserEmoji::load();
+        emoji.set_entries(backup.emoji.into_iter());
+        emoji.save().map_err(|e| e.to_string())?;
+    }
     // Every widget, not just the visible ones: a stale switch is written
     // back over the imported file by the next save.
     let config = Config::load();
