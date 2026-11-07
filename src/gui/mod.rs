@@ -391,14 +391,10 @@ impl Ui {
             .set_active(config.extra_url_chars_enabled);
         self.extra_url_chars_entry
             .set_sensitive(config.extra_url_chars_enabled);
-        // A switched-off customization shows its default (empty), not the
-        // stored string — the same shape the engine applies.
-        self.extra_url_chars_entry
-            .set_text(if config.extra_url_chars_enabled {
-                config.extra_url_chars.as_str()
-            } else {
-                ""
-            });
+        // The typed characters stay saved even while the switch is off —
+        // they reapply when the switch returns; the off state itself
+        // applies the built-in set only.
+        self.extra_url_chars_entry.set_text(&config.extra_url_chars);
         self.w2u.set_selected(on_off_index(
             &config.w2u,
             W2uConfig::Disabled,
@@ -415,14 +411,8 @@ impl Ui {
             .set_active(config.auto_capitalize_after_enabled);
         self.auto_capitalize_after_entry
             .set_sensitive(config.auto_capitalize_after_enabled);
-        // A switched-off customization shows its default (empty), not the
-        // stored string — the same shape the engine applies.
         self.auto_capitalize_after_entry
-            .set_text(if config.auto_capitalize_after_enabled {
-                config.auto_capitalize_after.as_str()
-            } else {
-                ""
-            });
+            .set_text(&config.auto_capitalize_after);
         self.double_space.set_active(config.double_space_period);
         self.macro_enabled.set_active(config.macro_enabled);
         self.capitalize_macro.set_active(config.capitalize_macro);
@@ -460,36 +450,21 @@ impl Ui {
             .set_active(config.clipboard_restore_delay_enabled);
         self.clipboard_restore_spin
             .set_sensitive(config.clipboard_restore_delay_enabled);
-        // A switched-off customization shows its default, not the stored
-        // value — the same shape the engine applies.
+        // The typed value stays saved even while the switch is off — it
+        // reapplies when the switch returns; the off state itself applies
+        // the built-in default (the engine's flag-aware getters).
         self.clipboard_restore_spin
-            .set_value(if config.clipboard_restore_delay_enabled {
-                config.clipboard_restore_delay_ms as f64
-            } else {
-                crate::paste::DEFAULT_RESTORE_DELAY_MS as f64
-            });
+            .set_value(config.clipboard_restore_delay_ms as f64);
         self.echo_stale_switch.set_active(config.echo_stale_enabled);
         self.echo_stale_spin
             .set_sensitive(config.echo_stale_enabled);
-        // A switched-off customization shows its default, not the stored
-        // value — the same shape the engine applies.
-        self.echo_stale_spin
-            .set_value(if config.echo_stale_enabled {
-                config.echo_stale_ms as f64
-            } else {
-                crate::engine::Engine::DEFAULT_ECHO_STALE_MS as f64
-            });
+        self.echo_stale_spin.set_value(config.echo_stale_ms as f64);
         self.idle_commit_switch
             .set_active(config.idle_commit_enabled);
         self.idle_commit_spin
             .set_sensitive(config.idle_commit_enabled);
-        // A switched-off feature shows its default, not the stored value.
         self.idle_commit_spin
-            .set_value(if config.idle_commit_enabled {
-                config.idle_commit_ms as f64
-            } else {
-                700.0
-            });
+            .set_value(config.idle_commit_ms as f64);
         let menu = config.menu.clone().unwrap_or_else(|| config.default_menu());
         *self.menu.borrow_mut() = normalize_menu(&menu);
         self.fill_menu_list();
