@@ -3105,6 +3105,75 @@ fn app_rule_cache_follows_a_config_reload() {
     assert_eq!(e.effective_mode(), Mode::Off);
 }
 
+// --- VNI digit marks on complete syllables (the kept-composition guard) ---
+
+#[test]
+fn vni_digit_after_a_complete_syllable_keeps_the_word() {
+    // "hạo" + 6 used to collapse the word into its raw keys ("hao123456"):
+    // bamboo's auto_correct revert resurrected the digits consumed as tone
+    // marks. Every core display mode keeps the composed word and lands the
+    // digit literally.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let config = Config {
+            method: crate::config::MethodConfig::Vni,
+            ..Config::default()
+        };
+        assert_eq!(
+            type_replay(&mut engine(mode, config), "hao123456 "),
+            "hạo6 ",
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
+fn vni_english_digit_runs_stay_raw() {
+    // English typing has no consumed marks: the raw keys survive verbatim
+    // in every core display mode.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let config = Config {
+            method: crate::config::MethodConfig::Vni,
+            ..Config::default()
+        };
+        assert_eq!(
+            type_replay(&mut engine(mode, config), "abc123 "),
+            "abc123 ",
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
+fn vni_backspace_over_a_kept_word_recomposes() {
+    // Backspace pops the raw key and recomposes; the kept composition
+    // re-derives. Keys after the kept point land literally (bamboo's raw
+    // bypass), so tone cycling resumes only once the literal keys are
+    // backspaced away — the upstream revert fix lifts that limit.
+    let config = Config {
+        method: crate::config::MethodConfig::Vni,
+        ..Config::default()
+    };
+    let mut e = engine(Mode::NonPreedit, config);
+    assert_eq!(type_replay(&mut e, "hao123456x"), "hạo6x");
+    let actions = e.backspace().expect("backspace");
+    e.set_surrounding("hạo6".into(), 3);
+    assert_eq!(replay_from("hạo6x", &actions), "hạo6", "{actions:?}");
+    let actions = e.backspace().expect("backspace");
+    e.set_surrounding("hạo".into(), 2);
+    assert_eq!(replay_from("hạo6", &actions), "hạo", "{actions:?}");
+    let actions = e.process_char('1');
+    assert_eq!(replay_from("hạo", &actions), "háo", "{actions:?}");
+}
+
+#[test]
+fn telex_english_word_with_marks_still_returns_raw() {
+    // The guard covers only the VNI-family digit keys: Telex tone keys on
+    // an incomplete syllable keep the raw revert that English typing leans
+    // on ("strê" + t -> "street", never "strêt").
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    assert_eq!(type_replay(&mut e, "street "), "street ");
+}
+
 // --- emoji shortcodes ---
 
 /// Emoji tests must not depend on the developer's own `emoji.toml`: clear
