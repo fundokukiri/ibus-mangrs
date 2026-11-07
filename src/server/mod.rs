@@ -137,27 +137,24 @@ impl Server {
     pub fn run(&self) {
         loop {
             // Wake at the next engine deadline (the preedit idle commit)
-            // instead of sleeping a fixed second past it.
-            let timeout = self
-                .engine
-                .lock()
-                .ok()
-                .and_then(|e| e.ms_until_tick())
+            // instead of sleeping a fixed second past it. lock_engine, not
+            // .ok(): a poisoned mutex must degrade one keystroke, not stop
+            // the loop's stale-echo flushes for the rest of the session.
+            let timeout = lock_engine(&self.engine)
+                .ms_until_tick()
                 .map_or(1000, |ms| ms.min(1000)) as i32;
             for item in self.conn.iter(timeout) {
                 if matches!(item, dbus::ffidisp::ConnectionItem::Nothing) {
                     break;
                 }
             }
-            let out = match self.engine.lock() {
-                Ok(mut e) => {
-                    let actions = e.tick();
-                    let mut out = Vec::new();
-                    let injected = emit(&mut e, &actions, &mut out);
-                    e.add_injected(injected);
-                    out
-                }
-                Err(_) => Vec::new(),
+            let out = {
+                let mut e = lock_engine(&self.engine);
+                let actions = e.tick();
+                let mut out = Vec::new();
+                let injected = emit(&mut e, &actions, &mut out);
+                e.add_injected(injected);
+                out
             };
             for msg in out {
                 send(&self.conn, msg);
