@@ -2787,6 +2787,28 @@ fn app_rule_wins_over_auto() {
     );
 }
 
+/// The rule resolution is cached per client; a config reload with different
+/// rules must invalidate it or the old mode sticks until the app refocuses.
+#[test]
+fn app_rule_cache_follows_a_config_reload() {
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.set_client(Some("gtk4-im:chrome".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    // The built-in safety net pins chrome to Preedit.
+    assert_eq!(e.effective_mode(), Mode::Preedit);
+    // Rewriting the rules must reach the next resolution, not the cache.
+    e.apply_config(&Config {
+        app_rules: vec![crate::config::AppRule {
+            pattern: "chrome".into(),
+            mode: ModeConfig::Off,
+        }],
+        ..Config::default()
+    });
+    assert_eq!(e.effective_mode(), Mode::Off);
+    // Same client, no rule change: the cache serves the repeated call.
+    assert_eq!(e.effective_mode(), Mode::Off);
+}
+
 // --- emoji shortcodes ---
 
 /// Emoji tests must not depend on the developer's own `emoji.toml`: clear
