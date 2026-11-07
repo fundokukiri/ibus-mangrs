@@ -396,6 +396,27 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
         CHANNELS,
     );
+    let clipboard_restore_switch = switch_row(
+        &t("rows.clipboard_restore.title", "Tùy chỉnh hồi clipboard"),
+        &t(
+            "rows.clipboard_restore.subtitle",
+            "Đổi khoảng chờ trả lại clipboard cũ sau khi dán — chỉ tác dụng khi kênh là Clipboard",
+        ),
+    );
+    let clipboard_restore_spin = spin_row(
+        &t(
+            "rows.clipboard_restore_spin.title",
+            "Hồi clipboard sau (ms)",
+        ),
+        &t(
+            "rows.clipboard_restore_spin.subtitle",
+            "100–5000 ms. Mặc định: 600",
+        ),
+        100.0,
+        5000.0,
+        50.0,
+    );
+    clipboard_restore_spin.set_sensitive(false);
 
     // Panel-menu editor: the design vector is the source of truth; the
     // boxed list is its view (rebuilt on every edit).
@@ -618,6 +639,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         backspace_interval,
         post_delay,
         unicode_channel,
+        clipboard_restore_switch,
+        clipboard_restore_spin,
         menu,
         menu_box,
         menu_open,
