@@ -231,11 +231,11 @@ impl Engine {
             debug_log::log("emoji shortcode: matched");
             let mode = self.effective_mode();
             if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
-                let mut actions = self.smooth_rewrite(mode, &typed, &replacement);
-                // smooth_rewrite's trailing Forward delivers the word-end
-                // terminator; the closing ':' is part of the shortcode and
+                let mut actions = self.smooth_rewrite(mode, &typed, &replacement, c);
+                // smooth_rewrite's trailing terminator action delivers the
+                // word-end key; the closing ':' is part of the shortcode and
                 // must not reach the application.
-                actions.retain(|a| !matches!(a, Action::Forward));
+                actions.retain(|a| !matches!(a, Action::Forward | Action::InjectChar(_)));
                 return actions;
             }
             if self.deletes_allowed() || forwards_delete(mode) {
@@ -483,7 +483,7 @@ impl Engine {
         // Macros win, as in every mode: the expansion replaces the raw keys.
         if !raw.is_empty() {
             if let Some(exp) = self.expand_macro(&raw, valid) {
-                return self.smooth_rewrite(mode, &raw, &exp);
+                return self.smooth_rewrite(mode, &raw, &exp, c);
             }
         }
 
@@ -513,7 +513,7 @@ impl Engine {
             if text == raw {
                 return vec![Action::Forward];
             }
-            return self.smooth_rewrite(mode, &raw, &text);
+            return self.smooth_rewrite(mode, &raw, &text, c);
         }
 
         // Smooth (unlike Super Smooth) defers to app autofill: the app
@@ -525,12 +525,20 @@ impl Engine {
             return vec![Action::Forward];
         }
 
-        self.smooth_rewrite(mode, &raw, &word)
+        self.smooth_rewrite(mode, &raw, &word, c)
     }
 
     /// The shared word-end rewrite: erase `raw` with real keys, deliver
-    /// `text` over the configured Unicode channel.
-    fn smooth_rewrite(&mut self, mode: Mode, raw: &str, text: &str) -> Vec<Action> {
+    /// `text` over the configured Unicode channel. `terminator` is the key
+    /// that ended the word; it rides the same injected batch so it cannot
+    /// overtake the deletes on any display server.
+    fn smooth_rewrite(
+        &mut self,
+        mode: Mode,
+        raw: &str,
+        text: &str,
+        terminator: char,
+    ) -> Vec<Action> {
         let mut actions = Vec::new();
         match mode {
             Mode::Select => {
@@ -561,7 +569,15 @@ impl Engine {
         if let Some(c) = text.chars().last() {
             self.note_char(c);
         }
-        actions.push(Action::Forward);
+        // Injected after the Backspaces on the same kernel queue, the
+        // terminator cannot overtake them; on a mutter relay a forwarded
+        // key landed first, the erase ate it and one raw letter survived.
+        // Non-injectable characters fall back to a plain forward.
+        if crate::uinput::char_key(terminator).is_some() {
+            actions.push(Action::InjectChar(terminator));
+        } else {
+            actions.push(Action::Forward);
+        }
         actions
     }
 

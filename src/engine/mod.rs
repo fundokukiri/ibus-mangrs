@@ -126,6 +126,13 @@ pub enum Action {
     Paste(String),
     /// Idle pause (ms) after a uinput rewrite, before the app sees more keys.
     PostDelay(u64),
+    /// Press a character key through /dev/uinput as part of a rewrite
+    /// batch (the word-end terminator of the uinput modes). Riding the
+    /// same kernel queue as the batch's Backspaces keeps it ordered with
+    /// them on every display server; on a mutter relay a forwarded key
+    /// raced ahead of the Backspaces and one raw letter survived the
+    /// erase. Its echo is forwarded like the other injected keys'.
+    InjectChar(char),
 }
 
 pub struct Engine {
@@ -198,6 +205,12 @@ pub struct Engine {
     last_nav_inject: Option<Instant>,
     /// Commits waiting for injected nav-key echoes to be forwarded.
     nav_deferred: Vec<(usize, String)>,
+    /// Commits parked until a wall-clock deadline. On a mutter relay the
+    /// commit channel reaches the client a beat ahead of the key events,
+    /// so a rewrite commit must be emitted past the last delete of its
+    /// batch even though every echo has already been forwarded; the
+    /// server parks them here and the main-loop tick emits them.
+    timed_commits: Vec<(Instant, String)>,
     // --- settings, mirrors of the config file ---
     app_rules: Vec<AppRule>,
     auto_restore: bool,
@@ -322,6 +335,14 @@ impl Engine {
     /// lengths of time — both read it through `echo_stale()`.
     pub const DEFAULT_ECHO_STALE_MS: u64 = 150;
 
+    /// How long the server parks a rewrite commit after the last echo of
+    /// its batch has been forwarded. Measured on a mutter relay (08/11):
+    /// the app applies the forwarded Backspaces a beat behind the commit
+    /// channel, and a commit emitted with the last echo overtook the
+    /// final deletes (`titiến`). 60 ms clears the observed ~7 ms apply
+    /// window with margin while staying imperceptible at word end.
+    pub const ECHO_APPLY_GRACE_MS: u64 = 60;
+
     pub fn new(method: Method, mode: Mode) -> Self {
         let mut engine = Self {
             wrapper: BambooWrapper::new(method, bamboo_core::Config::default()),
@@ -363,6 +384,7 @@ impl Engine {
             pending_nav: Vec::new(),
             last_nav_inject: None,
             nav_deferred: Vec::new(),
+            timed_commits: Vec::new(),
             word_mode: None,
             url_word: false,
             bypass_url: true,
@@ -812,11 +834,43 @@ impl Engine {
             ));
             text
         }));
+        // A forced flush ignores the deadline: the context is going away
+        // and nobody will tick for it — delivering late beats never.
+        all.extend(self.timed_commits.drain(..).map(|(_, text)| {
+            debug_log::log(&format!(
+                "flush deferred commit (timed, forced) len={}",
+                text.chars().count()
+            ));
+            text
+        }));
         all
     }
 
     pub fn has_deferred(&self) -> bool {
-        !self.deferred.is_empty() || !self.nav_deferred.is_empty()
+        !self.deferred.is_empty() || !self.nav_deferred.is_empty() || !self.timed_commits.is_empty()
+    }
+
+    /// Hold `text` back for `delay` before it may be emitted: the relay
+    /// applies forwarded keys a beat behind the commit channel, so the
+    /// rewrite commit waits past the deletes it depends on.
+    pub fn park_commit(&mut self, text: String, delay: Duration) {
+        debug_log::log(&format!(
+            "park commit for {}ms len={}",
+            delay.as_millis(),
+            text.chars().count()
+        ));
+        self.timed_commits.push((Instant::now() + delay, text));
+    }
+
+    /// Parked commits whose deadline has passed, in park order.
+    fn take_due_commits(&mut self) -> Vec<String> {
+        let now = Instant::now();
+        let (due, later): (Vec<_>, Vec<_>) = self
+            .timed_commits
+            .drain(..)
+            .partition(|(deadline, _)| *deadline <= now);
+        self.timed_commits = later;
+        due.into_iter().map(|(_, text)| text).collect()
     }
 
     /// Whether the server can inject keys (called once at startup).
@@ -1048,17 +1102,19 @@ impl Engine {
         {
             return Mode::NonPreedit;
         }
-        // The uinput modes press real keys through /dev/uinput, but on
-        // mutter-relayed contexts the rewrite products never reach the
-        // application (verified 31/10: 52 smooth rewrites injected, echoes
-        // forwarded, commits flushed — Text Editor and Firefox showed the
-        // untouched latin text, no deletion, no commit, not even the
-        // terminator space). Relay contexts therefore fall back to preedit;
-        // the uinput modes stay for contexts where injection lands (X11).
+        // The uinput modes press real keys through /dev/uinput. On
+        // mutter-relayed contexts they were once believed dead (the 31/10
+        // session) and fell back to preedit; the 08/11 re-measurement
+        // refuted that — injection, echoes, deletes and commits all land
+        // on the relay. What actually raced was the ORDER between the
+        // commit channel and the key events; the server parks the rewrite
+        // commit past the last injected key (ECHO_APPLY_GRACE_MS) and the
+        // rewrite batch carries its own terminator key, so the relay runs
+        // these modes. Without the virtual device, or Select without a
+        // surrounding-text report (it sizes the selection from it),
+        // preedit still stands in.
         if matches!(requested, Mode::Smooth | Mode::SuperSmooth | Mode::Select)
-            && (self.injection_forbidden()
-                || !self.uinput_available
-                || (requested == Mode::Select && self.surrounding.is_none()))
+            && (!self.uinput_available || (requested == Mode::Select && self.surrounding.is_none()))
         {
             return Mode::Preedit;
         }
@@ -1406,6 +1462,12 @@ impl Engine {
     /// word character can re-enter the composition via `idle_committed`.
     pub fn tick(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
+        // Parked commits past their deadline become deliverable here —
+        // the main loop woke for exactly this deadline (ms_until_tick).
+        for text in self.take_due_commits() {
+            debug_log::log(&format!("timed commit flush len={}", text.chars().count()));
+            actions.push(Action::Commit(text));
+        }
         if self.take_stale_injection(self.echo_stale()) {
             for text in self.flush_deferred() {
                 actions.push(Action::Commit(text));
@@ -1467,6 +1529,16 @@ impl Engine {
                 let idle_ms = self.idle_commit_ms.max(50) as u128;
                 deadlines.push(idle_ms.saturating_sub(t.elapsed().as_millis()).max(1) as u64);
             }
+        }
+        // The earliest parked-commit deadline must wake the loop for its
+        // timed flush.
+        if let Some((deadline, _)) = self.timed_commits.iter().min_by_key(|(d, _)| *d) {
+            deadlines.push(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_millis()
+                    .max(1) as u64,
+            );
         }
         deadlines.into_iter().min().map(|ms| ms.max(1))
     }
