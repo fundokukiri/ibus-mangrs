@@ -590,7 +590,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
             }
             return false;
         }
-        if engine.take_stale_injection(Engine::ECHO_STALE) || !engine.pending_echoes() {
+        if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
                 out.push(signal("CommitText").append1(plain_text(&text)));
             }
@@ -604,7 +604,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     if keyval == keymap::BACKSPACE {
         // Echoes that never came back (injection lost) must not eat this real
         // Backspace.
-        if engine.take_stale_injection(Engine::ECHO_STALE) {
+        if engine.take_stale_injection(engine.echo_stale()) {
             for text in engine.flush_deferred() {
                 out.push(signal("CommitText").append1(plain_text(&text)));
             }
@@ -632,7 +632,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     // echoes are all in, or whose echoes have gone stale (apps that receive
     // injected keys without routing them through ibus would otherwise eat
     // every later Backspace and never see the commit).
-    if engine.take_stale_injection(Engine::ECHO_STALE) || !engine.pending_echoes() {
+    if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
         for text in engine.flush_deferred() {
             out.push(signal("CommitText").append1(plain_text(&text)));
         }
@@ -648,7 +648,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
             }
             return false;
         }
-        if engine.take_stale_injection(Engine::ECHO_STALE) || !engine.pending_echoes() {
+        if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
                 out.push(signal("CommitText").append1(plain_text(&text)));
             }

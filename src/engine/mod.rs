@@ -234,6 +234,12 @@ pub struct Engine {
     /// while the switch is off.
     clipboard_restore_delay_enabled: bool,
     clipboard_restore_delay_ms: u64,
+    /// Custom lost-echo stale window (ms); the built-in default applies
+    /// while the switch is off. Too small risks flushing the deferred
+    /// commit over late echoes (lost characters); too large makes every
+    /// word appear late in apps that never route injected keys back.
+    echo_stale_enabled: bool,
+    echo_stale_ms: u64,
     /// Display mode locked for the word being typed. The daemon flips
     /// capabilities 1ms apart around focus changes and not at all on quick
     /// refocus; re-resolving the mode mid-word flips preedit↔non-preedit
@@ -299,10 +305,10 @@ const URL_CONTEXT_CHARS: &[char] = &['/', ':', '@', '.', '_', '~', '=', '#', '&'
 impl Engine {
     /// How long injected-key echoes may be missing before they count as
     /// lost and deferred commits flush anyway (ibus-bamboo's pacing
-    /// ballpark). One shared constant: the key handlers and the main-loop
+    /// ballpark). One shared value: the key handlers and the main-loop
     /// tick must agree or a lost echo holds the commit for different
-    /// lengths of time.
-    pub const ECHO_STALE: Duration = Duration::from_millis(150);
+    /// lengths of time — both read it through `echo_stale()`.
+    pub const DEFAULT_ECHO_STALE_MS: u64 = 150;
 
     pub fn new(method: Method, mode: Mode) -> Self {
         let mut engine = Self {
@@ -364,6 +370,8 @@ impl Engine {
             unicode_channel: UnicodeChannel::Commit,
             clipboard_restore_delay_enabled: false,
             clipboard_restore_delay_ms: 600,
+            echo_stale_enabled: false,
+            echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -459,6 +467,8 @@ impl Engine {
         self.unicode_channel = config.unicode_channel;
         self.clipboard_restore_delay_enabled = config.clipboard_restore_delay_enabled;
         self.clipboard_restore_delay_ms = config.clipboard_restore_delay_ms;
+        self.echo_stale_enabled = config.echo_stale_enabled;
+        self.echo_stale_ms = config.echo_stale_ms;
         self.bypass_url = config.bypass_url;
         self.extra_url_chars = if config.extra_url_chars_enabled {
             // Defensive filter: `-` stays out of the start set (the `--`
@@ -576,6 +586,18 @@ impl Engine {
         } else {
             crate::paste::DEFAULT_RESTORE_DELAY_MS
         }
+    }
+
+    /// The lost-echo stale window: the custom value when the switch is on,
+    /// else the built-in default. The key handlers and the main-loop tick
+    /// must read the SAME value or a lost echo holds the commit for
+    /// different lengths of time — both go through this getter.
+    pub fn echo_stale(&self) -> Duration {
+        Duration::from_millis(if self.echo_stale_enabled {
+            self.echo_stale_ms
+        } else {
+            Self::DEFAULT_ECHO_STALE_MS
+        })
     }
 
     /// The client dropped the protocol delete at least once; the server
@@ -1344,7 +1366,7 @@ impl Engine {
     /// land when the user simply stops typing (the word stays raw latin).
     pub fn tick(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
-        if self.take_stale_injection(Self::ECHO_STALE) {
+        if self.take_stale_injection(self.echo_stale()) {
             for text in self.flush_deferred() {
                 actions.push(Action::Commit(text));
             }
@@ -1357,6 +1379,7 @@ impl Engine {
     /// falls back to its 1 s poll).
     pub fn ms_until_tick(&self) -> Option<u64> {
         // Both echo kinds share the stale window; the earliest deadline wins.
+        let stale_ms = self.echo_stale().as_millis() as u64;
         [
             (self.pending_injected > 0)
                 .then_some(self.last_inject)
@@ -1367,10 +1390,7 @@ impl Engine {
         ]
         .into_iter()
         .flatten()
-        .map(|t| {
-            Self::ECHO_STALE.as_millis() as u64
-                - t.elapsed().as_millis().min(Self::ECHO_STALE.as_millis()) as u64
-        })
+        .map(|t| stale_ms - t.elapsed().as_millis().min(stale_ms as u128) as u64)
         .min()
         .map(|ms| ms.max(1))
     }

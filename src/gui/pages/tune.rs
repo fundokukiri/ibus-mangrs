@@ -126,6 +126,37 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     }
     page.add(&channel);
 
+    // Advanced timing: the mis-tunable knobs. Two-way warning subtitles —
+    // too small loses characters, too large makes words appear late.
+    let advanced = adw::PreferencesGroup::builder()
+        .title(t("groups.tune.advanced.title", "Nâng cao"))
+        .build();
+    advanced.add(&ui.echo_stale_switch);
+    advanced.add(&ui.echo_stale_spin);
+    decorate_experimental(&ui.echo_stale_switch);
+    decorate_experimental(&ui.echo_stale_spin);
+    // The switch gates its spin: off locks the value and resets it to the
+    // default. The save itself goes through wire_switch_saves, connected
+    // after this — the reset runs first.
+    {
+        let ui = Rc::clone(ui);
+        let switch = ui.echo_stale_switch.clone();
+        let spin = ui.echo_stale_spin.clone();
+        switch.connect_active_notify(move |sw| {
+            let on = sw.is_active();
+            spin.set_sensitive(on);
+            if !on {
+                spin.set_value(crate::engine::Engine::DEFAULT_ECHO_STALE_MS as f64);
+            }
+        });
+    }
+    {
+        let ui = Rc::clone(ui);
+        let spin = ui.echo_stale_spin.clone();
+        spin.connect_value_notify(move |_| ui.fire_save());
+    }
+    page.add(&advanced);
+
     // X11/XIM workarounds.
     let xim = adw::PreferencesGroup::builder()
         .title(t("groups.tune.xim.title", "Tương thích X11/XIM"))

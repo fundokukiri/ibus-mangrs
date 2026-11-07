@@ -207,6 +207,17 @@ subtitle = "Đổi khoảng chờ trả lại clipboard cũ sau khi dán — ch�
 title = "Hồi clipboard sau (ms)"
 subtitle = "100–5000 ms. Mặc định: 600"
 
+[rows.echo_stale]
+title = "Cửa sổ xả commit"
+subtitle = "Chờ bao lâu thì bỏ đợi phím Backspace ảo quay về mà xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ"
+
+[rows.echo_stale_spin]
+title = "Cửa sổ xả sau (ms)"
+subtitle = "50–1000 ms. Mặc định: 150. Quá thấp dễ mất chữ, quá cao làm chữ hiện trễ"
+
+[groups.tune.advanced]
+title = "Nâng cao"
+
 # --- page Gõ tắt ------------------------------------------------------------
 
 [groups.macros.settings]
