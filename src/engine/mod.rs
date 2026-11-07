@@ -1443,7 +1443,7 @@ impl Engine {
     /// nothing is pending (the loop falls back to its 1 s poll).
     pub fn ms_until_tick(&self) -> Option<u64> {
         // Both echo kinds share the stale window; the earliest deadline wins.
-        let stale_ms = self.echo_stale().as_millis() as u128;
+        let stale_ms = self.echo_stale().as_millis();
         let mut deadlines: Vec<u64> = [
             (self.pending_injected > 0)
                 .then_some(self.last_inject)
@@ -1459,7 +1459,7 @@ impl Engine {
         // The idle-commit deadline: a paused preedit word must wake the loop.
         if self.idle_commit_enabled && self.preedit_visible && !self.wrapper.output().is_empty() {
             if let Some(t) = self.last_key_at {
-                let idle_ms = (self.idle_commit_ms.max(50)) as u128;
+                let idle_ms = self.idle_commit_ms.max(50) as u128;
                 deadlines.push(idle_ms.saturating_sub(t.elapsed().as_millis()).max(1) as u64);
             }
         }
