@@ -123,6 +123,10 @@ pub struct Config {
     /// each switch and value stays saved in this file and comes back when
     /// the gate reopens.
     pub experimental_features: bool,
+    /// GUI-only: show the settings window's toast notifications. Off
+    /// silences every toast (including the delete-undo ones); errors keep
+    /// their dialogs either way. The engine never reads this.
+    pub show_toasts: bool,
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
@@ -789,6 +793,7 @@ impl Default for Config {
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             experimental_features: false,
+            show_toasts: true,
             debug_log: false,
             debug_log_text: false,
             x11_delete_without_report: false,
