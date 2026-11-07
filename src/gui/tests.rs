@@ -392,6 +392,8 @@ fn refresh_round_trips_every_widget() {
         clipboard_restore_delay_ms: 1500,
         echo_stale_enabled: true,
         echo_stale_ms: 250,
+        idle_commit_enabled: true,
+        idle_commit_ms: 800,
         debug_log: true,
         debug_log_text: true,
         x11_delete_without_report: true,
@@ -531,7 +533,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 24] = [
+    let rows: [&adw::SwitchRow; 25] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -545,6 +547,7 @@ fn every_switch_triggers_save() {
         &ui.auto_capitalize_after_switch,
         &ui.clipboard_restore_switch,
         &ui.echo_stale_switch,
+        &ui.idle_commit_switch,
         &ui.double_space,
         &ui.macro_enabled,
         &ui.capitalize_macro,

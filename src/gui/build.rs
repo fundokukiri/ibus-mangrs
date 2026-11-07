@@ -435,6 +435,27 @@ pub(super) fn widgets() -> Rc<Ui> {
         10.0,
     );
     echo_stale_spin.set_sensitive(false);
+    let idle_commit_switch = switch_row(
+        &t("rows.idle_commit.title", "Chấp nhận từ khi nghỉ gõ"),
+        &t(
+            "rows.idle_commit.subtitle",
+            "Dừng tay quá lâu trên một từ có gạch chân thì từ đó được chấp nhận luôn, như bấm dấu cách",
+        ),
+    );
+    let idle_commit_spin = spin_row(
+        &t(
+            "rows.idle_commit_spin.title",
+            "Nghỉ bao lâu thì chấp nhận (ms)",
+        ),
+        &t(
+            "rows.idle_commit_spin.subtitle",
+            "300–2000 ms. Mặc định: 700",
+        ),
+        300.0,
+        2000.0,
+        50.0,
+    );
+    idle_commit_spin.set_sensitive(false);
 
     // Panel-menu editor: the design vector is the source of truth; the
     // boxed list is its view (rebuilt on every edit).
@@ -661,6 +682,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         clipboard_restore_spin,
         echo_stale_switch,
         echo_stale_spin,
+        idle_commit_switch,
+        idle_commit_spin,
         menu,
         menu_box,
         menu_open,

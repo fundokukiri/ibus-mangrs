@@ -215,6 +215,14 @@ subtitle = "Chờ bao lâu thì bỏ đợi phím Backspace ảo quay về mà x
 title = "Cửa sổ xả sau (ms)"
 subtitle = "50–1000 ms. Mặc định: 150. Quá thấp dễ mất chữ, quá cao làm chữ hiện trễ"
 
+[rows.idle_commit]
+title = "Chấp nhận từ khi nghỉ gõ"
+subtitle = "Dừng tay quá lâu trên một từ có gạch chân thì từ đó được chấp nhận luôn, như bấm dấu cách"
+
+[rows.idle_commit_spin]
+title = "Nghỉ bao lâu thì chấp nhận (ms)"
+subtitle = "300–2000 ms. Mặc định: 700"
+
 [groups.tune.advanced]
 title = "Nâng cao"
 

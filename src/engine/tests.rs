@@ -1787,6 +1787,94 @@ fn echo_stale_window_is_flag_gated() {
 }
 
 #[test]
+fn idle_commit_commits_a_paused_preedit_word() {
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            idle_commit_enabled: true,
+            idle_commit_ms: 700,
+            ..Config::default()
+        },
+    );
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    for c in "viet".chars() {
+        e.process_char(c);
+    }
+    // Backdate the clock: the pause is far past the configured window.
+    e.last_key_at = Some(Instant::now() - Duration::from_millis(2000));
+    let actions = e.tick();
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "viet")),
+        "the tick must commit the paused word: {actions:?}"
+    );
+    // The client reports the buffer holding the committed word — the proof
+    // the re-entry delete needs before it may erase it again.
+    e.set_surrounding("viet".into(), 4);
+    // Re-entry: the next word character un-commits (the committed word is
+    // 4 chars) and restores the composition as preedit.
+    let actions = e.process_char('n');
+    assert!(
+        actions.iter().any(|a| matches!(a, Action::DeleteBefore(4))),
+        "the committed word must be erased back: {actions:?}"
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+        "the word must live again as preedit: {actions:?}"
+    );
+}
+
+#[test]
+fn idle_commit_disabled_by_default_and_terminators_reset_reentry() {
+    // Off (the default): the tick never commits.
+    let mut e = engine(Mode::Preedit, Config::default());
+    for c in "viet".chars() {
+        e.process_char(c);
+    }
+    e.last_key_at = Some(Instant::now() - Duration::from_secs(5));
+    assert!(
+        e.tick().is_empty(),
+        "the default must leave the word pending"
+    );
+    // A terminator after an idle commit starts a fresh word instead of
+    // re-entering the committed one.
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            idle_commit_enabled: true,
+            idle_commit_ms: 700,
+            ..Config::default()
+        },
+    );
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    for c in "viet".chars() {
+        e.process_char(c);
+    }
+    e.last_key_at = Some(Instant::now() - Duration::from_secs(2));
+    let actions = e.tick();
+    assert!(actions.iter().any(|a| matches!(a, Action::Commit(_))));
+    let actions = e.process_char(' ');
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+        "a terminator must not un-commit: {actions:?}"
+    );
+    // A report that never saw the committed word (stale, 1 char): the
+    // un-commit delete cannot be proven in range, so no re-entry.
+    e.set_surrounding("v".into(), 1);
+    e.idle_committed = Some(("viet".into(), "viet".into()));
+    let actions = e.process_char('n');
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+        "a stale report must keep the commit final: {actions:?}"
+    );
+}
+
+#[test]
 fn extra_capitalize_triggers_are_opt_in() {
     // Default: a colon does not start a sentence.
     for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
