@@ -35,6 +35,7 @@ none = "Không có kết quả"
 page_kind = "Trang"
 
 [misc]
+experimental_badge = "Thử nghiệm"
 reinstall_button = "Cài lại"
 exported_toast = "Đã xuất cấu hình"
 imported_toast = "Đã nhập cấu hình"
@@ -177,8 +178,6 @@ subtitle = "Sau . ! ? và Enter"
 [rows.double_space]
 title = "Nhấn “Space” hai lần thành dấu chấm"
 subtitle = "Hai dấu cách thành dấu chấm"
-badge = "Thử nghiệm"
-a11y = "Nhấn Space hai lần thành dấu chấm, thử nghiệm"
 
 # --- page Gõ tắt ------------------------------------------------------------
 
