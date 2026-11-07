@@ -265,6 +265,7 @@ struct Ui {
     echo_stale_spin: adw::SpinRow,
     idle_commit_switch: adw::SwitchRow,
     idle_commit_spin: adw::SpinRow,
+    experimental_features: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
     /// (`read` clones it, so the round-trip holds without walking rows);
     /// the boxed list is its view, rebuilt on every edit. Folders nest one
@@ -465,6 +466,12 @@ impl Ui {
             .set_sensitive(config.idle_commit_enabled);
         self.idle_commit_spin
             .set_value(config.idle_commit_ms as f64);
+        self.experimental_features
+            .set_active(config.experimental_features);
+        // The master gate: off hides every experimental row (its feature is
+        // also forced off in the engine); back on, they reappear with their
+        // saved switch states and values.
+        self.set_experimental_visible(config.experimental_features);
         let menu = config.menu.clone().unwrap_or_else(|| config.default_menu());
         *self.menu.borrow_mut() = normalize_menu(&menu);
         self.fill_menu_list();
@@ -585,6 +592,7 @@ impl Ui {
         config.echo_stale_ms = self.echo_stale_spin.value() as u64;
         config.idle_commit_enabled = self.idle_commit_switch.is_active();
         config.idle_commit_ms = self.idle_commit_spin.value() as u64;
+        config.experimental_features = self.experimental_features.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());
@@ -642,6 +650,30 @@ impl Ui {
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
             .map(str::to_string)
             .collect()
+    }
+
+    /// Show or hide every experimental row across the pages — the master
+    /// "Tính năng thử nghiệm" switch ("Cài đặt khác"). Hiding is display
+    /// only: the saved switch states and values stay in config.toml and
+    /// come back verbatim when the gate reopens; the engine forces the
+    /// features off while the gate is closed.
+    fn set_experimental_visible(&self, on: bool) {
+        let rows: [&gtk4::Widget; 11] = [
+            self.macro_valid_words.upcast_ref(),
+            self.extra_url_chars_switch.upcast_ref(),
+            self.extra_url_chars_entry.upcast_ref(),
+            self.auto_capitalize_after_switch.upcast_ref(),
+            self.auto_capitalize_after_entry.upcast_ref(),
+            self.clipboard_restore_switch.upcast_ref(),
+            self.clipboard_restore_spin.upcast_ref(),
+            self.echo_stale_switch.upcast_ref(),
+            self.echo_stale_spin.upcast_ref(),
+            self.idle_commit_switch.upcast_ref(),
+            self.idle_commit_spin.upcast_ref(),
+        ];
+        for row in rows {
+            row.set_visible(on);
+        }
     }
 
     /// Run the save funnel if the window wired it (headless tests skip it).

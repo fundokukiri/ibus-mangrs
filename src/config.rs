@@ -118,6 +118,11 @@ pub struct Config {
     /// is the behavior users know.
     pub idle_commit_enabled: bool,
     pub idle_commit_ms: u64,
+    /// Master gate for every experimental feature: off hides their rows in
+    /// the settings window and forces them all off in the engine, while
+    /// each switch and value stays saved in this file and comes back when
+    /// the gate reopens.
+    pub experimental_features: bool,
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
@@ -783,6 +788,7 @@ impl Default for Config {
             echo_stale_ms: 150,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
+            experimental_features: false,
             debug_log: false,
             debug_log_text: false,
             x11_delete_without_report: false,

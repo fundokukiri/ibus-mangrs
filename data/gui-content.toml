@@ -223,6 +223,10 @@ subtitle = "Dừng tay quá lâu trên một từ có gạch chân thì từ đ�
 title = "Nghỉ bao lâu thì chấp nhận (ms)"
 subtitle = "300–2000 ms. Mặc định: 700"
 
+[rows.experimental_features]
+title = "Tính năng thử nghiệm"
+subtitle = "Hiện các tính năng đang thử nghiệm trên các trang. Tắt sẽ ẩn và tắt hết chúng; giá trị đã chỉnh vẫn được giữ để dùng lại khi bật"
+
 [groups.tune.advanced]
 title = "Nâng cao"
 
