@@ -1757,6 +1757,36 @@ fn clipboard_restore_delay_is_flag_gated() {
 }
 
 #[test]
+fn echo_stale_window_is_flag_gated() {
+    // Default: the built-in 150 ms, whatever a hand edit put in the value.
+    let e = engine(Mode::NonPreedit, Config::default());
+    assert_eq!(e.echo_stale(), Duration::from_millis(150));
+    let e = engine(
+        Mode::NonPreedit,
+        Config {
+            echo_stale_enabled: false,
+            echo_stale_ms: 400,
+            ..Config::default()
+        },
+    );
+    assert_eq!(
+        e.echo_stale(),
+        Duration::from_millis(150),
+        "the switch off must ignore the stored value"
+    );
+    // Switch on: the custom window applies.
+    let e = engine(
+        Mode::NonPreedit,
+        Config {
+            echo_stale_enabled: true,
+            echo_stale_ms: 400,
+            ..Config::default()
+        },
+    );
+    assert_eq!(e.echo_stale(), Duration::from_millis(400));
+}
+
+#[test]
 fn extra_capitalize_triggers_are_opt_in() {
     // Default: a colon does not start a sentence.
     for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {

@@ -417,6 +417,24 @@ pub(super) fn widgets() -> Rc<Ui> {
         50.0,
     );
     clipboard_restore_spin.set_sensitive(false);
+    let echo_stale_switch = switch_row(
+        &t("rows.echo_stale.title", "Cửa sổ xả commit"),
+        &t(
+            "rows.echo_stale.subtitle",
+            "Chờ bao lâu thì bỏ đợi phím Backspace ảo quay về mà xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ",
+        ),
+    );
+    let echo_stale_spin = spin_row(
+        &t("rows.echo_stale_spin.title", "Cửa sổ xả sau (ms)"),
+        &t(
+            "rows.echo_stale_spin.subtitle",
+            "50–1000 ms. Mặc định: 150. Quá thấp dễ mất chữ, quá cao làm chữ hiện trễ",
+        ),
+        50.0,
+        1000.0,
+        10.0,
+    );
+    echo_stale_spin.set_sensitive(false);
 
     // Panel-menu editor: the design vector is the source of truth; the
     // boxed list is its view (rebuilt on every edit).
@@ -641,6 +659,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         unicode_channel,
         clipboard_restore_switch,
         clipboard_restore_spin,
+        echo_stale_switch,
+        echo_stale_spin,
         menu,
         menu_box,
         menu_open,
