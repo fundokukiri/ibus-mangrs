@@ -1662,6 +1662,31 @@ fn macro_can_be_disabled() {
 }
 
 #[test]
+fn macro_on_valid_word_is_opt_in() {
+    // Default: a shorthand keyed like a real word ("cam") never expands —
+    // the word itself wins, in every core mode.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(mode, Config::default());
+        e.macros
+            .set_entries([("cam".to_string(), "cảm ơn".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "cam "), "cam ", "{mode:?}");
+    }
+    // Opt in (`macro_expand_valid_words`): the same key expands.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(
+            mode,
+            Config {
+                macro_expand_valid_words: true,
+                ..Config::default()
+            },
+        );
+        e.macros
+            .set_entries([("cam".to_string(), "cảm ơn".to_string())].into_iter());
+        assert_eq!(type_replay(&mut e, "cam "), "cảm ơn ", "{mode:?}");
+    }
+}
+
+#[test]
 fn macro_rewrite_never_deletes_past_the_text() {
     // `ttlt` → "Tôi tên là Tùng": the expansion used to stay in `tail`
     // after the word ended, so backspacing part of it and typing the key

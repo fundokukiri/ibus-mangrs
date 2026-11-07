@@ -175,6 +175,7 @@ struct Ui {
     macro_enabled: adw::SwitchRow,
     capitalize_macro: adw::SwitchRow,
     macro_in_off_mode: adw::SwitchRow,
+    macro_valid_words: adw::SwitchRow,
     time_format: adw::EntryRow,
     date_format: adw::EntryRow,
     /// Emoji shortcodes ("Emoji" tab): the on/off switch, the picker
@@ -392,6 +393,8 @@ impl Ui {
         self.macro_enabled.set_active(config.macro_enabled);
         self.capitalize_macro.set_active(config.capitalize_macro);
         self.macro_in_off_mode.set_active(config.macro_in_off_mode);
+        self.macro_valid_words
+            .set_active(config.macro_expand_valid_words);
         self.time_format.set_text(&config.time_format);
         self.date_format.set_text(&config.date_format);
         self.emoji_enabled.set_active(config.emoji_enabled);
@@ -516,6 +519,7 @@ impl Ui {
         config.macro_enabled = self.macro_enabled.is_active();
         config.capitalize_macro = self.capitalize_macro.is_active();
         config.macro_in_off_mode = self.macro_in_off_mode.is_active();
+        config.macro_expand_valid_words = self.macro_valid_words.is_active();
         config.time_format = self.time_format.text().trim().to_string();
         config.date_format = self.date_format.text().trim().to_string();
         config.emoji_enabled = self.emoji_enabled.is_active();

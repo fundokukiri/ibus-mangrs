@@ -137,6 +137,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Vẫn mở rộng khi tiếng Việt đang tắt",
         ),
     );
+    let macro_valid_words = switch_row(
+        &t("rows.macro_valid_words.title", "Nở gõ tắt cả trên từ hợp lệ"),
+        &t(
+            "rows.macro_valid_words.subtitle",
+            "Phím tắt trùng từ thật (vd “cam”) sẽ nở thay vì giữ nguyên — Backspace một phím để gõ từ thật",
+        ),
+    );
     // The formats live in native EntryRows (the row carries the title, the
     // old subtitle examples moved to the page as tooltips — EntryRow has
     // no placeholder in this libadwaita). Markup off before the title, as
@@ -537,6 +544,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         macro_enabled,
         capitalize_macro,
         macro_in_off_mode,
+        macro_valid_words,
         time_format,
         date_format,
         macros_text,

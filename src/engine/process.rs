@@ -348,8 +348,10 @@ impl Engine {
         }
         // A key sequence that already forms a valid Vietnamese word is much
         // more likely normal typing than a shorthand ("cam", "moi") — do
-        // not expand it. Shorthand keys therefore must not be valid words.
-        if valid {
+        // not expand it. `macro_expand_valid_words` opts out of the guard:
+        // a colliding shorthand then makes that word reachable only by
+        // backspacing one key out.
+        if valid && !self.macro_expand_valid_words {
             return None;
         }
         self.macros.expand(

@@ -369,6 +369,7 @@ fn refresh_round_trips_every_widget() {
         macro_enabled: false,
         capitalize_macro: false,
         macro_in_off_mode: true,
+        macro_expand_valid_words: true,
         time_format: "%H".into(),
         date_format: "%Y".into(),
         dictionary_enabled: false,
@@ -522,7 +523,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 19] = [
+    let rows: [&adw::SwitchRow; 20] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -536,6 +537,7 @@ fn every_switch_triggers_save() {
         &ui.macro_enabled,
         &ui.capitalize_macro,
         &ui.macro_in_off_mode,
+        &ui.macro_valid_words,
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,

@@ -207,6 +207,7 @@ pub struct Engine {
     macro_enabled: bool,
     capitalize_macro: bool,
     macro_in_off_mode: bool,
+    macro_expand_valid_words: bool,
     time_format: String,
     date_format: String,
     macros: Macros,
@@ -313,6 +314,7 @@ impl Engine {
             macro_enabled: true,
             capitalize_macro: true,
             macro_in_off_mode: false,
+            macro_expand_valid_words: false,
             time_format: "%H:%M".into(),
             date_format: "%d/%m/%Y".into(),
             macros: Macros::load(),
@@ -395,6 +397,7 @@ impl Engine {
         self.macro_enabled = config.macro_enabled;
         self.capitalize_macro = config.capitalize_macro;
         self.macro_in_off_mode = config.macro_in_off_mode;
+        self.macro_expand_valid_words = config.macro_expand_valid_words;
         self.x11_delete_without_report = config.x11_delete_without_report;
         self.preedit_for_xim = config.preedit_for_xim;
         self.time_format = config.time_format.clone();
