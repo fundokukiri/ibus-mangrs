@@ -987,6 +987,13 @@ fn emit_with(
                     debug_log::log("press-delete FAILED: selection stays selected");
                 }
             }
+            // The per-key batch's parked commit: its deletes were injected
+            // and their echoes accounted when the batch armed, so the
+            // normal deferral would park it behind a stale count. Emit
+            // directly.
+            Action::CommitNow(text) => {
+                out.push(signal("CommitText").append1(plain_text(text)));
+            }
             Action::Paste(text) => {
                 if (t.paste)(text, engine.clipboard_restore_delay_ms()) {
                     // Length only: the word itself is what the user just

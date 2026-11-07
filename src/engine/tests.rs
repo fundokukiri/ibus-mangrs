@@ -25,6 +25,7 @@ fn type_str(e: &mut Engine, s: &str) -> Vec<Action> {
                     buf.drain(start..end);
                 }
                 Action::Commit(t) => buf.extend(t.chars()),
+                Action::CommitNow(t) => buf.extend(t.chars()),
                 _ => {}
             }
         }
@@ -2620,107 +2621,181 @@ fn per_key_engine(mode: Mode) -> Engine {
     e
 }
 
+/// Backdate the per-key batch's deadline and run the tick — the parked
+/// commit becomes deliverable exactly as the main loop would deliver it.
+fn flush_per_key(e: &mut Engine) -> Vec<Action> {
+    if let Some((deadline, _)) = e.per_key_park.as_mut() {
+        *deadline = Instant::now() - Duration::from_millis(1);
+    }
+    e.tick()
+}
+
 #[test]
-fn smooth_per_key_commits_the_word_progressively() {
-    // With the switch on, every composition-changing key erases the
-    // committed tail and commits the new one through the injected
-    // transport: the screen shows `ê` the moment the second `e` lands,
-    // not the raw `ee`. Marks become visible (and editable) mid-word.
+fn smooth_per_key_commits_across_flush_boundaries() {
+    // With the switch on, the keys coalesce into one in-flight batch; the
+    // main loop delivers it past the grace deadline. After a flush, the
+    // next mark key erases the landed text and re-parks: the screen shows
+    // `ê` the moment the second `e` lands (once the batch flushes).
     let mut e = per_key_engine(Mode::Smooth);
-    let actions = type_str(&mut e, "tieeng");
+    let actions = type_str(&mut e, "tie");
     assert!(
-        actions
+        !actions
             .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "t")),
-        "the first key commits itself: {actions:?}"
+            .any(|a| matches!(a, Action::Commit(_) | Action::Forward)),
+        "a burst commits nothing inline: {actions:?}"
     );
-    let second_e = actions
-        .iter()
-        .position(|a| matches!(a, Action::Commit(t) if t == "ê"))
-        .expect("the mark must commit immediately: {actions:?}");
-    assert!(
-        matches!(actions[second_e - 1], Action::InjectBackspaces(1)),
-        "the raw tail is erased first: {actions:?}"
-    );
-    assert!(
-        !actions.iter().any(|a| matches!(a, Action::Forward)),
-        "per-key consumes every key: {actions:?}"
-    );
-    assert_eq!(e.tail, "tiêng");
-}
-
-#[test]
-fn smooth_per_key_word_end_skips_the_rewrite() {
-    // The word is already on screen; the terminator just forwards — no
-    // second rewrite of the finished word.
-    let mut e = per_key_engine(Mode::Smooth);
-    let actions = type_str(&mut e, "tieengs ");
-    let bs: Vec<u32> = actions
-        .iter()
-        .filter_map(|a| match a {
-            Action::InjectBackspaces(n) => Some(*n),
-            _ => None,
-        })
-        .collect();
+    assert_eq!(e.tail, "tie");
+    let actions = flush_per_key(&mut e);
     assert_eq!(
-        bs,
-        vec![1, 3],
-        "one erase per transforming key: {actions:?}"
+        actions,
+        vec![Action::CommitNow("tie".into())],
+        "{actions:?}"
     );
-    assert!(
-        matches!(actions.last(), Some(Action::Forward)),
-        "the terminator forwards: {actions:?}"
-    );
-}
-
-#[test]
-fn smooth_per_key_backspace_edits_the_committed_tail() {
-    // Backspace pops the last raw key and the composed word recomposes in
-    // place: unikey mark-editing, visible immediately.
-    let mut e = per_key_engine(Mode::Smooth);
-    type_str(&mut e, "tieeng");
-    assert_eq!(e.tail, "tiêng");
-    let actions = e.backspace().expect("backspace");
+    assert!(e.per_key_park.is_none());
+    // The mark key: erase the landed `e`, re-park `ê`.
+    let actions = type_str(&mut e, "e");
     assert!(
         actions.contains(&Action::InjectBackspaces(1)),
         "{actions:?}"
     );
-    assert_eq!(e.tail, "tiên");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(actions, vec![Action::CommitNow("ê".into())], "{actions:?}");
+    assert_eq!(e.tail, "tiê");
 }
 
 #[test]
-fn smooth_per_key_macro_rewrites_the_committed_tail() {
-    // The word-end macro erases what the app actually holds (the committed
-    // tail), not the raw key count.
+fn smooth_per_key_burst_coalesces_into_one_commit() {
+    // Fast typing (no flush between keys) coalesces: nothing lands
+    // mid-burst, no deletes are needed (the app holds nothing of ours),
+    // and the whole word arrives as ONE commit when the burst pauses.
+    let mut e = per_key_engine(Mode::Smooth);
+    let actions = type_str(&mut e, "tieeng");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(_) | Action::Forward)),
+        "a burst commits nothing inline: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(_))),
+        "nothing landed, nothing to erase: {actions:?}"
+    );
+    assert_eq!(e.tail, "tiêng");
+    let batch = e
+        .per_key_park
+        .as_ref()
+        .map(|(_, t)| t.clone())
+        .expect("the batch is pending");
+    assert_eq!(batch, "tiêng");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(
+        actions,
+        vec![Action::CommitNow("tiêng".into())],
+        "one commit for the whole burst"
+    );
+}
+
+#[test]
+fn smooth_per_key_word_end_carries_the_terminator_in_the_batch() {
+    // The word-end terminator joins the coalesced batch — a forwarded key
+    // would race the pending commit on a relay.
+    let mut e = per_key_engine(Mode::Smooth);
+    let actions = type_str(&mut e, "tieengs ");
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::Forward)),
+        "the terminator must not forward past the batch: {actions:?}"
+    );
+    let batch = e
+        .per_key_park
+        .as_ref()
+        .map(|(_, t)| t.clone())
+        .expect("the batch is pending");
+    assert_eq!(batch, "tiếng ");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(actions, vec![Action::CommitNow("tiếng ".into())]);
+    assert_eq!(e.tail, "tiếng ");
+}
+
+#[test]
+fn smooth_per_key_backspace_edits_the_landed_tail() {
+    // After a flush the word has landed; Backspace pops the last raw key,
+    // erases the landed tail's diff and re-parks the recomposed word:
+    // unikey mark-editing, visible immediately.
+    let mut e = per_key_engine(Mode::Smooth);
+    type_str(&mut e, "tie");
+    flush_per_key(&mut e); // "tie" lands
+    let actions = type_str(&mut e, "e"); // the mark: erase the landed `e`
+    assert!(
+        actions.contains(&Action::InjectBackspaces(1)),
+        "{actions:?}"
+    );
+    flush_per_key(&mut e); // `ê` lands
+    assert_eq!(e.tail, "tiê");
+    let actions = e.backspace().expect("backspace");
+    // Popping the mark key recomposes `tiê` -> `tie`: the diff is a
+    // one-char replace (erase `ê`, commit `e`), not a pure delete.
+    assert!(
+        actions.contains(&Action::InjectBackspaces(1)),
+        "{actions:?}"
+    );
+    assert_eq!(e.tail, "tie");
+    assert_eq!(
+        e.per_key_park.as_ref().map(|(_, t)| t.as_str()),
+        Some("e"),
+        "the replacement is re-parked"
+    );
+}
+
+#[test]
+fn smooth_per_key_macro_rewrites_the_landed_tail() {
+    // The word-end macro erases what the app actually holds (the landed
+    // tail after a flush) and parks the expansion with the terminator.
     let mut e = per_key_engine(Mode::Smooth);
     e.macros
         .set_entries([("zz".to_string(), "CLIP".to_string())].into_iter());
-    let actions = type_str(&mut e, "zz ");
-    assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "CLIP ")),
-        "{actions:?}"
-    );
+    type_str(&mut e, "zz");
+    flush_per_key(&mut e); // "zz" lands
+    let actions = type_str(&mut e, " "); // word end: the macro expands
     assert!(
         actions.contains(&Action::InjectBackspaces(2)),
-        "the committed tail is erased: {actions:?}"
+        "the landed tail is erased: {actions:?}"
     );
+    let actions = flush_per_key(&mut e);
+    assert_eq!(actions, vec![Action::CommitNow("CLIP ".into())]);
 }
 
 #[test]
 fn smooth_per_key_legacy_charset_rewrites_the_tail() {
-    // Legacy encodings change the character count: the per-key rewrite
-    // re-commits the whole encoded tail each key.
+    // Legacy encodings change the character count: the per-key batch
+    // carries the whole re-encoded tail, diffed against what landed.
     let mut e = per_key_engine(Mode::Smooth);
     e.set_charset(Charset::Vni);
-    let actions = type_str(&mut e, "viee");
-    let want = encode(Charset::Vni, "viê");
+    type_str(&mut e, "vie");
+    flush_per_key(&mut e); // the encoded "vie" lands
+    type_str(&mut e, "e"); // the mark re-encodes the tail
+    let actions = flush_per_key(&mut e);
+    // The coalesce diffs the encoded tails: only the VNI circumflex
+    // marker is new, so the commit carries just that suffix.
+    assert_eq!(actions, vec![Action::CommitNow("â".into())], "{actions:?}");
+    assert_eq!(e.tail, encode(Charset::Vni, "viê"));
+}
+
+#[test]
+fn smooth_per_key_cancels_the_batch_on_immediate_backspace() {
+    // Type a key and Backspace before the batch lands: the park cancels
+    // outright — nothing was delivered, nothing needs erasing.
+    let mut e = per_key_engine(Mode::Smooth);
+    type_str(&mut e, "e");
+    assert!(e.per_key_park.is_some());
+    let actions = e.backspace().expect("backspace");
+    assert!(actions.is_empty(), "{actions:?}");
+    assert!(e.per_key_park.is_none());
+    assert_eq!(e.tail, "");
     assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::Commit(t) if *t == want)),
-        "the encoded tail is committed: {actions:?}"
+        flush_per_key(&mut e).is_empty(),
+        "nothing to deliver after the cancel"
     );
 }
 
