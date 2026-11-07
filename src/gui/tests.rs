@@ -398,6 +398,7 @@ fn refresh_round_trips_every_widget() {
         echo_stale_ms: 250,
         idle_commit_enabled: true,
         idle_commit_ms: 800,
+        smooth_per_key: true,
         experimental_features: true,
         show_toasts: false,
         debug_log: true,

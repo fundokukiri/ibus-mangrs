@@ -118,6 +118,14 @@ pub struct Config {
     /// is the behavior users know.
     pub idle_commit_enabled: bool,
     pub idle_commit_ms: u64,
+    /// Show the composed word progressively in the smooth modes: every
+    /// key that changes the composition erases the committed tail and
+    /// commits the new one through the injected transport (`ee` shows
+    /// `ê` immediately, marks are editable mid-word) instead of holding
+    /// the raw keys until the word ends. Off by default: word-end
+    /// rewrite is the smooth contract (lotus ships the same), and the
+    /// per-key commit adds ~60 ms of display lag per key.
+    pub smooth_per_key: bool,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
     /// each switch and value stays saved in this file and comes back when
@@ -792,6 +800,7 @@ impl Default for Config {
             echo_stale_ms: 150,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
+            smooth_per_key: false,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
@@ -1237,6 +1246,13 @@ children = ["preedit", "smooth"]
         let b = c.bamboo_config();
         assert_eq!(b.w2u_mode, bamboo_core::W2uMode::Everywhere);
         assert_eq!(b.bracket_mode, bamboo_core::BracketMode::NonStart);
+    }
+
+    #[test]
+    fn smooth_per_key_round_trips_and_defaults_off() {
+        let c: Config = toml::from_str("smooth_per_key = true").unwrap();
+        assert!(c.smooth_per_key);
+        assert!(!Config::default().smooth_per_key);
     }
 
     #[test]

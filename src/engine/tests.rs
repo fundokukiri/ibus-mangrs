@@ -2605,6 +2605,152 @@ fn parked_commit_flushes_when_forced() {
     assert!(!e.has_deferred());
 }
 
+// --- smooth per-key display (experimental switch) ---
+
+fn per_key_engine(mode: Mode) -> Engine {
+    let mut e = engine(
+        mode,
+        Config {
+            experimental_features: true,
+            smooth_per_key: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    e
+}
+
+#[test]
+fn smooth_per_key_commits_the_word_progressively() {
+    // With the switch on, every composition-changing key erases the
+    // committed tail and commits the new one through the injected
+    // transport: the screen shows `ê` the moment the second `e` lands,
+    // not the raw `ee`. Marks become visible (and editable) mid-word.
+    let mut e = per_key_engine(Mode::Smooth);
+    let actions = type_str(&mut e, "tieeng");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "t")),
+        "the first key commits itself: {actions:?}"
+    );
+    let second_e = actions
+        .iter()
+        .position(|a| matches!(a, Action::Commit(t) if t == "ê"))
+        .expect("the mark must commit immediately: {actions:?}");
+    assert!(
+        matches!(actions[second_e - 1], Action::InjectBackspaces(1)),
+        "the raw tail is erased first: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::Forward)),
+        "per-key consumes every key: {actions:?}"
+    );
+    assert_eq!(e.tail, "tiêng");
+}
+
+#[test]
+fn smooth_per_key_word_end_skips_the_rewrite() {
+    // The word is already on screen; the terminator just forwards — no
+    // second rewrite of the finished word.
+    let mut e = per_key_engine(Mode::Smooth);
+    let actions = type_str(&mut e, "tieengs ");
+    let bs: Vec<u32> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::InjectBackspaces(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        bs,
+        vec![1, 3],
+        "one erase per transforming key: {actions:?}"
+    );
+    assert!(
+        matches!(actions.last(), Some(Action::Forward)),
+        "the terminator forwards: {actions:?}"
+    );
+}
+
+#[test]
+fn smooth_per_key_backspace_edits_the_committed_tail() {
+    // Backspace pops the last raw key and the composed word recomposes in
+    // place: unikey mark-editing, visible immediately.
+    let mut e = per_key_engine(Mode::Smooth);
+    type_str(&mut e, "tieeng");
+    assert_eq!(e.tail, "tiêng");
+    let actions = e.backspace().expect("backspace");
+    assert!(
+        actions.contains(&Action::InjectBackspaces(1)),
+        "{actions:?}"
+    );
+    assert_eq!(e.tail, "tiên");
+}
+
+#[test]
+fn smooth_per_key_macro_rewrites_the_committed_tail() {
+    // The word-end macro erases what the app actually holds (the committed
+    // tail), not the raw key count.
+    let mut e = per_key_engine(Mode::Smooth);
+    e.macros
+        .set_entries([("zz".to_string(), "CLIP".to_string())].into_iter());
+    let actions = type_str(&mut e, "zz ");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "CLIP ")),
+        "{actions:?}"
+    );
+    assert!(
+        actions.contains(&Action::InjectBackspaces(2)),
+        "the committed tail is erased: {actions:?}"
+    );
+}
+
+#[test]
+fn smooth_per_key_legacy_charset_rewrites_the_tail() {
+    // Legacy encodings change the character count: the per-key rewrite
+    // re-commits the whole encoded tail each key.
+    let mut e = per_key_engine(Mode::Smooth);
+    e.set_charset(Charset::Vni);
+    let actions = type_str(&mut e, "viee");
+    let want = encode(Charset::Vni, "viê");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if *t == want)),
+        "the encoded tail is committed: {actions:?}"
+    );
+}
+
+#[test]
+fn smooth_per_key_is_gated_by_the_experimental_switch() {
+    // Switch on, master gate closed: raw-till-word-end stands (the engine
+    // behaves exactly like the default).
+    let mut e = engine(
+        Mode::Smooth,
+        Config {
+            smooth_per_key: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let actions = type_str(&mut e, "vieetj ");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "ê")),
+        "no per-key commit with the gate closed: {actions:?}"
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(6))),
+        "the word-end rewrite stands: {actions:?}"
+    );
+}
+
 #[test]
 fn select_falls_back_to_preedit_without_surrounding_report() {
     let mut e = Engine::new(Method::Telex, Mode::Select);
