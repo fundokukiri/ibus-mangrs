@@ -441,6 +441,14 @@ impl Engine {
         // the word starts.
         if !self.wrapper.has_composition() {
             self.cap_word = self.auto_capitalize && self.capitalize_next && c.is_alphabetic();
+            // Per-key display: the previous word's region has landed (its
+            // own commit or the batch's) — this word's region starts empty,
+            // so the coalesce diffs and erases stay INSIDE the word and can
+            // never touch what came before it. A batch still in flight
+            // spans the boundary: keep coalescing onto it.
+            if self.smooth_per_key && self.per_key_park.is_none() {
+                self.tail.clear();
+            }
         }
         let per_key = self.smooth_per_key && matches!(mode, Mode::Smooth | Mode::SuperSmooth);
         match self.wrapper.process_char(c) {

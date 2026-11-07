@@ -2767,6 +2767,42 @@ fn smooth_per_key_macro_rewrites_the_landed_tail() {
 }
 
 #[test]
+fn smooth_per_key_word_end_never_erases_previous_words() {
+    // Regression (owner report): typing the second word's mark erased the
+    // FIRST word — the word-end coalesce diffed the bare word against the
+    // whole-screen tail and erased everything before it ("tôi cảm" ->
+    // "cảm "). The tail is the word's region only: the diff and the erase
+    // stay inside the word, and the previous words are never touched.
+    let mut e = per_key_engine(Mode::Smooth);
+    let mut all = Vec::new();
+    all.extend(type_str(&mut e, "tôi "));
+    all.extend(flush_per_key(&mut e)); // "tôi " lands
+    all.extend(type_str(&mut e, "camr ")); // word 2 coalesces
+    all.extend(flush_per_key(&mut e)); // "cảm " lands
+    let deletes: Vec<u32> = all
+        .iter()
+        .filter_map(|a| match a {
+            Action::InjectBackspaces(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        deletes.is_empty(),
+        "no erase may reach past the current word: {deletes:?} in {all:?}"
+    );
+    // Two landed commits: the first word, then the second with its mark.
+    let commits: Vec<&str> = all
+        .iter()
+        .filter_map(|a| match a {
+            Action::CommitNow(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(commits, vec!["tôi ", "cảm "], "{all:?}");
+    assert_eq!(e.tail, "cảm ");
+}
+
+#[test]
 fn smooth_per_key_legacy_charset_rewrites_the_tail() {
     // Legacy encodings change the character count: the per-key batch
     // carries the whole re-encoded tail, diffed against what landed.
