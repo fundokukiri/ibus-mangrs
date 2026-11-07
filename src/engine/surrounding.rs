@@ -79,6 +79,11 @@ impl Engine {
 
     /// Compare what the client reports before the cursor with what we believe
     /// we committed (`tail`) and repair the difference.
+    ///
+    /// Works on string slices, never collecting the report: the report can be
+    /// a whole paragraph and this runs on every keystroke. Only the short
+    /// `tail` walks its own characters; every offset in the report is derived
+    /// from the caret's byte position or stepped from the end.
     pub(super) fn verify_surrounding(&mut self, mode: Mode) -> Vec<Action> {
         // Only Surrounding verifies: plain NonPreedit must never send a
         // repair delete (the client did not ask for it, and a wrong repair
@@ -89,9 +94,15 @@ impl Engine {
         let Some((text, cursor)) = &self.surrounding else {
             return Vec::new();
         };
-        let actual: Vec<char> = text.chars().take(*cursor as usize).collect();
-        let tail: Vec<char> = self.tail.chars().collect();
-        if ends_with(&actual, &tail) {
+        // Byte offset of the caret inside the report — past the end when the
+        // cursor overshoots, the same clamp a `take(cursor)` collect had.
+        let prefix_end = text
+            .char_indices()
+            .nth(*cursor as usize)
+            .map_or(text.len(), |(byte, _)| byte);
+        let actual: &str = &text[..prefix_end];
+        let tail: &str = &self.tail;
+        if actual.ends_with(tail) {
             self.repair_delete = None;
             return Vec::new();
         }
@@ -103,53 +114,56 @@ impl Engine {
         // predates our last commit — fast typing) or reflects an app-side
         // deletion we cannot safely undo; either way, do nothing rather than
         // tear the composition down (this used to eat characters).
-        let contains = contains_sub(&actual, &tail);
+        let contains = actual.contains(tail);
         // The caret is the insertion point, so the believed word must end at
         // or right before it. Chrome's find bar reports a page fragment that
         // merely contains the typed word, with the caret far past it;
         // adopting that text deleted the real input ("em tun" → "g").
-        if contains && suffix_gap(&actual, &tail).is_some_and(|gap| gap > 2) {
+        let gap = contains.then(|| suffix_gap(actual, tail)).flatten();
+        if gap.is_some_and(|gap| gap > 2) {
             debug_log::log(&format!(
-                "verify: ignore unanchored tail_len={} actual_len={} gap={}",
-                tail.len(),
-                actual.len(),
-                suffix_gap(&actual, &tail).unwrap_or(0),
+                "verify: ignore unanchored tail_len={} gap={}",
+                tail.chars().count(),
+                gap.unwrap_or(0),
             ));
             debug_log::log_text(&format!(
                 "verify: ignore unanchored tail={:?} actual={:?}",
-                brief(&tail.iter().collect::<String>()),
-                brief(&actual.iter().collect::<String>()),
+                brief(tail),
+                brief(actual),
             ));
             return Vec::new();
         }
-        let k = common_suffix_len(&tail, &actual);
-        let t2 = &tail[..tail.len() - k];
-        let a2 = &actual[..actual.len() - k];
-        let extra_in_middle = a2.len() > t2.len() && starts_with(a2, t2);
+        let k = common_suffix_len(tail, actual);
+        let a2 = &actual[..byte_before_suffix(actual, k)];
+        let t2 = &tail[..byte_before_suffix(tail, k)];
+        let a2_starts_t2 = a2.starts_with(t2);
+        // `a2 longer than t2`: once a2 starts with t2 the counts differ
+        // exactly when a char exists past t2's length — bounded by the tail,
+        // never a full walk of the report.
+        let extra_in_middle =
+            a2_starts_t2 && a2.chars().take(t2.chars().count() + 1).count() > t2.chars().count();
         if !extra_in_middle && !contains {
             debug_log::log(&format!(
-                "verify: ignore stale tail_len={} actual_len={}",
-                tail.len(),
+                "verify: ignore stale tail_len={} actual_bytes={}",
+                tail.chars().count(),
                 actual.len(),
             ));
             debug_log::log_text(&format!(
                 "verify: ignore stale tail={:?} actual={:?}",
-                brief(&tail.iter().collect::<String>()),
-                brief(&actual.iter().collect::<String>()),
+                brief(tail),
+                brief(actual),
             ));
             return Vec::new();
         }
-        if a2.len() > t2.len() && starts_with(a2, t2) {
+        if extra_in_middle {
             // The client holds extra characters right before the common
             // suffix — a `DeleteSurroundingText` it swallowed earlier.
-            debug_log::log(&format!(
-                "verify: drift suffix={k} extra={}",
-                a2.len() - t2.len(),
-            ));
+            let extra = a2.chars().count() - t2.chars().count();
+            debug_log::log(&format!("verify: drift suffix={k} extra={extra}"));
             debug_log::log_text(&format!(
                 "verify: drift tail={:?} actual={:?}",
-                brief(&tail.iter().collect::<String>()),
-                brief(&actual.iter().collect::<String>()),
+                brief(tail),
+                brief(actual),
             ));
             if self.repair_delete_forbidden() {
                 // Mutter-relayed contexts: a repair delete here segfaults the
@@ -158,7 +172,10 @@ impl Engine {
                 self.repair_delete = None;
                 return Vec::new();
             }
-            let extra = (a2.len() - t2.len()) as u32;
+            // Copied before any `&mut self`: `actual` borrows the stored
+            // report, and the borrow must end before the engine state moves.
+            let commit = actual[a2.len()..].to_string();
+            let extra = extra as u32;
             let offset = -((k as i32) + extra as i32);
             if self.repair_delete.is_some() || self.delete_dropped {
                 // A repair was already attempted since the last verified
@@ -169,7 +186,6 @@ impl Engine {
                 // suffix is re-typed.
                 self.delete_dropped = true;
                 self.repair_delete = None;
-                let commit: String = actual[actual.len() - k..].iter().collect();
                 return vec![Action::RewriteByBackspace {
                     backspaces: k as u32 + extra,
                     commit,
@@ -183,13 +199,16 @@ impl Engine {
         // application actually holds.
         debug_log::log(&format!(
             "verify: sync-from-surrounding prefix_len={}",
-            actual.len(),
+            actual.chars().count(),
         ));
         debug_log::log_text(&format!(
             "verify: sync-from-surrounding actual={:?}",
-            brief(&actual.iter().collect::<String>()),
+            brief(actual),
         ));
-        self.sync_from_surrounding(&actual);
+        // Owned copy for the same borrow reason as above; the sync path is
+        // the rare app-edited-the-text case, not the per-keystroke path.
+        let prefix = actual.to_string();
+        self.sync_from_surrounding(&prefix);
         Vec::new()
     }
 
@@ -199,8 +218,8 @@ impl Engine {
     /// so tone keys keep working on the word that is actually there; the
     /// wrapper's own `last_output` tracking keeps the next delta correct
     /// despite the rebuild.
-    fn sync_from_surrounding(&mut self, actual_prefix: &[char]) {
-        let text: String = actual_prefix.iter().collect();
+    fn sync_from_surrounding(&mut self, actual_prefix: &str) {
+        let text = actual_prefix.to_string();
         self.repair_delete = None;
         if self.charset == Charset::Unicode {
             self.wrapper.rebuild(&text);
@@ -215,4 +234,32 @@ impl Engine {
                 .to_string();
         }
     }
+}
+
+/// Chars from the end of the last `tail` occurrence to the end of `actual`,
+/// or `None` when `actual` does not contain `tail`.
+fn suffix_gap(actual: &str, tail: &str) -> Option<usize> {
+    let pos = actual.rfind(tail)?;
+    Some(actual[pos + tail.len()..].chars().count())
+}
+
+/// Length of the common character suffix of `tail` and `actual`.
+fn common_suffix_len(tail: &str, actual: &str) -> usize {
+    tail.chars()
+        .rev()
+        .zip(actual.chars().rev())
+        .take_while(|(a, b)| a == b)
+        .count()
+}
+
+/// Byte offset of the boundary before the last `k` characters of `s`
+/// (the whole string when `k` is 0) — steps from the end, O(k).
+fn byte_before_suffix(s: &str, k: usize) -> usize {
+    if k == 0 {
+        return s.len();
+    }
+    s.char_indices()
+        .rev()
+        .nth(k - 1)
+        .map_or(0, |(byte, _)| byte)
 }
