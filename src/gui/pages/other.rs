@@ -303,25 +303,48 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
         });
     }
 
-    // Install: write the embedded extension, try to enable it, and report
-    // through a toast; the row flips to the installed state ("Cài lại").
+    // Install: confirmed like the destructive actions — the button writes
+    // files into the user extension dir and flips a GNOME setting, so a
+    // stray click must not do it. Same dialog shape as the reset.
     {
         let overlay_toasts = toast_overlay.clone();
         let row = extension_row.clone();
-        extension_btn.connect_clicked(move |btn| match install_focus_extension() {
-            Ok(msg) => {
-                overlay_toasts.add_toast(adw::Toast::new(&msg));
-                row.set_subtitle(&t(
-                    "rows.focus_extension.subtitle_installed",
-                    "Đã cài vào <tt>~/.local/share/gnome-shell/extensions</tt>",
-                ));
-                btn.set_label(&t("misc.reinstall_button", "Cài lại"));
+        extension_btn.connect_clicked(move |btn| {
+            let dialog = adw::AlertDialog::builder()
+                .heading(t("other.extension_confirm_heading", "Cài extension MăngRS Focus?"))
+                .body(t(
+                    "other.extension_confirm_body",
+                    "Vài tệp sẽ được ghi vào ~/.local/share/gnome-shell/extensions và extension được bật — cần cho luật theo app trên Wayland.",
+                ))
+                .build();
+            dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
+            dialog.add_response("apply", &t("other.extension_apply", "Cài đặt"));
+            dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+            dialog.set_default_response(Some("cancel"));
+            dialog.set_close_response("cancel");
+            {
+                let overlay_toasts = overlay_toasts.clone();
+                let row = row.clone();
+                let btn = btn.clone();
+                dialog.connect_response(Some("apply"), move |_, _| {
+                    match install_focus_extension() {
+                        Ok(msg) => {
+                            overlay_toasts.add_toast(adw::Toast::new(&msg));
+                            row.set_subtitle(&t(
+                                "rows.focus_extension.subtitle_installed",
+                                "Đã cài vào <tt>~/.local/share/gnome-shell/extensions</tt>",
+                            ));
+                            btn.set_label(&t("misc.reinstall_button", "Cài lại"));
+                        }
+                        Err(e) => {
+                            if let Some(window) = window_of(&btn) {
+                                alert(&window, &e);
+                            }
+                        }
+                    }
+                });
             }
-            Err(e) => {
-                if let Some(window) = window_of(btn) {
-                    alert(&window, &e);
-                }
-            }
+            dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
         });
     }
 

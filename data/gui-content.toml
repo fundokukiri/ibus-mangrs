@@ -455,6 +455,11 @@ title = "Giao diện"
 title = "GNOME Shell extension"
 description = "Cần cho luật theo app trên Wayland."
 
+[other]
+extension_confirm_heading = "Cài extension MăngRS Focus?"
+extension_confirm_body = "Vài tệp sẽ được ghi vào ~/.local/share/gnome-shell/extensions và extension được bật — cần cho luật theo app trên Wayland."
+extension_apply = "Cài đặt"
+
 [groups.other.advanced]
 title = "Nâng cao"
 
