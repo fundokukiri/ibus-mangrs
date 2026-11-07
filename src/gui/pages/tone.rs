@@ -37,19 +37,15 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     spelling.add(&ui.abbrev);
     decorate_experimental(&ui.extra_url_chars_switch);
     decorate_experimental(&ui.extra_url_chars_entry);
-    // The switch gates its entry: off locks the value and resets it to the
-    // default (empty). The save itself goes through wire_switch_saves,
-    // connected after this — the reset runs first.
+    // The switch gates its entry: off locks the input, and the engine
+    // applies the default while the typed value stays saved for when the
+    // switch returns. The save itself goes through wire_switch_saves.
     {
         let ui = Rc::clone(ui);
         let switch = ui.extra_url_chars_switch.clone();
         let entry = ui.extra_url_chars_entry.clone();
         switch.connect_active_notify(move |sw| {
-            let on = sw.is_active();
-            entry.set_sensitive(on);
-            if !on {
-                entry.set_text("");
-            }
+            entry.set_sensitive(sw.is_active());
         });
     }
     {
@@ -73,19 +69,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.auto_capitalize_after_switch);
     decorate_experimental(&ui.auto_capitalize_after_entry);
     decorate_experimental(&ui.double_space);
-    // The switch gates its entry: off locks the value and resets it to
-    // the default (empty). The save itself goes through wire_switch_saves,
-    // connected after this — the reset runs first.
+    // Same pair shape: off locks the input, the value stays saved.
     {
         let ui = Rc::clone(ui);
         let switch = ui.auto_capitalize_after_switch.clone();
         let entry = ui.auto_capitalize_after_entry.clone();
         switch.connect_active_notify(move |sw| {
-            let on = sw.is_active();
-            entry.set_sensitive(on);
-            if !on {
-                entry.set_text("");
-            }
+            entry.set_sensitive(sw.is_active());
         });
     }
     {

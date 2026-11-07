@@ -361,8 +361,11 @@ fn refresh_round_trips_every_widget() {
         auto_correct: false,
         auto_restore: false,
         bypass_url: false,
+        // The switch off must NOT wipe the stored value: refresh shows it
+        // (locked) and read returns it — the value reapplies when the
+        // switch comes back on. Pinned by the read() round-trip below.
         extra_url_chars: "`<".into(),
-        extra_url_chars_enabled: true,
+        extra_url_chars_enabled: false,
         w2u: W2uConfig::NonStart,
         bracket: BracketConfig::Everywhere,
         em_dash: true,
