@@ -191,6 +191,14 @@ subtitle = "Từ đứng ngay sau ký tự bên dưới cũng giữ nguyên phí
 title = "Ký tự riêng"
 subtitle = "Ví dụ: ` ' ! — không nhận -, chữ, số, khoảng trắng"
 
+[rows.auto_capitalize_after]
+title = "Viết hoa sau ký tự thêm"
+subtitle = "Cùng bộ . ! ? + Enter: từ ngay sau ký tự bên dưới cũng viết hoa"
+
+[rows.auto_capitalize_after_entry]
+title = "Ký tự kích hoạt"
+subtitle = "Ví dụ : ” — không nhận chữ, số, khoảng trắng"
+
 # --- page Gõ tắt ------------------------------------------------------------
 
 [groups.macros.settings]

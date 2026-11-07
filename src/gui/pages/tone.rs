@@ -67,8 +67,32 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         ))
         .build();
     automatic.add(&ui.auto_capitalize);
+    automatic.add(&ui.auto_capitalize_after_switch);
+    automatic.add(&ui.auto_capitalize_after_entry);
     automatic.add(&ui.double_space);
+    decorate_experimental(&ui.auto_capitalize_after_switch);
+    decorate_experimental(&ui.auto_capitalize_after_entry);
     decorate_experimental(&ui.double_space);
+    // The switch gates its entry: off locks the value and resets it to
+    // the default (empty). The save itself goes through wire_switch_saves,
+    // connected after this — the reset runs first.
+    {
+        let ui = Rc::clone(ui);
+        let switch = ui.auto_capitalize_after_switch.clone();
+        let entry = ui.auto_capitalize_after_entry.clone();
+        switch.connect_active_notify(move |sw| {
+            let on = sw.is_active();
+            entry.set_sensitive(on);
+            if !on {
+                entry.set_text("");
+            }
+        });
+    }
+    {
+        let ui = Rc::clone(ui);
+        let entry = ui.auto_capitalize_after_entry.clone();
+        entry.connect_changed(move |_| ui.fire_save());
+    }
     page.add(&automatic);
 
     let special = adw::PreferencesGroup::builder()
