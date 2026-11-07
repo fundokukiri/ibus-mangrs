@@ -453,7 +453,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.smooth_per_key.title", "Hiện dấu từng bước ở Smooth"),
         &t(
             "rows.smooth_per_key.subtitle",
-            "(Thử nghiệm) Smooth/Super Smooth hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — mỗi phím trễ ~60 ms; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi",
+            "(Thử nghiệm) Smooth/Super Smooth hiện chữ có dấu ngay trong lúc gõ (ee → ê) và cho sửa dấu giữa từ, thay vì giữ phím raw đến hết từ — cần app hỗ trợ báo cáo văn bản (app không hỗ trợ giữ hành vi cũ); Select không đổi",
         ),
     );
     let idle_commit_spin = spin_row(
