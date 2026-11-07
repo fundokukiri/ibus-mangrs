@@ -636,10 +636,12 @@ impl Engine {
                     // the composition and pass the key through; the client's
                     // SetSurroundingText (sent right after our
                     // RequireSurroundingText) unblocks rewriting.
-                    debug_log::log(&format!(
-                        "raw-forward (no delete transport) client={:?}",
-                        self.client
-                    ));
+                    if debug_log::enabled() {
+                        debug_log::log(&format!(
+                            "raw-forward (no delete transport) client={:?}",
+                            self.client
+                        ));
+                    }
                     // The application keeps the raw keystrokes; re-align the
                     // tracking so later keys edit the text actually shown.
                     self.wrapper.resync_output_to_raw();
@@ -671,10 +673,12 @@ impl Engine {
                 // Same gate as the Unicode arm: the rewrite delete cannot
                 // reach the application, and the paired commit would
                 // duplicate the word from the second keystroke on.
-                debug_log::log(&format!(
-                    "raw-forward (no delete transport, legacy) client={:?}",
-                    self.client
-                ));
+                if debug_log::enabled() {
+                    debug_log::log(&format!(
+                        "raw-forward (no delete transport, legacy) client={:?}",
+                        self.client
+                    ));
+                }
                 self.wrapper.resync_output_to_raw();
                 self.tail = self.wrapper.raw().to_string();
                 vec![Action::Forward]

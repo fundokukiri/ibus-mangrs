@@ -31,11 +31,15 @@ impl Engine {
         }
         let cursor = cursor as usize;
         let len = text.chars().count();
-        // Cursor and length only — never the text.
-        debug_log::log(&format!(
-            "st report cursor={cursor} len={len} composing={}",
-            self.wrapper.has_composition()
-        ));
+        // Cursor and length only — never the text. Per-report site: gate the
+        // format so clients that report on every keystroke do not allocate
+        // while the log is off.
+        if debug_log::enabled() {
+            debug_log::log(&format!(
+                "st report cursor={cursor} len={len} composing={}",
+                self.wrapper.has_composition()
+            ));
+        }
         // Settle the rewrite-delete delivery proof: a report whose prefix is
         // exactly the swallowed shape (delete missing, insert landed) proves
         // this client drops rewrite deletes. Without real-key injection
