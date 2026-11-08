@@ -233,6 +233,14 @@ struct Ui {
     /// change handlers a user edit does, and saving them would write the
     /// half-updated state back over the change being picked up.
     suppress_save: Cell<bool>,
+    /// The sidebar row of the "Thử nghiệm" tab: the experimental gate shows
+    /// and hides the whole tab through it. `None` until the content shell
+    /// builds the sidebar — headless tests never get there.
+    experimental_nav: RefCell<Option<gtk4::ListBoxRow>>,
+    /// Programmatic page jump: select_row drives the same row_selected
+    /// handler the clicks use. The gate lands the user on "Cài đặt khác"
+    /// when it closes the tab they were standing on. `None` headless.
+    sidebar_select: RefCell<Option<PageJump>>,
     /// "Thử luật" input, its verdict row and the verdict's status icon.
     rule_preview_input: adw::EntryRow,
     rule_preview: adw::ActionRow,
@@ -292,6 +300,10 @@ struct Ui {
 
 /// The save funnel handle shared between `Ui` and the rule-row closures.
 type SharedSave = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
+/// A programmatic jump to a settings page by its stack name — the closure
+/// lives in `content` where the sidebar rows do; the gate uses it to land
+/// the user somewhere sane after closing the tab they stood on.
+type PageJump = Rc<dyn Fn(&str)>;
 
 fn method_index(m: MethodConfig) -> u32 {
     match m {
@@ -681,6 +693,10 @@ impl Ui {
     /// come back verbatim when the gate reopens; the engine forces the
     /// features off while the gate is closed.
     fn set_experimental_visible(&self, on: bool) {
+        // The rows live on the "Thử nghiệm" tab: the gate hides the tab
+        // itself (its sidebar row) and the rows inside it. States stay saved
+        // either way; closing the tab under the user lands on "Cài đặt
+        // khác", the page hosting the gate switch.
         let rows: [&gtk4::Widget; 11] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_switch.upcast_ref(),
@@ -696,6 +712,14 @@ impl Ui {
         ];
         for row in rows {
             row.set_visible(on);
+        }
+        if let Some(nav) = self.experimental_nav.borrow().as_ref() {
+            nav.set_visible(on);
+        }
+        if !on {
+            if let Some(select) = self.sidebar_select.borrow().as_ref() {
+                select("other");
+            }
         }
     }
 
