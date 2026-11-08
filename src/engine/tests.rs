@@ -1098,6 +1098,33 @@ fn forward_select_mode_selects_the_tail_before_committing() {
 }
 
 #[test]
+fn forward_select_erases_with_backspaces_when_the_client_reports() {
+    // The forwarded Shift+Left loses its modifier on the mutter relay: the
+    // live log shows the caret moving with the text length unchanged and no
+    // selection anchor, so the erase Backspace ate one raw character and the
+    // commit landed at the displaced caret ("chào" came out "cào"). A client
+    // that reports SetSurroundingText therefore takes the plain Backspace
+    // transport its ForwardKeyEvent sibling already proves works there; the
+    // selection stays for the report-less XIM clients this mode was built
+    // for.
+    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding("xin ".into(), 4);
+    let actions: Vec<Action> = "chaof".chars().flat_map(|c| e.process_char(c)).collect();
+    assert!(
+        actions.contains(&Action::ForwardBackspaces(2)),
+        "the mark edit deletes with forwarded Backspaces: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardSelectLeft(_))),
+        "no selection for a client that reports its buffer: {actions:?}"
+    );
+}
+
+#[test]
 fn xim_clients_report_no_usable_application_name() {
     // ibus-x11 names every input context `xim`, so an app rule can only
     // match one by accident; the server must name the app from the

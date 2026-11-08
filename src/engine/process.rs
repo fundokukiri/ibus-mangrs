@@ -290,6 +290,15 @@ impl Engine {
     pub(super) fn delete_action(&mut self, mode: Mode, n: u32, insert_len: usize) -> Action {
         match mode {
             Mode::ForwardKeyEvent => Action::ForwardBackspaces(n),
+            // ForwardSelect's forwarded Shift+Left loses its modifier on the
+            // mutter relay (the live log shows the caret moving with the text
+            // length unchanged and no selection anchor), so the erase ate one
+            // raw character and the commit landed at the displaced caret.
+            // Clients that report their buffer take the plain Backspace
+            // transport their ForwardKeyEvent sibling proves there; the
+            // selection stays for the report-less XIM class this mode was
+            // built for.
+            Mode::ForwardSelect if self.surrounding_data_ok() => Action::ForwardBackspaces(n),
             Mode::ForwardSelect => Action::ForwardSelectLeft(n),
             _ => self.tracked_delete(n, insert_len),
         }
