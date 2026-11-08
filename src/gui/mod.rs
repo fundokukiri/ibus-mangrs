@@ -16,7 +16,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::config::{
-    BracketConfig, CharsetConfig, Config, MenuNode, MethodConfig, ModeConfig, W2uConfig,
+    BackspaceToneConfig, BracketConfig, CharsetConfig, Config, MenuNode, MethodConfig, ModeConfig,
+    W2uConfig,
 };
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
@@ -83,7 +84,6 @@ const METHODS: &[&str] = &[
     "Microsoft layout",
 ];
 const MODES: &[&str] = &[
-    "Tự động",
     "Không gạch chân",
     "Gạch chân (preedit)",
     "Surrounding text",
@@ -108,6 +108,11 @@ const CHARSETS: &[&str] = &[
     "Vietware Full",
 ];
 const ON_OFF_MODES: &[&str] = &["Tắt", "Trừ đầu từ", "Mọi vị trí"];
+const BACKSPACE_TONE_MODES: &[&str] = &[
+    "Xóa dấu trước",
+    "Xóa cả dấu và chữ",
+    "Unikey (lùi từng phím)",
+];
 const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
 
 /// The custom-shortcut functions, in `config::CUSTOM_HOTKEY_ACTIONS` order:
@@ -170,6 +175,7 @@ struct Ui {
     extra_url_chars_switch: adw::SwitchRow,
     extra_url_chars_entry: adw::EntryRow,
     w2u: adw::ComboRow,
+    backspace_tone: adw::ComboRow,
     bracket: adw::ComboRow,
     em_dash: adw::SwitchRow,
     auto_capitalize: adw::SwitchRow,
@@ -265,6 +271,7 @@ struct Ui {
     echo_stale_spin: adw::SpinRow,
     idle_commit_switch: adw::SwitchRow,
     idle_commit_spin: adw::SpinRow,
+    smooth_per_key_switch: adw::SwitchRow,
     experimental_features: adw::SwitchRow,
     show_toasts: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
@@ -302,16 +309,15 @@ fn method_index(m: MethodConfig) -> u32 {
 
 fn mode_index(m: ModeConfig) -> u32 {
     match m {
-        ModeConfig::Auto => 0,
-        ModeConfig::NonPreedit => 1,
-        ModeConfig::Preedit => 2,
-        ModeConfig::Surrounding => 3,
-        ModeConfig::Smooth => 4,
-        ModeConfig::SuperSmooth => 5,
-        ModeConfig::Select => 6,
-        ModeConfig::ForwardKeyEvent => 7,
-        ModeConfig::ForwardSelect => 8,
-        ModeConfig::Off => 9,
+        ModeConfig::NonPreedit => 0,
+        ModeConfig::Preedit => 1,
+        ModeConfig::Surrounding => 2,
+        ModeConfig::Smooth => 3,
+        ModeConfig::SuperSmooth => 4,
+        ModeConfig::Select => 5,
+        ModeConfig::ForwardKeyEvent => 6,
+        ModeConfig::ForwardSelect => 7,
+        ModeConfig::Off => 8,
     }
 }
 
@@ -319,16 +325,17 @@ fn mode_index(m: ModeConfig) -> u32 {
 /// App Rules rows.
 fn mode_at(i: u32) -> ModeConfig {
     match i {
-        1 => ModeConfig::NonPreedit,
-        2 => ModeConfig::Preedit,
-        3 => ModeConfig::Surrounding,
-        4 => ModeConfig::Smooth,
-        5 => ModeConfig::SuperSmooth,
-        6 => ModeConfig::Select,
-        7 => ModeConfig::ForwardKeyEvent,
-        8 => ModeConfig::ForwardSelect,
-        9 => ModeConfig::Off,
-        _ => ModeConfig::Auto,
+        0 => ModeConfig::NonPreedit,
+        1 => ModeConfig::Preedit,
+        2 => ModeConfig::Surrounding,
+        3 => ModeConfig::Smooth,
+        4 => ModeConfig::SuperSmooth,
+        5 => ModeConfig::Select,
+        6 => ModeConfig::ForwardKeyEvent,
+        7 => ModeConfig::ForwardSelect,
+        8 => ModeConfig::Off,
+        // Out of range: the factory default.
+        _ => ModeConfig::Preedit,
     }
 }
 
@@ -407,6 +414,12 @@ impl Ui {
             BracketConfig::Disabled,
             BracketConfig::NonStart,
         ));
+        self.backspace_tone
+            .set_selected(match config.backspace_tone {
+                BackspaceToneConfig::ToneFirst => 0,
+                BackspaceToneConfig::WholeChar => 1,
+                BackspaceToneConfig::UnikeyWalk => 2,
+            });
         self.em_dash.set_active(config.em_dash);
         self.auto_capitalize.set_active(config.auto_capitalize);
         self.auto_capitalize_after_switch
@@ -467,6 +480,7 @@ impl Ui {
             .set_sensitive(config.idle_commit_enabled);
         self.idle_commit_spin
             .set_value(config.idle_commit_ms as f64);
+        self.smooth_per_key_switch.set_active(config.smooth_per_key);
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
@@ -562,6 +576,11 @@ impl Ui {
             2 => W2uConfig::Everywhere,
             _ => W2uConfig::Disabled,
         };
+        config.backspace_tone = match self.backspace_tone.selected() {
+            1 => BackspaceToneConfig::WholeChar,
+            2 => BackspaceToneConfig::UnikeyWalk,
+            _ => BackspaceToneConfig::ToneFirst,
+        };
         config.bracket = match self.bracket.selected() {
             1 => BracketConfig::NonStart,
             2 => BracketConfig::Everywhere,
@@ -594,6 +613,7 @@ impl Ui {
         config.echo_stale_ms = self.echo_stale_spin.value() as u64;
         config.idle_commit_enabled = self.idle_commit_switch.is_active();
         config.idle_commit_ms = self.idle_commit_spin.value() as u64;
+        config.smooth_per_key = self.smooth_per_key_switch.is_active();
         config.experimental_features = self.experimental_features.is_active();
         config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
@@ -661,7 +681,7 @@ impl Ui {
     /// come back verbatim when the gate reopens; the engine forces the
     /// features off while the gate is closed.
     fn set_experimental_visible(&self, on: bool) {
-        let rows: [&gtk4::Widget; 11] = [
+        let rows: [&gtk4::Widget; 12] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_switch.upcast_ref(),
             self.extra_url_chars_entry.upcast_ref(),
@@ -673,6 +693,7 @@ impl Ui {
             self.echo_stale_spin.upcast_ref(),
             self.idle_commit_switch.upcast_ref(),
             self.idle_commit_spin.upcast_ref(),
+            self.smooth_per_key_switch.upcast_ref(),
         ];
         for row in rows {
             row.set_visible(on);

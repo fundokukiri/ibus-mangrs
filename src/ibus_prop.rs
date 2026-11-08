@@ -88,7 +88,6 @@ pub const METHODS: &[(&str, &str)] = &[
 /// are reachable through the GUI — duplicated near-identical choices only
 /// widen the popup.
 pub const MODES: &[(&str, &str)] = &[
-    ("auto", "Tự động"),
     ("nonpreedit", "Không gạch chân"),
     ("preedit", "Gạch chân (preedit)"),
     ("surrounding", "Surrounding text"),

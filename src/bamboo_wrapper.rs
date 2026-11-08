@@ -4,6 +4,7 @@
 //! edit. `bamboo-core`'s `EditDelta` borrows the engine, so every method
 //! below copies the delta into an owned `Edit` before returning.
 
+use crate::config::BackspaceToneConfig;
 use crate::debug_log;
 use bamboo_core::{Charset as BambooCharset, Config, Engine, InputMethod, Mode};
 
@@ -156,6 +157,13 @@ pub struct BambooWrapper {
     /// `abbreviations` config: whether reverted non-syllable compositions
     /// get the dd→đ transform re-applied (đc, đk, đt, đg).
     abbrev: bool,
+    /// The current word's composition was kept over bamboo's raw revert (a
+    /// VNI-family digit could not extend a complete syllable, `hạo` + '6'):
+    /// bamboo sits in its raw-append bypass, the visible output is the kept
+    /// composition plus literal keys, and the word counts as valid so the
+    /// word-end auto-restore cannot resurrect the consumed digits. Cleared
+    /// with the other per-word flags on word end, reset, recomposition.
+    kept_composition: bool,
     /// True while a word is being composed (raw belongs to it).
     composing: bool,
     /// The composition output after the last operation (process, backspace,
@@ -165,6 +173,9 @@ pub struct BambooWrapper {
     /// character that is already gone (the "backspace then type eats a
     /// letter" bug). We compute the delta ourselves against `last_output`.
     last_output: String,
+    /// How Backspace treats a tone-marked word. Set per keystroke by the
+    /// engine (the uinput modes force `Off`); `Off` is the unikey undo.
+    backspace_tone: BackspaceToneConfig,
 }
 
 impl BambooWrapper {
@@ -179,9 +190,17 @@ impl BambooWrapper {
             undo_in_word: false,
             abbrev_fixed: false,
             abbrev: true,
+            kept_composition: false,
             composing: false,
             last_output: String::new(),
+            backspace_tone: BackspaceToneConfig::ToneFirst,
         }
+    }
+
+    /// How Backspace treats a tone-marked word (see `backspace`). The
+    /// engine sets this per keystroke — the uinput modes force `Off`.
+    pub fn set_backspace_tone(&mut self, tone: BackspaceToneConfig) {
+        self.backspace_tone = tone;
     }
 
     /// Returns whether the engine was rebuilt (the composition was reset).
@@ -193,6 +212,7 @@ impl BambooWrapper {
             self.last_output.clear();
             self.output_override = None;
             self.undo_in_word = false;
+            self.kept_composition = false;
             self.composing = false;
             true
         } else {
@@ -209,6 +229,7 @@ impl BambooWrapper {
             self.last_output.clear();
             self.output_override = None;
             self.undo_in_word = false;
+            self.kept_composition = false;
             self.composing = false;
             true
         } else {
@@ -223,6 +244,7 @@ impl BambooWrapper {
             self.last_output.clear();
             self.output_override = None;
             self.undo_in_word = false;
+            self.kept_composition = false;
             self.composing = false;
         }
         self.enabled = enabled;
@@ -247,18 +269,88 @@ impl BambooWrapper {
         self.composing = !raw.is_empty();
         self.undo_in_word = false;
         self.abbrev_fixed = false;
+        self.kept_composition = false;
         self.output_override = None;
         self.last_output.clear();
+        let mut output = String::new();
         for r in raw.chars() {
-            let _ = self.engine.process_key_edit(r, Mode::Vietnamese);
+            output = self.feed_compose(r);
         }
-        self.last_output = self.engine.output_str().to_string();
+        self.last_output = output;
     }
 
     /// `abbreviations` config: keep the đ in reverted non-syllable
     /// compositions (`ddc` → `đc`). See the reversion fix in `process_char`.
     pub fn set_abbreviations(&mut self, on: bool) {
         self.abbrev = on;
+    }
+
+    /// Feed one in-word key to bamboo-core and return the visible output.
+    ///
+    /// Shared by `process_char`, the `backspace` recomposition and
+    /// `replay_raw`: every path that replays raw keys must run the same
+    /// guards, or a word kept in one path resurrects its raw keys through
+    /// another (Backspace, the idle-commit re-entry).
+    fn feed_compose(&mut self, c: char) -> String {
+        // While a kept composition is live, bamboo-core sits in its raw
+        // append bypass for this word: the key lands literally on the kept
+        // word, and the engine only follows to stay in sync.
+        if self.kept_composition {
+            let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
+            let kept = format!("{}{}", self.output(), c);
+            self.output_override = Some(kept.clone());
+            return kept;
+        }
+        let prev = self.output();
+        let prev_valid_word = !prev.is_empty() && self.engine.is_valid_word();
+        let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
+        let mut new_output = self.engine.output_str().to_string();
+        // bamboo's auto_correct reverts a composition that is not a valid
+        // Vietnamese syllable back to the raw keys — and the common
+        // abbreviations are not syllables: typing `ddc` ("đc" for "được")
+        // had the dd→đ transform undone and came out as "ddc". Vietnamese
+        // abbreviations keep their đ: when the raw keys start with the `dd`
+        // rule and the composition was reverted to exactly those raw keys,
+        // re-apply the transform. Real words ("ddau" → "đau") never hit
+        // this — their compositions are valid and never reverted.
+        if self.abbrev && new_output == self.raw && self.raw.starts_with("dd") && self.raw.len() > 2
+        {
+            debug_log::log("abbreviation reverted by auto_correct → keep the đ");
+            new_output = format!("đ{}", &self.raw[2..]);
+            self.output_override = Some(new_output.clone());
+            self.abbrev_fixed = true;
+        }
+        // bamboo's auto_correct reverts the WHOLE composition to the raw
+        // keys when the total stops being a valid prefix ("hạo" + '6'). The
+        // rule layer already refused that key and appended it literally, so
+        // the revert resurrects the digits consumed as marks ("hao123456").
+        // A complete valid syllable before the key keeps its composition and
+        // the key lands literally; a partial one keeps the revert — that is
+        // what still returns Telex "street" to its raw keys. Only the
+        // digit-mark presets are covered: Telex letter tone keys keep the
+        // revert, which English typing leans on.
+        if !self.abbrev_fixed
+            && new_output == self.raw
+            && prev_valid_word
+            && self.is_digit_mark_key(c)
+            && format!("{prev}{c}") != new_output
+        {
+            debug_log::log("auto_correct reverted a complete syllable → keep it, key literal");
+            new_output = format!("{prev}{c}");
+            self.output_override = Some(new_output.clone());
+            self.kept_composition = true;
+        }
+        new_output
+    }
+
+    /// Whether `c` is a digit mark key of the VNI-family presets — the keys
+    /// that reach bamboo-core as in-word marks there.
+    fn is_digit_mark_key(&self, c: char) -> bool {
+        c.is_ascii_digit()
+            && matches!(
+                self.method,
+                Method::Vni | Method::TelexVni | Method::TelexVniViqr
+            )
     }
 
     /// Feed one character. The returned `Edit` describes how to rewrite the
@@ -326,6 +418,7 @@ impl BambooWrapper {
             self.last_output.clear();
             self.output_override = None;
             self.abbrev_fixed = false;
+            self.kept_composition = false;
             return Outcome::Finish {
                 word,
                 raw,
@@ -341,6 +434,7 @@ impl BambooWrapper {
             self.composing = true;
             self.undo_in_word = false;
             self.abbrev_fixed = false;
+            self.kept_composition = false;
         }
         self.raw.push(c);
 
@@ -348,23 +442,7 @@ impl BambooWrapper {
             return Outcome::PassThrough;
         }
 
-        let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
-        let mut new_output = self.engine.output_str().to_string();
-        // bamboo's auto_correct reverts a composition that is not a valid
-        // Vietnamese syllable back to the raw keys — and the common
-        // abbreviations are not syllables: typing `ddc` ("đc" for "được")
-        // had the dd→đ transform undone and came out as "ddc". Vietnamese
-        // abbreviations keep their đ: when the raw keys start with the `dd`
-        // rule and the composition was reverted to exactly those raw keys,
-        // re-apply the transform. Real words ("ddau" → "đau") never hit
-        // this — their compositions are valid and never reverted.
-        if self.abbrev && new_output == self.raw && self.raw.starts_with("dd") && self.raw.len() > 2
-        {
-            debug_log::log("abbreviation reverted by auto_correct → keep the đ");
-            new_output = format!("đ{}", &self.raw[2..]);
-            self.output_override = Some(new_output.clone());
-            self.abbrev_fixed = true;
-        }
+        let mut new_output = self.feed_compose(c);
         // The composition output can never be longer than the raw keystrokes
         // (marks combine characters, they never add). When it is, bamboo's
         // internal state is poisoned by an undone mark — "too" (undone "tô")
@@ -415,12 +493,15 @@ impl BambooWrapper {
                     insert: c.to_string(),
                 };
             }
-        } else if !self.abbrev_fixed {
+        } else if !self.abbrev_fixed && !self.kept_composition {
             self.output_override = None;
         }
         // Mark removed while the same base letter comes back unmarked = the
-        // user undid a mark (`tô` + 'o' → `too`). Bamboo's hidden state then
-        // resurfaces on later keys of this word.
+        // user undid a mark (`tô` + 'o' → `too`). Same for the đ: `dd` forms
+        // it and the next `d` undoes the rule (`đ` + 'd' → `dd`) — without
+        // the flag the auto-restore would resurrect the raw keys (`ddd`)
+        // over the composition, in every display mode. Bamboo's hidden
+        // state then resurfaces on later keys of this word.
         {
             let common = self
                 .last_output
@@ -431,10 +512,11 @@ impl BambooWrapper {
             let deleted: Vec<char> = self.last_output.chars().skip(common).collect();
             let inserted: Vec<char> = new_output.chars().skip(common).collect();
             if deleted.iter().any(|d| {
-                is_marked(*d)
+                (is_marked(*d)
                     && inserted
                         .iter()
-                        .any(|i| base_letter(*i) == base_letter(*d) && *i != *d && !is_marked(*i))
+                        .any(|i| base_letter(*i) == base_letter(*d) && *i != *d && !is_marked(*i)))
+                    || (matches!(*d, 'đ' | 'Đ') && inserted.iter().any(|i| matches!(*i, 'd' | 'D')))
             }) {
                 debug_log::log("mark undone in word");
                 self.undo_in_word = true;
@@ -471,38 +553,252 @@ impl BambooWrapper {
         if !self.enabled || self.raw.is_empty() {
             return None;
         }
+        // A repair-rebuilt composition has no raw keys; the whole-char
+        // delete still applies to it through the raw-key encoder.
+        if self.raw.is_empty() {
+            if self.backspace_tone == BackspaceToneConfig::WholeChar
+                && self.composing
+                && !self.output().is_empty()
+            {
+                let old = self.output();
+                let target: String = old.chars().take(old.chars().count() - 1).collect();
+                let rebuilt = self
+                    .encode_raw_keys(&target)
+                    .map(|keys| {
+                        self.replay_raw(&keys);
+                        self.output() == target
+                    })
+                    .unwrap_or(false);
+                if rebuilt {
+                    return Some(Self::edit_between(&old, &target));
+                }
+            }
+            return None;
+        }
         let old = self.output();
-        // Vietnamese IME convention (unikey): Backspace undoes the last typed
-        // KEY and the word recomposes from the remaining raw keys — removing
-        // a tone key removes the tone, removing a letter removes its letter
-        // ("mười" -> "mươi" -> "mườ"; retyping "if" gives "mười" back).
-        // Re-feeding the keys also keeps bamboo's transform stack consistent:
-        // remove_last_output_char left it stale, so a later key resurfaced
-        // hidden transforms nondeterministically ("toool"+BS stayed "tool",
-        // retype-after-BS corrupted marks — open-questions #9/#10).
+        // ToneFirst engages only on a word that visibly carries a tone; a
+        // kept composition (`hạo6`) stays with the unikey undo — its digits
+        // are literal text, not tone keys. WholeChar is the screen model and
+        // applies to every word.
+        let edit = match self.backspace_tone {
+            BackspaceToneConfig::ToneFirst if !self.kept_composition && has_tone_marker(&old) => {
+                self.backspace_tone_first(&old)
+            }
+            BackspaceToneConfig::WholeChar => self.backspace_whole_char(&old),
+            // UnikeyWalk, and a ToneFirst word without a tone (the gate
+            // above): the unikey undo.
+            _ => None,
+        };
+        if let Some(edit) = edit {
+            return Some(edit);
+        }
+        self.pop_one();
+        let new = self.output();
+        Some(Self::edit_between(&old, &new))
+    }
+
+    /// Vietnamese IME convention (unikey): Backspace undoes the last typed
+    /// KEY and the word recomposes from the remaining raw keys — removing
+    /// a tone key removes the tone, removing a letter removes its letter
+    /// ("mười" -> "mươi" -> "mườ"; retyping "if" gives "mười" back).
+    /// Re-feeding the keys also keeps bamboo's transform stack consistent:
+    /// remove_last_output_char left it stale, so a later key resurfaced
+    /// hidden transforms nondeterministically ("toool"+BS stayed "tool",
+    /// retype-after-BS corrupted marks — open-questions #9/#10).
+    fn pop_one(&mut self) {
         self.raw.pop();
         self.engine.reset();
-        for c in self.raw.chars() {
-            let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
-        }
-        let new = self.engine.output_str().to_string();
+        // The recomposition re-derives every guard from scratch.
         self.output_override = None;
-        self.last_output = new.clone();
+        self.kept_composition = false;
+        let mut new = String::new();
+        let raw_chars: Vec<char> = self.raw.chars().collect();
+        for c in raw_chars {
+            new = self.feed_compose(c);
+        }
+        self.last_output = new;
         // undo_in_word stays: the raw keys may still contain the undo
         // sequence ("tooo"), so the poison guard must keep watching this word
+    }
+
+    /// The delete/insert replay shape the callers rewrite with: a pure
+    /// suffix delete when the new text extends the old, else a whole
+    /// replace.
+    fn edit_between(old: &str, new: &str) -> Edit {
         let old_len = old.chars().count();
         let new_len = new.chars().count();
-        if old.starts_with(&new) {
-            Some(Edit {
+        if old.starts_with(new) {
+            Edit {
                 delete_chars: old_len - new_len,
                 insert: String::new(),
-            })
+            }
         } else {
-            Some(Edit {
+            Edit {
                 delete_chars: old_len,
-                insert: new,
-            })
+                insert: new.to_string(),
+            }
         }
+    }
+
+    /// ToneFirst: drop the method's tone keys from the raw — only where
+    /// they can act (after the word's first vowel; the `s` of `as` is a
+    /// letter) — and recompose: the word loses its tone in one Backspace
+    /// while the letters stay (`hạ` -> `ha`).
+    fn backspace_tone_first(&mut self, old: &str) -> Option<Edit> {
+        let new_raw = strip_tone_keys(&self.raw, self.method);
+        if new_raw.chars().count() == self.raw.chars().count() {
+            return None;
+        }
+        self.replay_raw(&new_raw);
+        let new = self.output();
+        Some(Self::edit_between(old, &new))
+    }
+
+    /// WholeChar: the screen loses exactly one character — the marked one
+    /// goes with its tone (`hạ` -> `h`), on long words too (`việt` ->
+    /// `việ` -> `vi` -> `v`). Pop raw keys until the recomposition equals
+    /// the shortened text; a text no raw prefix composes to (`hùng` ->
+    /// `hùn`: the tone would have to survive its own key) is rebuilt from
+    /// the text instead — the tone state dies with the deleted character
+    /// either way.
+    fn backspace_whole_char(&mut self, old: &str) -> Option<Edit> {
+        let target: String = old.chars().take(old.chars().count() - 1).collect();
+        let original = self.raw.clone();
+        let mut matched = false;
+        for _ in 0..original.chars().count() {
+            self.pop_one();
+            if self.output() == target {
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            // No raw prefix composes to the shortened text (`hùng` -> `hùn`:
+            // the tone key sits after the deleted letter, so every prefix is
+            // tone-free). Rebuild the composition from the re-encoded keys
+            // so the word stays live; presets the encoder does not cover,
+            // and an encoding that does not round-trip, fall back to the
+            // unikey undo.
+            let rebuilt = self
+                .encode_raw_keys(&target)
+                .map(|keys| {
+                    self.replay_raw(&keys);
+                    self.output() == target
+                })
+                .unwrap_or(false);
+            if !rebuilt {
+                self.replay_raw(&original);
+                self.pop_one();
+            }
+        }
+        let new = self.output();
+        Some(Self::edit_between(old, &new))
+    }
+
+    /// The raw-key sequence that types `text` — the whole-char Backspace
+    /// rebuilds its composition from it when no prefix of the typed raw
+    /// recomposes to the shortened screen. Standard key order — the tone
+    /// key right after the vowel nucleus — works with free tone marking on
+    /// and off alike. `None` for the presets whose mark keys this does not
+    /// cover (MsLayout brackets, the VniFrench AZERTY row): the caller
+    /// falls back to the unikey undo.
+    fn encode_raw_keys(&self, text: &str) -> Option<String> {
+        let vowel_marks: &[(char, &str)] = match self.method {
+            Method::MsLayout | Method::VniFrench => return None,
+            Method::Vni => &[
+                ('â', "a6"),
+                ('ă', "a8"),
+                ('ê', "e6"),
+                ('ô', "o6"),
+                ('ơ', "o7"),
+                ('ư', "u7"),
+            ],
+            Method::Viqr => &[
+                ('â', "a^"),
+                ('ă', "a("),
+                ('ê', "e^"),
+                ('ô', "o^"),
+                ('ơ', "o+"),
+                ('ư', "u+"),
+            ],
+            // The telex family shares its vowel keys; the combined presets
+            // accept them next to the digit keys.
+            Method::Telex
+            | Method::Telex2
+            | Method::TelexW
+            | Method::TelexVni
+            | Method::TelexVniViqr => &[
+                ('â', "aa"),
+                ('ă', "aw"),
+                ('ê', "ee"),
+                ('ô', "oo"),
+                ('ơ', "ow"),
+                ('ư', "uw"),
+            ],
+        };
+        let tone_keys: [&str; 5] = match self.method {
+            Method::Vni => ["1", "2", "3", "4", "5"],
+            Method::Viqr => ["'", "`", "?", "~", "."],
+            // The telex family; the combined presets accept these letters.
+            _ => ["s", "f", "r", "x", "j"],
+        };
+        let tone_class = |c: char| match c {
+            'á' | 'ấ' | 'ắ' | 'é' | 'ế' | 'í' | 'ó' | 'ố' | 'ớ' | 'ú' | 'ứ' | 'ý' => {
+                Some(0)
+            }
+            'à' | 'ầ' | 'ằ' | 'è' | 'ề' | 'ì' | 'ò' | 'ồ' | 'ờ' | 'ù' | 'ừ' | 'ỳ' => {
+                Some(1)
+            }
+            'ả' | 'ẩ' | 'ẳ' | 'ẻ' | 'ể' | 'ỉ' | 'ỏ' | 'ổ' | 'ở' | 'ủ' | 'ử' | 'ỷ' => {
+                Some(2)
+            }
+            'ã' | 'ẫ' | 'ẵ' | 'ẽ' | 'ễ' | 'ĩ' | 'õ' | 'ỗ' | 'ỡ' | 'ũ' | 'ữ' | 'ỹ' => {
+                Some(3)
+            }
+            'ạ' | 'ậ' | 'ặ' | 'ẹ' | 'ệ' | 'ị' | 'ọ' | 'ộ' | 'ợ' | 'ụ' | 'ự' | 'ỵ' => {
+                Some(4)
+            }
+            _ => None,
+        };
+        let mut frags: Vec<String> = Vec::new();
+        let mut tone: Option<usize> = None;
+        let mut last_vowel: Option<usize> = None;
+        for ch in text.chars() {
+            let lower = ch.to_lowercase().next().unwrap_or(ch);
+            let upper = ch.is_uppercase();
+            if let Some(class) = tone_class(lower) {
+                tone = Some(class);
+            }
+            let base = strip_tone_char(lower);
+            let shaped = |s: &str| {
+                if upper {
+                    s.to_uppercase()
+                } else {
+                    s.to_string()
+                }
+            };
+            if let Some((_, keys)) = vowel_marks.iter().find(|(v, _)| *v == base) {
+                last_vowel = Some(frags.len());
+                frags.push(shaped(keys));
+            } else if base == 'đ' {
+                frags.push(shaped("dd"));
+            } else {
+                if is_vowel_letter(base) {
+                    last_vowel = Some(frags.len());
+                }
+                frags.push(shaped(&base.to_string()));
+            }
+        }
+        let mut out = String::with_capacity(text.len() * 3);
+        for (i, frag) in frags.iter().enumerate() {
+            out.push_str(frag);
+            if Some(i) == last_vowel {
+                if let Some(class) = tone {
+                    out.push_str(tone_keys[class]);
+                }
+            }
+        }
+        Some(out)
     }
 
     /// Diff between the previous real composition output and `new`, as a
@@ -536,18 +832,22 @@ impl BambooWrapper {
     /// same verdict `Outcome::Finish` carries, for word ends the engine
     /// decides itself (the idle timeout) where `process_char` is not involved.
     /// An abbreviation (`ddc` → `đc`) counts as valid: its đ must survive.
+    /// So does a kept composition (`hạo6`): restoring its raw keys would
+    /// resurrect the digits consumed as marks.
     pub fn is_valid(&self) -> bool {
-        !self.output().is_empty() && (self.abbrev_fixed || self.engine.is_valid_word())
+        !self.output().is_empty()
+            && (self.abbrev_fixed || self.kept_composition || self.engine.is_valid_word())
     }
 
     /// Valid, possibly incomplete syllable prefix — bamboo-core's
     /// `is_valid_prefix` (`IsValid(false)`), the verdict ibus-bamboo uses
     /// while typing; `is_valid` is the complete-syllable one. An abbreviation
     /// (`ddc` → `đc`) counts as a valid prefix, or the preedit would flash the
-    /// raw keys and a click would commit them. Only meaningful while a
-    /// composition is live.
+    /// raw keys and a click would commit them. Same for a kept composition
+    /// (`hạo6`). Only meaningful while a composition is live.
     pub fn is_valid_prefix(&self) -> bool {
-        !self.output().is_empty() && (self.abbrev_fixed || self.engine.is_valid_prefix())
+        !self.output().is_empty()
+            && (self.abbrev_fixed || self.kept_composition || self.engine.is_valid_prefix())
     }
 
     pub fn has_composition(&self) -> bool {
@@ -573,7 +873,8 @@ impl BambooWrapper {
     }
 
     /// Whether a mark was undone in the current word (`tô` + 'o' → `too`,
-    /// `tê` + 'e' → `tee`). The raw keys then diverge from the composed word
+    /// `tê` + 'e' → `tee`), or the đ (`dd` forms it, the next `d` undoes it:
+    /// `đ` + 'd' → `dd`). The raw keys then diverge from the composed word
     /// on purpose — bamboo marks such words invalid, but auto-restore must
     /// not "fix" them back to the raw keys.
     pub fn undo_in_word(&self) -> bool {
@@ -591,6 +892,7 @@ impl BambooWrapper {
         self.raw.clear();
         self.output_override = None;
         self.undo_in_word = false;
+        self.kept_composition = false;
         self.composing = false;
     }
 
@@ -602,6 +904,136 @@ impl BambooWrapper {
 /// Characters that end a Vietnamese word. bamboo-core keeps punctuation in
 /// its buffer, but an IME must commit and let the application see the key.
 /// The unmarked base letter of a Vietnamese vowel (`ô` → `o`, `ạ` → `a`).
+/// Whether the text carries a tone diacritic — horn, circumflex and breve
+/// alone do not count (`hôm` counts as tone-free).
+fn has_tone_marker(text: &str) -> bool {
+    text.chars().any(is_tone_marked)
+}
+
+fn is_tone_marked(c: char) -> bool {
+    matches!(
+        c.to_lowercase().next(),
+        Some(
+            'á' | 'à'
+                | 'ả'
+                | 'ã'
+                | 'ạ'
+                | 'ấ'
+                | 'ầ'
+                | 'ẩ'
+                | 'ẫ'
+                | 'ậ'
+                | 'é'
+                | 'è'
+                | 'ẻ'
+                | 'ẽ'
+                | 'ẹ'
+                | 'ế'
+                | 'ề'
+                | 'ể'
+                | 'ễ'
+                | 'ệ'
+                | 'í'
+                | 'ì'
+                | 'ỉ'
+                | 'ĩ'
+                | 'ị'
+                | 'ó'
+                | 'ò'
+                | 'ỏ'
+                | 'õ'
+                | 'ọ'
+                | 'ố'
+                | 'ồ'
+                | 'ổ'
+                | 'ỗ'
+                | 'ộ'
+                | 'ớ'
+                | 'ờ'
+                | 'ở'
+                | 'ỡ'
+                | 'ợ'
+                | 'ú'
+                | 'ù'
+                | 'ủ'
+                | 'ũ'
+                | 'ụ'
+                | 'ứ'
+                | 'ừ'
+                | 'ử'
+                | 'ữ'
+                | 'ự'
+                | 'ý'
+                | 'ỳ'
+                | 'ỷ'
+                | 'ỹ'
+                | 'ỵ'
+        )
+    )
+}
+
+/// Whether the character is a Vietnamese vowel letter — the arming mark of
+/// `strip_tone_keys`: a tone key only acts after a vowel.
+fn is_vowel_letter(c: char) -> bool {
+    matches!(
+        c.to_lowercase().next(),
+        Some('a' | 'ă' | 'â' | 'e' | 'ê' | 'i' | 'o' | 'ô' | 'ơ' | 'u' | 'ư' | 'y')
+    )
+}
+
+/// The method's tone-key characters. Horn/breve/circumflex keys (`w`, `6`,
+/// `ow`...) are not tone keys — a tone skip must keep the vowel shape.
+fn tone_keys(method: Method) -> &'static [char] {
+    match method {
+        Method::Telex | Method::Telex2 | Method::TelexW => &['s', 'f', 'x', 'j', 'r'],
+        Method::Vni | Method::VniFrench | Method::MsLayout => &['1', '2', '3', '4', '5'],
+        Method::Viqr => &['\'', '`', '?', '~', '.'],
+        Method::TelexVni => &['s', 'f', 'x', 'j', 'r', '1', '2', '3', '4', '5'],
+        Method::TelexVniViqr => &[
+            's', 'f', 'x', 'j', 'r', '1', '2', '3', '4', '5', '\'', '`', '?', '~', '.',
+        ],
+    }
+}
+
+/// The tone-stripped, horn-keeping base of a vowel (`ề` -> `ê`, `ậ` ->
+/// `â`, `à` -> `a`) — the raw-key encoder's per-character counterpart of
+/// `has_tone_marker`.
+fn strip_tone_char(c: char) -> char {
+    match c {
+        'á' | 'à' | 'ả' | 'ã' | 'ạ' => 'a',
+        'ấ' | 'ầ' | 'ẩ' | 'ẫ' | 'ậ' => 'â',
+        'ắ' | 'ằ' | 'ẳ' | 'ẵ' | 'ặ' => 'ă',
+        'é' | 'è' | 'ẻ' | 'ẽ' | 'ẹ' => 'e',
+        'ế' | 'ề' | 'ể' | 'ễ' | 'ệ' => 'ê',
+        'í' | 'ì' | 'ỉ' | 'ĩ' | 'ị' => 'i',
+        'ó' | 'ò' | 'ỏ' | 'õ' | 'ọ' => 'o',
+        'ố' | 'ồ' | 'ổ' | 'ỗ' | 'ộ' => 'ô',
+        'ớ' | 'ờ' | 'ở' | 'ỡ' | 'ợ' => 'ơ',
+        'ú' | 'ù' | 'ủ' | 'ũ' | 'ụ' => 'u',
+        'ứ' | 'ừ' | 'ử' | 'ữ' | 'ự' => 'ư',
+        'ý' | 'ỳ' | 'ỷ' | 'ỹ' | 'ỵ' => 'y',
+        other => other,
+    }
+}
+
+/// Drop the tone keys that can act — everything after the word's first
+/// vowel; a tone-key character before any vowel is a letter (`as`, `sas`).
+fn strip_tone_keys(raw: &str, method: Method) -> String {
+    let keys = tone_keys(method);
+    let mut out = String::with_capacity(raw.len());
+    let mut armed = false;
+    for c in raw.chars() {
+        if keys.contains(&c) && armed {
+            continue;
+        }
+        if is_vowel_letter(c) {
+            armed = true;
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn base_letter(c: char) -> char {
     let l = c.to_lowercase().next().unwrap_or(c);
     match l {
@@ -796,8 +1228,46 @@ mod tests {
     }
 
     #[test]
+    fn whole_char_encoder_round_trips_every_marked_vowel() {
+        // The whole-char Backspace rebuilds non-composable text through the
+        // raw-key encoder — every tone-marked vowel must compose back to
+        // exactly the text it was encoded from, on every covered method.
+        for method in [
+            Method::Telex,
+            Method::Vni,
+            Method::Viqr,
+            Method::TelexVni,
+            Method::TelexVniViqr,
+        ] {
+            for c in [
+                'á', 'à', 'ả', 'ã', 'ạ', 'ấ', 'ầ', 'ẩ', 'ẫ', 'ậ', 'ắ', 'ằ', 'ẳ', 'ẵ', 'ặ', 'é',
+                'è', 'ẻ', 'ẽ', 'ẹ', 'ế', 'ề', 'ể', 'ễ', 'ệ', 'í', 'ì', 'ỉ', 'ĩ', 'ị', 'ó', 'ò',
+                'ỏ', 'õ', 'ọ', 'ố', 'ồ', 'ổ', 'ỗ', 'ộ', 'ớ', 'ờ', 'ở', 'ỡ', 'ợ', 'ú', 'ù', 'ủ',
+                'ũ', 'ụ', 'ứ', 'ừ', 'ử', 'ữ', 'ự', 'ý', 'ỳ', 'ỷ', 'ỹ', 'ỵ',
+            ] {
+                let word = format!("h{c}n");
+                let mut w = wrapper(method);
+                let keys = w
+                    .encode_raw_keys(&word)
+                    .unwrap_or_else(|| panic!("{method:?}: {word} must encode"));
+                w.replay_raw(&keys);
+                assert_eq!(w.output(), word, "{method:?} {keys:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn whole_char_encoder_round_trips_uppercase() {
+        let mut w = wrapper(Method::Telex);
+        let keys = w.encode_raw_keys("HÙN").expect("encoded");
+        w.replay_raw(&keys);
+        assert_eq!(w.output(), "HÙN", "{keys:?}");
+    }
+
+    #[test]
     fn backspace_is_a_pure_deletion() {
         let mut w = wrapper(Method::Telex);
+        w.set_backspace_tone(BackspaceToneConfig::UnikeyWalk);
         type_str(&mut w, "vieejt");
         assert_eq!(w.output(), "việt");
         let e = w.backspace().expect("edit");
@@ -887,6 +1357,113 @@ mod tests {
         let mut w = wrapper(Method::Vni);
         type_str(&mut w, "tie6ng1");
         assert_eq!(w.output(), "tiếng");
+    }
+
+    #[test]
+    fn vni_digit_that_cannot_extend_keeps_the_syllable() {
+        // "hạo" + '6': the circumflex cannot apply, bamboo's auto_correct
+        // reverts the whole composition to the raw keys and resurrects the
+        // digits consumed as tones ("hao123456"). The word keeps its
+        // composed form and the key lands literally (unikey convention).
+        let mut w = wrapper(Method::Vni);
+        type_str(&mut w, "hao12345");
+        assert_eq!(w.output(), "hạo");
+        let Outcome::Edit(e) = w.process_char('6') else {
+            panic!("expected an edit");
+        };
+        assert_eq!(e.delete_chars, 0, "the word must not be rewritten");
+        assert_eq!(e.insert, "6");
+        assert_eq!(w.output(), "hạo6");
+        // The word counts as valid: no auto-restore to the raw keys.
+        if let Outcome::Finish {
+            word,
+            raw,
+            valid,
+            valid_prefix,
+        } = w.process_char(' ')
+        {
+            assert_eq!(word, "hạo6");
+            assert_eq!(raw, "hao123456");
+            assert!(valid && valid_prefix);
+        } else {
+            panic!("space must finish the word");
+        }
+    }
+
+    #[test]
+    fn kept_word_survives_later_keys_and_backspaces() {
+        let mut w = wrapper(Method::Vni);
+        type_str(&mut w, "hao123456");
+        assert_eq!(w.output(), "hạo6");
+        // The next key stays literal on the kept word.
+        type_str(&mut w, "x");
+        assert_eq!(w.output(), "hạo6x");
+        // Backspace recomposes from the raw keys: the guard re-fires.
+        w.backspace();
+        assert_eq!(w.output(), "hạo6");
+        w.backspace();
+        assert_eq!(w.output(), "hạo");
+        // The tone cycle still works on the recomposed word.
+        let _ = w.process_char('1');
+        assert_eq!(w.output(), "háo");
+    }
+
+    #[test]
+    fn combined_digit_presets_keep_the_syllable_too() {
+        for m in [Method::TelexVni, Method::TelexVniViqr] {
+            let mut w = wrapper(m);
+            type_str(&mut w, "hao12345");
+            assert_eq!(w.output(), "hạo", "{m:?}");
+            type_str(&mut w, "6");
+            assert_eq!(w.output(), "hạo6", "{m:?}");
+        }
+    }
+
+    #[test]
+    fn inapplicable_digit_stays_literal_from_scratch() {
+        // Without consumed marks the revert equals the literal append —
+        // "hao6" comes out the same either way.
+        let mut w = wrapper(Method::Vni);
+        type_str(&mut w, "hao6");
+        assert_eq!(w.output(), "hao6");
+    }
+
+    #[test]
+    fn english_digit_runs_keep_the_revert() {
+        // English typing has no consumed marks: the guard never fires and
+        // the raw keys survive verbatim.
+        let mut w = wrapper(Method::Vni);
+        type_str(&mut w, "abc123");
+        assert_eq!(w.output(), "abc123");
+        let mut w = wrapper(Method::TelexVni);
+        type_str(&mut w, "abc123");
+        assert_eq!(w.output(), "abc123");
+    }
+
+    #[test]
+    fn telex_letter_marks_keep_the_revert() {
+        // Out of scope on purpose: a Telex tone key on a complete syllable
+        // still reverts (the raw keys are what English typing leans on) —
+        // only the digit-mark presets are covered by the guard.
+        let mut w = wrapper(Method::Telex);
+        type_str(&mut w, "vieejt");
+        assert_eq!(w.output(), "việt");
+        type_str(&mut w, "f");
+        assert_eq!(w.output(), "vieejtf");
+    }
+
+    #[test]
+    fn replay_raw_applies_the_shared_guards() {
+        // The idle-commit re-entry replays the raw keys through the same
+        // feed: the abbreviation shows composed and a kept word recomposes.
+        let mut w = wrapper(Method::Telex);
+        w.replay_raw("ddc");
+        assert_eq!(w.output(), "đc");
+        assert!(w.is_valid());
+        let mut w = wrapper(Method::Vni);
+        w.replay_raw("hao123456");
+        assert_eq!(w.output(), "hạo6");
+        assert!(w.is_valid());
     }
 
     #[test]

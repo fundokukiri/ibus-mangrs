@@ -111,6 +111,14 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.bracket.subtitle", "Chọn vị trí áp dụng"),
         ON_OFF_MODES,
     );
+    let backspace_tone = combo_row(
+        &t("rows.backspace_tone.title", "Xóa dấu bằng Backspace"),
+        &t(
+            "rows.backspace_tone.subtitle",
+            "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành ha). Hoặc xóa cả dấu và chữ (hạ thành h), hoặc lùi từng phím như unikey.",
+        ),
+        BACKSPACE_TONE_MODES,
+    );
     let em_dash = switch_row(
         &t("rows.em_dash.title", "Gạch ngang dài"),
         &t(
@@ -449,6 +457,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Dừng tay quá lâu trên một từ có gạch chân thì từ đó được chấp nhận luôn, như bấm dấu cách",
         ),
     );
+    let smooth_per_key_switch = switch_row(
+        &t("rows.smooth_per_key.title", "Hiện dấu từng bước ở Smooth"),
+        &t(
+            "rows.smooth_per_key.subtitle",
+            "(Thử nghiệm) Smooth/Super Smooth hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — mỗi phím trễ ~60 ms; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi",
+        ),
+    );
     let idle_commit_spin = spin_row(
         &t(
             "rows.idle_commit_spin.title",
@@ -550,6 +565,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Gõ [ và ] nhận ơ và ư theo vị trí trong từ."
     );
     tip!(
+        backspace_tone,
+        "tips.backspace_tone",
+        "Xóa dấu trước (mặc định): hạ thành ha, rồi h. Xóa cả dấu và chữ: hạ thành h, việt thành việc rồi vi — mỗi Backspace xóa đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
+    );
+    tip!(
         em_dash,
         "tips.em_dash",
         "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
@@ -646,6 +666,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         extra_url_chars_entry,
         w2u,
         bracket,
+        backspace_tone,
         em_dash,
         auto_capitalize,
         auto_capitalize_after_switch,
@@ -699,6 +720,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         echo_stale_spin,
         idle_commit_switch,
         idle_commit_spin,
+        smooth_per_key_switch,
         experimental_features,
         menu,
         menu_box,

@@ -20,6 +20,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .build();
     tones.add(&ui.modern);
     tones.add(&ui.free);
+    tones.add(&ui.backspace_tone);
     page.add(&tones);
 
     let spelling = adw::PreferencesGroup::builder()
