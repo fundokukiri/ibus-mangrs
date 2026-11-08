@@ -115,6 +115,10 @@ sudo apt install gcc libc6-dev pkg-config tar gzip curl ibus desktop-file-utils 
 sudo dnf install gcc pkgconf-pkg-config tar gzip curl ibus dbus-devel \
     gtk4-devel libadwaita-devel desktop-file-utils
 
+# openSUSE
+sudo zypper install gcc pkg-config tar gzip curl ibus dbus-1-devel \
+    gtk4-devel libadwaita-devel desktop-file-utils
+
 # Rust (all distros)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
@@ -161,6 +165,10 @@ sudo apt install gcc libc6-dev pkg-config ibus libdbus-1-dev libgtk-4-dev \
 
 # Fedora / RHEL / CentOS
 sudo dnf install gcc pkgconf-pkg-config ibus dbus-devel gtk4-devel \
+    libadwaita-devel desktop-file-utils
+
+# openSUSE
+sudo zypper install gcc pkg-config ibus dbus-1-devel gtk4-devel \
     libadwaita-devel desktop-file-utils
 
 # Rust (all distros)
