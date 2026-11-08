@@ -727,11 +727,10 @@ impl Ui {
         if let Some(nav) = self.experimental_nav.borrow().as_ref() {
             nav.set_visible(on);
         }
-        if !on {
-            if let Some(select) = self.sidebar_select.borrow().as_ref() {
-                select("other");
-            }
-        }
+        // Pure visibility: this runs on every refresh (external reload
+        // included), where a page jump would yank the user off whatever
+        // they are doing on every save. The live-toggle jump lives on the
+        // gate switch's own handler in other.rs.
     }
 
     /// True while the "Thông báo nhanh" switch is on — the single gate
