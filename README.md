@@ -149,6 +149,24 @@ wget -qO- https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scrip
 
 ### From a local checkout
 
+Install the build dependencies once (Arch, Debian/Ubuntu, Fedora — Rust on every distro):
+
+```sh
+# Arch / Manjaro / EndeavourOS
+sudo pacman -S --needed gcc make pkgconf ibus dbus gtk4 libadwaita desktop-file-utils
+
+# Debian / Ubuntu / Mint / Pop!_OS
+sudo apt install build-essential pkg-config ibus libdbus-1-dev libgtk-4-dev \
+    libadwaita-1-dev desktop-file-utils
+
+# Fedora / RHEL / CentOS
+sudo dnf install gcc make pkgconf-pkg-config ibus dbus-devel gtk4-devel \
+    libadwaita-devel desktop-file-utils
+
+# Rust (all distros)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
 Build, install and restart IBus:
 
 ```sh
