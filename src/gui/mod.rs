@@ -803,24 +803,118 @@ pub(super) fn session_is_gnome() -> bool {
     std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.to_ascii_uppercase().contains("GNOME"))
 }
 
-/// Copy the embedded focus extension into the user extension directory and
-/// try to enable it. GNOME 45+ caches extension ES modules, so a fresh copy
-/// only loads after logout/login — every outcome says so.
+/// A minimal STORED (uncompressed) zip wrapping the extension files: the
+/// official channel, `gnome-extensions install FILE.zip`, only takes zips,
+/// and hand-rolling the container keeps the install copy-free (GNOME unpacks
+/// it itself) without a zip crate for two small files.
+fn extension_zip(entries: &[(&str, &str)]) -> Result<Vec<u8>, String> {
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &b in data {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+    fn put16(out: &mut Vec<u8>, v: u16) {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    fn put32(out: &mut Vec<u8>, v: u32) {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    // A fixed DOS stamp (2026-11-08 12:00): the format demands one, the
+    // content is what matters, and a constant keeps the zip deterministic.
+    const TIME: u16 = 12 << 11;
+    const DATE: u16 = (46 << 9) | (11 << 5) | 8;
+
+    let mut out = Vec::new();
+    let mut central: Vec<u8> = Vec::new();
+    let mut offset = 0u32;
+    for (name, body) in entries {
+        let crc = crc32(body.as_bytes());
+        let size = body.len() as u32;
+        let name = name.as_bytes();
+        let header_at = offset;
+        put32(&mut out, 0x0403_4b50);
+        put16(&mut out, 20);
+        put16(&mut out, 0);
+        put16(&mut out, 0); // stored, no compression
+        put16(&mut out, TIME);
+        put16(&mut out, DATE);
+        put32(&mut out, crc);
+        put32(&mut out, size);
+        put32(&mut out, size);
+        put16(&mut out, name.len() as u16);
+        put16(&mut out, 0);
+        out.extend_from_slice(name);
+        out.extend_from_slice(body.as_bytes());
+
+        put32(&mut central, 0x0201_4b50);
+        put16(&mut central, 20);
+        put16(&mut central, 20);
+        put16(&mut central, 0);
+        put16(&mut central, 0);
+        put16(&mut central, TIME);
+        put16(&mut central, DATE);
+        put32(&mut central, crc);
+        put32(&mut central, size);
+        put32(&mut central, size);
+        put16(&mut central, name.len() as u16);
+        put16(&mut central, 0);
+        put16(&mut central, 0);
+        put16(&mut central, 0);
+        put16(&mut central, 0);
+        put32(&mut central, 0);
+        put32(&mut central, header_at);
+        central.extend_from_slice(name);
+        offset += 30 + name.len() as u32 + size;
+    }
+    let central_at = out.len() as u32;
+    out.extend_from_slice(&central);
+    put32(&mut out, 0x0605_4b50);
+    put16(&mut out, 0);
+    put16(&mut out, 0);
+    put16(&mut out, entries.len() as u16);
+    put16(&mut out, entries.len() as u16);
+    put32(&mut out, central.len() as u32);
+    put32(&mut out, central_at);
+    put16(&mut out, 0);
+    Ok(out)
+}
+
+/// Install the embedded focus extension through the official channel —
+/// `gnome-extensions install FILE.zip`, the same tool the Extensions apps
+/// call underneath — never a manual copy into the extension directory.
+/// GNOME 45+ caches extension ES modules, so a fresh install only loads
+/// after logout/login; the caller surfaces the logout button on first
+/// install.
 pub(super) fn install_focus_extension() -> Result<String, String> {
     use std::fmt::Write as _;
-    let Some(base) = dirs::data_dir() else {
-        return Err("Không tìm thấy thư mục dữ liệu người dùng (~/.local/share)".into());
-    };
-    let dir = base.join(FOCUS_EXT_DIR);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Không tạo được {}: {e}", dir.display()))?;
-    for (name, body) in [
+    let zip = extension_zip(&[
         ("extension.js", FOCUS_EXTENSION_JS),
         ("metadata.json", FOCUS_EXTENSION_META),
-    ] {
-        std::fs::write(dir.join(name), body)
-            .map_err(|e| format!("Không ghi được {}: {e}", name))?;
+    ])?;
+    let tmp = std::env::temp_dir().join(format!("mangrs-focus-{}.zip", std::process::id()));
+    std::fs::write(&tmp, zip).map_err(|e| format!("Không ghi được {}: {e}", tmp.display()))?;
+    let installed = std::process::Command::new("gnome-extensions")
+        .args(["install", "--force"])
+        .arg(&tmp)
+        .output();
+    let _ = std::fs::remove_file(&tmp);
+    match installed {
+        Ok(s) if s.status.success() => {}
+        Ok(s) => {
+            return Err(format!(
+                "gnome-extensions install thất bại: {}",
+                String::from_utf8_lossy(&s.stderr).trim()
+            ))
+        }
+        Err(e) => return Err(format!("Không chạy được gnome-extensions: {e}")),
     }
-    let mut note = String::from("Đã cài extension vào ~/.local/share/gnome-shell/extensions. ");
+    let mut note = String::from("Đã cài qua gnome-extensions (kênh chính thức của GNOME). ");
     match std::process::Command::new("gnome-extensions")
         .args(["enable", "mangrs-focus@fundokukiri"])
         .status()
@@ -834,11 +928,32 @@ pub(super) fn install_focus_extension() -> Result<String, String> {
         _ => {
             let _ = writeln!(
                 note,
-                "Chưa bật được từ đây — đăng xuất/đăng nhập rồi bật trong ứng dụng Extensions, hoặc chạy: gnome-extensions enable mangrs-focus@fundokukiri"
+                "Chưa bật được từ đây — mở ứng dụng Extensions và bật, hoặc chạy: gnome-extensions enable mangrs-focus@fundokukiri"
             );
         }
     }
     Ok(note)
+}
+
+/// Is a GNOME extension manager GUI present (GNOME's Extensions app or the
+/// flatpak Extension Manager)? The install button asks for one when absent:
+/// extensions surface through an app, not silent filesystem writes.
+pub(super) fn extension_app_present() -> bool {
+    let app_in_path = std::env::var("PATH")
+        .ok()
+        .and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|p| p.join("gnome-extensions-app"))
+                .find(|p| p.is_file())
+        })
+        .is_some();
+    app_in_path
+        || std::process::Command::new("flatpak")
+            .args(["info", "com.mattjakeman.ExtensionManager"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
 }
 
 const DESKTOP_ENTRY: &str = include_str!("../../data/org.freedesktop.IBus.mangrs.desktop");
