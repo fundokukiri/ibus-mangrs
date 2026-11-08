@@ -681,7 +681,7 @@ impl Ui {
     /// come back verbatim when the gate reopens; the engine forces the
     /// features off while the gate is closed.
     fn set_experimental_visible(&self, on: bool) {
-        let rows: [&gtk4::Widget; 12] = [
+        let rows: [&gtk4::Widget; 11] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_switch.upcast_ref(),
             self.extra_url_chars_entry.upcast_ref(),
@@ -693,7 +693,6 @@ impl Ui {
             self.echo_stale_spin.upcast_ref(),
             self.idle_commit_switch.upcast_ref(),
             self.idle_commit_spin.upcast_ref(),
-            self.smooth_per_key_switch.upcast_ref(),
         ];
         for row in rows {
             row.set_visible(on);

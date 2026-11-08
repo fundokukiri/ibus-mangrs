@@ -526,7 +526,9 @@ impl Engine {
         self.echo_stale_ms = config.echo_stale_ms;
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;
         self.idle_commit_ms = config.idle_commit_ms;
-        self.smooth_per_key = experimental && config.smooth_per_key;
+        // Not part of the experimental set anymore: the gate must not force
+        // it off or the always-visible switch would silently do nothing.
+        self.smooth_per_key = config.smooth_per_key;
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
