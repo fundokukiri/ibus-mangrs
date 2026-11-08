@@ -333,6 +333,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại",
         ),
     );
+    let gui_classic = switch_row(
+        &t("rows.gui_classic.title", "Dùng giao diện cổ điển"),
+        &t(
+            "rows.gui_classic.subtitle",
+            "Mở lại cài đặt bằng cửa sổ GTK4 đơn giản, không Libadwaita. Đổi lại trong tab Nâng cao của cửa sổ cổ điển",
+        ),
+    );
     let desktop_icon_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
     let suppress_save = Cell::new(false);
@@ -693,6 +700,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         rules_loading,
         desktop_icon,
         show_toasts,
+        gui_classic,
         desktop_icon_loading,
         save_cb,
         suppress_save,
