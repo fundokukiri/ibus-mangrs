@@ -68,14 +68,14 @@ Kịch bản cài đặt sẽ tự nhận diện bản phân phối (apt / pacma
 
 ```
 # Arch / Manjaro / EndeavourOS
-sudo pacman -S --needed gcc make pkgconf tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils
+sudo pacman -S --needed gcc pkgconf tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils
 
 # Debian / Ubuntu / Mint / Pop!_OS
-sudo apt install build-essential pkg-config tar gzip curl ibus desktop-file-utils \
+sudo apt install gcc libc6-dev pkg-config tar gzip curl ibus desktop-file-utils \
     libdbus-1-dev libgtk-4-dev libadwaita-1-dev
 
 # Fedora / RHEL / CentOS
-sudo dnf install gcc make pkgconf-pkg-config tar gzip curl ibus dbus-devel \
+sudo dnf install gcc pkgconf-pkg-config tar gzip curl ibus dbus-devel \
     gtk4-devel libadwaita-devel desktop-file-utils
 
 # Rust (mọi bản phân phối)
@@ -112,14 +112,14 @@ Cài các gói phụ thuộc để build trước (Arch, Debian/Ubuntu, Fedora �
 
 ```
 # Arch / Manjaro / EndeavourOS
-sudo pacman -S --needed gcc make pkgconf ibus dbus gtk4 libadwaita desktop-file-utils
+sudo pacman -S --needed gcc pkgconf ibus dbus gtk4 libadwaita desktop-file-utils
 
 # Debian / Ubuntu / Mint / Pop!_OS
-sudo apt install build-essential pkg-config ibus libdbus-1-dev libgtk-4-dev \
+sudo apt install gcc libc6-dev pkg-config ibus libdbus-1-dev libgtk-4-dev \
     libadwaita-1-dev desktop-file-utils
 
 # Fedora / RHEL / CentOS
-sudo dnf install gcc make pkgconf-pkg-config ibus dbus-devel gtk4-devel \
+sudo dnf install gcc pkgconf-pkg-config ibus dbus-devel gtk4-devel \
     libadwaita-devel desktop-file-utils
 
 # Rust (mọi bản phân phối)
