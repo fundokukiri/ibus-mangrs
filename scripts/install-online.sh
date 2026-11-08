@@ -6,7 +6,8 @@
 #
 # Installs everything the build needs on Debian/Ubuntu (apt), Arch (pacman) and
 # Fedora (dnf): build toolchain, IBus, GTK4, DBus headers, Rust (via rustup).
-# Needs curl and sudo (or run as root). Re-run to upgrade.
+# Nothing is installed when it is already there — re-run to upgrade.
+# Needs curl (or wget) and sudo (or run as root).
 
 set -eu
 
@@ -100,14 +101,14 @@ ensure_pkgs() {
 # distro; DBus is needed by the `dbus` crate, not by GTK.
 case "$DISTRO" in
     debian)
-        DEPS="build-essential pkg-config git tar gzip curl ibus desktop-file-utils
+        DEPS="build-essential pkg-config tar gzip curl ibus desktop-file-utils
             libdbus-1-dev libgtk-4-dev libadwaita-1-dev"
         ;;
     arch)
-        DEPS="gcc make pkgconf git tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils"
+        DEPS="gcc make pkgconf tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils"
         ;;
     fedora)
-        DEPS="gcc make pkgconf-pkg-config git tar gzip curl ibus dbus-devel
+        DEPS="gcc make pkgconf-pkg-config tar gzip curl ibus dbus-devel
             gtk4-devel libadwaita-devel desktop-file-utils"
         ;;
 esac
