@@ -180,11 +180,11 @@ title = "Nhấn “Space” hai lần thành dấu chấm"
 subtitle = "Hai dấu cách thành dấu chấm"
 
 [rows.macro_valid_words]
-title = "Nở gõ tắt cả trên từ hợp lệ"
+title = "Gõ tắt nở cả trên từ hợp lệ"
 subtitle = "Phím tắt trùng từ thật (vd “cam”) sẽ nở thay vì giữ nguyên — Backspace một phím để gõ từ thật"
 
 [rows.extra_url_chars]
-title = "Né thêm ký tự riêng"
+title = "Thêm ký tự giữ nguyên dấu"
 subtitle = "Từ đứng ngay sau ký tự bên dưới cũng giữ nguyên phím thô"
 
 [rows.extra_url_chars_entry]
@@ -208,11 +208,11 @@ title = "Hồi clipboard sau (ms)"
 subtitle = "100–5000 ms. Mặc định: 600"
 
 [rows.echo_stale]
-title = "Cửa sổ xả commit"
+title = "Xả commit khi echo lạc"
 subtitle = "Chờ bao lâu thì bỏ đợi phím Backspace ảo quay về mà xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ"
 
 [rows.echo_stale_spin]
-title = "Cửa sổ xả sau (ms)"
+title = "Xả sau (ms)"
 subtitle = "50–1000 ms. Mặc định: 150. Quá thấp dễ mất chữ, quá cao làm chữ hiện trễ"
 
 [rows.idle_commit]
