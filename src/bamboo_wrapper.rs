@@ -4,6 +4,7 @@
 //! edit. `bamboo-core`'s `EditDelta` borrows the engine, so every method
 //! below copies the delta into an owned `Edit` before returning.
 
+use crate::config::BackspaceToneConfig;
 use crate::debug_log;
 use bamboo_core::{Charset as BambooCharset, Config, Engine, InputMethod, Mode};
 
@@ -172,6 +173,9 @@ pub struct BambooWrapper {
     /// character that is already gone (the "backspace then type eats a
     /// letter" bug). We compute the delta ourselves against `last_output`.
     last_output: String,
+    /// How Backspace treats a tone-marked word. Set per keystroke by the
+    /// engine (the uinput modes force `Off`); `Off` is the unikey undo.
+    backspace_tone: BackspaceToneConfig,
 }
 
 impl BambooWrapper {
@@ -189,7 +193,14 @@ impl BambooWrapper {
             kept_composition: false,
             composing: false,
             last_output: String::new(),
+            backspace_tone: BackspaceToneConfig::Off,
         }
+    }
+
+    /// How Backspace treats a tone-marked word (see `backspace`). The
+    /// engine sets this per keystroke — the uinput modes force `Off`.
+    pub fn set_backspace_tone(&mut self, tone: BackspaceToneConfig) {
+        self.backspace_tone = tone;
     }
 
     /// Returns whether the engine was rebuilt (the composition was reset).
@@ -539,14 +550,33 @@ impl BambooWrapper {
             return None;
         }
         let old = self.output();
-        // Vietnamese IME convention (unikey): Backspace undoes the last typed
-        // KEY and the word recomposes from the remaining raw keys — removing
-        // a tone key removes the tone, removing a letter removes its letter
-        // ("mười" -> "mươi" -> "mườ"; retyping "if" gives "mười" back).
-        // Re-feeding the keys also keeps bamboo's transform stack consistent:
-        // remove_last_output_char left it stale, so a later key resurfaced
-        // hidden transforms nondeterministically ("toool"+BS stayed "tool",
-        // retype-after-BS corrupted marks — open-questions #9/#10).
+        // The tone-skip behaviors engage only on a word that visibly carries
+        // a tone; a kept composition (`hạo6`) stays with the unikey undo —
+        // its digits are literal text, not tone keys.
+        if !self.kept_composition && has_tone_marker(&old) {
+            let edit = match self.backspace_tone {
+                BackspaceToneConfig::ToneFirst => self.backspace_tone_first(&old),
+                BackspaceToneConfig::WholeChar => self.backspace_whole_char(&old),
+                BackspaceToneConfig::Off => None,
+            };
+            if let Some(edit) = edit {
+                return Some(edit);
+            }
+        }
+        self.pop_one();
+        let new = self.output();
+        Some(Self::edit_between(&old, &new))
+    }
+
+    /// Vietnamese IME convention (unikey): Backspace undoes the last typed
+    /// KEY and the word recomposes from the remaining raw keys — removing
+    /// a tone key removes the tone, removing a letter removes its letter
+    /// ("mười" -> "mươi" -> "mườ"; retyping "if" gives "mười" back).
+    /// Re-feeding the keys also keeps bamboo's transform stack consistent:
+    /// remove_last_output_char left it stale, so a later key resurfaced
+    /// hidden transforms nondeterministically ("toool"+BS stayed "tool",
+    /// retype-after-BS corrupted marks — open-questions #9/#10).
+    fn pop_one(&mut self) {
         self.raw.pop();
         self.engine.reset();
         // The recomposition re-derives every guard from scratch.
@@ -557,22 +587,65 @@ impl BambooWrapper {
         for c in raw_chars {
             new = self.feed_compose(c);
         }
-        self.last_output = new.clone();
+        self.last_output = new;
         // undo_in_word stays: the raw keys may still contain the undo
         // sequence ("tooo"), so the poison guard must keep watching this word
+    }
+
+    /// The delete/insert replay shape the callers rewrite with: a pure
+    /// suffix delete when the new text extends the old, else a whole
+    /// replace.
+    fn edit_between(old: &str, new: &str) -> Edit {
         let old_len = old.chars().count();
         let new_len = new.chars().count();
-        if old.starts_with(&new) {
-            Some(Edit {
+        if old.starts_with(new) {
+            Edit {
                 delete_chars: old_len - new_len,
                 insert: String::new(),
-            })
+            }
         } else {
-            Some(Edit {
+            Edit {
                 delete_chars: old_len,
-                insert: new,
-            })
+                insert: new.to_string(),
+            }
         }
+    }
+
+    /// ToneFirst: drop the method's tone keys from the raw — only where
+    /// they can act (after the word's first vowel; the `s` of `as` is a
+    /// letter) — and recompose: the word loses its tone in one Backspace
+    /// while the letters stay (`hạ` -> `ha`).
+    fn backspace_tone_first(&mut self, old: &str) -> Option<Edit> {
+        let new_raw = strip_tone_keys(&self.raw, self.method);
+        if new_raw.chars().count() == self.raw.chars().count() {
+            return None;
+        }
+        self.replay_raw(&new_raw);
+        let new = self.output();
+        Some(Self::edit_between(old, &new))
+    }
+
+    /// WholeChar: the marked character goes with its tone — pop raw keys
+    /// until the recomposition equals the text minus its last character
+    /// (`hạ` -> `h`). A shortened text no raw prefix composes to (`hần` ->
+    /// `hầ`) falls through to the unikey undo.
+    fn backspace_whole_char(&mut self, old: &str) -> Option<Edit> {
+        let target: String = old.chars().take(old.chars().count() - 1).collect();
+        let original = self.raw.clone();
+        let mut matched = false;
+        for _ in 0..original.chars().count() {
+            self.pop_one();
+            if self.output() == target {
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            self.replay_raw(&original);
+            return None;
+        }
+        let new = self.output();
+        Some(Self::edit_between(old, &new))
     }
 
     /// Diff between the previous real composition output and `new`, as a
@@ -677,6 +750,115 @@ impl BambooWrapper {
 /// Characters that end a Vietnamese word. bamboo-core keeps punctuation in
 /// its buffer, but an IME must commit and let the application see the key.
 /// The unmarked base letter of a Vietnamese vowel (`ô` → `o`, `ạ` → `a`).
+/// Whether the text carries a tone diacritic — horn, circumflex and breve
+/// alone do not count (`hôm` counts as tone-free).
+fn has_tone_marker(text: &str) -> bool {
+    text.chars().any(is_tone_marked)
+}
+
+fn is_tone_marked(c: char) -> bool {
+    matches!(
+        c.to_lowercase().next(),
+        Some(
+            'á' | 'à'
+                | 'ả'
+                | 'ã'
+                | 'ạ'
+                | 'ấ'
+                | 'ầ'
+                | 'ẩ'
+                | 'ẫ'
+                | 'ậ'
+                | 'é'
+                | 'è'
+                | 'ẻ'
+                | 'ẽ'
+                | 'ẹ'
+                | 'ế'
+                | 'ề'
+                | 'ể'
+                | 'ễ'
+                | 'ệ'
+                | 'í'
+                | 'ì'
+                | 'ỉ'
+                | 'ĩ'
+                | 'ị'
+                | 'ó'
+                | 'ò'
+                | 'ỏ'
+                | 'õ'
+                | 'ọ'
+                | 'ố'
+                | 'ồ'
+                | 'ổ'
+                | 'ỗ'
+                | 'ộ'
+                | 'ớ'
+                | 'ờ'
+                | 'ở'
+                | 'ỡ'
+                | 'ợ'
+                | 'ú'
+                | 'ù'
+                | 'ủ'
+                | 'ũ'
+                | 'ụ'
+                | 'ứ'
+                | 'ừ'
+                | 'ử'
+                | 'ữ'
+                | 'ự'
+                | 'ý'
+                | 'ỳ'
+                | 'ỷ'
+                | 'ỹ'
+                | 'ỵ'
+        )
+    )
+}
+
+/// Whether the character is a Vietnamese vowel letter — the arming mark of
+/// `strip_tone_keys`: a tone key only acts after a vowel.
+fn is_vowel_letter(c: char) -> bool {
+    matches!(
+        c.to_lowercase().next(),
+        Some('a' | 'ă' | 'â' | 'e' | 'ê' | 'i' | 'o' | 'ô' | 'ơ' | 'u' | 'ư' | 'y')
+    )
+}
+
+/// The method's tone-key characters. Horn/breve/circumflex keys (`w`, `6`,
+/// `ow`...) are not tone keys — a tone skip must keep the vowel shape.
+fn tone_keys(method: Method) -> &'static [char] {
+    match method {
+        Method::Telex | Method::Telex2 | Method::TelexW => &['s', 'f', 'x', 'j', 'r'],
+        Method::Vni | Method::VniFrench | Method::MsLayout => &['1', '2', '3', '4', '5'],
+        Method::Viqr => &['\'', '`', '?', '~', '.'],
+        Method::TelexVni => &['s', 'f', 'x', 'j', 'r', '1', '2', '3', '4', '5'],
+        Method::TelexVniViqr => &[
+            's', 'f', 'x', 'j', 'r', '1', '2', '3', '4', '5', '\'', '`', '?', '~', '.',
+        ],
+    }
+}
+
+/// Drop the tone keys that can act — everything after the word's first
+/// vowel; a tone-key character before any vowel is a letter (`as`, `sas`).
+fn strip_tone_keys(raw: &str, method: Method) -> String {
+    let keys = tone_keys(method);
+    let mut out = String::with_capacity(raw.len());
+    let mut armed = false;
+    for c in raw.chars() {
+        if keys.contains(&c) && armed {
+            continue;
+        }
+        if is_vowel_letter(c) {
+            armed = true;
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn base_letter(c: char) -> char {
     let l = c.to_lowercase().next().unwrap_or(c);
     match l {

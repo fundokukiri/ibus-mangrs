@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::ModeConfig;
+use crate::config::{MethodConfig, ModeConfig};
 
 /// Feed keystrokes like a real client: it reports capabilities and a
 /// SetSurroundingText update after every visible change.
@@ -3625,5 +3625,171 @@ fn emoji_pick_after_a_colon_disarms_the_shortcode_branch() {
     assert!(
         actions.contains(&Action::Commit("l".into())),
         "the next word must compose normally: {actions:?}"
+    );
+}
+
+// --- backspace tone-skip (the "Xóa dấu bằng Backspace" dropdown) ---
+
+fn tone_engine(method: MethodConfig, mode: Mode, tone: BackspaceToneConfig) -> Engine {
+    let mut e = Engine::new(method.into(), mode);
+    e.apply_config(&Config {
+        mode: mode.into(),
+        method,
+        backspace_tone: tone,
+        ..Config::default()
+    });
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e
+}
+
+#[test]
+fn backspace_tone_first_strips_the_tone_in_one_step() {
+    // `hạ` = raw `hasfxjr` (the tone cycled through every key): one
+    // Backspace lands on the tone-free word, the letters stay — the unikey
+    // walk would pass through every intermediate tone instead.
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::NonPreedit,
+        BackspaceToneConfig::ToneFirst,
+    );
+    assert_eq!(type_replay_backspaces(&mut e, "hasfxjr\u{8}").0, "ha");
+    // The word stays editable: one more Backspace takes the letter.
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::NonPreedit,
+        BackspaceToneConfig::ToneFirst,
+    );
+    assert_eq!(type_replay_backspaces(&mut e, "hasfxjr\u{8}\u{8}").0, "h");
+}
+
+#[test]
+fn backspace_whole_char_deletes_the_marked_letter() {
+    // `hạ` -> `h`: the marked character goes with its tone, one step.
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::NonPreedit,
+        BackspaceToneConfig::WholeChar,
+    );
+    assert_eq!(type_replay_backspaces(&mut e, "hasfxjr\u{8}").0, "h");
+}
+
+#[test]
+fn backspace_tone_off_keeps_the_unikey_walk() {
+    // Off is today's behavior: the raw keys pop one by one and the cycled
+    // tone walks back through every tone it passed.
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::NonPreedit,
+        BackspaceToneConfig::Off,
+    );
+    // bamboo telex: x=ngã, j=nặng, r=hỏi — popping r lands on j's tone.
+    assert_eq!(type_replay_backspaces(&mut e, "hasfxjr\u{8}").0, "hạ");
+}
+
+#[test]
+fn backspace_tone_skip_leaves_tone_free_words_alone() {
+    // `hôm` carries no tone (the horn is a vowel shape, not a tone): the
+    // unikey undo pops `m` even with the skip on.
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::NonPreedit,
+        BackspaceToneConfig::ToneFirst,
+    );
+    assert_eq!(type_replay_backspaces(&mut e, "hoom\u{8}").0, "hô");
+}
+
+#[test]
+fn backspace_tone_first_keeps_the_final_consonant() {
+    // `hần` = raw `ha6n2` (VNI): the tone key goes, the circumflex and the
+    // final n stay.
+    let mut e = tone_engine(
+        MethodConfig::Vni,
+        Mode::NonPreedit,
+        BackspaceToneConfig::ToneFirst,
+    );
+    assert_eq!(type_replay_backspaces(&mut e, "ha6n2\u{8}").0, "hân");
+}
+
+#[test]
+fn backspace_whole_char_falls_back_to_the_unikey_undo() {
+    // `hần` minus its last character (`hầ`) is composable by no raw
+    // prefix — the unikey undo runs instead: the tone key pops, `hần`
+    // -> `hân`.
+    let mut e = tone_engine(
+        MethodConfig::Vni,
+        Mode::NonPreedit,
+        BackspaceToneConfig::WholeChar,
+    );
+    assert_eq!(type_replay_backspaces(&mut e, "ha6n2\u{8}").0, "hân");
+}
+
+#[test]
+fn backspace_tone_skip_leaves_kept_compositions_alone() {
+    // `hạo6`'s digits are literal text, not tone keys: the unikey undo
+    // pops the 6, the skip must not eat them.
+    let mut e = tone_engine(
+        MethodConfig::Vni,
+        Mode::NonPreedit,
+        BackspaceToneConfig::ToneFirst,
+    );
+    assert_eq!(type_replay_backspaces(&mut e, "hao123456\u{8}").0, "hạo");
+}
+
+#[test]
+fn uinput_modes_keep_the_unikey_undo_under_tone_skip() {
+    // The uinput modes show the raw keys: the wrapper must pop exactly one
+    // key per Backspace, whatever the dropdown says.
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::Smooth,
+        BackspaceToneConfig::WholeChar,
+    );
+    e.set_uinput_available(true);
+    let _ = type_replay_backspaces(&mut e, "hasfxjr\u{8}");
+    assert_eq!(e.wrapper.raw(), "hasfxj");
+}
+
+#[test]
+fn per_key_backspace_ignores_the_tone_skip() {
+    // smooth_per_key keeps the reverse-map pass-through regardless of the
+    // dropdown: the real Backspace deletes the screen's last character.
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::Smooth,
+        BackspaceToneConfig::WholeChar,
+    );
+    e.set_uinput_available(true);
+    e.apply_config(&Config {
+        mode: Mode::Smooth.into(),
+        experimental_features: true,
+        smooth_per_key: true,
+        backspace_tone: BackspaceToneConfig::WholeChar,
+        ..Config::default()
+    });
+    type_str(&mut e, "hasfxjr");
+    flush_per_key(&mut e);
+    let actions = e.backspace().expect("backspace");
+    // The batch was flushed above: the pass-through is all that is left.
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert_eq!(e.tail, "h");
+}
+
+#[test]
+fn backspace_tone_first_updates_the_preedit() {
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::Preedit,
+        BackspaceToneConfig::ToneFirst,
+    );
+    for c in "hasfxjr".chars() {
+        let _ = e.process_char(c);
+    }
+    let actions = e.backspace().expect("backspace");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "ha")),
+        "{actions:?}"
     );
 }

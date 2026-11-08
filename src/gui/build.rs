@@ -111,6 +111,14 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.bracket.subtitle", "Chọn vị trí áp dụng"),
         ON_OFF_MODES,
     );
+    let backspace_tone = combo_row(
+        &t("rows.backspace_tone.title", "Xóa dấu bằng Backspace"),
+        &t(
+            "rows.backspace_tone.subtitle",
+            "Cách Backspace xử lý từ đang có dấu",
+        ),
+        BACKSPACE_TONE_MODES,
+    );
     let em_dash = switch_row(
         &t("rows.em_dash.title", "Gạch ngang dài"),
         &t(
@@ -557,6 +565,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Gõ [ và ] nhận ơ và ư theo vị trí trong từ."
     );
     tip!(
+        backspace_tone,
+        "tips.backspace_tone",
+        "Xóa dấu trước: hạ thành ha, rồi h. Xóa cả dấu và chữ: hạ thành h. Các chế độ uinput giữ cách lùi từng phím."
+    );
+    tip!(
         em_dash,
         "tips.em_dash",
         "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
@@ -653,6 +666,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         extra_url_chars_entry,
         w2u,
         bracket,
+        backspace_tone,
         em_dash,
         auto_capitalize,
         auto_capitalize_after_switch,

@@ -23,7 +23,7 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
-use crate::config::{AppRule, Config, UnicodeChannel};
+use crate::config::{AppRule, BackspaceToneConfig, Config, UnicodeChannel};
 use crate::debug_log::{self, brief};
 use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
@@ -262,6 +262,9 @@ pub struct Engine {
     /// new one through the injected transport. Experimental mirror of
     /// `config.smooth_per_key` (gated by the master switch).
     smooth_per_key: bool,
+    /// How Backspace treats a tone-marked word; pushed into the wrapper per
+    /// keystroke because the uinput modes force the unikey undo.
+    backspace_tone: BackspaceToneConfig,
     /// When the last key reached the engine — the idle-commit clock. Only
     /// stamped while the feature is on, so the off path costs nothing.
     last_key_at: Option<Instant>,
@@ -416,6 +419,7 @@ impl Engine {
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             smooth_per_key: false,
+            backspace_tone: BackspaceToneConfig::Off,
             last_key_at: None,
             idle_committed: None,
         };
@@ -523,6 +527,7 @@ impl Engine {
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;
         self.idle_commit_ms = config.idle_commit_ms;
         self.smooth_per_key = experimental && config.smooth_per_key;
+        self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
         }
@@ -1234,6 +1239,16 @@ impl Engine {
         if mode == Mode::Off {
             return None;
         }
+        // The tone-skip belongs to committed-text transports: the uinput
+        // modes show the raw keys, and a skipped tone would desync the
+        // screen from the wrapper. They keep the unikey undo.
+        self.wrapper.set_backspace_tone(
+            if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+                BackspaceToneConfig::Off
+            } else {
+                self.backspace_tone
+            },
+        );
         // uinput modes: the application owns the on-screen text — the
         // Backspace is forwarded so it deletes the raw key shown there, and
         // bamboo follows so the composition stays aligned (unikey
