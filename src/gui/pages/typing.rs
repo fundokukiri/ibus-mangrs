@@ -32,8 +32,19 @@ fn widen_value(row: &adw::ComboRow) {
     if let Some(view) = find_value_view(row.upcast_ref()) {
         view.set_hexpand(true);
     }
+    // Apply exactly once per row: the item widgets are recycled, and
+    // re-poking "the first label" after every map kept touching different
+    // widgets — the accumulated expand/align settings are what nudged the
+    // selected text toward the center over successive picks (a fresh window
+    // reset it). A failed pass (the list not bound yet) retries on the next
+    // map.
+    let applied = std::rc::Rc::new(std::cell::Cell::new(false));
     row.connect_map(move |row| {
+        if applied.get() {
+            return;
+        }
         let row = row.clone();
+        let applied = applied.clone();
         gtk4::glib::idle_add_local_once(move || {
             let Some(view) = find_value_view(row.upcast_ref()) else {
                 return;
@@ -43,6 +54,7 @@ fn widen_value(row: &adw::ComboRow) {
             };
             label.set_hexpand(true);
             label.set_xalign(1.0);
+            applied.set(true);
         });
     });
 }
