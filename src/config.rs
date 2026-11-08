@@ -138,6 +138,12 @@ pub struct Config {
     /// silences every toast (including the delete-undo ones); errors keep
     /// their dialogs either way. The engine never reads this.
     pub show_toasts: bool,
+    /// GUI-only: the `-gui` process opens the classic GTK4 window
+    /// (`gui_classic`) instead of the Libadwaita one. Read once at process
+    /// start — the switch lives inside whichever window opened, so the
+    /// change lands on the next launch, never mid-session. Off by default:
+    /// the Libadwaita window is the shipped look.
+    pub gui_classic: bool,
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
@@ -825,6 +831,7 @@ impl Default for Config {
             smooth_per_key: true,
             experimental_features: false,
             show_toasts: true,
+            gui_classic: false,
             debug_log: false,
             debug_log_text: false,
             x11_delete_without_report: false,
@@ -1275,6 +1282,13 @@ children = ["preedit", "smooth"]
         let c: Config = toml::from_str("smooth_per_key = false").unwrap();
         assert!(!c.smooth_per_key);
         assert!(Config::default().smooth_per_key);
+    }
+
+    #[test]
+    fn gui_classic_round_trips_and_defaults_off() {
+        let c: Config = toml::from_str("gui_classic = true").unwrap();
+        assert!(c.gui_classic);
+        assert!(!Config::default().gui_classic);
     }
 
     #[test]

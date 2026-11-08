@@ -19,6 +19,11 @@ pub mod engine;
 mod golden;
 #[cfg(feature = "gui")]
 pub mod gui;
+/// The classic settings window: plain GTK4, no Libadwaita — a port of the
+/// pre-rewrite GUI. Chosen per launch by `config.gui_classic`, never mixed
+/// with [`gui`]: separate widgets, separate layout, shared config file.
+#[cfg(feature = "gui")]
+pub mod gui_classic;
 pub mod ibus_prop;
 pub mod ibus_text;
 pub mod keymap;

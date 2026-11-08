@@ -402,6 +402,7 @@ fn refresh_round_trips_every_widget() {
         smooth_per_key: true,
         experimental_features: true,
         show_toasts: false,
+        gui_classic: true,
         debug_log: true,
         debug_log_text: true,
         x11_delete_without_report: true,
@@ -543,7 +544,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 27] = [
+    let rows: [&adw::SwitchRow; 28] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -560,6 +561,7 @@ fn every_switch_triggers_save() {
         &ui.idle_commit_switch,
         &ui.experimental_features,
         &ui.show_toasts,
+        &ui.gui_classic,
         &ui.double_space,
         &ui.macro_enabled,
         &ui.capitalize_macro,

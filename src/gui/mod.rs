@@ -282,6 +282,10 @@ struct Ui {
     smooth_per_key_switch: adw::SwitchRow,
     experimental_features: adw::SwitchRow,
     show_toasts: adw::SwitchRow,
+    /// "Cài đặt khác": the next `-gui` launch opens the classic GTK4
+    /// window instead of this one. Saved like any config key; the window
+    /// style is picked once per launch, so the flip lands on the reopen.
+    gui_classic: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
     /// (`read` clones it, so the round-trip holds without walking rows);
     /// the boxed list is its view, rebuilt on every edit. Folders nest one
@@ -496,6 +500,7 @@ impl Ui {
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
+        self.gui_classic.set_active(config.gui_classic);
         // The master gate: off hides every experimental row (its feature is
         // also forced off in the engine); back on, they reappear with their
         // saved switch states and values.
@@ -628,6 +633,7 @@ impl Ui {
         config.smooth_per_key = self.smooth_per_key_switch.is_active();
         config.experimental_features = self.experimental_features.is_active();
         config.show_toasts = self.show_toasts.is_active();
+        config.gui_classic = self.gui_classic.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());
