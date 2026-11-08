@@ -16,7 +16,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::config::{
-    BracketConfig, CharsetConfig, Config, MenuNode, MethodConfig, ModeConfig, W2uConfig,
+    BackspaceToneConfig, BracketConfig, CharsetConfig, Config, MenuNode, MethodConfig, ModeConfig,
+    W2uConfig,
 };
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
@@ -107,6 +108,7 @@ const CHARSETS: &[&str] = &[
     "Vietware Full",
 ];
 const ON_OFF_MODES: &[&str] = &["Tắt", "Trừ đầu từ", "Mọi vị trí"];
+const BACKSPACE_TONE_MODES: &[&str] = &["Tắt", "Xóa dấu trước", "Xóa cả dấu và chữ"];
 const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
 
 /// The custom-shortcut functions, in `config::CUSTOM_HOTKEY_ACTIONS` order:
@@ -169,6 +171,7 @@ struct Ui {
     extra_url_chars_switch: adw::SwitchRow,
     extra_url_chars_entry: adw::EntryRow,
     w2u: adw::ComboRow,
+    backspace_tone: adw::ComboRow,
     bracket: adw::ComboRow,
     em_dash: adw::SwitchRow,
     auto_capitalize: adw::SwitchRow,
@@ -407,6 +410,12 @@ impl Ui {
             BracketConfig::Disabled,
             BracketConfig::NonStart,
         ));
+        self.backspace_tone
+            .set_selected(match config.backspace_tone {
+                BackspaceToneConfig::Off => 0,
+                BackspaceToneConfig::ToneFirst => 1,
+                BackspaceToneConfig::WholeChar => 2,
+            });
         self.em_dash.set_active(config.em_dash);
         self.auto_capitalize.set_active(config.auto_capitalize);
         self.auto_capitalize_after_switch
@@ -562,6 +571,11 @@ impl Ui {
             1 => W2uConfig::NonStart,
             2 => W2uConfig::Everywhere,
             _ => W2uConfig::Disabled,
+        };
+        config.backspace_tone = match self.backspace_tone.selected() {
+            1 => BackspaceToneConfig::ToneFirst,
+            2 => BackspaceToneConfig::WholeChar,
+            _ => BackspaceToneConfig::Off,
         };
         config.bracket = match self.bracket.selected() {
             1 => BracketConfig::NonStart,

@@ -654,6 +654,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         }
         {
             let s = save.clone();
+            ui.backspace_tone.connect_selected_notify(move |_| s());
+        }
+        {
+            let s = save.clone();
             ui.bracket.connect_selected_notify(move |_| s());
         }
         {
