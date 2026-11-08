@@ -21,15 +21,37 @@ use crate::config::{
     UnicodeChannel, W2uConfig,
 };
 use crate::macros::{Dictionary, Macros};
+use cursive::theme::{BorderStyle, Color, PaletteColor, Theme};
 use cursive::traits::*;
 use cursive::views::{
-    Button, Checkbox, Dialog, EditView, LinearLayout, ListView, ScrollView, SelectView, TextArea,
-    TextView,
+    Button, Checkbox, Dialog, DummyView, EditView, LinearLayout, ListView, ScrollView, SelectView,
+    TextArea, TextView,
 };
 use cursive::Cursive;
 use cursive::CursiveExt;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Rows of the main menu, as one select list. Toggles live above it as
+/// real checkboxes; everything else opens from here.
+#[derive(Copy, Clone, PartialEq)]
+enum MainEntry {
+    Method,
+    Mode,
+    Charset,
+    Tone,
+    Auto,
+    Hotkeys,
+    Rules,
+    MenuEditor,
+    Tune,
+    Macros,
+    Dictionary,
+    Backup,
+    About,
+    Modern,
+    Quit,
+}
 
 // --- label tables: one row per choice, value carried alongside the label.
 
@@ -196,10 +218,34 @@ fn spawn_in_terminal() -> bool {
 }
 
 fn run_tui() {
+    // Name the terminal window: kgx and friends show the child-set title
+    // instead of "Console".
+    print!("\x1b]2;MăngRS cài đặt\x07");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
     let mut siv = Cursive::new();
+    siv.set_theme(dark_theme());
     siv.set_user_data(Config::load());
     open_main(&mut siv);
     siv.run();
+}
+
+/// Adwaita-dark-inspired palette: near-black surfaces, white text, the GNOME
+/// blue for selection and titles — no terminal blue, no alert red.
+fn dark_theme() -> Theme {
+    let mut theme = Theme::default();
+    theme.shadow = false;
+    theme.borders = BorderStyle::Simple;
+    theme.palette[PaletteColor::Background] = Color::Rgb(0x1d, 0x1d, 0x20);
+    theme.palette[PaletteColor::View] = Color::Rgb(0x24, 0x24, 0x28);
+    theme.palette[PaletteColor::Shadow] = Color::Rgb(0x10, 0x10, 0x12);
+    theme.palette[PaletteColor::Primary] = Color::Rgb(0xff, 0xff, 0xff);
+    theme.palette[PaletteColor::Secondary] = Color::Rgb(0xde, 0xdd, 0xda);
+    theme.palette[PaletteColor::Tertiary] = Color::Rgb(0x99, 0xc1, 0xf1);
+    theme.palette[PaletteColor::TitlePrimary] = Color::Rgb(0x99, 0xc1, 0xf1);
+    theme.palette[PaletteColor::TitleSecondary] = Color::Rgb(0x62, 0xa0, 0xea);
+    theme.palette[PaletteColor::Highlight] = Color::Rgb(0x35, 0x84, 0xe4);
+    theme.palette[PaletteColor::HighlightInactive] = Color::Rgb(0x30, 0x30, 0x36);
+    theme
 }
 
 /// Read the config out of user data. `with_user_data` reports `Option`
@@ -224,7 +270,9 @@ fn info_box(siv: &mut Cursive, title: &str, text: impl Into<String>) {
 }
 
 /// The main menu. Rebuilt (never cached) whenever a page returns: every row
-/// label shows the current config value.
+/// shows the current config value. Toggles are real checkboxes on top; every
+/// other row is one select list — highlight rows move with the arrows, no
+/// angle-bracket buttons.
 fn open_main(siv: &mut Cursive) {
     let enabled = cfg(siv, |c: &mut Config| c.enabled);
     let method = cfg(siv, |c: &mut Config| {
@@ -237,57 +285,68 @@ fn open_main(siv: &mut Cursive) {
         current_label(CHARSETS, &c.charset).to_string()
     });
 
-    let mut list = ListView::new();
-    list.add_child(
-        "",
-        Button::new("Thoát", |s| {
-            s.quit();
-        }),
-    );
-    list.add_child("Bộ gõ", toggle_row(enabled, |c, v| c.enabled = v));
-    list.add_child(
-        "Kiểu gõ",
-        Button::new(method, move |s| {
+    let mut toggles = ListView::new();
+    toggles.add_child("Bộ gõ", toggle_row(enabled, |c, v| c.enabled = v));
+
+    let mut menu: SelectView<MainEntry> = SelectView::new();
+    for (label, entry) in [
+        (format!("Kiểu gõ: {method}"), MainEntry::Method),
+        (format!("Chế độ gõ: {mode}"), MainEntry::Mode),
+        (format!("Bảng mã: {charset}"), MainEntry::Charset),
+        ("Dấu & chính tả".to_string(), MainEntry::Tone),
+        ("Gõ tắt & tự động".to_string(), MainEntry::Auto),
+        ("Phím tắt".to_string(), MainEntry::Hotkeys),
+        ("Luật theo app".to_string(), MainEntry::Rules),
+        ("Menu panel".to_string(), MainEntry::MenuEditor),
+        ("Tinh chỉnh".to_string(), MainEntry::Tune),
+        ("Bảng gõ tắt".to_string(), MainEntry::Macros),
+        ("Từ điển".to_string(), MainEntry::Dictionary),
+        ("Sao lưu".to_string(), MainEntry::Backup),
+        ("Giới thiệu".to_string(), MainEntry::About),
+        (
+            "Quay lại cửa sổ hiện đại (tắt giao diện TUI)".to_string(),
+            MainEntry::Modern,
+        ),
+        ("Thoát".to_string(), MainEntry::Quit),
+    ] {
+        menu.add_item(label, entry);
+    }
+    menu.set_on_submit(|s, entry| match entry {
+        MainEntry::Method => {
             let current = cfg(s, |c: &mut Config| c.method);
             open_choice(s, METHODS, current, |c, v| c.method = v);
-        }),
-    );
-    list.add_child(
-        "Chế độ gõ",
-        Button::new(mode, move |s| {
+        }
+        MainEntry::Mode => {
             let current = cfg(s, |c: &mut Config| c.mode);
             open_choice(s, MODES, current, |c, v| c.mode = v);
-        }),
-    );
-    list.add_child(
-        "Bảng mã",
-        Button::new(charset, move |s| {
+        }
+        MainEntry::Charset => {
             let current = cfg(s, |c: &mut Config| c.charset);
             open_choice(s, CHARSETS, current, |c, v| c.charset = v);
-        }),
-    );
-    list.add_child("", Button::new("Dấu & chính tả…", open_tone));
-    list.add_child("", Button::new("Gõ tắt & tự động…", open_auto));
-    list.add_child("", Button::new("Phím tắt…", open_hotkeys));
-    list.add_child("", Button::new("Luật theo app…", open_rules));
-    list.add_child("", Button::new("Menu panel…", open_menu_editor));
-    list.add_child("", Button::new("Tinh chỉnh…", open_tune));
-    list.add_child("", Button::new("Bảng gõ tắt…", open_macros));
-    list.add_child("", Button::new("Từ điển…", open_dictionary));
-    list.add_child("", Button::new("Sao lưu…", open_backup));
-    list.add_child("", Button::new("Giới thiệu…", open_about));
-    list.add_child(
-        "",
-        Button::new(
-            "Quay lại cửa sổ hiện đại (tắt giao diện TUI)",
-            |s| switch_to_modern(s),
-        ),
-    );
+        }
+        MainEntry::Tone => open_tone(s),
+        MainEntry::Auto => open_auto(s),
+        MainEntry::Hotkeys => open_hotkeys(s),
+        MainEntry::Rules => open_rules(s),
+        MainEntry::MenuEditor => open_menu_editor(s),
+        MainEntry::Tune => open_tune(s),
+        MainEntry::Macros => open_macros(s),
+        MainEntry::Dictionary => open_dictionary(s),
+        MainEntry::Backup => open_backup(s),
+        MainEntry::About => open_about(s),
+        MainEntry::Modern => switch_to_modern(s),
+        MainEntry::Quit => s.quit(),
+    });
 
     siv.add_layer(
         Dialog::new()
-            .title("MăngRS cài đặt (TUI)")
-            .content(ScrollView::new(list))
+            .title("MăngRS cài đặt")
+            .content(ScrollView::new(
+                LinearLayout::vertical()
+                    .child(toggles)
+                    .child(DummyView)
+                    .child(menu),
+            ))
             .fixed_width(52),
     );
 }
