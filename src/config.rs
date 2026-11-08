@@ -125,9 +125,9 @@ pub struct Config {
     /// key that changes the composition erases the committed tail and
     /// commits the new one through the injected transport (`ee` shows
     /// `ê` immediately, marks are editable mid-word) instead of holding
-    /// the raw keys until the word ends. Off by default: word-end
-    /// rewrite is the smooth contract (lotus ships the same), and the
-    /// per-key commit adds ~60 ms of display lag per key.
+    /// the raw keys until the word ends. On by default: the owner ships
+    /// the per-key display as the smooth look; the word-end rewrite stays
+    /// one switch away and the per-key commit costs ~60 ms per key.
     pub smooth_per_key: bool,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
@@ -822,7 +822,7 @@ impl Default for Config {
             echo_stale_ms: 150,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            smooth_per_key: false,
+            smooth_per_key: true,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
@@ -1271,10 +1271,10 @@ children = ["preedit", "smooth"]
     }
 
     #[test]
-    fn smooth_per_key_round_trips_and_defaults_off() {
-        let c: Config = toml::from_str("smooth_per_key = true").unwrap();
-        assert!(c.smooth_per_key);
-        assert!(!Config::default().smooth_per_key);
+    fn smooth_per_key_round_trips_and_defaults_on() {
+        let c: Config = toml::from_str("smooth_per_key = false").unwrap();
+        assert!(!c.smooth_per_key);
+        assert!(Config::default().smooth_per_key);
     }
 
     #[test]

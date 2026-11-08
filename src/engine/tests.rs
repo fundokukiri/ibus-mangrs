@@ -2516,6 +2516,7 @@ fn smooth_runs_on_the_relay() {
     // relayed context now types through the uinput modes like a direct
     // one.
     let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    e.smooth_per_key = false;
     e.set_uinput_available(true);
     // A mutter-owned IBus context (type_str would replace None).
     e.set_client(Some("gnome-shell:gnome-shell".into()));
@@ -2550,6 +2551,7 @@ fn smooth_word_end_carries_the_terminator_in_the_commit() {
     // never returned through the relay's ibus path at all. No key may be
     // forwarded past the rewrite.
     let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    e.smooth_per_key = false;
     e.set_uinput_available(true);
     let actions = type_str(&mut e, "vieetj.");
     let inject = actions
@@ -3040,6 +3042,9 @@ fn macro_still_expands_nonvietnamese_keys_in_off_mode() {
 #[test]
 fn smooth_forwards_raw_keys_and_rewrites_at_word_end() {
     let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    // The word-end rewrite contract: pin the non-per-key display, which the
+    // per-key default replaced.
+    e.smooth_per_key = false;
     e.set_uinput_available(true);
     let actions = type_str(&mut e, "vieetj ");
     // Mid-word: nothing but forwards — the app shows the raw keys.
@@ -3087,6 +3092,7 @@ fn smooth_modes_auto_capitalize_at_sentence_start() {
             mode,
             Config {
                 auto_capitalize: true,
+                smooth_per_key: false,
                 ..Config::default()
             },
         );
@@ -3115,6 +3121,7 @@ fn smooth_modes_auto_capitalize_at_sentence_start() {
 #[test]
 fn smooth_backspace_forwards_and_pops_the_raw_key() {
     let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    e.smooth_per_key = false;
     e.set_uinput_available(true);
     type_str(&mut e, "vieetj");
     assert!(e.backspace().is_none(), "the app deletes its own key");
@@ -3154,6 +3161,7 @@ fn select_uses_selection_then_delete() {
 #[test]
 fn super_smooth_rewrites_even_with_app_suggestions() {
     let mut e = Engine::new(Method::Telex, Mode::SuperSmooth);
+    e.smooth_per_key = false;
     e.set_uinput_available(true);
     // Prime the client first: set_client clears the suggestion flag and
     // type_str sets the client when it is None.
@@ -3497,6 +3505,7 @@ fn emoji_rewrite_in_smooth_injects_backspaces_without_the_closing_colon() {
         Mode::Smooth,
         Config {
             emoji_enabled: true,
+            smooth_per_key: false,
             ..Config::default()
         },
     );
@@ -3636,6 +3645,7 @@ fn tone_engine(method: MethodConfig, mode: Mode, tone: BackspaceToneConfig) -> E
         mode: mode.into(),
         method,
         backspace_tone: tone,
+        smooth_per_key: false,
         ..Config::default()
     });
     e.set_client(Some("gtk4-im:test".into()));
@@ -3905,7 +3915,13 @@ fn dd_undo_keeps_the_composition_at_word_end() {
 fn dd_undo_rewrites_smooth_at_word_end() {
     // Smooth shows the raw keys while typing; the word end rewrites them to
     // the composition `dd` — the undone đ must not keep `ddd` on screen.
-    let mut e = engine(Mode::Smooth, Config::default());
+    let mut e = engine(
+        Mode::Smooth,
+        Config {
+            smooth_per_key: false,
+            ..Config::default()
+        },
+    );
     e.set_uinput_available(true);
     let mut actions = type_str(&mut e, "ddd");
     actions.extend(e.process_char(' '));
