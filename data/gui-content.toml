@@ -467,9 +467,9 @@ title = "Nâng cao"
 title = "Thông báo nhanh"
 subtitle = "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại"
 
-[rows.gui_classic]
-title = "Dùng giao diện cổ điển"
-subtitle = "Cửa sổ GTK4 đơn giản, vẽ bằng CPU — siêu tiết kiệm RAM. Đổi lại ở trang Tinh chỉnh của cửa sổ cổ điển"
+[rows.tui]
+title = "Dùng giao diện TUI (chữ)"
+subtitle = "Mở lại cài đặt dạng chữ trong terminal — chỉ vài MB RAM. Tắt trong chính giao diện TUI để quay lại"
 
 [rows.desktop_icon]
 title = "Hiện trong menu ứng dụng"

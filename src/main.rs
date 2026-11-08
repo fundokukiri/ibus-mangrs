@@ -58,10 +58,10 @@ fn install_signal_handlers() {
 
 #[cfg(feature = "gui")]
 fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
-    // The window style is picked once per launch; the switch lives inside
-    // whichever window opened, so the flip lands on the next launch.
-    if Config::load().gui_classic {
-        return ibus_mangrs::gui_classic::run();
+    // The settings surface is picked once per launch; the switch lives
+    // inside whichever surface opened, so the flip lands on the next launch.
+    if Config::load().tui {
+        return ibus_mangrs::gui::tui::run();
     }
     ibus_mangrs::gui::run()
 }

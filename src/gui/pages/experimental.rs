@@ -9,7 +9,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
     let typing = adw::PreferencesGroup::builder()
-        .title(t("groups.experimental.typing.title", "Dấu & gõ tắt"))
+        .title(t("groups.experimental.typing.title", "Dấu &amp; gõ tắt"))
         .build();
     typing.add(&ui.macro_valid_words);
     typing.add(&ui.extra_url_chars_switch);

@@ -29,13 +29,15 @@ toml = "0.8"
 
 [features]
 default = []
-gui = ["dep:gtk4", "dep:libadwaita"]
+# The settings surfaces: the modern Libadwaita window and the classic TUI
+# (pure-Rust crossterm backend, no system ncurses).
+gui = ["dep:gtk4", "dep:libadwaita", "dep:cursive"]
 
 [dependencies.gtk4]
 version = "0.9"
 optional = true
 # v4_6: gdk Texture::from_bytes for the embedded logo on the About page.
-# v4_8: glib::Propagation for the hotkey-capture button in the classic GUI.
+# v4_8: glib::Propagation for the modern hotkey-capture button.
 # v4_10: gtk::FileDialog for the JSON import/export pickers.
 features = ["v4_6", "v4_8", "v4_10"]
 
@@ -44,6 +46,14 @@ version = "0.7"
 optional = true
 # v1_5: NavigationSplitView + AdwDialog family for the GNOME Settings look.
 features = ["v1_5"]
+
+[dependencies.cursive]
+version = "0.21"
+optional = true
+# Crossterm backend only: pure Rust over the TTY, no system ncurses and no
+# markdown/toml extras — the classic UI exists to cost a few megabytes.
+default-features = false
+features = ["crossterm-backend"]
 
 [profile.release]
 lto = true

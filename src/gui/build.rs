@@ -333,11 +333,11 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại",
         ),
     );
-    let gui_classic = switch_row(
-        &t("rows.gui_classic.title", "Dùng giao diện cổ điển"),
+    let tui_switch = switch_row(
+        &t("rows.tui.title", "Dùng giao diện TUI (chữ)"),
         &t(
-            "rows.gui_classic.subtitle",
-            "Cửa sổ GTK4 đơn giản, vẽ bằng CPU — siêu tiết kiệm RAM. Đổi lại ở trang Tinh chỉnh của cửa sổ cổ điển",
+            "rows.tui.subtitle",
+            "Mở lại cài đặt dạng chữ trong terminal — chỉ vài MB RAM. Tắt trong chính giao diện TUI để quay lại",
         ),
     );
     let desktop_icon_loading = Rc::new(RefCell::new(false));
@@ -700,7 +700,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         rules_loading,
         desktop_icon,
         show_toasts,
-        gui_classic,
+        tui_switch,
         desktop_icon_loading,
         save_cb,
         suppress_save,
