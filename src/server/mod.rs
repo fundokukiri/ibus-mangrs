@@ -585,9 +585,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         // The Ctrl+V of a clipboard-channel paste comes back as a shortcut:
         // it is our own injection and must reach the application untouched.
         if let Some(commits) = engine.take_nav_echo(keymap::V) {
-            for text in commits {
-                out.push(signal("CommitText").append1(plain_text(&text)));
-            }
+            park_nav_commits(engine, commits);
             return false;
         }
         if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
@@ -613,8 +611,13 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         // application — that key press IS the deletion mechanism. Once the
         // last echo of a rewrite is forwarded, its deferred commit can go.
         if engine.take_injected_echo() {
+            // The reply carries the forwarded key out immediately; the
+            // commit must NOT ride the same dispatch — on a mutter relay
+            // the commit channel beats the key events and the commit
+            // overtook the last deletes ("titiến"). Park it for the main
+            // loop to emit after the app has applied the deletes.
             for text in engine.note_echo_forwarded() {
-                out.push(signal("CommitText").append1(plain_text(&text)));
+                engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
             }
             return false;
         }
@@ -638,14 +641,23 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         }
     }
 
+    // A nav echo whose keyval is neither an editing key nor a shortcut
+    // has no other consumption site; forward it once rather than letting
+    // process_char treat it as a real keystroke.
+    if let Some(commits) = engine.take_nav_echo(keyval) {
+        park_nav_commits(engine, commits);
+        return false;
+    }
+
     // Arrows, Tab, Escape, Delete... end the word and belong to the app.
     if keymap::is_editing_key(keyval) {
         // Echoes of keys the uinput modes injected (Select's Shift+Left and
         // Delete): forward them so the selection/erase actually happens.
+        // Their commits park like the Backspace path's — an inline commit
+        // overtook the selection+delete on the relay and the word erased
+        // itself right after landing ("xin chaofchào " → "xin chaof").
         if let Some(commits) = engine.take_nav_echo(keyval) {
-            for text in commits {
-                out.push(signal("CommitText").append1(plain_text(&text)));
-            }
+            park_nav_commits(engine, commits);
             return false;
         }
         if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
@@ -698,6 +710,17 @@ fn emit(engine: &mut Engine, actions: &[Action], out: &mut Vec<Message>) -> u32 
         paste: &|text, delay| crate::paste::paste_and_restore(text, &|| Uinput::ctrl_v(), delay),
     };
     emit_with(engine, actions, out, &transports)
+}
+
+/// Park the commits a nav-echo flush just made deliverable — the same
+/// grace as the Backspace path. On a mutter relay the app applies the
+/// forwarded keys a beat behind the commit channel, and an inline commit
+/// landed before the selection+erase that clears the raw tail (the
+/// Select rewrite's word deleted itself right after landing).
+fn park_nav_commits(engine: &mut Engine, commits: Vec<String>) {
+    for text in commits {
+        engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
+    }
 }
 
 /// A paced key-press transport: (keycode, shift) pairs and the gap in ms.
@@ -963,6 +986,13 @@ fn emit_with(
                 } else {
                     debug_log::log("press-delete FAILED: selection stays selected");
                 }
+            }
+            // The per-key batch's parked commit: its deletes were injected
+            // and their echoes accounted when the batch armed, so the
+            // normal deferral would park it behind a stale count. Emit
+            // directly.
+            Action::CommitNow(text) => {
+                out.push(signal("CommitText").append1(plain_text(text)));
             }
             Action::Paste(text) => {
                 if (t.paste)(text, engine.clipboard_restore_delay_ms()) {

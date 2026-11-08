@@ -25,6 +25,9 @@ pub struct Config {
     pub free_tone_marking: bool,
     /// Fall back to raw characters for invalid syllables.
     pub auto_correct: bool,
+    /// How Backspace treats a tone-marked word — default: the tone goes
+    /// first. Never applies to the uinput modes.
+    pub backspace_tone: BackspaceToneConfig,
     /// Restore English (non-Vietnamese) words to the raw keystrokes typed.
     pub auto_restore: bool,
     /// Keep words raw when they directly follow a URL/email/path character
@@ -118,6 +121,14 @@ pub struct Config {
     /// is the behavior users know.
     pub idle_commit_enabled: bool,
     pub idle_commit_ms: u64,
+    /// Show the composed word progressively in the smooth modes: every
+    /// key that changes the composition erases the committed tail and
+    /// commits the new one through the injected transport (`ee` shows
+    /// `ê` immediately, marks are editable mid-word) instead of holding
+    /// the raw keys until the word ends. Off by default: word-end
+    /// rewrite is the smooth contract (lotus ships the same), and the
+    /// per-key commit adds ~60 ms of display lag per key.
+    pub smooth_per_key: bool,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
     /// each switch and value stays saved in this file and comes back when
@@ -441,8 +452,11 @@ pub enum ModeConfig {
     #[serde(alias = "non-preedit", alias = "non_preedit")]
     NonPreedit,
     /// Default: the composition renders in the application itself, so even
-    /// restricted apps (Sublime, XWayland clients) show text.
+    /// restricted apps (Sublime, XWayland clients) show text. The removed
+    /// Auto mode migrates here (the serde alias and `from_key` below, for
+    /// old config files and app rules).
     #[default]
+    #[serde(alias = "auto")]
     Preedit,
     /// Non-preedit rewritten with the help of `SetSurroundingText`: the engine
     /// verifies the text before the cursor against what it believes it
@@ -475,9 +489,26 @@ pub enum ModeConfig {
         alias = "default_typing"
     )]
     Off,
-    /// Pick the display mode per client from what it reports (the ladder in
-    /// `Engine::auto_mode`). App rules still win over the resolution.
-    Auto,
+}
+
+/// How Backspace treats a word that carries a tone — the engine maps the
+/// config onto this per keystroke (the uinput modes force `UnikeyWalk`:
+/// their screen shows the raw keys, which a skipped tone would desync from
+/// the wrapper).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum BackspaceToneConfig {
+    /// The tone goes first, the letters stay (`hạ` -> `ha` -> `h`).
+    #[default]
+    ToneFirst,
+    /// The marked character goes with its tone (`hạ` -> `h`); the screen
+    /// loses exactly one character per Backspace on long words too
+    /// (`việt` -> `việ` -> `vi` -> `v`).
+    WholeChar,
+    /// Unikey convention: Backspace undoes the last raw key — a cycled tone
+    /// walks back through every tone it passed (`hạ` `hã` `hả` `hà` `há` `ha`).
+    #[serde(alias = "off")]
+    UnikeyWalk,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -546,7 +577,6 @@ impl From<ModeConfig> for Mode {
             ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
             ModeConfig::ForwardSelect => Mode::ForwardSelect,
             ModeConfig::Off => Mode::Off,
-            ModeConfig::Auto => Mode::Auto,
         }
     }
 }
@@ -563,7 +593,6 @@ impl From<Mode> for ModeConfig {
             Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
             Mode::ForwardSelect => ModeConfig::ForwardSelect,
             Mode::Off => ModeConfig::Off,
-            Mode::Auto => ModeConfig::Auto,
         }
     }
 }
@@ -654,7 +683,6 @@ impl ModeConfig {
             ModeConfig::ForwardKeyEvent => "forwardkeyevent",
             ModeConfig::ForwardSelect => "forwardselect",
             ModeConfig::Off => "off",
-            ModeConfig::Auto => "auto",
         }
     }
 
@@ -678,7 +706,8 @@ impl ModeConfig {
             // The removed Default Typing mode migrates to Off (both here and
             // through the serde aliases on the enum, for old config files).
             "defaulttyping" | "default-typing" | "default_typing" => ModeConfig::Off,
-            "auto" => ModeConfig::Auto,
+            // The removed Auto mode migrates to the factory default.
+            "auto" => ModeConfig::Preedit,
             _ => return None,
         })
     }
@@ -757,6 +786,7 @@ impl Default for Config {
             modern_tone_style: true,
             free_tone_marking: true,
             auto_correct: true,
+            backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
             bypass_url: true,
             extra_url_chars: String::new(),
@@ -792,6 +822,7 @@ impl Default for Config {
             echo_stale_ms: 150,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
+            smooth_per_key: false,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
@@ -1240,6 +1271,13 @@ children = ["preedit", "smooth"]
     }
 
     #[test]
+    fn smooth_per_key_round_trips_and_defaults_off() {
+        let c: Config = toml::from_str("smooth_per_key = true").unwrap();
+        assert!(c.smooth_per_key);
+        assert!(!Config::default().smooth_per_key);
+    }
+
+    #[test]
     fn new_method_keys_round_trip_with_aliases() {
         for (key, m) in [
             ("telex2", MethodConfig::Telex2),
@@ -1292,13 +1330,13 @@ children = ["preedit", "smooth"]
         );
         // Substring overlap: "chromium" matches the "chromium" rule first —
         // the pick must update the winning one, not the "chrome" prefix rule.
-        c.set_rule_mode_for_target("chromium", ModeConfig::Auto);
+        c.set_rule_mode_for_target("chromium", ModeConfig::Smooth);
         let chromium = c
             .app_rules
             .iter()
             .find(|r| r.pattern == "chromium")
             .expect("net rule");
-        assert_eq!(chromium.mode, ModeConfig::Auto);
+        assert_eq!(chromium.mode, ModeConfig::Smooth);
         let chrome = c
             .app_rules
             .iter()

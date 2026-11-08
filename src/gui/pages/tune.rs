@@ -163,6 +163,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         let spin = ui.idle_commit_spin.clone();
         spin.connect_value_notify(move |_| ui.fire_save());
     }
+    advanced.add(&ui.smooth_per_key_switch);
+    decorate_experimental(&ui.smooth_per_key_switch);
     page.add(&advanced);
 
     // X11/XIM workarounds.

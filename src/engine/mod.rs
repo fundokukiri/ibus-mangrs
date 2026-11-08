@@ -23,7 +23,7 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
-use crate::config::{AppRule, Config, UnicodeChannel};
+use crate::config::{AppRule, BackspaceToneConfig, Config, UnicodeChannel};
 use crate::debug_log::{self, brief};
 use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
@@ -75,9 +75,6 @@ pub enum Mode {
     /// Vietnamese processing off; macros still run, auto-capitalize does
     /// not (the gap analysis documented this drift — keep the comment true).
     Off,
-    /// Not a mode of its own: resolve the real mode per client from what
-    /// it reports (see `auto_mode`). App rules still win over the ladder.
-    Auto,
 }
 
 /// One thing the server must tell IBus to do.
@@ -126,6 +123,11 @@ pub enum Action {
     Paste(String),
     /// Idle pause (ms) after a uinput rewrite, before the app sees more keys.
     PostDelay(u64),
+    /// Emit CommitText immediately, bypassing the injected-echo deferral —
+    /// the per-key batch's parked commit. Its deletes were injected and
+    /// their echoes accounted when the batch armed; a normal Commit here
+    /// would defer behind that stale count and land ~150 ms late.
+    CommitNow(String),
 }
 
 pub struct Engine {
@@ -198,6 +200,18 @@ pub struct Engine {
     last_nav_inject: Option<Instant>,
     /// Commits waiting for injected nav-key echoes to be forwarded.
     nav_deferred: Vec<(usize, String)>,
+    /// Commits parked until a wall-clock deadline. On a mutter relay the
+    /// commit channel reaches the client a beat ahead of the key events,
+    /// so a rewrite commit must be emitted past the last delete of its
+    /// batch even though every echo has already been forwarded; the
+    /// server parks them here and the main-loop tick emits them.
+    timed_commits: Vec<(Instant, String)>,
+    /// The per-key display's single in-flight batch: the parked commit
+    /// whose text each new key REPLACES (coalescing). Kept apart from
+    /// `timed_commits` so a macro/emoji park from another producer can
+    /// never be clobbered by a per-key replace. `None` = no batch in
+    /// flight; the next key starts one.
+    per_key_park: Option<(Instant, String)>,
     // --- settings, mirrors of the config file ---
     app_rules: Vec<AppRule>,
     auto_restore: bool,
@@ -243,6 +257,14 @@ pub struct Engine {
     /// Commit a paused preedit word after `idle_commit_ms` of no keys.
     idle_commit_enabled: bool,
     idle_commit_ms: u64,
+    /// The smooth modes show the composed word progressively: every
+    /// composition-changing key erases the committed tail and commits the
+    /// new one through the injected transport. Experimental mirror of
+    /// `config.smooth_per_key` (gated by the master switch).
+    smooth_per_key: bool,
+    /// How Backspace treats a tone-marked word; pushed into the wrapper per
+    /// keystroke because the uinput modes force the unikey undo.
+    backspace_tone: BackspaceToneConfig,
     /// When the last key reached the engine — the idle-commit clock. Only
     /// stamped while the feature is on, so the off path costs nothing.
     last_key_at: Option<Instant>,
@@ -322,6 +344,14 @@ impl Engine {
     /// lengths of time — both read it through `echo_stale()`.
     pub const DEFAULT_ECHO_STALE_MS: u64 = 150;
 
+    /// How long the server parks a rewrite commit after the last echo of
+    /// its batch has been forwarded. Measured on a mutter relay (08/11):
+    /// the app applies the forwarded Backspaces a beat behind the commit
+    /// channel, and a commit emitted with the last echo overtook the
+    /// final deletes (`titiến`). 60 ms clears the observed ~7 ms apply
+    /// window with margin while staying imperceptible at word end.
+    pub const ECHO_APPLY_GRACE_MS: u64 = 60;
+
     pub fn new(method: Method, mode: Mode) -> Self {
         let mut engine = Self {
             wrapper: BambooWrapper::new(method, bamboo_core::Config::default()),
@@ -363,6 +393,8 @@ impl Engine {
             pending_nav: Vec::new(),
             last_nav_inject: None,
             nav_deferred: Vec::new(),
+            timed_commits: Vec::new(),
+            per_key_park: None,
             word_mode: None,
             url_word: false,
             bypass_url: true,
@@ -386,6 +418,8 @@ impl Engine {
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
+            smooth_per_key: false,
+            backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
         };
@@ -492,6 +526,8 @@ impl Engine {
         self.echo_stale_ms = config.echo_stale_ms;
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;
         self.idle_commit_ms = config.idle_commit_ms;
+        self.smooth_per_key = experimental && config.smooth_per_key;
+        self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
         }
@@ -812,11 +848,67 @@ impl Engine {
             ));
             text
         }));
+        // A forced flush ignores the deadline: the context is going away
+        // and nobody will tick for it — delivering late beats never.
+        all.extend(self.timed_commits.drain(..).map(|(_, text)| {
+            debug_log::log(&format!(
+                "flush deferred commit (timed, forced) len={}",
+                text.chars().count()
+            ));
+            text
+        }));
+        if let Some((_, text)) = self.per_key_park.take() {
+            debug_log::log(&format!(
+                "flush deferred commit (per-key, forced) len={}",
+                text.chars().count()
+            ));
+            all.push(text);
+        }
         all
     }
 
     pub fn has_deferred(&self) -> bool {
-        !self.deferred.is_empty() || !self.nav_deferred.is_empty()
+        !self.deferred.is_empty()
+            || !self.nav_deferred.is_empty()
+            || !self.timed_commits.is_empty()
+            || self.per_key_park.is_some()
+    }
+
+    /// Hold `text` back for `delay` before it may be emitted: the relay
+    /// applies forwarded keys a beat behind the commit channel, so the
+    /// rewrite commit waits past the deletes it depends on.
+    pub fn park_commit(&mut self, text: String, delay: Duration) {
+        debug_log::log(&format!(
+            "park commit for {}ms len={}",
+            delay.as_millis(),
+            text.chars().count()
+        ));
+        self.timed_commits.push((Instant::now() + delay, text));
+    }
+
+    /// Parked commits whose deadline has passed, in park order.
+    fn take_due_commits(&mut self) -> Vec<String> {
+        let now = Instant::now();
+        let (due, later): (Vec<_>, Vec<_>) = self
+            .timed_commits
+            .drain(..)
+            .partition(|(deadline, _)| *deadline <= now);
+        self.timed_commits = later;
+        due.into_iter().map(|(_, text)| text).collect()
+    }
+
+    /// The per-key batch's parked commit, past its deadline. Emitted as
+    /// `CommitNow`: the deferral counter counts this batch's own deletes,
+    /// whose echoes have long been forwarded.
+    fn take_due_per_key_commit(&mut self) -> Option<Action> {
+        let now = Instant::now();
+        match &self.per_key_park {
+            Some((deadline, _)) if *deadline <= now => {
+                let (_, text) = self.per_key_park.take().unwrap();
+                Some(Action::CommitNow(text))
+            }
+            _ => None,
+        }
     }
 
     /// Whether the server can inject keys (called once at startup).
@@ -1032,11 +1124,6 @@ impl Engine {
         let can_preedit = self.caps & CAP_PREEDIT_TEXT != 0;
         let ruled = self.client_rule_mode();
         let requested = ruled.unwrap_or(self.mode);
-        // Auto resolves straight from the client's signals — the ladder
-        // below never needs a delete transport it cannot have.
-        if requested == Mode::Auto {
-            return self.auto_mode(can_preedit);
-        }
         // Preedit is unusable when the client cannot render it — except for
         // XIM clients, which report no preedit capability even though the XIM
         // server draws the preedit itself (`XIMPreeditPosition`: ibus-x11
@@ -1048,17 +1135,19 @@ impl Engine {
         {
             return Mode::NonPreedit;
         }
-        // The uinput modes press real keys through /dev/uinput, but on
-        // mutter-relayed contexts the rewrite products never reach the
-        // application (verified 31/10: 52 smooth rewrites injected, echoes
-        // forwarded, commits flushed — Text Editor and Firefox showed the
-        // untouched latin text, no deletion, no commit, not even the
-        // terminator space). Relay contexts therefore fall back to preedit;
-        // the uinput modes stay for contexts where injection lands (X11).
+        // The uinput modes press real keys through /dev/uinput. On
+        // mutter-relayed contexts they were once believed dead (the 31/10
+        // session) and fell back to preedit; the 08/11 re-measurement
+        // refuted that — injection, echoes, deletes and commits all land
+        // on the relay. What actually raced was the ORDER between the
+        // commit channel and the key events; the server parks the rewrite
+        // commit past the last injected key (ECHO_APPLY_GRACE_MS) and the
+        // rewrite batch carries its own terminator key, so the relay runs
+        // these modes. Without the virtual device, or Select without a
+        // surrounding-text report (it sizes the selection from it),
+        // preedit still stands in.
         if matches!(requested, Mode::Smooth | Mode::SuperSmooth | Mode::Select)
-            && (self.injection_forbidden()
-                || !self.uinput_available
-                || (requested == Mode::Select && self.surrounding.is_none()))
+            && (!self.uinput_available || (requested == Mode::Select && self.surrounding.is_none()))
         {
             return Mode::Preedit;
         }
@@ -1097,37 +1186,6 @@ impl Engine {
             return Mode::Preedit;
         }
         requested
-    }
-
-    /// The Auto ladder: the display mode this client handles best, from the
-    /// capabilities it declares. Ordered so no step needs a channel the
-    /// client cannot have:
-    /// 1. renders preedit (the XIM opt-in counts — the XIM server draws the
-    ///    preedit itself) → Preedit. Preedit needs no delete transport at
-    ///    all, so it is right for healthy and delete-dropping clients alike;
-    /// 2. XIM (no capabilities reported at all) → ForwardSelect, the mode
-    ///    built for them: a forwarded Backspace misbehaves there, Shift+Left
-    ///    selection does not;
-    /// 3. reports surrounding text → Surrounding (its reports are the only
-    ///    repair channel needed);
-    /// 4. a mutter relay or a known delete-dropper → ForwardKeyEvent (no
-    ///    report needed, works on Wayland);
-    /// 5. anything else → NonPreedit — inert rather than guessing a
-    ///    transport an unknown client may not have.
-    fn auto_mode(&self, can_preedit: bool) -> Mode {
-        if can_preedit || (self.preedit_for_xim && self.client_name_is_opaque()) {
-            return Mode::Preedit;
-        }
-        if self.client_name_is_opaque() {
-            return Mode::ForwardSelect;
-        }
-        if self.caps & CAP_SURROUNDING_TEXT != 0 {
-            return Mode::Surrounding;
-        }
-        if self.relay_context() || self.client_cannot_delete_surrounding() {
-            return Mode::ForwardKeyEvent;
-        }
-        Mode::NonPreedit
     }
 
     /// Mode for the current keystroke: the word-locked mode when a word is in
@@ -1181,11 +1239,27 @@ impl Engine {
         if mode == Mode::Off {
             return None;
         }
+        // The tone-skip belongs to committed-text transports: the uinput
+        // modes show the raw keys, and a skipped tone would desync the
+        // screen from the wrapper. They keep the unikey undo.
+        self.wrapper.set_backspace_tone(
+            if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+                BackspaceToneConfig::UnikeyWalk
+            } else {
+                self.backspace_tone
+            },
+        );
         // uinput modes: the application owns the on-screen text — the
         // Backspace is forwarded so it deletes the raw key shown there, and
         // bamboo follows so the composition stays aligned (unikey
         // convention: Backspace undoes the last raw key).
         if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+            // Per-key display: the app holds the composed word, so the
+            // Backspace passes through with a reverse-mapped raw buffer —
+            // the user's real key, the one transport the relay never drops.
+            if self.smooth_per_key && !matches!(mode, Mode::Select) {
+                return Some(self.backspace_per_key());
+            }
             self.wrapper.backspace();
             if !self.wrapper.has_composition() {
                 self.release_word_mode();
@@ -1223,9 +1297,8 @@ impl Engine {
                     Some(vec![Action::UpdatePreedit { text, cursor }])
                 }
             }
-            // Off is gated above; Auto never escapes effective_mode. Keeps
-            // the match exhaustive.
-            Mode::Off | Mode::Auto => None,
+            // Off is gated above. Keeps the match exhaustive.
+            Mode::Off => None,
             Mode::Smooth | Mode::SuperSmooth | Mode::Select => None,
             Mode::NonPreedit | Mode::Surrounding | Mode::ForwardKeyEvent | Mode::ForwardSelect => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
@@ -1406,6 +1479,16 @@ impl Engine {
     /// word character can re-enter the composition via `idle_committed`.
     pub fn tick(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
+        // Parked commits past their deadline become deliverable here —
+        // the main loop woke for exactly this deadline (ms_until_tick).
+        for text in self.take_due_commits() {
+            debug_log::log(&format!("timed commit flush len={}", text.chars().count()));
+            actions.push(Action::Commit(text));
+        }
+        if let Some(action) = self.take_due_per_key_commit() {
+            debug_log::log("timed commit flush (per-key)");
+            actions.push(action);
+        }
         if self.take_stale_injection(self.echo_stale()) {
             for text in self.flush_deferred() {
                 actions.push(Action::Commit(text));
@@ -1467,6 +1550,24 @@ impl Engine {
                 let idle_ms = self.idle_commit_ms.max(50) as u128;
                 deadlines.push(idle_ms.saturating_sub(t.elapsed().as_millis()).max(1) as u64);
             }
+        }
+        // The earliest parked-commit deadline must wake the loop for its
+        // timed flush.
+        if let Some((deadline, _)) = self.timed_commits.iter().min_by_key(|(d, _)| *d) {
+            deadlines.push(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_millis()
+                    .max(1) as u64,
+            );
+        }
+        if let Some((deadline, _)) = &self.per_key_park {
+            deadlines.push(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_millis()
+                    .max(1) as u64,
+            );
         }
         deadlines.into_iter().min().map(|ms| ms.max(1))
     }
