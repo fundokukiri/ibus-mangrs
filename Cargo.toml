@@ -11,7 +11,7 @@ name = "ibus_mangrs"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ibus-engine-ibus-mangrs"
+name = "ibus-engine-mangrs"
 path = "src/main.rs"
 
 [dependencies]

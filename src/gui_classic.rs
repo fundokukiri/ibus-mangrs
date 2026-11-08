@@ -327,6 +327,16 @@ fn menu_entry_label(group: &str, key: &str) -> String {
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    // The classic window exists to be light: CPU rendering keeps the GPU
+    // driver stack out of the process — on a machine with two Vulkan
+    // drivers installed the default renderer maps ~185 MB of shared
+    // library pages that cairo never touches (~170 MB less RSS, measured).
+    // The window is plain widgets, so the CPU path has little to repaint.
+    // A value the user exported themselves wins: they may be debugging
+    // rendering and their choice applies to this process too.
+    if std::env::var_os("GSK_RENDERER").is_none() {
+        std::env::set_var("GSK_RENDERER", "cairo");
+    }
     // The engine spawns us with `--page=<stack name>` to open a specific
     // page (menu "Mở bảng gõ tắt…"); GTK parses argv itself and rejects
     // these arguments, so read them here and hand GTK an empty argv.
@@ -1875,7 +1885,7 @@ fn build(app: &Application, initial_page: Option<&str>) {
     );
     advanced.append(&card(vec![pref_row(
         "Dùng giao diện cổ điển",
-        "Cửa sổ đơn giản này thay cho bảng Libadwaita từ lần mở cài đặt sau. Tắt để quay lại như cũ.",
+        "Cửa sổ GTK4 đơn giản vẽ bằng CPU, siêu tiết kiệm RAM — thay bảng Libadwaita từ lần mở cài đặt sau. Tắt để quay lại như cũ.",
         &ui.gui_classic,
     )]));
 

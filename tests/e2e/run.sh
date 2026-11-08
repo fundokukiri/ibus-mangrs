@@ -14,7 +14,7 @@
 #   MANGRS_E2E_FILTER=word tests/e2e/run.sh   # substring filter inside the cases
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$REPO/target/release/ibus-engine-ibus-mangrs"
+BIN="$REPO/target/release/ibus-engine-mangrs"
 FEATURE="${1:-}"
 
 if [ ! -x "$BIN" ]; then
