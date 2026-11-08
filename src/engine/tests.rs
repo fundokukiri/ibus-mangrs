@@ -3875,32 +3875,6 @@ fn backspace_tone_first_updates_the_preedit() {
     );
 }
 
-#[test]
-fn tmp_probe_ddd() {
-    // Wrapper + preedit state evolution, key by key.
-    let mut e = Engine::new(Method::Telex, Mode::Preedit);
-    e.apply_config(&Config {
-        mode: Mode::Preedit.into(),
-        ..Config::default()
-    });
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-    for c in "ddd".chars() {
-        let actions = e.process_char(c);
-        let pe: Vec<String> = actions
-            .iter()
-            .filter_map(|a| match a {
-                Action::UpdatePreedit { text, .. } => Some(text.clone()),
-                _ => None,
-            })
-            .collect();
-        println!(
-            "PROBE c={c:?} wrapper-out={:?} raw={:?} preedit-actions={pe:?}",
-            e.wrapper.output(),
-            e.wrapper.raw(),
-        );
-    }
-}
 
 // --- the đ undo (dd -> đ, another d undoes it) ---
 
