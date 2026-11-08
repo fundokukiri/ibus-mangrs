@@ -134,7 +134,10 @@ The engine core comes from the `bamboo-core` crate on crates.io (0.5.4).
 Downloads the source, builds it and installs; missing build dependencies (IBus, GTK4, the build
 toolchain, Rust) are detected and installed, so only `curl` (or `wget`) and `sudo` are needed up
 front — re-running installs nothing new. The `/dev/uinput` udev rule and the `input` group are
-set up too:
+set up too. After a successful install the build-only packages that this run installed are
+removed again (`KEEP_BUILD_DEPS=1` keeps them); packages already on the machine are never
+touched, the runtime libraries stay, and Rust (rustup) stays — remove it with
+`rustup self uninstall` if you do not develop:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
