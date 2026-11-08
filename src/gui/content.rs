@@ -182,8 +182,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     about_list.add_css_class("navigation-sidebar");
     let mut page_rows: Vec<(String, gtk4::ListBoxRow)> = Vec::new();
     /// One navigation row: icon + label, the accessible label and tooltip
-    /// carry the full text, long labels ellipsize at the end.
-    fn nav_row(title: &str, icon: &str, name: &str) -> gtk4::ListBoxRow {
+    /// carry the full text, long labels ellipsize at the end. `warn` tints
+    /// the label with the theme's warning amber (the "Thử nghiệm" tab).
+    fn nav_row(title: &str, icon: &str, name: &str, warn: bool) -> gtk4::ListBoxRow {
         let row = gtk4::ListBoxRow::new();
         let h = gtk4::Box::new(Orientation::Horizontal, 12);
         // A little breathing room: navigation-sidebar's padding alone leaves
@@ -191,6 +192,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         h.set_margin_start(6);
         h.append(&gtk4::Image::from_icon_name(icon));
         let label = gtk4::Label::new(Some(title));
+        if warn {
+            label.add_css_class("warning");
+        }
         label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         label.set_hexpand(true);
         label.set_xalign(0.0);
@@ -241,7 +245,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             sidebar_list.append(&separator_row());
         }
         for name in group {
-            let row = nav_row(label_of(name), icon_of(name), name);
+            let row = nav_row(label_of(name), icon_of(name), name, *name == "experimental");
             // The experimental gate hides the whole tab through its row.
             if *name == "experimental" {
                 *ui.experimental_nav.borrow_mut() = Some(row.clone());
@@ -250,7 +254,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             page_rows.push((name.to_string(), row.clone()));
         }
     }
-    let about_row = nav_row(label_of("about"), icon_of("about"), "about");
+    let about_row = nav_row(label_of("about"), icon_of("about"), "about", false);
     // The pinned About group keeps the same separator style above it.
     about_list.append(&separator_row());
     about_list.append(&about_row);

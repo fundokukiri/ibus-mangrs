@@ -38,6 +38,33 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.clipboard_restore_switch);
     decorate_experimental(&ui.echo_stale_switch);
     decorate_experimental(&ui.idle_commit_switch);
+    // The switches themselves glow the same warning amber as the badge and
+    // the tab label: one look, one meaning.
+    for switch in [
+        &ui.macro_valid_words,
+        &ui.extra_url_chars_switch,
+        &ui.auto_capitalize_after_switch,
+        &ui.clipboard_restore_switch,
+        &ui.echo_stale_switch,
+        &ui.idle_commit_switch,
+    ] {
+        switch.add_css_class("experimental");
+    }
+
+    // The amber trough cannot be expressed with built-in classes; load the
+    // tab's one CSS block onto the display (a display exists whenever the
+    // GUI runs).
+    const EXPERIMENTAL_CSS: &str =
+        "switch.experimental:checked { background-color: @warning_color; }";
+    if let Some(display) = gtk4::gdk::Display::default() {
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_data(EXPERIMENTAL_CSS);
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
 
     // The switch-gates-value pairs keep their lock behavior: off locks the
     // input, the typed value stays saved for when the switch returns.
