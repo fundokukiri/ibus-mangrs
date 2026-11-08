@@ -3874,3 +3874,77 @@ fn backspace_tone_first_updates_the_preedit() {
         "{actions:?}"
     );
 }
+
+#[test]
+fn tmp_probe_ddd() {
+    // Wrapper + preedit state evolution, key by key.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        mode: Mode::Preedit.into(),
+        ..Config::default()
+    });
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    for c in "ddd".chars() {
+        let actions = e.process_char(c);
+        let pe: Vec<String> = actions
+            .iter()
+            .filter_map(|a| match a {
+                Action::UpdatePreedit { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        println!(
+            "PROBE c={c:?} wrapper-out={:?} raw={:?} preedit-actions={pe:?}",
+            e.wrapper.output(),
+            e.wrapper.raw(),
+        );
+    }
+}
+
+// --- the đ undo (dd -> đ, another d undoes it) ---
+
+#[test]
+fn dd_undo_shows_the_composition_in_preedit() {
+    // `dd` forms `đ`; the next `d` undoes the rule (bamboo's own
+    // semantics): the preedit shows the composition `dd`, not the raw
+    // `ddd` the auto-restore would put there.
+    let mut e = engine(Mode::Preedit, Config::default());
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    let mut last = String::new();
+    for c in "ddd".chars() {
+        for a in e.process_char(c) {
+            if let Action::UpdatePreedit { text, .. } = a {
+                last = text;
+            }
+        }
+    }
+    assert_eq!(last, "dd");
+}
+
+#[test]
+fn dd_undo_keeps_the_composition_at_word_end() {
+    // The word end must commit the composition `dd` in every committed-text
+    // display mode — the auto-restore must not resurrect `ddd` over an
+    // undone đ.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(mode, Config::default());
+        assert_eq!(type_replay(&mut e, "ddd "), "dd ", "{mode:?}");
+    }
+}
+
+#[test]
+fn dd_undo_rewrites_smooth_at_word_end() {
+    // Smooth shows the raw keys while typing; the word end rewrites them to
+    // the composition `dd` — the undone đ must not keep `ddd` on screen.
+    let mut e = engine(Mode::Smooth, Config::default());
+    e.set_uinput_available(true);
+    let mut actions = type_str(&mut e, "ddd");
+    actions.extend(e.process_char(' '));
+    // The word-end terminator travels inside the parked commit.
+    assert!(
+        actions.contains(&Action::Commit("dd ".into())),
+        "{actions:?}"
+    );
+}
