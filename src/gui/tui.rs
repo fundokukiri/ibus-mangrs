@@ -124,11 +124,26 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `command -v` probe: systemd-run accepts any name and fails the unit
+/// later, silently — the terminal must be checked before it is used.
+fn on_path(term: &str) -> bool {
+    std::process::Command::new("sh")
+        .args(["-c", &format!("command -v {term} >/dev/null 2>&1")])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Terminals to try, with whatever flag each one needs before the command.
-/// First `Command::spawn` success wins; a missing binary fails with
-/// `NotFound` and falls through to the next candidate.
+/// The spawn goes through `systemd-run --user` when available: GNOME runs
+/// the desktop entry as a transient unit and kills the WHOLE cgroup when
+/// this process exits — a directly spawned terminal dies before its window
+/// ever shows (measured: `kgx` accepted, no VTE child, silent exit). A unit
+/// of its own outlives this process. The plain spawn stays as the fallback
+/// for shells and non-systemd systems, where nothing reaps it early.
 fn spawn_in_terminal() -> bool {
     let Ok(exe) = std::env::current_exe() else {
+        eprintln!("tui: no current_exe");
         return false;
     };
     let script = format!("exec \"{}\" -gui", exe.display());
@@ -143,14 +158,40 @@ fn spawn_in_terminal() -> bool {
         ("kitty", &[]),
     ];
     for (term, prefix) in TERMS {
-        let child = std::process::Command::new(term)
+        if !on_path(term) {
+            continue;
+        }
+        let via_systemd = std::process::Command::new("systemd-run")
+            .args(["--user", "--description=MăngRS TUI"])
+            .arg(term)
+            .args(*prefix)
+            .args(["sh", "-c", &script])
+            .output();
+        match via_systemd {
+            Ok(out) if out.status.success() => {
+                eprintln!("tui: spawned {term} via systemd-run");
+                return true;
+            }
+            Ok(out) => eprintln!(
+                "tui: systemd-run {term} failed: {} {}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+            Err(e) => eprintln!("tui: systemd-run {term}: {e}"),
+        }
+        let direct = std::process::Command::new(term)
             .args(*prefix)
             .args(["sh", "-c", &script])
             .spawn();
-        if child.is_ok() {
-            return true;
+        match direct {
+            Ok(_) => {
+                eprintln!("tui: spawned {term} directly");
+                return true;
+            }
+            Err(e) => eprintln!("tui: {term}: {e}"),
         }
     }
+    eprintln!("tui: no terminal emulator worked");
     false
 }
 
