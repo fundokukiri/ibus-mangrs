@@ -20,7 +20,7 @@ Bộ gõ tiếng Việt cho **IBus**, được viết bằng **Rust** dựa trê
 
 * **3 cách xóa dấu bằng Backspace**: xóa dấu trước (`hạ` → `ha` → `h`), xóa cả dấu và chữ theo mô hình màn hình (`việt` → `việ` → `vi` → `v`), hoặc kiểu Unikey lùi từng phím thô với dấu xoay vòng ngược (`hạ` → `hã` → `hả` → `hà` → `há` → `ha`). Ba chế độ uinput luôn giữ kiểu lùi từng phím.
 
-* **Hiện chữ có dấu từng bước ở Smooth** (bật theo mặc định): `ee` hiện ngay thành `ê` thay vì giữ phím thô đến hết từ; Backspace giữa từ xóa đúng ký tự cuối nhìn thấy và từ vẫn tiếp tục được gõ dấu (`việt` Backspace `t` → `việt` lại như cũ).
+* **Hiện chữ có dấu từng bước ở Flow** (bật theo mặc định): `ee` hiện ngay thành `ê` thay vì giữ phím thô đến hết từ; Backspace giữa từ xóa đúng ký tự cuối nhìn thấy và từ vẫn tiếp tục được gõ dấu (`việt` Backspace `t` → `việt` lại như cũ).
 
 * **Không bao giờ mất dở từ khi click chuột**: Chuỗi ký tự đang gõ dở (preedit) sẽ được ứng dụng tự động chèn vào văn bản khi ứng dụng reset ngữ cảnh nhập (click chuột, đổi focus), đảm bảo từ đang gõ dở luôn xuất hiện đầy đủ trong văn bản. Các từ viết tắt tiếng Việt không bị biến dạng (`ddc` → `đc`, `ddk` → `đk`, `ddt` → `đt`).
 
@@ -45,11 +45,11 @@ Bộ gõ tiếng Việt cho **IBus**, được viết bằng **Rust** dựa trê
 | Preedit (Mặc định) | Từ đang gõ hiển thị gạch chân trực tiếp tại con trỏ, chèn vào văn bản khi hoàn thành từ | Tương thích rộng rãi nhất | 
 | Non-preedit | Mỗi phím gõ được chèn ngay lập tức, bộ gõ tự xóa phần đuôi để sửa khi có dấu | Firefox, các ứng dụng GTK | 
 | Surrounding text | Giống Non-preedit + xác minh tính chính xác dựa trên văn bản thực tế ứng dụng phản hồi | Sublime Text | 
-| Smooth (uinput) | Gửi phím thô khi gõ, dùng phím Backspace thực tế xóa phần đuôi Latin khi hoàn thành từ | Terminal, các ứng dụng lỗi vặt trên X11 | 
-| Super Smooth (uinput) | Tương tự Smooth nhưng bỏ qua bước kiểm tra an toàn trước khi ghi đè | Gõ tốc độ cao trên X11 | 
+| Flow (uinput) | Gửi phím thô khi gõ, dùng phím Backspace thực tế xóa phần đuôi Latin khi hoàn thành từ | Terminal, các ứng dụng lỗi vặt trên X11 | 
+| Turbo (uinput) | Tương tự Flow nhưng bỏ qua bước kiểm tra an toàn trước khi ghi đè | Gõ tốc độ cao trên X11 | 
 | Select (uinput) | Gửi Shift+← để bôi đen phần đuôi, gửi phím Delete để xóa rồi chèn từ hoàn chỉnh | Ứng dụng bị lỗi xử lý phím Backspace trên X11 | 
-| ForwardKeyEvent | Giống Non-preedit nhưng xóa phần đuôi bằng cách gửi sự kiện phím Backspace qua IBus | Ứng dụng bỏ qua tín hiệu xóa văn bản: Chrome, Electron, GNOME Console, Sublime Text | 
-| ForwardKeyEvent II | Tương tự trên, nhưng phần đuôi được bôi đen bằng Shift+← và đè lên khi chèn từ hoàn chỉnh | Ứng dụng xử lý lỗi phím Backspace chuyển tiếp, ứng dụng X11/XIM (JetBrains) | 
+| Forward Backspace | Giống Non-preedit nhưng xóa phần đuôi bằng cách gửi sự kiện phím Backspace qua IBus | Ứng dụng bỏ qua tín hiệu xóa văn bản: Chrome, Electron, GNOME Console, Sublime Text | 
+| Forward Selection | Tương tự trên, nhưng phần đuôi được bôi đen bằng Shift+← và đè lên khi chèn từ hoàn chỉnh | Ứng dụng xử lý lỗi phím Backspace chuyển tiếp, ứng dụng X11/XIM (JetBrains) | 
 | TẮT | Tắt gõ tiếng Việt, các phím gõ tắt (macro) vẫn hoạt động | Dùng khi gõ kết hợp Tiếng Việt và Tiếng Anh/Code | 
 
 Bạn có thể chuyển đổi chế độ hiển thị từ menu trên thanh hệ thống, cửa sổ cài đặt, gán phím tắt chuyển nhanh, hoặc tự động theo ứng dụng thông qua **Luật theo app**. Các chế độ `uinput` yêu cầu quyền truy cập `/dev/uinput` và sẽ tự động fallback về `preedit` nếu không thể giả lập phím vào ứng dụng (trên GNOME Wayland chúng sẽ tự chuyển thành `preedit`; các chế độ này chủ yếu phục vụ phiên làm việc X11).
