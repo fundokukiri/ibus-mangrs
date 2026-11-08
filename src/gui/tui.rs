@@ -347,7 +347,8 @@ fn open_main(siv: &mut Cursive) {
                     .child(DummyView)
                     .child(menu),
             ))
-            .full_screen(),
+            .fixed_width(70)
+            .fixed_height(25),
     );
 }
 
@@ -551,7 +552,8 @@ fn open_tone(siv: &mut Cursive) {
             .title("Dấu & chính tả")
             .content(ScrollView::new(list))
             .button("Quay lại", reopen_main)
-            .full_screen(),
+            .fixed_width(70)
+            .fixed_height(25),
     );
 }
 
@@ -614,7 +616,8 @@ fn open_auto(siv: &mut Cursive) {
             .title("Gõ tắt & tự động")
             .content(ScrollView::new(list))
             .button("Quay lại", reopen_main)
-            .full_screen(),
+            .fixed_width(70)
+            .fixed_height(25),
     );
 }
 
@@ -644,7 +647,8 @@ fn open_hotkeys(siv: &mut Cursive) {
             .title("Phím tắt")
             .content(list)
             .button("Quay lại", reopen_main)
-            .full_screen(),
+            .fixed_width(70)
+            .fixed_height(25),
     );
 }
 
@@ -700,7 +704,8 @@ fn open_tune(siv: &mut Cursive) {
             .title("Tinh chỉnh")
             .content(ScrollView::new(list))
             .button("Quay lại", reopen_main)
-            .full_screen(),
+            .fixed_width(70)
+            .fixed_height(25),
     );
 }
 
@@ -818,7 +823,8 @@ fn open_rules(siv: &mut Cursive) {
             .title("Luật theo app (pattern → chế độ)")
             .content(ScrollView::new(list))
             .button("Quay lại", reopen_main)
-            .full_screen(),
+            .fixed_width(70)
+            .fixed_height(25),
     );
 }
 
@@ -962,7 +968,8 @@ fn open_menu_editor(siv: &mut Cursive) {
             .title("Menu panel (thiết kế)")
             .content(ScrollView::new(list))
             .button("Quay lại", reopen_main)
-            .full_screen(),
+            .fixed_width(70)
+            .fixed_height(25),
     );
 }
 
@@ -1193,7 +1200,8 @@ fn open_backup(siv: &mut Cursive) {
             .title("Sao lưu")
             .content(list)
             .button("Quay lại", reopen_main)
-            .full_screen(),
+            .fixed_width(70)
+            .fixed_height(25),
     );
 }
 
