@@ -20,8 +20,8 @@ build() {
 
 package() {
     cd "$srcdir"
-    install -Dm755 target/release/ibus-engine-ibus-mangrs \
-        "$pkgdir/usr/lib/ibus-mangrs/ibus-engine-ibus-mangrs"
+    install -Dm755 target/release/ibus-engine-mangrs \
+        "$pkgdir/usr/lib/ibus-mangrs/ibus-engine-mangrs"
     install -Dm644 data/ibus-mangrs.xml \
         "$pkgdir/usr/share/ibus/component/ibus-mangrs.xml"
     install -Dm644 data/80-uinput.rules \

@@ -337,7 +337,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.gui_classic.title", "Dùng giao diện cổ điển"),
         &t(
             "rows.gui_classic.subtitle",
-            "Mở lại cài đặt bằng cửa sổ GTK4 đơn giản, không Libadwaita. Đổi lại trong tab Nâng cao của cửa sổ cổ điển",
+            "Cửa sổ GTK4 đơn giản, vẽ bằng CPU — siêu tiết kiệm RAM. Đổi lại ở trang Tinh chỉnh của cửa sổ cổ điển",
         ),
     );
     let desktop_icon_loading = Rc::new(RefCell::new(false));
