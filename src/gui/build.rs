@@ -696,6 +696,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         desktop_icon_loading,
         save_cb,
         suppress_save,
+        experimental_nav: RefCell::new(None),
+        sidebar_select: RefCell::new(None),
         rule_preview_input,
         rule_preview,
         rule_preview_icon,

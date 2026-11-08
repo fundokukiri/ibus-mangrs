@@ -65,62 +65,6 @@ pub(super) fn switch_row(title: &str, subtitle: &str) -> adw::SwitchRow {
     row
 }
 
-/// The experimental row carries a small "Thử nghiệm" badge left of the
-/// row's own control. Adw rows append their control (switch, spin, entry)
-/// as the first suffix, so the badge is prepended to the (internal)
-/// suffixes box; the control also gets a spoken name mentioning the trial
-/// status. The internal boxes are reached through the tree — the same
-/// private-child walk as `row_subtitle` — because Adwaita exposes no
-/// insert-before-suffix API. Works for every row type: they all render a
-/// suffixes box.
-pub(super) fn decorate_experimental<W>(row: &W)
-where
-    W: IsA<gtk4::Widget> + IsA<adw::PreferencesRow>,
-{
-    fn find(w: &gtk4::Widget) -> (Option<gtk4::Box>, Option<gtk4::Switch>) {
-        let mut box_out = None;
-        let mut switch_out = None;
-        fn walk(w: &gtk4::Widget, box_out: &mut Option<gtk4::Box>, sw: &mut Option<gtk4::Switch>) {
-            if box_out.is_none() {
-                if let Some(b) = w.downcast_ref::<gtk4::Box>() {
-                    if b.css_classes().iter().any(|c| c.as_str() == "suffixes") {
-                        *box_out = Some(b.clone());
-                    }
-                }
-            }
-            if sw.is_none() {
-                if let Some(s) = w.downcast_ref::<gtk4::Switch>() {
-                    *sw = Some(s.clone());
-                }
-            }
-            let mut child = w.first_child();
-            while let Some(c) = child {
-                walk(&c, box_out, sw);
-                child = c.next_sibling();
-            }
-        }
-        walk(w, &mut box_out, &mut switch_out);
-        (box_out, switch_out)
-    }
-    let badge_text = t("misc.experimental_badge", "Thử nghiệm");
-    let badge = gtk4::Label::new(Some(&badge_text));
-    badge.add_css_class("caption");
-    badge.add_css_class("warning");
-    badge.set_valign(gtk4::Align::Center);
-    let (suffixes, switch) = find(row.upcast_ref());
-    if let Some(suffixes) = suffixes {
-        // First suffix = left of the row's own control.
-        suffixes.prepend(&badge);
-    }
-    let spoken = format!("{}, {}", row.title(), badge_text);
-    match switch {
-        Some(sw) => sw.update_property(&[gtk4::accessible::Property::Label(&spoken)]),
-        None => row
-            .upcast_ref::<gtk4::Widget>()
-            .update_property(&[gtk4::accessible::Property::Label(&spoken)]),
-    }
-}
-
 /// A boxed-list choice row; `selected` indexes into `items`.
 pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::ComboRow {
     let row = adw::ComboRow::new();
