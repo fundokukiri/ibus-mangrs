@@ -2,7 +2,7 @@
 
 **Tiếng Việt** | [English](README.md)
 
-Bộ gõ tiếng Việt cho **IBus**, được viết bằng **Rust** dựa trên thư viện [`bamboo-core`](https://crates.io/crates/bamboo-core). Tích hợp 9 kiểu gõ (Telex, VNI, VIQR, bàn phím Microsoft và 5 kiểu gõ kết hợp), 10 chế độ hiển thị (Auto, Preedit, NonPreedit, Surrounding, 3 chế độ uinput, 2 chế độ ForwardKeyEvent, TẮT), cửa sổ cài đặt bằng GTK4, gõ tắt (macro), từ điển cá nhân, gõ tắt emoji kèm bảng chọn emoji ngay tại con trỏ, quy tắc riêng cho từng ứng dụng và menu tùy chỉnh trên thanh hệ thống (panel).
+Bộ gõ tiếng Việt cho **IBus**, được viết bằng **Rust** dựa trên thư viện [`bamboo-core`](https://crates.io/crates/bamboo-core). Tích hợp 9 kiểu gõ (Telex, VNI, VIQR, bàn phím Microsoft và 5 kiểu gõ kết hợp), 9 chế độ hiển thị (Preedit, NonPreedit, Surrounding, 3 chế độ uinput, 2 chế độ ForwardKeyEvent, TẮT), cửa sổ cài đặt bằng GTK4, gõ tắt (macro), từ điển cá nhân, gõ tắt emoji kèm bảng chọn emoji ngay tại con trỏ, quy tắc riêng cho từng ứng dụng và menu tùy chỉnh trên thanh hệ thống (panel).
 
 > **Trạng thái nền tảng:** Được phát triển và kiểm thử trên **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland; đã chạy thử nghiệm trên X11). Các bản phân phối (distro) và môi trường giao diện khác **chưa** được kiểm thử trực tiếp — yêu cầu bắt buộc duy nhất là IBus ≥ 1.5 và GTK4 + libadwaita, do đó phần mềm sẽ hoạt động trên bất kỳ hệ thống nào hỗ trợ IBus. Rất hoan nghênh các phản hồi và báo lỗi từ những bản phân phối khác.
 
@@ -12,11 +12,15 @@ Bộ gõ tiếng Việt cho **IBus**, được viết bằng **Rust** dựa trê
 
 * **11 bảng mã đầu ra**: Unicode (mặc định), Unicode NFD, TCVN3, VNI, VIQR, VISCII, VPS, CP1258, BKHCM, Vietware X, Vietware Full.
 
-* **10 chế độ hiển thị** (xem chi tiết bên dưới), cho phép thiết lập riêng cho từng ứng dụng thông qua **Luật theo app**.
+* **9 chế độ hiển thị** (xem chi tiết bên dưới), cho phép thiết lập riêng cho từng ứng dụng thông qua **Luật theo app**.
 
 * **Quy tắc ứng dụng riêng cho các phần mềm chạy native trên Wayland** (Chrome, Firefox, Sublime Text, ...): Nhờ Gnome Extension đi kèm. Bình thường IBus chỉ nhận diện các ứng dụng này dưới dạng relay ẩn danh của Mutter, extension này sẽ giúp lấy chính xác tên cửa sổ đang active từ GNOME Shell. Tính năng này là tùy chọn — nếu không cài extension, bộ gõ vẫn áp dụng quy tắc cho các ứng dụng mà IBus tự định danh được và các cửa sổ X11.
 
 * **Tùy chọn gõ linh hoạt**: Đặt dấu thanh kiểu mới (`hòa` thay vì kiểu cũ `hoà`), đặt dấu tự do (`hoangf` → `hoàng`), tự động sửa chính tả nguyên âm/phụ âm, tự động phục hồi từ tiếng Anh/nước ngoài, tự động tắt gõ tiếng Việt sau các ký tự URL/email/đường dẫn (`/ : @ . _ ~ = # & % ?`), chuyển `w` → `ư`, `[`/`]` → `ơ`/`ư`, `--` → `—`, tự động viết hoa chữ cái đầu câu, gõ hai khoảng trắng thành dấu chấm.
+
+* **3 cách xóa dấu bằng Backspace**: xóa dấu trước (`hạ` → `ha` → `h`), xóa cả dấu và chữ theo mô hình màn hình (`việt` → `việ` → `vi` → `v`), hoặc kiểu Unikey lùi từng phím thô với dấu xoay vòng ngược (`hạ` → `hã` → `hả` → `hà` → `há` → `ha`). Ba chế độ uinput luôn giữ kiểu lùi từng phím.
+
+* **Hiện chữ có dấu từng bước ở Smooth** (bật theo mặc định): `ee` hiện ngay thành `ê` thay vì giữ phím thô đến hết từ; Backspace giữa từ xóa đúng ký tự cuối nhìn thấy và từ vẫn tiếp tục được gõ dấu (`việt` Backspace `t` → `việt` lại như cũ).
 
 * **Không bao giờ mất dở từ khi click chuột**: Chuỗi ký tự đang gõ dở (preedit) sẽ được ứng dụng tự động chèn vào văn bản khi ứng dụng reset ngữ cảnh nhập (click chuột, đổi focus), đảm bảo từ đang gõ dở luôn xuất hiện đầy đủ trong văn bản. Các từ viết tắt tiếng Việt không bị biến dạng (`ddc` → `đc`, `ddk` → `đk`, `ddt` → `đt`).
 
@@ -32,13 +36,12 @@ Bộ gõ tiếng Việt cho **IBus**, được viết bằng **Rust** dựa trê
 
 * **Sao lưu & Phôi phục**: Cho phép lưu toàn bộ thiết lập — bao gồm cấu hình, danh sách gõ tắt, từ điển và bảng emoji — thành một tệp JSON duy nhất.
 
-* **Bộ kiểm thử toàn diện**: Hơn 300 unit test bao gồm bảng kiểm thử chuẩn (golden table) 894 trường hợp phím gõ → văn bản (102 hàng Telex + 96 hàng VNI + 24 hàng VIQR + 72 hàng kiểu gõ khác x 3 biến thể hoa/thường, 12 hàng Microsoft); khi biên dịch với tùy chọn `--features gui`, bộ test widget GTK sẽ thêm 1 test nữa (tổng cộng 301).
+* **Bộ kiểm thử toàn diện**: 348 unit test bao gồm bảng kiểm thử chuẩn (golden table) 894 trường hợp phím gõ → văn bản (102 hàng Telex + 96 hàng VNI + 24 hàng VIQR + 72 hàng kiểu gõ khác x 3 biến thể hoa/thường, 12 hàng Microsoft); khi biên dịch với tùy chọn `--features gui`, bộ test widget GTK sẽ thêm 1 test nữa (tổng cộng 349).
 
 ## Các chế độ hiển thị
 
 | Chế độ | Cách hoạt động | Phù hợp nhất cho | 
 | ----- | ----- | ----- | 
-| Auto | Bộ gõ tự chọn chế độ an toàn nhất cho từng ứng dụng dựa trên thông tin ứng dụng báo về | Dùng mặc định, không cần cấu hình thủ công (Mới từ v1.1.6) | 
 | Preedit (Mặc định) | Từ đang gõ hiển thị gạch chân trực tiếp tại con trỏ, chèn vào văn bản khi hoàn thành từ | Tương thích rộng rãi nhất | 
 | Non-preedit | Mỗi phím gõ được chèn ngay lập tức, bộ gõ tự xóa phần đuôi để sửa khi có dấu | Firefox, các ứng dụng GTK | 
 | Surrounding text | Giống Non-preedit + xác minh tính chính xác dựa trên văn bản thực tế ứng dụng phản hồi | Sublime Text | 
@@ -61,6 +64,24 @@ Bạn có thể chuyển đổi chế độ hiển thị từ menu trên thanh h
 
 Kịch bản cài đặt sẽ tự nhận diện bản phân phối (apt / pacman / dnf), chỉ cài bổ sung các gói còn thiếu và tự quản lý Rust thông qua `rustup`. Yêu cầu GTK ≥ 4.10 và libadwaita ≥ 1.5 (Ubuntu 22.04 hiện chỉ có GTK 4.6). Hiện tại mới chỉ phiên bản Arch Linux được kiểm thử chính thức — tên các gói trên Debian/Ubuntu và Fedora là các tên chuẩn nhưng chưa được xác minh thực tế. IBus phải được chọn làm bộ gõ mặc định của hệ thống (mặc định trên GNOME).
 
+### Tự cài các gói phụ thuộc (đúng những gì trình cài 1 dòng chạy)
+
+```
+# Arch / Manjaro / EndeavourOS
+sudo pacman -S --needed gcc make pkgconf tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils
+
+# Debian / Ubuntu / Mint / Pop!_OS
+sudo apt install build-essential pkg-config tar gzip curl ibus desktop-file-utils \
+    libdbus-1-dev libgtk-4-dev libadwaita-1-dev
+
+# Fedora / RHEL / CentOS
+sudo dnf install gcc make pkgconf-pkg-config tar gzip curl ibus dbus-devel \
+    gtk4-devel libadwaita-devel desktop-file-utils
+
+# Rust (mọi bản phân phối)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
 ## Biên dịch
 
 ```
@@ -68,16 +89,18 @@ cargo build --release --features gui
 
 ```
 
-Lõi của bộ gõ được phát triển dựa trên crate `bamboo-core` trên crates.io. Bạn có thể xem mã nguồn của bản pinned `v0.5.3` bằng lệnh `git submodule update --init` (không bắt buộc; quá trình build mặc định lấy từ crates.io).
+Lõi của bộ gõ lấy từ crate `bamboo-core` trên crates.io (phiên bản 0.5.4).
 
 ## Cài đặt
 
 ### Cài đặt nhanh 1 dòng (Online)
 
-Tự động tải mã nguồn, biên dịch và cài đặt; các thư viện phụ thuộc còn thiếu (IBus, GTK4, công cụ build, Rust) sẽ được tự động cài đặt, bạn chỉ cần có sẵn `curl` và quyền `sudo`. Quy tắc udev cho `/dev/uinput` và nhóm người dùng `input` cũng sẽ được cấu hình tự động:
+Tự động tải mã nguồn, biên dịch và cài đặt; các thư viện phụ thuộc còn thiếu (IBus, GTK4, công cụ build, Rust) sẽ được nhận diện và cài bổ sung, bạn chỉ cần có sẵn `curl` (hoặc `wget`) và quyền `sudo` — chạy lại sẽ không cài thêm gì mới. Quy tắc udev cho `/dev/uinput` và nhóm người dùng `input` cũng sẽ được cấu hình tự động:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
+# hoặc khi máy không có curl:
+wget -qO- https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
 
 ```
 
@@ -143,7 +166,7 @@ Kiểm tra lại bằng lệnh `ls -l /dev/uinput`, kết quả phải hiển th
 | Mở cửa sổ cài đặt | Menu trên panel → *Cài đặt…*, hoặc chạy lệnh `ibus-engine-ibus-mangrs -gui` | 
 | Đổi kiểu gõ | Menu → *Input Method* (9 kiểu gõ), hoặc chỉnh trong giao diện GUI | 
 | Đổi bảng mã | Menu → *Charset* (11 bảng mã), hoặc chỉnh trong giao diện GUI | 
-| Đổi chế độ hiển thị | Menu → *Display* (mặc định hiện 4 chế độ; menu có thể tùy biến), GUI (10 chế độ), hoặc dùng phím tắt | 
+| Đổi chế độ hiển thị | Menu → *Display* (mặc định hiện 4 chế độ; menu có thể tùy biến), GUI (9 chế độ), hoặc dùng phím tắt | 
 | Phím tắt đổi chế độ | Giao diện GUI → trang *Phím tắt* → *Thứ tự khi đổi chế độ* (Ví dụ: `Control+Alt+v`) | 
 | Cài đặt nhanh | Menu → *Quick Settings* (gõ tắt, tự động viết hoa, viết tắt, phục hồi từ tiếng Anh) | 
 | Chèn Emoji | Gõ `:tên_emoji:` (cần bật trong GUI trang *Emoji*), hoặc bấm phím tắt để mở bảng chọn tại con trỏ | 
@@ -211,8 +234,8 @@ Bộ gõ cung cấp 2 công tắc tương thích trong cửa sổ cài đặt (T
 ## Kiểm thử (Testing)
 
 ```
-cargo test                      # Chạy 300 unit test, bao gồm bảng kiểm thử golden table 894 trường hợp
-cargo clippy --all-targets      # (Tổng 301 test nếu thêm tùy chọn --features gui)
+cargo test                      # Chạy 348 unit test, bao gồm bảng kiểm thử golden table 894 trường hợp
+cargo clippy --all-targets      # (Tổng 349 test nếu thêm tùy chọn --features gui)
 
 ```
 
