@@ -87,11 +87,11 @@ const MODES: &[&str] = &[
     "Không gạch chân",
     "Gạch chân (preedit)",
     "Surrounding text",
-    "Smooth (uinput)",
-    "Super Smooth (uinput)",
+    "Flow (uinput)",
+    "Turbo (uinput)",
     "Select (uinput)",
-    "ForwardKeyEvent (Backspace)",
-    "ForwardKeyEvent II (Shift+Left)",
+    "Forward Backspace",
+    "Forward Selection",
     "OFF",
 ];
 const CHARSETS: &[&str] = &[

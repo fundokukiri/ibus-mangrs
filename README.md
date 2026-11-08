@@ -41,7 +41,7 @@ editable panel menu.
   whole screen character (`việt` → `việ` → `vi` → `v`), or the unikey walk that undoes one
   raw key at a time (`hạ` → `hã` → `hả` → `hà` → `há` → `ha`). The uinput modes keep the
   raw-key undo.
-- **Per-key progressive display in the smooth modes** (on by default): `ee` shows `ê` the
+- **Per-key progressive display in the Flow and Turbo modes** (on by default): `ee` shows `ê` the
   moment it lands instead of holding raw keys until the word ends; Backspace mid-word deletes
   the last visible character and the word keeps composing (`việt` Backspace `t` → `việt` again).
 - **A click never loses the half-typed word**: the preedit is committed by the app itself when
@@ -74,11 +74,11 @@ editable panel menu.
 | Preedit (default)     | word shows inline with underline, commits at word end                                   | widest compatibility                                                              |
 | Non-preedit           | every key commits immediately, tail rewritten on marks                                  | Firefox, GTK apps                                                                 |
 | Surrounding text      | non-preedit + verifies against the app's own text report                                | Sublime Text                                                                      |
-| Smooth (uinput)       | raw keys forwarded while typing, latin tail erased with real Backspaces at word end     | terminals, quirky apps (X11)                                                      |
-| Super Smooth (uinput) | same, without the safety check before rewriting                                         | fast typing (X11)                                                                 |
+| Flow (uinput)         | raw keys forwarded while typing, latin tail erased with real Backspaces at word end     | terminals, quirky apps (X11)                                                      |
+| Turbo (uinput)        | same, without the safety check before rewriting                                         | fast typing (X11)                                                                 |
 | Select (uinput)       | Shift+← selects the tail, Delete erases it, word commits                                | apps where Backspaces misbehave (X11)                                             |
-| ForwardKeyEvent       | non-preedit whose tail rewrite deletes with Backspace key events forwarded through IBus | apps that ignore the delete signal: Chrome, Electron, GNOME Console, Sublime Text |
-| ForwardKeyEvent II    | the same, but the tail is selected with forwarded Shift+← and the commit replaces it    | apps where a forwarded Backspace is mishandled, X11/XIM apps (JetBrains)          |
+| Forward Backspace     | non-preedit whose tail rewrite deletes with Backspace key events forwarded through IBus | apps that ignore the delete signal: Chrome, Electron, GNOME Console, Sublime Text |
+| Forward Selection     | the same, but the tail is selected with forwarded Shift+← and the commit replaces it    | apps where a forwarded Backspace is mishandled, X11/XIM apps (JetBrains)          |
 | OFF                   | Vietnamese off, macros still work                                                       | mixed Vietnamese/English sessions                                                 |
 
 Switch modes from the input-source menu, the settings window, an assignable cycle hotkey, or per
