@@ -15,8 +15,9 @@ name = "ibus-engine-ibus-mangrs"
 path = "src/main.rs"
 
 [dependencies]
-# The registry requirement stays 0.5.3; the patch below swaps the source.
-bamboo-core = "0.5.3"
+# 0.5.4 (tag 99a02d9) carries the 08/11 hot-path perf merge plus the
+# FFI-safety audit branch; the wrapper guards it actually needs stay.
+bamboo-core = "0.5.4"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dbus = "0.9.12"
 dirs = "6"
@@ -25,11 +26,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 signal-hook = "0.3"
 toml = "0.8"
-
-# bamboo-core 0.5.4 is unreleased; this pin rides the 08/11 hot-path perf
-# merge (088d701) until it publishes — then drop the patch.
-[patch.crates-io]
-bamboo-core = { git = "https://github.com/bamboo-vi/bamboo-core", rev = "088d701768a67803e37f56aed842b23f95733fac" }
 
 [features]
 default = []
