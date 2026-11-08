@@ -110,14 +110,15 @@ ensure_pkgs() {
 # distro; DBus is needed by the `dbus` crate, not by GTK.
 case "$DISTRO" in
     debian)
-        DEPS="build-essential pkg-config tar gzip curl ibus desktop-file-utils
+        # gcc is the linker (no C is compiled); libc6-dev ships the crt objects.
+        DEPS="gcc libc6-dev pkg-config tar gzip curl ibus desktop-file-utils
             libdbus-1-dev libgtk-4-dev libadwaita-1-dev"
         ;;
     arch)
-        DEPS="gcc make pkgconf tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils"
+        DEPS="gcc pkgconf tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils"
         ;;
     fedora)
-        DEPS="gcc make pkgconf-pkg-config tar gzip curl ibus dbus-devel
+        DEPS="gcc pkgconf-pkg-config tar gzip curl ibus dbus-devel
             gtk4-devel libadwaita-devel desktop-file-utils"
         ;;
 esac
@@ -176,9 +177,9 @@ cleanup_build_deps() {
     fi
     [ -n "$INSTALLED" ] || { echo ">> nothing was installed by this run"; return 0; }
     case "$DISTRO" in
-        arch)   REMOVE_PKGS="gcc make pkgconf desktop-file-utils" ;;
-        debian) REMOVE_PKGS="build-essential pkg-config libdbus-1-dev libgtk-4-dev libadwaita-1-dev desktop-file-utils" ;;
-        fedora) REMOVE_PKGS="gcc make pkgconf-pkg-config dbus-devel gtk4-devel libadwaita-devel desktop-file-utils" ;;
+        arch)   REMOVE_PKGS="gcc pkgconf desktop-file-utils" ;;
+        debian) REMOVE_PKGS="gcc libc6-dev pkg-config libdbus-1-dev libgtk-4-dev libadwaita-1-dev desktop-file-utils" ;;
+        fedora) REMOVE_PKGS="gcc pkgconf-pkg-config dbus-devel gtk4-devel libadwaita-devel desktop-file-utils" ;;
     esac
     victims=""
     # shellcheck disable=SC2086
