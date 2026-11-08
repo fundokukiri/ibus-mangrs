@@ -497,8 +497,11 @@ impl BambooWrapper {
             self.output_override = None;
         }
         // Mark removed while the same base letter comes back unmarked = the
-        // user undid a mark (`tô` + 'o' → `too`). Bamboo's hidden state then
-        // resurfaces on later keys of this word.
+        // user undid a mark (`tô` + 'o' → `too`). Same for the đ: `dd` forms
+        // it and the next `d` undoes the rule (`đ` + 'd' → `dd`) — without
+        // the flag the auto-restore would resurrect the raw keys (`ddd`)
+        // over the composition, in every display mode. Bamboo's hidden
+        // state then resurfaces on later keys of this word.
         {
             let common = self
                 .last_output
@@ -509,10 +512,11 @@ impl BambooWrapper {
             let deleted: Vec<char> = self.last_output.chars().skip(common).collect();
             let inserted: Vec<char> = new_output.chars().skip(common).collect();
             if deleted.iter().any(|d| {
-                is_marked(*d)
+                (is_marked(*d)
                     && inserted
                         .iter()
-                        .any(|i| base_letter(*i) == base_letter(*d) && *i != *d && !is_marked(*i))
+                        .any(|i| base_letter(*i) == base_letter(*d) && *i != *d && !is_marked(*i)))
+                    || (matches!(*d, 'đ' | 'Đ') && inserted.iter().any(|i| matches!(*i, 'd' | 'D')))
             }) {
                 debug_log::log("mark undone in word");
                 self.undo_in_word = true;
@@ -869,7 +873,8 @@ impl BambooWrapper {
     }
 
     /// Whether a mark was undone in the current word (`tô` + 'o' → `too`,
-    /// `tê` + 'e' → `tee`). The raw keys then diverge from the composed word
+    /// `tê` + 'e' → `tee`), or the đ (`dd` forms it, the next `d` undoes it:
+    /// `đ` + 'd' → `dd`). The raw keys then diverge from the composed word
     /// on purpose — bamboo marks such words invalid, but auto-restore must
     /// not "fix" them back to the raw keys.
     pub fn undo_in_word(&self) -> bool {
