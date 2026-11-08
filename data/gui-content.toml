@@ -422,7 +422,7 @@ kind_entry = "Mục chọn"
 # --- page Tinh chỉnh --------------------------------------------------------
 
 [groups.tune.pacing]
-title = "Tốc độ gõ (uinput)"
+title = "Cấu hình uinput"
 description = "Chỉ áp dụng cho Smooth, Super Smooth và Select."
 
 [groups.tune.channel]

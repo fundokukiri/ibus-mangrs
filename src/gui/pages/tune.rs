@@ -29,12 +29,13 @@ fn widen_spin(row: &adw::SpinRow, chars: i32) {
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
-    // uinput pacing: the rewrite speed knobs only the smooth modes use.
-    // The "Mặc định: N" numbers come from the config's own defaults, so
-    // the text never drifts from what a fresh config actually does.
+    // uinput pacing plus the per-key display switch: everything only the
+    // smooth modes use. The "Mặc định: N" numbers come from the config's
+    // own defaults, so the text never drifts from what a fresh config
+    // actually does.
     let defaults = crate::config::Config::default();
     let pacing = adw::PreferencesGroup::builder()
-        .title(t("groups.tune.pacing.title", "Tốc độ gõ (uinput)"))
+        .title(t("groups.tune.pacing.title", "Cấu hình uinput"))
         .description(t(
             "groups.tune.pacing.description",
             "Chỉ áp dụng cho Smooth, Super Smooth và Select.",
@@ -43,6 +44,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     pacing.add(&ui.commit_interval);
     pacing.add(&ui.backspace_interval);
     pacing.add(&ui.post_delay);
+    // The per-key display switch lives with the pacing knobs: it shapes the
+    // same uinput word rendering, and it is no longer gated as experimental.
+    pacing.add(&ui.smooth_per_key_switch);
     for (row, subtitle) in [
         (
             &ui.commit_interval,
@@ -163,8 +167,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         let spin = ui.idle_commit_spin.clone();
         spin.connect_value_notify(move |_| ui.fire_save());
     }
-    advanced.add(&ui.smooth_per_key_switch);
-    decorate_experimental(&ui.smooth_per_key_switch);
     page.add(&advanced);
 
     // X11/XIM workarounds.

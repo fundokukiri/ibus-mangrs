@@ -2612,7 +2612,7 @@ fn parked_commit_flushes_when_forced() {
     assert!(!e.has_deferred());
 }
 
-// --- smooth per-key display (experimental switch) ---
+// --- smooth per-key display ---
 
 fn per_key_engine(mode: Mode) -> Engine {
     let mut e = engine(
@@ -2895,9 +2895,9 @@ fn smooth_per_key_backspace_releases_words_it_cannot_remap() {
 }
 
 #[test]
-fn smooth_per_key_is_gated_by_the_experimental_switch() {
-    // Switch on, master gate closed: raw-till-word-end stands (the engine
-    // behaves exactly like the default).
+fn smooth_per_key_applies_without_the_experimental_gate() {
+    // The switch graduated from the experimental set: it shapes the typing
+    // even with the master gate closed.
     let mut e = engine(
         Mode::Smooth,
         Config {
@@ -2906,18 +2906,12 @@ fn smooth_per_key_is_gated_by_the_experimental_switch() {
         },
     );
     e.set_uinput_available(true);
-    let actions = type_str(&mut e, "vieetj ");
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "ê")),
-        "no per-key commit with the gate closed: {actions:?}"
-    );
-    assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(6))),
-        "the word-end rewrite stands: {actions:?}"
+    let _ = type_str(&mut e, "vie");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(
+        actions,
+        vec![Action::CommitNow("vie".into())],
+        "per-key display must follow the switch with the gate closed: {actions:?}"
     );
 }
 
@@ -3874,7 +3868,6 @@ fn backspace_tone_first_updates_the_preedit() {
         "{actions:?}"
     );
 }
-
 
 // --- the đ undo (dd -> đ, another d undoes it) ---
 
