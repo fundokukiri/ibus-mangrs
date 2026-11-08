@@ -25,8 +25,8 @@ pub struct Config {
     pub free_tone_marking: bool,
     /// Fall back to raw characters for invalid syllables.
     pub auto_correct: bool,
-    /// How Backspace treats a tone-marked word (off = the unikey raw-key
-    /// undo). Never applies to the uinput modes.
+    /// How Backspace treats a tone-marked word — default: the tone goes
+    /// first. Never applies to the uinput modes.
     pub backspace_tone: BackspaceToneConfig,
     /// Restore English (non-Vietnamese) words to the raw keystrokes typed.
     pub auto_restore: bool,
@@ -491,20 +491,24 @@ pub enum ModeConfig {
     Off,
 }
 
-/// How Backspace treats a word that carries a tone. The uinput modes keep
-/// the raw-key undo regardless: their screen shows the raw keys, which a
-/// skipped tone would desync from the wrapper.
+/// How Backspace treats a word that carries a tone — the engine maps the
+/// config onto this per keystroke (the uinput modes force `UnikeyWalk`:
+/// their screen shows the raw keys, which a skipped tone would desync from
+/// the wrapper).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum BackspaceToneConfig {
+    /// The tone goes first, the letters stay (`hạ` -> `ha` -> `h`).
+    #[default]
+    ToneFirst,
+    /// The marked character goes with its tone (`hạ` -> `h`); the screen
+    /// loses exactly one character per Backspace on long words too
+    /// (`việt` -> `việ` -> `vi` -> `v`).
+    WholeChar,
     /// Unikey convention: Backspace undoes the last raw key — a cycled tone
     /// walks back through every tone it passed (`hạ` `hã` `hả` `hà` `há` `ha`).
-    #[default]
-    Off,
-    /// The tone goes first, the letters stay (`hạ` -> `ha` -> `h`).
-    ToneFirst,
-    /// The marked character goes with its tone (`hạ` -> `h`).
-    WholeChar,
+    #[serde(alias = "off")]
+    UnikeyWalk,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -782,7 +786,7 @@ impl Default for Config {
             modern_tone_style: true,
             free_tone_marking: true,
             auto_correct: true,
-            backspace_tone: BackspaceToneConfig::Off,
+            backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
             bypass_url: true,
             extra_url_chars: String::new(),

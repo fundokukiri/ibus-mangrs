@@ -115,7 +115,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.backspace_tone.title", "Xóa dấu bằng Backspace"),
         &t(
             "rows.backspace_tone.subtitle",
-            "Cách Backspace xử lý từ đang có dấu",
+            "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành ha). Hoặc xóa cả dấu và chữ (hạ thành h), hoặc lùi từng phím như unikey.",
         ),
         BACKSPACE_TONE_MODES,
     );
@@ -567,7 +567,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         backspace_tone,
         "tips.backspace_tone",
-        "Xóa dấu trước: hạ thành ha, rồi h. Xóa cả dấu và chữ: hạ thành h. Các chế độ uinput giữ cách lùi từng phím."
+        "Xóa dấu trước (mặc định): hạ thành ha, rồi h. Xóa cả dấu và chữ: hạ thành h, việt thành việc rồi vi — mỗi Backspace xóa đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
     );
     tip!(
         em_dash,
