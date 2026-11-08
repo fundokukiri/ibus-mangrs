@@ -15,8 +15,7 @@ name = "ibus-engine-ibus-mangrs"
 path = "src/main.rs"
 
 [dependencies]
-# Source browsing of bamboo-core v0.5.3: `git submodule update --init`.
-# The build itself uses the crates.io package.
+# The registry requirement stays 0.5.3; the patch below swaps the source.
 bamboo-core = "0.5.3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dbus = "0.9.12"
@@ -26,6 +25,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 signal-hook = "0.3"
 toml = "0.8"
+
+# bamboo-core 0.5.4 is unreleased; this pin rides the 08/11 hot-path perf
+# merge (088d701) until it publishes — then drop the patch.
+[patch.crates-io]
+bamboo-core = { git = "https://github.com/bamboo-vi/bamboo-core", rev = "088d701768a67803e37f56aed842b23f95733fac" }
 
 [features]
 default = []

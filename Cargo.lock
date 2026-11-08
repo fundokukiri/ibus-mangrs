@@ -20,8 +20,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 [[package]]
 name = "bamboo-core"
 version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d07b3564eddcc81279855db6bdef675d9d294934130ceae6c666887f6db50f5"
+source = "git+https://github.com/bamboo-vi/bamboo-core?rev=088d701768a67803e37f56aed842b23f95733fac#088d701768a67803e37f56aed842b23f95733fac"
 dependencies = [
  "bitflags",
  "phf",
