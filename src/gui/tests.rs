@@ -368,7 +368,7 @@ fn refresh_round_trips_every_widget() {
         extra_url_chars: "`<".into(),
         extra_url_chars_enabled: false,
         w2u: W2uConfig::NonStart,
-        backspace_tone: BackspaceToneConfig::Off,
+        backspace_tone: BackspaceToneConfig::ToneFirst,
         bracket: BracketConfig::Everywhere,
         em_dash: true,
         auto_capitalize: true,

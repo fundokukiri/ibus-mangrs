@@ -193,7 +193,7 @@ impl BambooWrapper {
             kept_composition: false,
             composing: false,
             last_output: String::new(),
-            backspace_tone: BackspaceToneConfig::Off,
+            backspace_tone: BackspaceToneConfig::ToneFirst,
         }
     }
 
@@ -549,19 +549,44 @@ impl BambooWrapper {
         if !self.enabled || self.raw.is_empty() {
             return None;
         }
-        let old = self.output();
-        // The tone-skip behaviors engage only on a word that visibly carries
-        // a tone; a kept composition (`hạo6`) stays with the unikey undo —
-        // its digits are literal text, not tone keys.
-        if !self.kept_composition && has_tone_marker(&old) {
-            let edit = match self.backspace_tone {
-                BackspaceToneConfig::ToneFirst => self.backspace_tone_first(&old),
-                BackspaceToneConfig::WholeChar => self.backspace_whole_char(&old),
-                BackspaceToneConfig::Off => None,
-            };
-            if let Some(edit) = edit {
-                return Some(edit);
+        // A repair-rebuilt composition has no raw keys; the whole-char
+        // delete still applies to it through the raw-key encoder.
+        if self.raw.is_empty() {
+            if self.backspace_tone == BackspaceToneConfig::WholeChar
+                && self.composing
+                && !self.output().is_empty()
+            {
+                let old = self.output();
+                let target: String = old.chars().take(old.chars().count() - 1).collect();
+                let rebuilt = self
+                    .encode_raw_keys(&target)
+                    .map(|keys| {
+                        self.replay_raw(&keys);
+                        self.output() == target
+                    })
+                    .unwrap_or(false);
+                if rebuilt {
+                    return Some(Self::edit_between(&old, &target));
+                }
             }
+            return None;
+        }
+        let old = self.output();
+        // ToneFirst engages only on a word that visibly carries a tone; a
+        // kept composition (`hạo6`) stays with the unikey undo — its digits
+        // are literal text, not tone keys. WholeChar is the screen model and
+        // applies to every word.
+        let edit = match self.backspace_tone {
+            BackspaceToneConfig::ToneFirst if !self.kept_composition && has_tone_marker(&old) => {
+                self.backspace_tone_first(&old)
+            }
+            BackspaceToneConfig::WholeChar => self.backspace_whole_char(&old),
+            // UnikeyWalk, and a ToneFirst word without a tone (the gate
+            // above): the unikey undo.
+            _ => None,
+        };
+        if let Some(edit) = edit {
+            return Some(edit);
         }
         self.pop_one();
         let new = self.output();
@@ -625,10 +650,13 @@ impl BambooWrapper {
         Some(Self::edit_between(old, &new))
     }
 
-    /// WholeChar: the marked character goes with its tone — pop raw keys
-    /// until the recomposition equals the text minus its last character
-    /// (`hạ` -> `h`). A shortened text no raw prefix composes to (`hần` ->
-    /// `hầ`) falls through to the unikey undo.
+    /// WholeChar: the screen loses exactly one character — the marked one
+    /// goes with its tone (`hạ` -> `h`), on long words too (`việt` ->
+    /// `việ` -> `vi` -> `v`). Pop raw keys until the recomposition equals
+    /// the shortened text; a text no raw prefix composes to (`hùng` ->
+    /// `hùn`: the tone would have to survive its own key) is rebuilt from
+    /// the text instead — the tone state dies with the deleted character
+    /// either way.
     fn backspace_whole_char(&mut self, old: &str) -> Option<Edit> {
         let target: String = old.chars().take(old.chars().count() - 1).collect();
         let original = self.raw.clone();
@@ -641,11 +669,132 @@ impl BambooWrapper {
             }
         }
         if !matched {
-            self.replay_raw(&original);
-            return None;
+            // No raw prefix composes to the shortened text (`hùng` -> `hùn`:
+            // the tone key sits after the deleted letter, so every prefix is
+            // tone-free). Rebuild the composition from the re-encoded keys
+            // so the word stays live; presets the encoder does not cover,
+            // and an encoding that does not round-trip, fall back to the
+            // unikey undo.
+            let rebuilt = self
+                .encode_raw_keys(&target)
+                .map(|keys| {
+                    self.replay_raw(&keys);
+                    self.output() == target
+                })
+                .unwrap_or(false);
+            if !rebuilt {
+                self.replay_raw(&original);
+                self.pop_one();
+            }
         }
         let new = self.output();
         Some(Self::edit_between(old, &new))
+    }
+
+    /// The raw-key sequence that types `text` — the whole-char Backspace
+    /// rebuilds its composition from it when no prefix of the typed raw
+    /// recomposes to the shortened screen. Standard key order — the tone
+    /// key right after the vowel nucleus — works with free tone marking on
+    /// and off alike. `None` for the presets whose mark keys this does not
+    /// cover (MsLayout brackets, the VniFrench AZERTY row): the caller
+    /// falls back to the unikey undo.
+    fn encode_raw_keys(&self, text: &str) -> Option<String> {
+        let vowel_marks: &[(char, &str)] = match self.method {
+            Method::MsLayout | Method::VniFrench => return None,
+            Method::Vni => &[
+                ('â', "a6"),
+                ('ă', "a8"),
+                ('ê', "e6"),
+                ('ô', "o6"),
+                ('ơ', "o7"),
+                ('ư', "u7"),
+            ],
+            Method::Viqr => &[
+                ('â', "a^"),
+                ('ă', "a("),
+                ('ê', "e^"),
+                ('ô', "o^"),
+                ('ơ', "o+"),
+                ('ư', "u+"),
+            ],
+            // The telex family shares its vowel keys; the combined presets
+            // accept them next to the digit keys.
+            Method::Telex
+            | Method::Telex2
+            | Method::TelexW
+            | Method::TelexVni
+            | Method::TelexVniViqr => &[
+                ('â', "aa"),
+                ('ă', "aw"),
+                ('ê', "ee"),
+                ('ô', "oo"),
+                ('ơ', "ow"),
+                ('ư', "uw"),
+            ],
+        };
+        let tone_keys: [&str; 5] = match self.method {
+            Method::Vni => ["1", "2", "3", "4", "5"],
+            Method::Viqr => ["'", "`", "?", "~", "."],
+            // The telex family; the combined presets accept these letters.
+            _ => ["s", "f", "r", "x", "j"],
+        };
+        let tone_class = |c: char| match c {
+            'á' | 'ấ' | 'ắ' | 'é' | 'ế' | 'í' | 'ó' | 'ố' | 'ớ' | 'ú' | 'ứ' | 'ý' => {
+                Some(0)
+            }
+            'à' | 'ầ' | 'ằ' | 'è' | 'ề' | 'ì' | 'ò' | 'ồ' | 'ờ' | 'ù' | 'ừ' | 'ỳ' => {
+                Some(1)
+            }
+            'ả' | 'ẩ' | 'ẳ' | 'ẻ' | 'ể' | 'ỉ' | 'ỏ' | 'ổ' | 'ở' | 'ủ' | 'ử' | 'ỷ' => {
+                Some(2)
+            }
+            'ã' | 'ẫ' | 'ẵ' | 'ẽ' | 'ễ' | 'ĩ' | 'õ' | 'ỗ' | 'ỡ' | 'ũ' | 'ữ' | 'ỹ' => {
+                Some(3)
+            }
+            'ạ' | 'ậ' | 'ặ' | 'ẹ' | 'ệ' | 'ị' | 'ọ' | 'ộ' | 'ợ' | 'ụ' | 'ự' | 'ỵ' => {
+                Some(4)
+            }
+            _ => None,
+        };
+        let mut frags: Vec<String> = Vec::new();
+        let mut tone: Option<usize> = None;
+        let mut last_vowel: Option<usize> = None;
+        for ch in text.chars() {
+            let lower = ch.to_lowercase().next().unwrap_or(ch);
+            let upper = ch.is_uppercase();
+            if let Some(class) = tone_class(lower) {
+                tone = Some(class);
+            }
+            let base = strip_tone_char(lower);
+            let shaped = |s: &str| {
+                if upper {
+                    s.to_uppercase()
+                } else {
+                    s.to_string()
+                }
+            };
+            if let Some((_, keys)) = vowel_marks.iter().find(|(v, _)| *v == base) {
+                last_vowel = Some(frags.len());
+                frags.push(shaped(keys));
+            } else if base == 'đ' {
+                frags.push(shaped("dd"));
+            } else {
+                if is_vowel_letter(base) {
+                    last_vowel = Some(frags.len());
+                }
+                frags.push(shaped(&base.to_string()));
+            }
+        }
+        let mut out = String::with_capacity(text.len() * 3);
+        for (i, frag) in frags.iter().enumerate() {
+            out.push_str(frag);
+            if Some(i) == last_vowel {
+                if let Some(class) = tone {
+                    out.push_str(tone_keys[class]);
+                }
+            }
+        }
+        Some(out)
     }
 
     /// Diff between the previous real composition output and `new`, as a
@@ -838,6 +987,27 @@ fn tone_keys(method: Method) -> &'static [char] {
         Method::TelexVniViqr => &[
             's', 'f', 'x', 'j', 'r', '1', '2', '3', '4', '5', '\'', '`', '?', '~', '.',
         ],
+    }
+}
+
+/// The tone-stripped, horn-keeping base of a vowel (`ề` -> `ê`, `ậ` ->
+/// `â`, `à` -> `a`) — the raw-key encoder's per-character counterpart of
+/// `has_tone_marker`.
+fn strip_tone_char(c: char) -> char {
+    match c {
+        'á' | 'à' | 'ả' | 'ã' | 'ạ' => 'a',
+        'ấ' | 'ầ' | 'ẩ' | 'ẫ' | 'ậ' => 'â',
+        'ắ' | 'ằ' | 'ẳ' | 'ẵ' | 'ặ' => 'ă',
+        'é' | 'è' | 'ẻ' | 'ẽ' | 'ẹ' => 'e',
+        'ế' | 'ề' | 'ể' | 'ễ' | 'ệ' => 'ê',
+        'í' | 'ì' | 'ỉ' | 'ĩ' | 'ị' => 'i',
+        'ó' | 'ò' | 'ỏ' | 'õ' | 'ọ' => 'o',
+        'ố' | 'ồ' | 'ổ' | 'ỗ' | 'ộ' => 'ô',
+        'ớ' | 'ờ' | 'ở' | 'ỡ' | 'ợ' => 'ơ',
+        'ú' | 'ù' | 'ủ' | 'ũ' | 'ụ' => 'u',
+        'ứ' | 'ừ' | 'ử' | 'ữ' | 'ự' => 'ư',
+        'ý' | 'ỳ' | 'ỷ' | 'ỹ' | 'ỵ' => 'y',
+        other => other,
     }
 }
 
@@ -1053,8 +1223,46 @@ mod tests {
     }
 
     #[test]
+    fn whole_char_encoder_round_trips_every_marked_vowel() {
+        // The whole-char Backspace rebuilds non-composable text through the
+        // raw-key encoder — every tone-marked vowel must compose back to
+        // exactly the text it was encoded from, on every covered method.
+        for method in [
+            Method::Telex,
+            Method::Vni,
+            Method::Viqr,
+            Method::TelexVni,
+            Method::TelexVniViqr,
+        ] {
+            for c in [
+                'á', 'à', 'ả', 'ã', 'ạ', 'ấ', 'ầ', 'ẩ', 'ẫ', 'ậ', 'ắ', 'ằ', 'ẳ', 'ẵ', 'ặ', 'é',
+                'è', 'ẻ', 'ẽ', 'ẹ', 'ế', 'ề', 'ể', 'ễ', 'ệ', 'í', 'ì', 'ỉ', 'ĩ', 'ị', 'ó', 'ò',
+                'ỏ', 'õ', 'ọ', 'ố', 'ồ', 'ổ', 'ỗ', 'ộ', 'ớ', 'ờ', 'ở', 'ỡ', 'ợ', 'ú', 'ù', 'ủ',
+                'ũ', 'ụ', 'ứ', 'ừ', 'ử', 'ữ', 'ự', 'ý', 'ỳ', 'ỷ', 'ỹ', 'ỵ',
+            ] {
+                let word = format!("h{c}n");
+                let mut w = wrapper(method);
+                let keys = w
+                    .encode_raw_keys(&word)
+                    .unwrap_or_else(|| panic!("{method:?}: {word} must encode"));
+                w.replay_raw(&keys);
+                assert_eq!(w.output(), word, "{method:?} {keys:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn whole_char_encoder_round_trips_uppercase() {
+        let mut w = wrapper(Method::Telex);
+        let keys = w.encode_raw_keys("HÙN").expect("encoded");
+        w.replay_raw(&keys);
+        assert_eq!(w.output(), "HÙN", "{keys:?}");
+    }
+
+    #[test]
     fn backspace_is_a_pure_deletion() {
         let mut w = wrapper(Method::Telex);
+        w.set_backspace_tone(BackspaceToneConfig::UnikeyWalk);
         type_str(&mut w, "vieejt");
         assert_eq!(w.output(), "việt");
         let e = w.backspace().expect("edit");

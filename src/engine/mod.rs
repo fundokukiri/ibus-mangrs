@@ -419,7 +419,7 @@ impl Engine {
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             smooth_per_key: false,
-            backspace_tone: BackspaceToneConfig::Off,
+            backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
         };
@@ -1244,7 +1244,7 @@ impl Engine {
         // screen from the wrapper. They keep the unikey undo.
         self.wrapper.set_backspace_tone(
             if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
-                BackspaceToneConfig::Off
+                BackspaceToneConfig::UnikeyWalk
             } else {
                 self.backspace_tone
             },

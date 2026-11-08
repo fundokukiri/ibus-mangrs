@@ -376,6 +376,11 @@ fn backspace_on_empty_composition_forwards() {
 #[test]
 fn backspace_deletes_one_char() {
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        mode: Mode::NonPreedit.into(),
+        backspace_tone: BackspaceToneConfig::UnikeyWalk,
+        ..Config::default()
+    });
     type_str(&mut e, "vieejt");
     assert_eq!(e.backspace(), Some(vec![Action::DeleteBefore(1)]));
 }
@@ -1268,7 +1273,8 @@ fn legacy_charset_backspace_replays_correctly() {
     e.set_charset(Charset::Vni);
     let mut actions = type_str(&mut e, "vieejt");
     actions.extend(e.backspace().expect("backspace"));
-    assert_eq!(replay(&actions), encode(Charset::Vni, "việ"));
+    // The default tone-first skip: the tone goes, the letters stay.
+    assert_eq!(replay(&actions), encode(Charset::Vni, "viêt"));
 }
 
 #[test]
@@ -3675,13 +3681,13 @@ fn backspace_whole_char_deletes_the_marked_letter() {
 }
 
 #[test]
-fn backspace_tone_off_keeps_the_unikey_walk() {
-    // Off is today's behavior: the raw keys pop one by one and the cycled
+fn backspace_unikey_walk_undoes_the_last_raw_key() {
+    // The UnikeyWalk option: the raw keys pop one by one and the cycled
     // tone walks back through every tone it passed.
     let mut e = tone_engine(
         MethodConfig::Telex,
         Mode::NonPreedit,
-        BackspaceToneConfig::Off,
+        BackspaceToneConfig::UnikeyWalk,
     );
     // bamboo telex: x=ngã, j=nặng, r=hỏi — popping r lands on j's tone.
     assert_eq!(type_replay_backspaces(&mut e, "hasfxjr\u{8}").0, "hạ");
@@ -3712,16 +3718,91 @@ fn backspace_tone_first_keeps_the_final_consonant() {
 }
 
 #[test]
-fn backspace_whole_char_falls_back_to_the_unikey_undo() {
+fn backspace_whole_char_rebuilds_uncomposable_text() {
     // `hần` minus its last character (`hầ`) is composable by no raw
-    // prefix — the unikey undo runs instead: the tone key pops, `hần`
-    // -> `hân`.
+    // prefix — the tone would have to survive its own key. The shortened
+    // text is rebuilt from the screen instead: the deletion still takes
+    // exactly one character.
     let mut e = tone_engine(
         MethodConfig::Vni,
         Mode::NonPreedit,
         BackspaceToneConfig::WholeChar,
     );
-    assert_eq!(type_replay_backspaces(&mut e, "ha6n2\u{8}").0, "hân");
+    assert_eq!(type_replay_backspaces(&mut e, "ha6n2\u{8}").0, "hầ");
+}
+
+#[test]
+fn backspace_whole_char_deletes_the_screen_character() {
+    // The owner's case: `hùng` -> `hùn` -> `hù` -> `h` — each Backspace
+    // deletes one screen character; the tone survives until its own
+    // character is deleted, then goes with it.
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::NonPreedit,
+        BackspaceToneConfig::WholeChar,
+    );
+    assert_eq!(type_replay_backspaces(&mut e, "hungf\u{8}").0, "hùn");
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::NonPreedit,
+        BackspaceToneConfig::WholeChar,
+    );
+    assert_eq!(
+        type_replay_backspaces(&mut e, "hungf\u{8}\u{8}\u{8}").0,
+        "h"
+    );
+}
+
+#[test]
+fn backspace_whole_char_works_on_long_words() {
+    // `việt` -> `việ` -> `vi` -> `v`: one screen character per Backspace,
+    // no tone-cycle walk on long words.
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::NonPreedit,
+        BackspaceToneConfig::WholeChar,
+    );
+    assert_eq!(type_replay_backspaces(&mut e, "vieejt\u{8}").0, "việ");
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::NonPreedit,
+        BackspaceToneConfig::WholeChar,
+    );
+    assert_eq!(
+        type_replay_backspaces(&mut e, "vieejt\u{8}\u{8}\u{8}").0,
+        "v"
+    );
+}
+
+#[test]
+fn backspace_whole_char_on_kept_compositions() {
+    // `hạo6`: popping the literal 6 lands exactly on the kept word.
+    let mut e = tone_engine(
+        MethodConfig::Vni,
+        Mode::NonPreedit,
+        BackspaceToneConfig::WholeChar,
+    );
+    assert_eq!(type_replay_backspaces(&mut e, "hao123456\u{8}").0, "hạo");
+}
+
+#[test]
+fn backspace_whole_char_updates_the_preedit() {
+    // The rebuilt text replaces the preedit in one step.
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::Preedit,
+        BackspaceToneConfig::WholeChar,
+    );
+    for c in "hungf".chars() {
+        let _ = e.process_char(c);
+    }
+    let actions = e.backspace().expect("backspace");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "hùn")),
+        "{actions:?}"
+    );
 }
 
 #[test]

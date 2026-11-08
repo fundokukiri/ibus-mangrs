@@ -108,7 +108,11 @@ const CHARSETS: &[&str] = &[
     "Vietware Full",
 ];
 const ON_OFF_MODES: &[&str] = &["Tắt", "Trừ đầu từ", "Mọi vị trí"];
-const BACKSPACE_TONE_MODES: &[&str] = &["Tắt", "Xóa dấu trước", "Xóa cả dấu và chữ"];
+const BACKSPACE_TONE_MODES: &[&str] = &[
+    "Xóa dấu trước",
+    "Xóa cả dấu và chữ",
+    "Unikey (lùi từng phím)",
+];
 const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
 
 /// The custom-shortcut functions, in `config::CUSTOM_HOTKEY_ACTIONS` order:
@@ -412,9 +416,9 @@ impl Ui {
         ));
         self.backspace_tone
             .set_selected(match config.backspace_tone {
-                BackspaceToneConfig::Off => 0,
-                BackspaceToneConfig::ToneFirst => 1,
-                BackspaceToneConfig::WholeChar => 2,
+                BackspaceToneConfig::ToneFirst => 0,
+                BackspaceToneConfig::WholeChar => 1,
+                BackspaceToneConfig::UnikeyWalk => 2,
             });
         self.em_dash.set_active(config.em_dash);
         self.auto_capitalize.set_active(config.auto_capitalize);
@@ -573,9 +577,9 @@ impl Ui {
             _ => W2uConfig::Disabled,
         };
         config.backspace_tone = match self.backspace_tone.selected() {
-            1 => BackspaceToneConfig::ToneFirst,
-            2 => BackspaceToneConfig::WholeChar,
-            _ => BackspaceToneConfig::Off,
+            1 => BackspaceToneConfig::WholeChar,
+            2 => BackspaceToneConfig::UnikeyWalk,
+            _ => BackspaceToneConfig::ToneFirst,
         };
         config.bracket = match self.bracket.selected() {
             1 => BracketConfig::NonStart,
