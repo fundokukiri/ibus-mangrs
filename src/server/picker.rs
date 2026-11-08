@@ -2,7 +2,7 @@
 //! the ibus-bamboo Shift+` flow, no GTK window involved. The engine opens
 //! it on the app-rule hotkey with the rule target it resolved at press
 //! time (once the popup is up, the focused "app" would be the app itself).
-//! One flat page of the ten display modes: the highlight starts on the
+//! One flat page of the nine display modes: the highlight starts on the
 //! mode in force — GNOME draws the lookup-table cursor as the blue hover —
 //! and the auxiliary line names the app and its mode. Up/Down move the
 //! highlight, Enter picks it, a digit 1..9/0 picks that entry directly,
@@ -15,7 +15,7 @@ use super::hotkey::client_prgname;
 use super::*;
 
 /// One page holds every mode: the menu is static, selection is by digit.
-pub(super) const PICKER_PAGE_SIZE: u32 = 10;
+pub(super) const PICKER_PAGE_SIZE: u32 = 9;
 
 /// The picker's entries: the display modes in panel-menu order, the entry
 /// currently in force for the target prefixed with a dot marker.
@@ -59,7 +59,7 @@ impl PickerState {
     }
 
     /// Map one key event onto the picker. Pure, so tests can drive it.
-    /// Digits 1..9 pick entries 1..9 and 0 picks the tenth; Enter picks
+    /// Digits 1..9 pick entries 1..9 and 0 picks the last; Enter picks
     /// the highlighted entry; Up/Down move the highlight.
     pub fn on_key(&self, keyval: u32) -> PickerKey {
         match keyval {
@@ -68,7 +68,7 @@ impl PickerState {
             65362 => PickerKey::Move(-1),                    // Up
             65364 => PickerKey::Move(1),                     // Down
             k @ 0x31..=0x39 => PickerKey::Select((k - 0x31) as usize),
-            0x30 => PickerKey::Select(9), // 0 picks the tenth entry
+            0x30 => PickerKey::Select(8), // 0 picks the last entry
             _ => PickerKey::Ignore,
         }
     }

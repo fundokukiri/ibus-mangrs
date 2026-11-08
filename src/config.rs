@@ -449,8 +449,11 @@ pub enum ModeConfig {
     #[serde(alias = "non-preedit", alias = "non_preedit")]
     NonPreedit,
     /// Default: the composition renders in the application itself, so even
-    /// restricted apps (Sublime, XWayland clients) show text.
+    /// restricted apps (Sublime, XWayland clients) show text. The removed
+    /// Auto mode migrates here (the serde alias and `from_key` below, for
+    /// old config files and app rules).
     #[default]
+    #[serde(alias = "auto")]
     Preedit,
     /// Non-preedit rewritten with the help of `SetSurroundingText`: the engine
     /// verifies the text before the cursor against what it believes it
@@ -483,9 +486,6 @@ pub enum ModeConfig {
         alias = "default_typing"
     )]
     Off,
-    /// Pick the display mode per client from what it reports (the ladder in
-    /// `Engine::auto_mode`). App rules still win over the resolution.
-    Auto,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -554,7 +554,6 @@ impl From<ModeConfig> for Mode {
             ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
             ModeConfig::ForwardSelect => Mode::ForwardSelect,
             ModeConfig::Off => Mode::Off,
-            ModeConfig::Auto => Mode::Auto,
         }
     }
 }
@@ -571,7 +570,6 @@ impl From<Mode> for ModeConfig {
             Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
             Mode::ForwardSelect => ModeConfig::ForwardSelect,
             Mode::Off => ModeConfig::Off,
-            Mode::Auto => ModeConfig::Auto,
         }
     }
 }
@@ -662,7 +660,6 @@ impl ModeConfig {
             ModeConfig::ForwardKeyEvent => "forwardkeyevent",
             ModeConfig::ForwardSelect => "forwardselect",
             ModeConfig::Off => "off",
-            ModeConfig::Auto => "auto",
         }
     }
 
@@ -686,7 +683,8 @@ impl ModeConfig {
             // The removed Default Typing mode migrates to Off (both here and
             // through the serde aliases on the enum, for old config files).
             "defaulttyping" | "default-typing" | "default_typing" => ModeConfig::Off,
-            "auto" => ModeConfig::Auto,
+            // The removed Auto mode migrates to the factory default.
+            "auto" => ModeConfig::Preedit,
             _ => return None,
         })
     }
@@ -1308,13 +1306,13 @@ children = ["preedit", "smooth"]
         );
         // Substring overlap: "chromium" matches the "chromium" rule first —
         // the pick must update the winning one, not the "chrome" prefix rule.
-        c.set_rule_mode_for_target("chromium", ModeConfig::Auto);
+        c.set_rule_mode_for_target("chromium", ModeConfig::Smooth);
         let chromium = c
             .app_rules
             .iter()
             .find(|r| r.pattern == "chromium")
             .expect("net rule");
-        assert_eq!(chromium.mode, ModeConfig::Auto);
+        assert_eq!(chromium.mode, ModeConfig::Smooth);
         let chrome = c
             .app_rules
             .iter()

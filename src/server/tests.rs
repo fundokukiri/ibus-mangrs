@@ -1001,16 +1001,16 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
 fn picker_keys_map_onto_entries() {
     use super::picker::{picker_entries, PickerKey, PickerState};
     let len = picker_entries(ModeConfig::Preedit).len();
-    assert_eq!(len, ibus_prop::MODES.len(), "ten modes, nothing else");
-    let state = PickerState::new("e2epick".into(), 2);
-    // Digits 1..9 pick entries 1..9, 0 picks the tenth; Enter picks the
+    assert_eq!(len, ibus_prop::MODES.len(), "nine modes, nothing else");
+    let state = PickerState::new("e2epick".into(), 1);
+    // Digits 1..9 pick entries 1..9, 0 picks the last; Enter picks the
     // highlighted entry; Up/Down move the highlight.
     assert_eq!(state.on_key(0x31), PickerKey::Select(0));
     assert_eq!(state.on_key(0x39), PickerKey::Select(8));
-    assert_eq!(state.on_key(0x30), PickerKey::Select(9));
+    assert_eq!(state.on_key(0x30), PickerKey::Select(8));
     assert_eq!(
         state.on_key(65293),
-        PickerKey::Select(2),
+        PickerKey::Select(1),
         "Enter picks the highlight"
     );
     assert_eq!(state.on_key(65307), PickerKey::Cancel);
@@ -1020,9 +1020,9 @@ fn picker_keys_map_onto_entries() {
     // The current mode's entry carries the dot marker.
     let entries = picker_entries(ModeConfig::Preedit);
     assert!(
-        entries[2].starts_with("● "),
+        entries[1].starts_with("● "),
         "preedit is the default: {}",
-        entries[2]
+        entries[1]
     );
     assert!(!entries[0].starts_with("● "));
 }
@@ -1038,10 +1038,10 @@ fn picker_cursor_moves_with_wrap() {
     assert_eq!(cursor, 1, "down then up twice: 2 -> 3 -> 2 -> 1");
     cursor = 0;
     cursor = (cursor as i32 - 1).rem_euclid(PICKER_PAGE_SIZE as i32) as usize;
-    assert_eq!(cursor, 9, "Up from the first wraps to the tenth");
-    cursor = 9;
+    assert_eq!(cursor, 8, "Up from the first wraps to the last");
+    cursor = 8;
     cursor = (cursor as i32 + 1).rem_euclid(PICKER_PAGE_SIZE as i32) as usize;
-    assert_eq!(cursor, 0, "Down from the tenth wraps to the first");
+    assert_eq!(cursor, 0, "Down from the last wraps to the first");
 }
 
 #[test]
