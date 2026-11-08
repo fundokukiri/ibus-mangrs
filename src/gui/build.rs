@@ -89,7 +89,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let extra_url_chars_switch = switch_row(
-        &t("rows.extra_url_chars.title", "Né thêm ký tự riêng"),
+        &t("rows.extra_url_chars.title", "Thêm ký tự giữ nguyên dấu"),
         &t(
             "rows.extra_url_chars.subtitle",
             "Từ đứng ngay sau ký tự bên dưới cũng giữ nguyên phím thô",
@@ -178,7 +178,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let macro_valid_words = switch_row(
-        &t("rows.macro_valid_words.title", "Nở gõ tắt cả trên từ hợp lệ"),
+        &t("rows.macro_valid_words.title", "Gõ tắt nở cả trên từ hợp lệ"),
         &t(
             "rows.macro_valid_words.subtitle",
             "Phím tắt trùng từ thật (vd “cam”) sẽ nở thay vì giữ nguyên — Backspace một phím để gõ từ thật",
@@ -433,14 +433,14 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     clipboard_restore_spin.set_sensitive(false);
     let echo_stale_switch = switch_row(
-        &t("rows.echo_stale.title", "Cửa sổ xả commit"),
+        &t("rows.echo_stale.title", "Xả commit khi echo lạc"),
         &t(
             "rows.echo_stale.subtitle",
             "Chờ bao lâu thì bỏ đợi phím Backspace ảo quay về mà xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ",
         ),
     );
     let echo_stale_spin = spin_row(
-        &t("rows.echo_stale_spin.title", "Cửa sổ xả sau (ms)"),
+        &t("rows.echo_stale_spin.title", "Xả sau (ms)"),
         &t(
             "rows.echo_stale_spin.subtitle",
             "50–1000 ms. Mặc định: 150. Quá thấp dễ mất chữ, quá cao làm chữ hiện trễ",
