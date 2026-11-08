@@ -83,7 +83,6 @@ const METHODS: &[&str] = &[
     "Microsoft layout",
 ];
 const MODES: &[&str] = &[
-    "Tự động",
     "Không gạch chân",
     "Gạch chân (preedit)",
     "Surrounding text",
@@ -303,16 +302,15 @@ fn method_index(m: MethodConfig) -> u32 {
 
 fn mode_index(m: ModeConfig) -> u32 {
     match m {
-        ModeConfig::Auto => 0,
-        ModeConfig::NonPreedit => 1,
-        ModeConfig::Preedit => 2,
-        ModeConfig::Surrounding => 3,
-        ModeConfig::Smooth => 4,
-        ModeConfig::SuperSmooth => 5,
-        ModeConfig::Select => 6,
-        ModeConfig::ForwardKeyEvent => 7,
-        ModeConfig::ForwardSelect => 8,
-        ModeConfig::Off => 9,
+        ModeConfig::NonPreedit => 0,
+        ModeConfig::Preedit => 1,
+        ModeConfig::Surrounding => 2,
+        ModeConfig::Smooth => 3,
+        ModeConfig::SuperSmooth => 4,
+        ModeConfig::Select => 5,
+        ModeConfig::ForwardKeyEvent => 6,
+        ModeConfig::ForwardSelect => 7,
+        ModeConfig::Off => 8,
     }
 }
 
@@ -320,16 +318,17 @@ fn mode_index(m: ModeConfig) -> u32 {
 /// App Rules rows.
 fn mode_at(i: u32) -> ModeConfig {
     match i {
-        1 => ModeConfig::NonPreedit,
-        2 => ModeConfig::Preedit,
-        3 => ModeConfig::Surrounding,
-        4 => ModeConfig::Smooth,
-        5 => ModeConfig::SuperSmooth,
-        6 => ModeConfig::Select,
-        7 => ModeConfig::ForwardKeyEvent,
-        8 => ModeConfig::ForwardSelect,
-        9 => ModeConfig::Off,
-        _ => ModeConfig::Auto,
+        0 => ModeConfig::NonPreedit,
+        1 => ModeConfig::Preedit,
+        2 => ModeConfig::Surrounding,
+        3 => ModeConfig::Smooth,
+        4 => ModeConfig::SuperSmooth,
+        5 => ModeConfig::Select,
+        6 => ModeConfig::ForwardKeyEvent,
+        7 => ModeConfig::ForwardSelect,
+        8 => ModeConfig::Off,
+        // Out of range: the factory default.
+        _ => ModeConfig::Preedit,
     }
 }
 

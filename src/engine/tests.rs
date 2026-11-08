@@ -3346,110 +3346,10 @@ fn preedit_shows_the_restored_raw_keys_for_a_non_vietnamese_word() {
 }
 
 #[test]
-fn auto_picks_preedit_for_capable_clients() {
-    // A client that renders preedit gets preedit — no delete transport is
-    // needed, so even delete-droppers stay here (the ladder's first rung).
-    let mut e = Engine::new(Method::Telex, Mode::Auto);
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-    assert_eq!(type_replay(&mut e, "vieetj "), "việt ");
-}
-
-#[test]
-fn auto_picks_preedit_for_relays_that_declare_it() {
-    // Relayed Wayland clients declare preedit and render it fine — the
-    // ladder must not push the default path onto forwarded keys.
-    let mut e = Engine::new(Method::Telex, Mode::Auto);
-    e.set_client(Some("gnome-shell".into()));
-    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-    assert_eq!(type_replay(&mut e, "vieetj "), "việt ");
-}
-
-#[test]
-fn auto_picks_forwardselect_for_xim_clients() {
-    // XIM reports no capabilities at all and mishandles a forwarded
-    // Backspace, so it gets the Shift+Left variant.
-    let mut e = Engine::new(Method::Telex, Mode::Auto);
-    e.set_client(Some("xim".into()));
-    e.set_capabilities(0);
-    let actions: Vec<Action> = "vieetj ".chars().flat_map(|c| e.process_char(c)).collect();
-    assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::ForwardSelectLeft(_))),
-        "xim under auto must resolve to ForwardSelect: {actions:?}"
-    );
-}
-
-#[test]
-fn auto_picks_forwardkeyevent_for_relays_without_caps() {
-    // A relay that declares no surrounding-text capability can neither
-    // preedit nor repair by protocol delete: forwarded Backspace key
-    // events are the one working transport.
-    let mut e = Engine::new(Method::Telex, Mode::Auto);
-    e.set_client(Some("gnome-shell".into()));
-    e.set_capabilities(0);
-    let actions: Vec<Action> = "vieetj ".chars().flat_map(|c| e.process_char(c)).collect();
-    assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
-        "relay without caps under auto must resolve to ForwardKeyEvent: {actions:?}"
-    );
-}
-
-#[test]
-fn auto_picks_surrounding_when_only_reports_exist() {
-    // No preedit channel, but the client declares surrounding text: its
-    // reports are the repair channel, so Surrounding is the pick.
-    let mut e = Engine::new(Method::Telex, Mode::Auto);
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_capabilities(CAP_SURROUNDING_TEXT);
-    let actions: Vec<Action> = "vieetj ".chars().flat_map(|c| e.process_char(c)).collect();
-    assert!(
-        !actions.iter().any(|a| matches!(
-            a,
-            Action::ForwardSelectLeft(_) | Action::ForwardBackspaces(_)
-        )),
-        "ST-capable client under auto must not fall to a forward mode: {actions:?}"
-    );
-    assert_eq!(type_replay(&mut e, "vieetj "), "việt ");
-}
-
-#[test]
-fn auto_falls_back_to_nonpreedit_for_unknown_clients() {
-    // A direct client with no caps and no reports: inert rather than
-    // guessing a transport it may not have. Replay commits and raw
-    // forwards the way an application would — the raw keys are what must
-    // survive (the composition breaks open as soon as a mark needs a
-    // refused delete, so some keys commit and some forward).
-    let mut e = Engine::new(Method::Telex, Mode::Auto);
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_capabilities(0);
-    let mut buf = String::new();
-    let mut transport = false;
-    for c in "vieetj ".chars() {
-        for a in e.process_char(c) {
-            match a {
-                Action::Commit(t) => buf.push_str(&t),
-                Action::Forward => buf.push(c),
-                Action::ForwardSelectLeft(_) | Action::ForwardBackspaces(_) => transport = true,
-                _ => {}
-            }
-        }
-    }
-    assert_eq!(buf, "vieetj ", "no transport: the word must stay raw");
-    assert!(
-        !transport,
-        "an unknown client must not get a guessed transport"
-    );
-}
-
-#[test]
-fn app_rule_wins_over_auto() {
-    // A rule pins the client to preedit; the ladder must not run even
+fn app_rule_wins_over_the_global_mode() {
+    // A rule pins the client to preedit; the global mode must not run even
     // though the client could not render preedit without the rule.
-    let mut e = Engine::new(Method::Telex, Mode::Auto);
+    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
     e.set_client(Some("gtk4-im:ruleclient".into()));
     e.set_capabilities(0);
     e.apply_config(&Config {
@@ -3460,15 +3360,15 @@ fn app_rule_wins_over_auto() {
         ..Config::default()
     });
     // The rule requests Preedit; without preedit caps the hard fallback
-    // still applies (the rule does not bypass physics) — the ladder, on
-    // the other hand, is never consulted: no Shift+Left transport may
+    // still applies (the rule does not bypass physics) — the global mode,
+    // on the other hand, is never consulted: no Shift+Left transport may
     // appear.
     let actions: Vec<Action> = "vieetj ".chars().flat_map(|c| e.process_char(c)).collect();
     assert!(
         !actions
             .iter()
             .any(|a| matches!(a, Action::ForwardSelectLeft(_))),
-        "a pinned rule must bypass the auto ladder: {actions:?}"
+        "a pinned rule must bypass the global mode: {actions:?}"
     );
 }
 

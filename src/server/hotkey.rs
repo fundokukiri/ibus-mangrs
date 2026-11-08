@@ -252,7 +252,6 @@ impl EngineHandler {
     fn cycle_mode(&mut self, out: &mut Vec<Message>) {
         let mut config = Config::load();
         config.mode = match config.mode {
-            ModeConfig::Auto => ModeConfig::NonPreedit,
             ModeConfig::NonPreedit => ModeConfig::Preedit,
             ModeConfig::Preedit => ModeConfig::Surrounding,
             ModeConfig::Surrounding => ModeConfig::Smooth,
@@ -261,7 +260,7 @@ impl EngineHandler {
             ModeConfig::Select => ModeConfig::ForwardKeyEvent,
             ModeConfig::ForwardKeyEvent => ModeConfig::ForwardSelect,
             ModeConfig::ForwardSelect => ModeConfig::Off,
-            ModeConfig::Off => ModeConfig::Auto,
+            ModeConfig::Off => ModeConfig::NonPreedit,
         };
         if config.save().is_err() {
             return; // consumed anyway; do not type with a hotkey press

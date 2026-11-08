@@ -450,13 +450,15 @@ fn refresh_round_trips_every_widget() {
     // the removed "Gõ mặc định" and missed "Tự động", so Preedit showed as
     // Surrounding text) and the round-trip below could not see it because
     // it only walks the mappers, never the labels.
-    assert_eq!(MODES[0], "Tự động", "auto must lead the mode list");
+    assert_eq!(
+        MODES[0], "Không gạch chân",
+        "the list must lead with the first display mode"
+    );
     assert!(
-        !MODES.contains(&"Gõ mặc định"),
-        "the removed mode must not linger in the list"
+        !MODES.contains(&"Tự động") && !MODES.contains(&"Gõ mặc định"),
+        "removed modes must not linger in the list"
     );
     for m in [
-        ModeConfig::Auto,
         ModeConfig::NonPreedit,
         ModeConfig::Preedit,
         ModeConfig::Surrounding,
