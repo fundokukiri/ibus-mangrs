@@ -261,11 +261,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     page_rows.push(("about".to_string(), about_row.clone()));
     // refresh() ran before the sidebar existed: the eleven rows hid fine,
     // but the gate's nav-row hide found nothing and the "Thử nghiệm" tab
-    // reappeared on every open. Re-apply just the row visibility — the
-    // jump-to-"Cài đặt khác" half of the gate must not fire at startup.
-    if let Some(nav) = ui.experimental_nav.borrow().as_ref() {
-        nav.set_visible(config.experimental_features);
-    }
+    // reappeared on every open. The nav row is stored now — apply the gate
+    // (pure visibility; it no longer jumps pages).
+    ui.set_experimental_visible(config.experimental_features);
     // Owned copies for the 'static signal handlers (the const PAGES they
     // replaced lives only in the content file now).
     let app_name = t("app.name", "MăngRS");

@@ -176,12 +176,20 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     advanced.add(&ui.experimental_features);
     // The gate toggles visibility itself (config save goes through
     // wire_switch_saves): off hides every experimental row across the
-    // pages, on brings them back with their saved states.
+    // pages, on brings them back with their saved states. The jump to this
+    // page lives HERE, not in set_experimental_visible — that one runs on
+    // every refresh, where a jump would yank the user off their page on
+    // every save (the external-reload watcher fires it too).
     {
         let ui = Rc::clone(ui);
         let switch = ui.experimental_features.clone();
         switch.connect_active_notify(move |sw| {
             ui.set_experimental_visible(sw.is_active());
+            if !sw.is_active() {
+                if let Some(select) = ui.sidebar_select.borrow().as_ref() {
+                    select("other");
+                }
+            }
         });
     }
     advanced.add(&ui.debug_log);
