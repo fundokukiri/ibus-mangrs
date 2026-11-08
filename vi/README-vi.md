@@ -95,7 +95,7 @@ Lõi của bộ gõ lấy từ crate `bamboo-core` trên crates.io (phiên bản
 
 ### Cài đặt nhanh 1 dòng (Online)
 
-Tự động tải mã nguồn, biên dịch và cài đặt; các thư viện phụ thuộc còn thiếu (IBus, GTK4, công cụ build, Rust) sẽ được nhận diện và cài bổ sung, bạn chỉ cần có sẵn `curl` (hoặc `wget`) và quyền `sudo` — chạy lại sẽ không cài thêm gì mới. Quy tắc udev cho `/dev/uinput` và nhóm người dùng `input` cũng sẽ được cấu hình tự động:
+Tự động tải mã nguồn, biên dịch và cài đặt; các thư viện phụ thuộc còn thiếu (IBus, GTK4, công cụ build, Rust) sẽ được nhận diện và cài bổ sung, bạn chỉ cần có sẵn `curl` (hoặc `wget`) và quyền `sudo` — chạy lại sẽ không cài thêm gì mới. Quy tắc udev cho `/dev/uinput` và nhóm người dùng `input` cũng sẽ được cấu hình tự động. Sau khi cài thành công, các gói chỉ dùng để build mà lần chạy này vừa cài sẽ được **gỡ lại** (`KEEP_BUILD_DEPS=1` để giữ lại); gói có sẵn trên máy không bao giờ bị đụng tới, các thư viện runtime vẫn giữ, và Rust (rustup) cũng giữ — không cần thì gỡ bằng `rustup self uninstall`:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
