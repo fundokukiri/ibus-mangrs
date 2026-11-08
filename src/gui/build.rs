@@ -333,13 +333,6 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại",
         ),
     );
-    let tui_switch = switch_row(
-        &t("rows.tui.title", "Dùng giao diện TUI (chữ)"),
-        &t(
-            "rows.tui.subtitle",
-            "Mở lại cài đặt dạng chữ trong terminal — chỉ vài MB RAM. Tắt trong chính giao diện TUI để quay lại",
-        ),
-    );
     let desktop_icon_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
     let suppress_save = Cell::new(false);
@@ -700,7 +693,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         rules_loading,
         desktop_icon,
         show_toasts,
-        tui_switch,
         desktop_icon_loading,
         save_cb,
         suppress_save,

@@ -29,9 +29,7 @@ toml = "0.8"
 
 [features]
 default = []
-# The settings surfaces: the modern Libadwaita window and the classic TUI
-# (pure-Rust crossterm backend, no system ncurses).
-gui = ["dep:gtk4", "dep:libadwaita", "dep:cursive"]
+gui = ["dep:gtk4", "dep:libadwaita"]
 
 [dependencies.gtk4]
 version = "0.9"
@@ -46,14 +44,6 @@ version = "0.7"
 optional = true
 # v1_5: NavigationSplitView + AdwDialog family for the GNOME Settings look.
 features = ["v1_5"]
-
-[dependencies.cursive]
-version = "0.21"
-optional = true
-# Crossterm backend only: pure Rust over the TTY, no system ncurses and no
-# markdown/toml extras — the classic UI exists to cost a few megabytes.
-default-features = false
-features = ["crossterm-backend"]
 
 [profile.release]
 lto = true

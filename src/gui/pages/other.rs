@@ -62,7 +62,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     )));
     interface.add(&ui.desktop_icon);
     interface.add(&ui.show_toasts);
-    interface.add(&ui.tui_switch);
     page.add(&interface);
 
     // Focus extension: embedded, written into the user extension dir.

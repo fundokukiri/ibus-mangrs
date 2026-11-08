@@ -138,15 +138,6 @@ pub struct Config {
     /// silences every toast (including the delete-undo ones); errors keep
     /// their dialogs either way. The engine never reads this.
     pub show_toasts: bool,
-    /// GUI-only: the `-gui` process opens the terminal text UI
-    /// (`gui::tui`) instead of the Libadwaita window. Read once at process
-    /// start — the switch lives inside whichever surface opened, so the
-    /// change lands on the next launch, never mid-session. Off by default:
-    /// the Libadwaita window is the shipped look. No serde alias for this
-    /// key's brief `gui_classic` life: an alias plus the old line in one
-    /// file reads as a duplicate field and fails the whole parse, while an
-    /// unknown key is simply ignored.
-    pub tui: bool,
     /// Append engine decisions (focus, capabilities, surrounding text,
     /// deletes) to `~/.cache/ibus-mangrs/debug.log` for live diagnosis.
     pub debug_log: bool,
@@ -834,7 +825,6 @@ impl Default for Config {
             smooth_per_key: true,
             experimental_features: false,
             show_toasts: true,
-            tui: false,
             debug_log: false,
             debug_log_text: false,
             x11_delete_without_report: false,
@@ -1285,17 +1275,6 @@ children = ["preedit", "smooth"]
         let c: Config = toml::from_str("smooth_per_key = false").unwrap();
         assert!(!c.smooth_per_key);
         assert!(Config::default().smooth_per_key);
-    }
-
-    #[test]
-    fn tui_round_trips_and_defaults_off() {
-        let c: Config = toml::from_str("tui = true").unwrap();
-        assert!(c.tui);
-        assert!(!Config::default().tui);
-        // The key's brief `gui_classic` life parses as an unknown key: it
-        // must NOT collide with `tui` (an alias would fail the whole file).
-        let with_old: Config = toml::from_str("gui_classic = true\ntui = true").unwrap();
-        assert!(with_old.tui);
     }
 
     #[test]
