@@ -550,30 +550,22 @@ const BACKSPACE_KEYCODE: u32 = 14;
 /// minus 8). ibus-bamboo forwards the same value for its ForwardKeyEvent II.
 const LEFT_KEYCODE: u32 = 105;
 
-/// Shift_L scancode, same convention (X keycode 50 minus 8). Forwarded keys are
-/// injected by keycode and the injector ignores the state field, so a selection
-/// needs a real Shift press: `state = SHIFT_MASK` alone moved the caret without
-/// selecting ("chào" came out "cào").
-const SHIFT_L_KEYCODE: u32 = 42;
-
-/// One forwarded key event. Forwarded keys are single events: the caller pairs
-/// the press and its release, because a modifier must stay down across the keys
-/// it applies to.
-fn push_forward_event(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u32) {
+/// One forwarded key as press + release. The release carries no modifier (the
+/// app has already acted on the press); ibus-bamboo's ForwardKeyEvent modes
+/// send the same pair.
+fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u32) {
     out.push(
         signal("ForwardKeyEvent")
             .append1(keyval)
             .append1(keycode)
             .append1(state),
     );
-}
-
-/// One forwarded key as press + release. The release carries no modifier (the
-/// app has already acted on the press); ibus-bamboo's ForwardKeyEvent modes
-/// send the same pair.
-fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u32) {
-    push_forward_event(out, keyval, keycode, state);
-    push_forward_event(out, keyval, keycode, keymap::RELEASE_MASK);
+    out.push(
+        signal("ForwardKeyEvent")
+            .append1(keyval)
+            .append1(keycode)
+            .append1(keymap::RELEASE_MASK),
+    );
 }
 
 /// Handle one key event, pushing resulting signals into `out`.
@@ -957,14 +949,9 @@ fn emit_with(
             // transport already proven to land in these clients.
             Action::ForwardSelectLeft(n) => {
                 debug_log::log(&format!("forward-select-left n={n} + erase"));
-                // The injector derives modifiers from keycode, not from the
-                // event's state, so the Shift has to be a real key held across
-                // the Lefts or the app just moves the caret.
-                push_forward_event(out, 0xffe1, SHIFT_L_KEYCODE, 0);
                 for _ in 0..*n {
                     push_forward_keys(out, keymap::LEFT, LEFT_KEYCODE, keymap::SHIFT_MASK);
                 }
-                push_forward_event(out, 0xffe1, SHIFT_L_KEYCODE, keymap::RELEASE_MASK);
                 push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
             }
             Action::SelectLeft(n) => {

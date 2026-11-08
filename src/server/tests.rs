@@ -730,12 +730,10 @@ fn x11_delete_opt_in_reaches_the_wire_without_a_report() {
 
 #[test]
 fn forward_select_selects_then_erases() {
-    // ForwardKeyEvent II's wire shape: a real Shift press (the injector
-    // derives modifiers from keycodes, not from the state field), Left with
-    // the shift held on the press, plain release (scancode 105; clients add
-    // 8 themselves), Shift release, then one Backspace that erases the
-    // selection the Left keys made — the commit alone does not replace an
-    // application-side selection.
+    // ForwardKeyEvent II's wire shape: Left with the shift held on the
+    // press, plain release (scancode 105; clients add 8 themselves), then
+    // one Backspace that erases the selection the Left keys made — the
+    // commit alone does not replace an application-side selection.
     let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
     e.set_client(Some("xim".into()));
     let mut out = Vec::new();
@@ -750,11 +748,7 @@ fn forward_select_selects_then_erases() {
         .filter(|m| m.member().map(|x| x == "ForwardKeyEvent").unwrap_or(false))
         .filter_map(|m| m.read3::<u32, u32, u32>().ok())
         .collect();
-    assert_eq!(
-        keys.len(),
-        8,
-        "shift press, two Lefts, shift release, the erase: {keys:?}"
-    );
+    assert_eq!(keys.len(), 6, "two Lefts plus the erase: {keys:?}");
     let lefts: Vec<_> = keys
         .iter()
         .filter(|(keyval, _, _)| *keyval == 0xff51)
@@ -764,33 +758,12 @@ fn forward_select_selects_then_erases() {
         lefts.iter().all(|(_, keycode, _)| *keycode == 105),
         "Left keyval with its scancode: {keys:?}"
     );
-    let shifts: Vec<_> = keys
-        .iter()
-        .enumerate()
-        .filter(|(_, (keyval, _, _))| *keyval == 0xffe1)
-        .collect();
-    assert_eq!(shifts.len(), 2, "shift press and release: {keys:?}");
-    assert!(
-        shifts.iter().all(|(_, (_, keycode, _))| *keycode == 42),
-        "Shift_L keyval with its scancode: {keys:?}"
-    );
     assert_eq!(
         keys.iter()
             .filter(|(keyval, _, _)| *keyval == 0xff08)
             .count(),
         2,
         "one Backspace press and release erases the selection: {keys:?}"
-    );
-    let (shift_down, shift_up) = (shifts[0].0, shifts[1].0);
-    let between = &keys[shift_down + 1..shift_up];
-    assert_eq!(between.len(), 4, "shift held across both Lefts: {keys:?}");
-    assert!(
-        between.iter().all(|(k, _, _)| *k == 0xff51),
-        "the Lefts sit between the shift press and its release: {keys:?}"
-    );
-    assert!(
-        keys[shift_up + 1..].iter().all(|(k, _, _)| *k == 0xff08),
-        "the Backspace follows the shift release: {keys:?}"
     );
     assert_eq!(
         keys.iter()
@@ -803,8 +776,8 @@ fn forward_select_selects_then_erases() {
         keys.iter()
             .filter(|(_, _, state)| *state == keymap::RELEASE_MASK)
             .count(),
-        4,
-        "releases: shift, two Lefts, one Backspace: {keys:?}"
+        3,
+        "three plain releases (two Lefts, one Backspace): {keys:?}"
     );
 }
 
