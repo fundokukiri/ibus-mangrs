@@ -1,7 +1,7 @@
 //! Page "Thử nghiệm": every feature behind the experimental master gate on
 //! one tab. The rows themselves come from `build`; the gate ("Cài đặt khác")
-//! shows and hides the whole tab, so the rows need no per-row hiding and no
-//! "Thử nghiệm" badge — living here IS the badge.
+//! shows and hides the whole tab, and the "Thử nghiệm" badge sits on the
+//! primary row of each feature — the switch — never on its entry/spin twin.
 
 use super::*;
 
@@ -28,6 +28,16 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     tuning.add(&ui.idle_commit_switch);
     tuning.add(&ui.idle_commit_spin);
     page.add(&tuning);
+
+    // The badge marks the feature's primary row — the switch that turns it
+    // on. The entry/spin twins stay clean: two badges for one feature would
+    // read as two features.
+    decorate_experimental(&ui.macro_valid_words);
+    decorate_experimental(&ui.extra_url_chars_switch);
+    decorate_experimental(&ui.auto_capitalize_after_switch);
+    decorate_experimental(&ui.clipboard_restore_switch);
+    decorate_experimental(&ui.echo_stale_switch);
+    decorate_experimental(&ui.idle_commit_switch);
 
     // The switch-gates-value pairs keep their lock behavior: off locks the
     // input, the typed value stays saved for when the switch returns.
