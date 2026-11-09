@@ -875,39 +875,24 @@ fn mutter_relayed_clients_skip_repair_deletes_but_rewrite_normally() {
 }
 
 #[test]
-fn rule_and_heuristic_clients_fall_back_to_preedit() {
-    // These clients ignore DeleteSurroundingText; non-preedit would append
-    // the rewrite and duplicate the word, so keep it inline instead.
-    for client in ["gtk4-im:kgx", "gtk4-im:gnome-console", "gtk3-im:code"] {
-        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-        e.set_capabilities(CAP_PREEDIT_TEXT);
-        e.set_client(Some(client.into()));
-        let actions = type_str(&mut e, "tieengs");
-        assert!(
-            !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
-            "{client}: {actions:?}"
-        );
-        assert!(
-            actions
-                .iter()
-                .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "tiếng")),
-            "{client}: {actions:?}"
-        );
-    }
-}
-
-#[test]
-fn sublime_text_gets_surrounding_mode() {
-    // The default rule pins Sublime Text (preedit is invisible there) to
-    // surrounding-text mode: commits stay inline and drift is repaired.
+fn heuristic_clients_fall_back_to_preedit() {
+    // Clients on the engine's FALLBACK_NO_DELETE_SURROUNDING list ignore
+    // DeleteSurroundingText; non-preedit would append the rewrite and
+    // duplicate the word, so keep it inline instead.
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-    e.set_client(Some("gtk3-im:sublime_text".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_client(Some("gtk3-im:code".into()));
     let actions = type_str(&mut e, "tieengs");
-    assert!(!actions
-        .iter()
-        .any(|a| matches!(a, Action::UpdatePreedit { .. })));
-    assert_eq!(replay(&actions), "tiếng");
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+        "{actions:?}"
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "tiếng")),
+        "{actions:?}"
+    );
 }
 
 /// Type through `process_char` without the helpers' forced capabilities.
@@ -1128,8 +1113,10 @@ fn forward_key_event_backspace_never_deletes_by_protocol() {
 }
 
 #[test]
-fn config_rule_overrides_builtin() {
-    // A user rule wins even over the built-in preedit list.
+fn config_rule_bypasses_the_delete_fallback() {
+    // An explicit rule pins the mode for its client, skipping the runtime
+    // fallback that would otherwise force preedit on delete-dropping
+    // clients such as chrome.
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
     e.set_capabilities(CAP_PREEDIT_TEXT);
     e.set_client(Some("gtk4-im:chrome".into()));
