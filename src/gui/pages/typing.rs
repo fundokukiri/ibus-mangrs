@@ -12,51 +12,50 @@ use super::*;
 /// Making the value view expand splits the spare space with the title
 /// box, and the value label right-aligns inside its half, so long values
 /// stay whole at the default width and only ellipsize on a narrow window.
-/// The inline item and its label only exist once the row is mapped, so
-/// the label tweak runs one idle after the first map; item widgets are
-/// recycled, so the tweak sticks across selections.
+/// Alignment must come from a factory-owned label: the item widgets are
+/// rebuilt for every pick, so poking "the first label" of the internal
+/// ListView either raced the item bind or targeted another pooled item —
+/// the value then sat at the default alignment until the window reopened.
 fn widen_value(row: &adw::ComboRow) {
-    fn find_value_view(w: &gtk4::Widget) -> Option<gtk4::ListView> {
-        if let Some(view) = w.downcast_ref::<gtk4::ListView>() {
-            return Some(view.clone());
-        }
-        let mut child = w.first_child();
-        while let Some(c) = child {
-            if let Some(view) = find_value_view(&c) {
-                return Some(view);
-            }
-            child = c.next_sibling();
-        }
-        None
-    }
-    if let Some(view) = find_value_view(row.upcast_ref()) {
+    if let Some(view) = combo_value_view(row) {
         view.set_hexpand(true);
     }
-    // Apply exactly once per row: the item widgets are recycled, and
-    // re-poking "the first label" after every map kept touching different
-    // widgets — the accumulated expand/align settings are what nudged the
-    // selected text toward the center over successive picks (a fresh window
-    // reset it). A failed pass (the list not bound yet) retries on the next
-    // map.
-    let applied = std::rc::Rc::new(std::cell::Cell::new(false));
-    row.connect_map(move |row| {
-        if applied.get() {
+    // Separate factories: the display label right-aligns, the popup list
+    // keeps its default left look.
+    row.set_factory(Some(&value_factory(1.0)));
+    row.set_list_factory(Some(&value_factory(0.0)));
+}
+
+/// A list item factory whose label is born with the given alignment, so
+/// every pick shows an aligned label without racing the item bind.
+fn value_factory(xalign: f32) -> gtk4::SignalListItemFactory {
+    let factory = gtk4::SignalListItemFactory::new();
+    factory.connect_setup(move |_, item| {
+        let Some(item) = item.downcast_ref::<gtk4::ListItem>() else {
             return;
-        }
-        let row = row.clone();
-        let applied = applied.clone();
-        gtk4::glib::idle_add_local_once(move || {
-            let Some(view) = find_value_view(row.upcast_ref()) else {
-                return;
-            };
-            let Some(label) = first_label(&view) else {
-                return;
-            };
-            label.set_hexpand(true);
-            label.set_xalign(1.0);
-            applied.set(true);
-        });
+        };
+        let label = gtk4::Label::builder()
+            .hexpand(true)
+            .xalign(xalign)
+            .ellipsize(gtk4::pango::EllipsizeMode::End)
+            .build();
+        item.set_child(Some(&label));
     });
+    factory.connect_bind(move |_, item| {
+        let Some(item) = item.downcast_ref::<gtk4::ListItem>() else {
+            return;
+        };
+        let Some(label) = item.child().and_downcast::<gtk4::Label>() else {
+            return;
+        };
+        let text = item
+            .item()
+            .and_downcast::<gtk4::StringObject>()
+            .map(|s| s.string().to_string())
+            .unwrap_or_default();
+        label.set_text(&text);
+    });
+    factory
 }
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
