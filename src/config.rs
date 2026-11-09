@@ -729,35 +729,6 @@ pub fn recent_clients() -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Built-in rules for clients known to drop `DeleteSurroundingText`.
-fn default_app_rules() -> Vec<AppRule> {
-    let preedit = [
-        "chrome",
-        "chromium",
-        "brave",
-        "msedge",
-        "vivaldi",
-        "electron",
-        "code",
-        "slack",
-        "discord",
-        "kgx",
-        "gnome-console",
-    ];
-    let surrounding = ["sublime_text"];
-    preedit
-        .into_iter()
-        .map(|pattern| AppRule {
-            pattern: pattern.into(),
-            mode: ModeConfig::Preedit,
-        })
-        .chain(surrounding.into_iter().map(|pattern| AppRule {
-            pattern: pattern.into(),
-            mode: ModeConfig::Surrounding,
-        }))
-        .collect()
-}
-
 /// Keys of the quick toggles the panel popup shows by default — the menu the
 /// engine shipped before the list became user-editable.
 fn default_quick_menu() -> Vec<String> {
@@ -829,7 +800,7 @@ impl Default for Config {
             debug_log_text: false,
             x11_delete_without_report: false,
             preedit_for_xim: false,
-            app_rules: default_app_rules(),
+            app_rules: Vec::new(),
             custom_hotkeys: Vec::new(),
             quick_menu: default_quick_menu(),
             menu_modes: default_menu_modes(),
@@ -1238,8 +1209,8 @@ children = ["preedit", "smooth"]
         let c: Config = toml::from_str("mode = \"preedit\"").unwrap();
         assert_eq!(c.mode, ModeConfig::Preedit);
         assert!(c.enabled, "missing keys take defaults");
-        // Missing app_rules fall back to the built-in safety net.
-        assert!(c.app_rules.iter().any(|r| r.pattern == "chrome"));
+        // Missing app_rules stay empty — nothing ships pre-added.
+        assert!(c.app_rules.is_empty());
     }
 
     #[test]
@@ -1316,8 +1287,20 @@ children = ["preedit", "smooth"]
 
     #[test]
     fn picker_choice_updates_the_winning_rule() {
-        let mut c = Config::default();
-        // The net covers chrome with Preedit; a pick for a chrome target
+        let mut c = Config {
+            app_rules: vec![
+                AppRule {
+                    pattern: "chrome".into(),
+                    mode: ModeConfig::Preedit,
+                },
+                AppRule {
+                    pattern: "chromium".into(),
+                    mode: ModeConfig::Preedit,
+                },
+            ],
+            ..Config::default()
+        };
+        // chrome is covered by an existing rule; a pick for a chrome target
         // must flip THAT rule in place.
         assert_eq!(
             crate::config::app_rule_mode(&c.app_rules, Some("wayland:chrome")),
