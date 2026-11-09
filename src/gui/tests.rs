@@ -25,6 +25,36 @@ fn gtk_widget_scenarios() {
     toggling_off_releases_the_editor_caret();
     every_switch_triggers_save();
     experimental_gate_hides_and_restores_rows();
+    combo_value_stays_right_after_a_pick();
+}
+
+/// The widened combo value stays right-aligned after a pick: the value
+/// view rebuilds the item widget for the new selection, so the align poke
+/// must run on the selection change too — a one-time poke left the picked
+/// value at the default alignment (the text jumped toward the center
+/// until the window reopened).
+fn combo_value_stays_right_after_a_pick() {
+    let ui = widgets();
+    let page = crate::gui::pages::typing::build(&ui);
+    let win = gtk4::Window::new();
+    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
+    win.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let view = combo_value_view(&ui.method).expect("the combo's value view");
+    let label = first_label(&view).expect("the value label after map");
+    assert_eq!(label.xalign(), 1.0, "map aligns the selected value");
+    // Pick another item: the displayed label is rebuilt for it.
+    let model = ui.method.model().expect("the combo model");
+    let next = (ui.method.selected() + 1) % model.n_items();
+    ui.method.set_selected(next);
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let view = combo_value_view(&ui.method).expect("the value view after pick");
+    let label = first_label(&view).expect("the value label after pick");
+    assert_eq!(label.xalign(), 1.0, "a pick must not reset the alignment");
 }
 
 /// While typing in a raw table, a switch turned off (by hand or by a live
