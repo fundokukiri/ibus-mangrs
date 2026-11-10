@@ -28,6 +28,48 @@ die() {
     exit 1
 }
 
+DEMO=${MANGRS_DEMO:-}
+for arg in "$@"; do
+    case "$arg" in
+        --demo) DEMO=1 ;;
+        -h|--help)
+            echo "usage: install-online.sh [--demo]"
+            echo "  --demo  simulate the whole install; nothing is installed or touched"
+            exit 0
+            ;;
+        *) die "unknown option '$arg': usage install-online.sh [--demo]" ;;
+    esac
+done
+
+# ---- display helpers: colors only on a TTY, plain text when piped ----
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    C_OK=$(printf '\033[32m'); C_DIM=$(printf '\033[2m'); C_R=$(printf '\033[0m')
+else
+    C_OK=''; C_DIM=''; C_R=''
+fi
+STEP=''
+step() { STEP="$1"; printf '%s-> %s%s\n' "$C_DIM" "$STEP" "$C_R"; }
+ok()   { printf '%s  ✓ %s%s\n' "$C_OK" "$STEP" "$C_R"; }
+
+# one carriage-return redraw; a bad total renders nothing instead of dividing by zero
+draw_bar() {
+    got=$1 tot=$2
+    if [ "$tot" -le 0 ]; then return 0; fi
+    W=24
+    filled=$(( got * W / tot ))
+    if [ "$filled" -gt "$W" ]; then filled=$W; fi
+    pct=$(( got * 100 / tot ))
+    if [ "$pct" -gt 100 ]; then pct=100; fi
+    bar=$(printf '%*s' "$filled" '' | tr ' ' '#')
+    pad=$(printf '%*s' "$(( W - filled ))" '' | tr ' ' '.')
+    printf '\r  [%s%s] %3d%%  %s / %s' "$bar" "$pad" "$pct" "$(hr "$got")" "$(hr "$tot")"
+}
+hr() { awk -v b="$1" 'BEGIN{printf "%.1f MB", b/1048576}'; }
+
+if [ -n "$DEMO" ]; then
+    echo "MăngRS installer (DEMO MODE — nothing is installed, nothing is touched)"
+fi
+
 # ---- detect distro ----
 DISTRO=""
 if [ -r /etc/os-release ]; then
@@ -93,6 +135,16 @@ ensure_pkgs() {
     for p in "$@"; do
         pkg_installed "$p" || missing="$missing $p"
     done
+    if [ -n "$DEMO" ]; then
+        # demo reports what would happen; nothing is installed, INSTALLED stays empty
+        if [ -z "$missing" ]; then
+            echo ">> dependencies already installed"
+        else
+            echo "(demo) would install:$missing"
+            sleep 1.5
+        fi
+        return 0
+    fi
     if [ -z "$missing" ]; then
         echo ">> dependencies already installed"
         return 0
@@ -142,22 +194,31 @@ case "$DISTRO" in
         ;;
 esac
 
+step "Preparing dependencies"
 # shellcheck disable=SC2086
 ensure_pkgs $DEPS
+ok
 
 # ---- ensure rustup/cargo ----
+step "Checking toolchain"
 if ! command -v cargo >/dev/null; then
-    echo ">> installing Rust (rustup)..."
-    RUSTUP_INSTALLED=1
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-        || die "rustup install failed"
+    if [ -n "$DEMO" ]; then
+        sleep 1
+    else
+        echo ">> installing Rust (rustup)..."
+        RUSTUP_INSTALLED=1
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+            || die "rustup install failed"
+    fi
 fi
 if [ -f "$HOME/.cargo/env" ]; then
     # shellcheck disable=SC1091
     . "$HOME/.cargo/env"
 fi
 export PATH="$HOME/.cargo/bin:$PATH"
-command -v cargo >/dev/null || die "cargo not found after installing Rust"
+if [ -z "$DEMO" ]; then
+    command -v cargo >/dev/null || die "cargo not found after installing Rust"
+fi
 
 # ---- verify the headers the build actually links against ----
 for mod in dbus-1 gtk4 libadwaita-1 glib-2.0 gdk-pixbuf-2.0 pango cairo graphene-1.0; do
@@ -182,6 +243,7 @@ case "$adw_ver" in
     *) die "libadwaita $adw_ver is too old: the settings GUI needs 1.4+" ;;
 esac
 echo ">> GTK $gtk_ver, $(cargo --version)"
+ok
 
 # ---- cleanup: drop the build-only packages THIS run installed ----
 # The binary still links the runtime libraries (GTK4, libadwaita, dbus, ibus),
@@ -238,6 +300,9 @@ cleanup_build_deps() {
 # in the GNOME input sources instead of asking for the Settings dance. Other
 # desktops keep the printed manual step.
 enable_gnome_input_source() {
+    if [ -n "$DEMO" ]; then
+        return 0
+    fi
     command -v gsettings >/dev/null || return 0
     current=$(gsettings get org.gnome.desktop.input-sources sources 2>/dev/null) || return 0
     case "$current" in
@@ -264,26 +329,94 @@ enable_gnome_input_source() {
     fi
 }
 
+# ---- download (a real percentage bar when the size is known) ----
+download_src() {
+    url="https://github.com/$REPO/archive/refs/heads/$REF.tar.gz"
+    if [ -n "$DEMO" ]; then
+        # simulated download so the bar is visible without touching the network
+        total=$((68 * 1024 * 1024))
+        i=0
+        while [ "$i" -le 100 ]; do
+            if [ -t 1 ]; then draw_bar $(( total * i / 100 )) "$total"; fi
+            sleep 0.05
+            i=$(( i + 4 ))
+        done
+        if [ -t 1 ]; then draw_bar "$total" "$total"; printf '\n'; fi
+        return 0
+    fi
+    hdr="$tmp/h.txt"
+    if [ -t 1 ]; then
+        curl -fsSL -D "$hdr" -o "$tmp/src.tar.gz" "$url" &
+        cpid=$!
+        # content-length arrives with the response headers; 0 means unknown size
+        total=0
+        n=0
+        while [ "$n" -lt 30 ]; do
+            if [ -s "$hdr" ]; then
+                total=$(awk 'tolower($1)=="content-length:"{v=$2}END{sub(/\r$/,"",v);print v+0}' "$hdr")
+            fi
+            if [ "$total" -gt 0 ]; then break; fi
+            if ! kill -0 "$cpid" 2>/dev/null; then break; fi
+            n=$(( n + 1 ))
+            sleep 0.1
+        done
+        while kill -0 "$cpid" 2>/dev/null; do
+            got=$(wc -c < "$tmp/src.tar.gz")
+            if [ "$total" -gt 0 ]; then draw_bar "$got" "$total"; else printf '\r  %s' "$(hr "$got")"; fi
+            sleep 0.15
+        done
+        wait "$cpid" || die "download failed"
+        if [ "$total" -gt 0 ]; then draw_bar "$total" "$total"; printf '\n'; fi
+    else
+        curl -fsSL -o "$tmp/src.tar.gz" "$url" || die "download failed"
+    fi
+    tar -xzf "$tmp/src.tar.gz" -C "$tmp" || die "download failed"
+}
+
 # ---- download, build, install ----
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
-echo ">> downloading ibus-mangrs ($REF)..."
-curl -fsSL "https://github.com/$REPO/archive/refs/heads/$REF.tar.gz" | tar -xz -C "$tmp" \
-    || die "download failed"
-cd "$tmp/ibus-mangrs-$REF"
+step "Downloading source"
+if [ -z "$DEMO" ]; then
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+fi
+download_src
+ok
+if [ -z "$DEMO" ]; then
+    cd "$tmp/ibus-mangrs-$REF"
+fi
 
-echo ">> building (this takes a few minutes)..."
-cargo build --release --features gui || die "build failed"
+step "Building"
+if [ -n "$DEMO" ]; then
+    sleep 2
+else
+    cargo build --release --features gui || die "build failed"
+fi
+ok
 
-echo ">> installing (needs sudo)..."
-# shellcheck disable=SC2086
-$SUDO ./scripts/install.sh
+step "Installing"
+if [ -n "$DEMO" ]; then
+    sleep 1
+else
+    # shellcheck disable=SC2086
+    $SUDO ./scripts/install.sh
+fi
+ok
 
+step "Cleaning build dependencies"
 cleanup_build_deps
+ok
 
+step "Configuring GNOME input source"
 enable_gnome_input_source
+ok
 
-ibus-daemon -r --replace 2>/dev/null || ibus restart 2>/dev/null || true
+step "Restarting IBus"
+if [ -n "$DEMO" ]; then
+    sleep 0.5
+else
+    ibus-daemon -r --replace 2>/dev/null || ibus restart 2>/dev/null || true
+fi
+ok
 
 echo
 echo "done. enable the input source:"
@@ -292,4 +425,7 @@ echo "  other desktops: Settings -> Keyboard -> Input Sources -> + -> Vietnamese
 echo "  (log out and back in once if you were just added to the input group)"
 if [ -n "$RUSTUP_INSTALLED" ]; then
     echo "  (Rust was installed via rustup and stays; remove with 'rustup self uninstall' if unwanted)"
+fi
+if [ -n "$DEMO" ]; then
+    echo "demo complete — nothing was installed"
 fi

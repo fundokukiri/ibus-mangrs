@@ -151,6 +151,16 @@ wget -qO- https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scrip
 
 (Piping a script to `sh` runs code from the network — review it first if that matters to you.)
 
+Try it before installing: `--demo` runs the whole installer as a simulation — every step and the
+download progress bar render, but nothing is installed, downloaded or touched:
+
+```sh
+./scripts/install-online.sh --demo           # from a checkout
+curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh -s -- --demo
+```
+
+(`MANGRS_DEMO=1` in front of either command does the same.)
+
 ### From a local checkout
 
 Install the build dependencies once (Arch, Debian/Ubuntu, Fedora — Rust on every distro):
