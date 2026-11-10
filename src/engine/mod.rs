@@ -1316,17 +1316,10 @@ impl Engine {
         }
         // The tone-skip belongs to committed-text transports: the uinput
         // modes show the raw keys, and a skipped tone would desync the
-        // screen from the wrapper — mid-word they keep the unikey undo.
-        // A dead composition (the retrack experiment rebuilds it as the
-        // screen) has no raw keys to desync: the configured rule applies,
-        // like Preedit.
+        // screen from the wrapper. They keep the unikey undo.
         self.wrapper.set_backspace_tone(
             if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
-                if self.wrapper.has_composition() {
-                    BackspaceToneConfig::UnikeyWalk
-                } else {
-                    self.backspace_tone
-                }
+                BackspaceToneConfig::UnikeyWalk
             } else {
                 self.backspace_tone
             },

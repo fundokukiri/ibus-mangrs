@@ -279,7 +279,7 @@ subtitle = "Số ms một phím chờ trước khi đổ vào văn bản: thấp
 
 [rows.smooth_backspace_retrack]
 title = "Sửa dấu sau Backspace (Flow/Turbo)"
-subtitle = "Backspace trên từ đã gõ xong áp dụng đúng quy tắc Xóa dấu bằng Backspace đã chọn (xóa dấu trước / xóa cả dấu và chữ), rồi phím dấu mới tiếp tục biến hóa từ (chào → chao → cháo). Chỉ tác dụng khi Hiện dấu từng bước bật. Thử nghiệm."
+subtitle = "Xóa một ký tự của từ đã gõ xong rồi gõ phím dấu mới sẽ tiếp tục biến hóa từ (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước bật. Thử nghiệm."
 
 [rows.macro_enabled]
 title = "Bật gõ tắt"
