@@ -1,0 +1,7 @@
+# English GUI content — the mirror of gui-content.toml. The owner edits
+# wording here and rebuilds; the key-parity test in src/gui/text.rs forbids
+# missing keys. Placeholders ({n}, {page}, {e}) and proper nouns stay
+# verbatim.
+
+[pages]
+other = "Other settings"
