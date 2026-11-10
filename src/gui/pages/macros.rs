@@ -19,27 +19,16 @@ pub(crate) fn preview(pattern: &str) -> Option<String> {
     Some(chrono::Local::now().format(pattern).to_string())
 }
 
-/// A dim live preview of the selected pattern, updated on every pick;
-/// empty or invalid patterns leave the label blank. The hint sits LEFT of
-/// the combo's own control (prepended into the suffixes box) — add_suffix
-/// would park it after the value+arrow, at the row's very end.
+/// A live preview of the selected pattern, in the row's subtitle — the
+/// spot the static "Ví dụ" line used to hold, under the title.
+/// use_subtitle stays on so the row height does not jump; an empty or
+/// invalid pattern leaves the subtitle blank.
 fn add_preview(row: &adw::ComboRow) {
-    let label = gtk4::Label::new(None);
-    label.add_css_class("dim-label");
-    label.add_css_class("caption");
-    label.set_valign(gtk4::Align::Center);
-    label.set_margin_end(6);
-    match row_suffixes(row) {
-        Some(suffixes) => suffixes.prepend(&label),
-        None => row.add_suffix(&label),
-    }
-    {
-        let into = label.clone();
-        row.connect_selected_notify(move |row| {
-            into.set_text(&preview(&format_selected(row)).unwrap_or_default());
-        });
-        label.set_text(&preview(&format_selected(row)).unwrap_or_default());
-    }
+    row.set_use_subtitle(true);
+    row.connect_selected_notify(move |row| {
+        row.set_subtitle(&preview(&format_selected(row)).unwrap_or_default());
+    });
+    row.set_subtitle(&preview(&format_selected(row)).unwrap_or_default());
 }
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
