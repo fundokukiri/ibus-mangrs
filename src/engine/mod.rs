@@ -77,6 +77,34 @@ pub enum Mode {
     Off,
 }
 
+/// What the first navigation key does while a preedit commit is pending on
+/// a mutter-relayed context (the experimental `nav_key_while_preedit`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NavKeyWhilePreedit {
+    /// Consume the key: the commit lands while the caret is still in place,
+    /// the next press moves the caret. The shipped behavior.
+    #[default]
+    Swallow,
+    /// Send the commit and the key in one reply (ibus-bamboo's sequence):
+    /// the caret moves on the first press.
+    Forward,
+    /// Consume the key and re-emit it as ForwardKeyEvent signals after the
+    /// commit; the ordered connection delivers the commit first.
+    Replay,
+}
+
+impl NavKeyWhilePreedit {
+    /// Tolerant parse like the GUI language value: an unknown value keeps
+    /// the shipped behavior instead of failing the whole config file.
+    pub fn from_config_value(value: &str) -> Self {
+        match value {
+            "forward" => Self::Forward,
+            "replay" => Self::Replay,
+            _ => Self::Swallow,
+        }
+    }
+}
+
 /// One thing the server must tell IBus to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -238,6 +266,9 @@ pub struct Engine {
     x11_delete_without_report: bool,
     /// Opt-in: keep Preedit for XIM clients, whose server draws the preedit.
     preedit_for_xim: bool,
+    /// Experimental: navigation-key behavior while a preedit commit is
+    /// pending (the server reads this per keystroke).
+    nav_key_while_preedit: NavKeyWhilePreedit,
     /// Uinput pacing (ms): text/commit step, Backspace gap, post-rewrite idle.
     commit_interval_ms: u64,
     backspace_interval_ms: u64,
@@ -384,6 +415,7 @@ impl Engine {
             hide_underline: false,
             x11_delete_without_report: false,
             preedit_for_xim: false,
+            nav_key_while_preedit: NavKeyWhilePreedit::default(),
             delete_dropped: false,
             awaiting_delete_proof: None,
             uinput_available: false,
@@ -495,6 +527,13 @@ impl Engine {
         self.macro_expand_valid_words = experimental && config.macro_expand_valid_words;
         self.x11_delete_without_report = config.x11_delete_without_report;
         self.preedit_for_xim = config.preedit_for_xim;
+        // Experimental: the gate forces the shipped swallow back on while
+        // the chosen value stays saved for when the gate reopens.
+        self.nav_key_while_preedit = if experimental {
+            NavKeyWhilePreedit::from_config_value(&config.nav_key_while_preedit)
+        } else {
+            NavKeyWhilePreedit::Swallow
+        };
         self.time_format = config.time_format.clone();
         self.date_format = config.date_format.clone();
         // Reload the auxiliary files only when they changed on disk (see the
@@ -614,6 +653,11 @@ impl Engine {
     /// Whether the preedit string should be sent without the underline.
     pub fn hide_underline(&self) -> bool {
         self.hide_underline
+    }
+
+    /// Navigation-key behavior while a preedit commit is pending.
+    pub fn nav_key_while_preedit(&self) -> NavKeyWhilePreedit {
+        self.nav_key_while_preedit
     }
 
     /// The text we believe is committed right before the cursor.

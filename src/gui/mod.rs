@@ -122,6 +122,17 @@ const BACKSPACE_TONE_MODES: &[(&str, &str)] = &[
     ("Xóa cả dấu và chữ", "Whole character"),
     ("Unikey (lùi từng phím)", "Unikey (walk back)"),
 ];
+/// The experimental nav-key behaviors while a preedit commit is pending, in
+/// `nav_key_while_preedit` config-value order (swallow/forward/replay); the
+/// combo index is the mapping contract for `refresh`/`read`.
+const NAV_KEY_MODES: &[(&str, &str)] = &[
+    ("Nuốt phím đầu (mặc định)", "Swallow first press (default)"),
+    (
+        "Chuyển caret ngay (kiểu bamboo)",
+        "Move the caret at once (bamboo-style)",
+    ),
+    ("Phát lại phím qua tín hiệu", "Replay the key as a signal"),
+];
 const CHANNELS: &[(&str, &str)] = &[
     ("CommitText (an toàn)", "CommitText (safe)"),
     ("Clipboard (Ctrl+V)", "Clipboard (Ctrl+V)"),
@@ -202,6 +213,9 @@ struct Ui {
     extra_url_chars_entry: adw::EntryRow,
     w2u: adw::ComboRow,
     backspace_tone: adw::ComboRow,
+    /// Experimental: what the first navigation key does while a preedit
+    /// commit is pending (the "Thử nghiệm" tab).
+    nav_key_while_preedit: adw::ComboRow,
     bracket: adw::ComboRow,
     em_dash: adw::SwitchRow,
     auto_capitalize: adw::SwitchRow,
@@ -451,6 +465,14 @@ impl Ui {
         if config.language != "en" {
             config.language = "vi".into();
         }
+        // Same for the nav-key choice: read() always produces a known
+        // value, so a hand-edited one normalizes to the shipped swallow.
+        if !matches!(
+            config.nav_key_while_preedit.as_str(),
+            "swallow" | "forward" | "replay"
+        ) {
+            config.nav_key_while_preedit = "swallow".into();
+        }
         self.enabled.set_active(config.enabled);
         self.method.set_selected(method_index(config.method));
         self.mode.set_selected(mode_index(config.mode));
@@ -490,6 +512,12 @@ impl Ui {
                 BackspaceToneConfig::ToneFirst => 0,
                 BackspaceToneConfig::WholeChar => 1,
                 BackspaceToneConfig::UnikeyWalk => 2,
+            });
+        self.nav_key_while_preedit
+            .set_selected(match config.nav_key_while_preedit.as_str() {
+                "forward" => 1,
+                "replay" => 2,
+                _ => 0,
             });
         self.em_dash.set_active(config.em_dash);
         self.auto_capitalize.set_active(config.auto_capitalize);
@@ -654,6 +682,11 @@ impl Ui {
             2 => BackspaceToneConfig::UnikeyWalk,
             _ => BackspaceToneConfig::ToneFirst,
         };
+        config.nav_key_while_preedit = match self.nav_key_while_preedit.selected() {
+            1 => "forward".into(),
+            2 => "replay".into(),
+            _ => "swallow".into(),
+        };
         config.bracket = match self.bracket.selected() {
             1 => BracketConfig::NonStart,
             2 => BracketConfig::Everywhere,
@@ -764,7 +797,7 @@ impl Ui {
         // itself (its sidebar row) and the rows inside it. States stay saved
         // either way; closing the tab under the user lands on "Cài đặt
         // khác", the page hosting the gate switch.
-        let rows: [&gtk4::Widget; 11] = [
+        let rows: [&gtk4::Widget; 12] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_switch.upcast_ref(),
             self.extra_url_chars_entry.upcast_ref(),
@@ -776,6 +809,7 @@ impl Ui {
             self.echo_stale_spin.upcast_ref(),
             self.idle_commit_switch.upcast_ref(),
             self.idle_commit_spin.upcast_ref(),
+            self.nav_key_while_preedit.upcast_ref(),
         ];
         for row in rows {
             row.set_visible(on);

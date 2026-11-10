@@ -164,6 +164,13 @@ pub struct Config {
     /// default: an app that negotiated `XIMPreeditNothing` shows nothing
     /// while the word is being typed.
     pub preedit_for_xim: bool,
+    /// What the first navigation key does while a preedit commit is pending
+    /// on a mutter-relayed context: `swallow` consumes it (the commit lands
+    /// first, the caret moves on the next press), `forward` sends the commit
+    /// and the key in one reply (ibus-bamboo's sequence), `replay` consumes
+    /// the key and re-emits it as ForwardKeyEvent after the commit. Unknown
+    /// values behave as `swallow`. Experimental: the gate forces `swallow`.
+    pub nav_key_while_preedit: String,
     /// Per-application display mode overrides (phase 9).
     pub app_rules: Vec<AppRule>,
     /// Shortcuts the user assigned beyond the four built-in hotkeys (those
@@ -803,6 +810,7 @@ impl Default for Config {
             debug_log_text: false,
             x11_delete_without_report: false,
             preedit_for_xim: false,
+            nav_key_while_preedit: "swallow".into(),
             app_rules: Vec::new(),
             custom_hotkeys: Vec::new(),
             quick_menu: default_quick_menu(),
@@ -1010,6 +1018,21 @@ mod tests {
             ModeConfig::from_key("forwardkeyevent2"),
             Some(ModeConfig::ForwardSelect)
         );
+    }
+
+    #[test]
+    fn nav_key_while_preedit_key_round_trips() {
+        // The shipped behavior stays the default: an old config without the
+        // key keeps swallowing the first navigation key.
+        assert_eq!(Config::default().nav_key_while_preedit, "swallow");
+        let c: Config = toml::from_str("nav_key_while_preedit = \"forward\"").unwrap();
+        assert_eq!(c.nav_key_while_preedit, "forward");
+        let c = Config::from_toml("mode = \"preedit\"\n");
+        assert_eq!(c.nav_key_while_preedit, "swallow");
+        // The raw string is stored as-is; the engine normalizes unknown
+        // values to swallow (same tolerance as the GUI language value).
+        let c: Config = toml::from_str("nav_key_while_preedit = \"weird\"").unwrap();
+        assert_eq!(c.nav_key_while_preedit, "weird");
     }
 
     #[test]

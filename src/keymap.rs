@@ -133,6 +133,14 @@ pub const TAB: u32 = XK_TAB;
 pub const LEFT: u32 = XK_LEFT;
 pub const DELETE: u32 = XK_DELETE;
 pub const V: u32 = 0x0076; // lowercase v (the Ctrl+V paste echo)
+/// The remaining navigation keys, for the nav-key replay's evdev table.
+pub const UP: u32 = XK_UP;
+pub const RIGHT: u32 = XK_RIGHT;
+pub const DOWN: u32 = XK_DOWN;
+pub const PAGE_UP: u32 = XK_PAGE_UP;
+pub const PAGE_DOWN: u32 = XK_PAGE_DOWN;
+pub const HOME: u32 = XK_HOME;
+pub const END: u32 = XK_END;
 
 #[cfg(test)]
 mod tests {

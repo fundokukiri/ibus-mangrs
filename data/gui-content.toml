@@ -265,6 +265,10 @@ subtitle = ""
 title = "Xóa dấu bằng Backspace"
 subtitle = "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành ha). Hoặc xóa cả dấu và chữ (hạ thành h), hoặc lùi từng phím như unikey."
 
+[rows.nav_key_while_preedit]
+title = "Phím điều hướng khi còn từ"
+subtitle = "Khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên: nuốt để commit trước (mặc định), hoặc cho caret chạy ngay. Thử nghiệm trên Wayland."
+
 [rows.smooth_per_key]
 title = "Hiện dấu từng bước ở Flow"
 subtitle = "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — mỗi phím trễ ~60 ms; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi"
