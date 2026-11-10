@@ -15,6 +15,35 @@ thread_local! {
         const { RefCell::new(None) };
 }
 
+/// The restart script: restart the daemon, then bring the XIM bridge back.
+///
+/// On a Wayland session `ibus-x11` starts once, from the distro hook
+/// `/etc/xdg/Xwayland-session.d/10-ibus-x11` (`/usr/lib/ibus/ibus-x11 &`),
+/// and nothing respawns it — an `ibus restart` left XIM clients (JetBrains,
+/// which force `-Dawt.toolkit.name=XToolkit`) unable to type until the next
+/// login, while the stale `XIM_SERVERS` root property still advertised a
+/// dead server. Wait for the daemon, then start the bridge the same way the
+/// hook does, skipped when one is already running (an X11 session keeps its
+/// own under the daemon's `--xim`). Java apps opened before the restart may
+/// still need one reopen — AWT holds a stale XIC (JDK-8213183).
+pub(super) fn restart_script(session_type: Option<&str>) -> &'static str {
+    if session_type == Some("wayland") {
+        "ibus restart; sleep 2; pgrep -x ibus-x11 >/dev/null 2>&1 \
+         || /usr/lib/ibus/ibus-x11 >/dev/null 2>&1 &"
+    } else {
+        "ibus restart"
+    }
+}
+
+fn restart_ibus() -> std::io::Result<()> {
+    let script = restart_script(std::env::var("XDG_SESSION_TYPE").ok().as_deref());
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .spawn()
+        .map(|_| ())
+}
+
 /// Build the whole settings window (pages, shell, wiring) and present it.
 /// Returns the window so the language rebuild and tests hold it directly —
 /// GTK's own `app.windows()` proved unreliable to depend on.
@@ -784,7 +813,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
                         // it was spawned outside IBus's cgroup. Tests skip
                         // this — an IBus restart cannot run headless.
                         if !cfg!(test) {
-                            let _ = std::process::Command::new("ibus").arg("restart").spawn();
+                            let _ = restart_ibus();
                         }
                     });
                     PENDING_REBUILD.with(|c| {
@@ -827,7 +856,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         let btn = restart_btn.clone();
         restart_btn.connect_clicked(move |_| {
             // User-initiated only — the engine never restarts IBus itself.
-            match std::process::Command::new("ibus").arg("restart").spawn() {
+            match restart_ibus() {
                 Ok(_) => btn.set_visible(false),
                 Err(e) => alert(&window, &format!("Không khởi động lại được IBus: {e}")),
             }
