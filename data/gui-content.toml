@@ -275,7 +275,7 @@ subtitle = "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) th
 
 [rows.smooth_per_key_delay]
 title = "Trễ hiện dấu từng bước (ms)"
-subtitle = "Số ms một phím chờ trước khi đổ vào văn bản: thấp hơn thì dấu hiện sớm hơn, cao hơn thì gõ mượt hơn. 20–500 ms. Mặc định: 60. Thử nghiệm."
+subtitle = "Số ms một phím chờ trước khi đổ vào văn bản: thấp hơn thì dấu hiện sớm hơn, cao hơn thì gõ mượt hơn. 0–500 ms, giá trị quá thấp có thể làm lệch thứ tự chữ trên Wayland. Mặc định: 60. Thử nghiệm."
 
 [rows.macro_enabled]
 title = "Bật gõ tắt"

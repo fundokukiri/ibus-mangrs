@@ -2716,6 +2716,8 @@ fn per_key_delay_follows_the_configured_value() {
 
 #[test]
 fn per_key_delay_clamps_out_of_range_values() {
+    // 0 is allowed by owner decision (experimental knob; the gate-off bake
+    // is what protects the shipped behavior, not the floor).
     let e = engine(
         Mode::Smooth,
         Config {
@@ -2725,7 +2727,7 @@ fn per_key_delay_clamps_out_of_range_values() {
             ..Config::default()
         },
     );
-    assert_eq!(e.per_key_delay(), Duration::from_millis(20));
+    assert_eq!(e.per_key_delay(), Duration::from_millis(0));
     let e = engine(
         Mode::Smooth,
         Config {
