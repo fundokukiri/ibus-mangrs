@@ -745,6 +745,16 @@ fn format_combos_keep_presets_and_unknowns() {
         combo_value_view(&ui.date_format).is_some_and(|v| v.hexpands()),
         "the date pattern renders at the row end"
     );
+    // The hint is prepended into the suffixes box: first child of it,
+    // left of the combo's own value+arrow — never after them.
+    let suffixes = row_suffixes(&ui.time_format).expect("the row's suffixes box");
+    assert!(
+        suffixes
+            .first_child()
+            .and_downcast::<gtk4::Label>()
+            .is_some(),
+        "the hint precedes the combo's value"
+    );
 
     let mut unknown = config.clone();
     unknown.time_format = "%Hh%M-%S".into();
