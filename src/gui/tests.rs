@@ -745,15 +745,19 @@ fn format_combos_keep_presets_and_unknowns() {
         combo_value_view(&ui.date_format).is_some_and(|v| v.hexpands()),
         "the date pattern renders at the row end"
     );
-    // The hint is prepended into the suffixes box: first child of it,
-    // left of the combo's own value+arrow — never after them.
-    let suffixes = row_suffixes(&ui.time_format).expect("the row's suffixes box");
+    // The hint lives in the subtitle — the old "Ví dụ" spot under the
+    // title — not in the suffixes (that parked it mid-row).
     assert!(
-        suffixes
-            .first_child()
-            .and_downcast::<gtk4::Label>()
-            .is_some(),
-        "the hint precedes the combo's value"
+        ui.time_format.uses_subtitle(),
+        "the subtitle space stays reserved"
+    );
+    assert!(
+        ui.time_format.subtitle().is_some_and(|s| !s.is_empty()),
+        "the subtitle carries the live preview"
+    );
+    assert!(
+        ui.date_format.subtitle().is_some_and(|s| !s.is_empty()),
+        "the date subtitle carries the live preview"
     );
 
     let mut unknown = config.clone();
