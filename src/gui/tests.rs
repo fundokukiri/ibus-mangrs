@@ -727,6 +727,25 @@ fn format_combos_keep_presets_and_unknowns() {
     assert_eq!(ui.read().time_format, TIME_FORMATS[1]);
     assert_eq!(ui.read().date_format, DATE_FORMATS[2]);
 
+    // The widened value view carries the pattern to the row's end, like
+    // the typing page combos — widen_value runs in the page build, so the
+    // page must exist first.
+    let page = crate::gui::pages::macros::build(&ui);
+    let win = gtk4::Window::new();
+    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
+    win.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    assert!(
+        combo_value_view(&ui.time_format).is_some_and(|v| v.hexpands()),
+        "the time pattern renders at the row end"
+    );
+    assert!(
+        combo_value_view(&ui.date_format).is_some_and(|v| v.hexpands()),
+        "the date pattern renders at the row end"
+    );
+
     let mut unknown = config.clone();
     unknown.time_format = "%Hh%M-%S".into();
     unknown.date_format = "%Y-%m".into();

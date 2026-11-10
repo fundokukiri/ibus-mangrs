@@ -16,7 +16,7 @@ use super::*;
 /// rebuilt for every pick, so poking "the first label" of the internal
 /// ListView either raced the item bind or targeted another pooled item —
 /// the value then sat at the default alignment until the window reopened.
-fn widen_value(row: &adw::ComboRow) {
+pub(crate) fn widen_value(row: &adw::ComboRow) {
     if let Some(view) = combo_value_view(row) {
         view.set_hexpand(true);
     }
