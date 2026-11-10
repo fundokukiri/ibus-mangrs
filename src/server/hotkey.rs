@@ -317,7 +317,11 @@ impl EngineHandler {
     }
 
     /// Re-apply the config if the file changed since the last check.
-    fn maybe_reload_config(&mut self, out: &mut Vec<Message>) {
+    /// Runs on key events and on the run loop's own passes (a GUI edit must
+    /// reach the panel without waiting for typing). The refresh is per-item
+    /// `UpdateProperty`, not a full `RegisterProperties` — GNOME applies
+    /// only the former mid-session (see prop.rs).
+    pub(super) fn maybe_reload_config(&mut self, out: &mut Vec<Message>) {
         if self.last_config_check.elapsed() < Duration::from_secs(1) {
             return;
         }
@@ -335,7 +339,7 @@ impl EngineHandler {
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
             emit(&mut engine, &actions, out);
-            register_properties(&config, out);
+            update_all_properties(&config, out);
         }
     }
 }

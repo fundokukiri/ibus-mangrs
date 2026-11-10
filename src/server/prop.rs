@@ -119,6 +119,21 @@ pub(super) fn update_property_group(config: &Config, group: &str, out: &mut Vec<
     update_group(&ibus_prop::properties(config), group, out);
 }
 
+/// Live panel refresh for a config change made outside both the panel and
+/// the hotkeys (the settings GUI's save funnel): `UpdateProperty` for every
+/// item of the new menu — the only shape GNOME applies mid-session (a full
+/// `RegisterProperties` re-register does not refresh the displayed menu,
+/// see the note above). Config changes arrive throttled (the reload gate),
+/// so the bulk never runs per keystroke.
+pub(super) fn update_all_properties(config: &Config, out: &mut Vec<Message>) {
+    for prop in ibus_prop::properties(config) {
+        push_update(&prop, out);
+        for child in &prop.sub {
+            push_update(child, out);
+        }
+    }
+}
+
 fn push_update(prop: &Prop, out: &mut Vec<Message>) {
     out.push(signal("UpdateProperty").append1(prop.variant()));
 }
