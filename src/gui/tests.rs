@@ -42,6 +42,7 @@ fn gtk_widget_scenarios() {
     popup_marks_the_selected_item();
     format_combos_keep_presets_and_unknowns();
     language_row_round_trips();
+    nav_key_row_round_trips();
     language_switch_rebuilds_the_window();
     language_handler_rebuilds_both_ways();
     // Restore before the sandbox dir could be cleaned under a racing test.
@@ -528,6 +529,7 @@ fn refresh_round_trips_every_widget() {
         debug_log_text: true,
         x11_delete_without_report: true,
         preedit_for_xim: true,
+        nav_key_while_preedit: "forward".into(),
         app_rules: vec![crate::config::AppRule {
             pattern: "kate".into(),
             mode: ModeConfig::Preedit,
@@ -854,6 +856,55 @@ fn language_row_round_trips() {
     ui.refresh(&config, &macros, &dictionary);
     assert_eq!(ui.language.selected(), 0, "an unknown value selects vi");
     assert_eq!(ui.read().language, "vi", "an unknown value behaves as vi");
+}
+
+/// The experimental nav-key combo: the config value selects the item and
+/// the pick reads back as the config value.
+fn nav_key_row_round_trips() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+
+    ui.refresh(
+        &Config {
+            nav_key_while_preedit: "forward".into(),
+            ..Config::default()
+        },
+        &macros,
+        &dictionary,
+    );
+    assert_eq!(
+        ui.nav_key_while_preedit.selected(),
+        1,
+        "forward selects index 1"
+    );
+    assert_eq!(ui.read().nav_key_while_preedit, "forward");
+    ui.refresh(&Config::default(), &macros, &dictionary);
+    assert_eq!(
+        ui.nav_key_while_preedit.selected(),
+        0,
+        "the default selects index 0"
+    );
+    assert_eq!(ui.read().nav_key_while_preedit, "swallow");
+    // A hand-edited value behaves as the default.
+    ui.refresh(
+        &Config {
+            nav_key_while_preedit: "weird".into(),
+            ..Config::default()
+        },
+        &macros,
+        &dictionary,
+    );
+    assert_eq!(
+        ui.nav_key_while_preedit.selected(),
+        0,
+        "an unknown value selects index 0"
+    );
+    assert_eq!(
+        ui.read().nav_key_while_preedit,
+        "swallow",
+        "an unknown value behaves as swallow"
+    );
 }
 
 /// The rebuild path behind the language pick: building the window again

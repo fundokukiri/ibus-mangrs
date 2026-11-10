@@ -963,6 +963,122 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
     assert!(!process_key(&mut e, 0xff51, 0, &mut out));
 }
 
+// --- experimental nav_key_while_preedit values ---
+
+/// Type "tung" into a relayed Preedit engine configured with `value`.
+fn pending_preedit_engine(value: &str, experimental: bool) -> Engine {
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        experimental_features: experimental,
+        nav_key_while_preedit: value.into(),
+        ..Config::default()
+    });
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(0b101001);
+    for c in "tung".chars() {
+        process_key(&mut e, c as u32, 0, &mut Vec::new());
+    }
+    e
+}
+
+fn member_names(out: &[Message]) -> Vec<String> {
+    out.iter()
+        .map(|m| m.member().map(|m| m.to_string()).unwrap_or_default())
+        .collect()
+}
+
+#[test]
+fn forward_mode_commits_and_forwards_the_first_navigation_key() {
+    // The forward value: commit and key ride one reply — ibus-bamboo's
+    // sequence. The caret moves on the first press.
+    let mut e = pending_preedit_engine("forward", true);
+    let mut out = Vec::new();
+    assert!(
+        !process_key(&mut e, 0xff51, 0, &mut out),
+        "Left must be forwarded"
+    );
+    let members = member_names(&out);
+    assert!(
+        members.iter().any(|m| m == "CommitText"),
+        "the pending word must be committed: {members:?}"
+    );
+    // The second press is still a plain forward (nothing pending).
+    let mut out = Vec::new();
+    assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+}
+
+#[test]
+fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
+    // The replay value: the key is consumed and re-emitted as a
+    // ForwardKeyEvent press+release pair AFTER the commit signals, so the
+    // caret still moves on the first physical press.
+    let mut e = pending_preedit_engine("replay", true);
+    let mut out = Vec::new();
+    assert!(
+        process_key(&mut e, 0xff51, 0, &mut out),
+        "Left must be consumed"
+    );
+    let members = member_names(&out);
+    let commit = members
+        .iter()
+        .position(|m| m == "CommitText")
+        .expect("the pending word must be committed");
+    let press = members
+        .iter()
+        .position(|m| m == "ForwardKeyEvent")
+        .expect("the key must be replayed");
+    assert!(commit < press, "commit must land first: {members:?}");
+    let keys: Vec<(u32, u32, u32)> = out
+        .iter()
+        .filter(|m| m.member().map(|x| x == "ForwardKeyEvent").unwrap_or(false))
+        .filter_map(|m| m.read3::<u32, u32, u32>().ok())
+        .collect();
+    assert_eq!(
+        keys,
+        vec![(0xff51, 105, 0), (0xff51, 105, keymap::RELEASE_MASK)],
+        "one press and one release at the evdev scancode: {keys:?}"
+    );
+}
+
+#[test]
+fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
+    // The relay drops modifier state on forwarded keys: a replayed
+    // Shift+Left would move instead of select, so the swallow stands.
+    let mut e = pending_preedit_engine("replay", true);
+    let mut out = Vec::new();
+    assert!(process_key(&mut e, 0xff51, keymap::SHIFT_MASK, &mut out));
+    let members = member_names(&out);
+    assert!(
+        members.iter().all(|m| m != "ForwardKeyEvent"),
+        "no key may be replayed: {members:?}"
+    );
+    assert!(
+        members.iter().any(|m| m == "CommitText"),
+        "the pending word must still be committed: {members:?}"
+    );
+}
+
+#[test]
+fn the_experimental_gate_forces_the_nav_key_swallow_back_on() {
+    // Gate off: the chosen value stays saved but the engine keeps the
+    // shipped swallow, like every other gated feature.
+    let mut e = pending_preedit_engine("forward", false);
+    let mut out = Vec::new();
+    assert!(
+        process_key(&mut e, 0xff51, 0, &mut out),
+        "Left must be consumed with the gate off"
+    );
+    let members = member_names(&out);
+    assert!(
+        members.iter().all(|m| m != "ForwardKeyEvent"),
+        "no key may be replayed: {members:?}"
+    );
+    assert!(
+        members.iter().any(|m| m == "CommitText"),
+        "the pending word must still be committed: {members:?}"
+    );
+}
+
 #[test]
 fn hotkey_registry_maps_assigned_specs_in_page_order() {
     let mut config = Config {

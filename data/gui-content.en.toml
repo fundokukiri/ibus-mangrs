@@ -263,6 +263,10 @@ subtitle = ""
 title = "Delete tones with Backspace"
 subtitle = "Default: the tone is deleted first, the word stays (hạ becomes ha). Or delete the tone and the letter (hạ becomes h), or walk back one key like Unikey."
 
+[rows.nav_key_while_preedit]
+title = "Navigation keys while composing"
+subtitle = "With a word still underlined, the first arrow key: swallow it to commit first (default), or move the caret at once. Experimental on Wayland."
+
 [rows.smooth_per_key]
 title = "Per-key marks in Flow"
 subtitle = "Flow/Turbo show the accented letter as you type (ee → ê) instead of holding the raw keys until word end — each key lags ~60 ms; very fast typing merges the steps, the text appears when you pause; Select is unchanged"

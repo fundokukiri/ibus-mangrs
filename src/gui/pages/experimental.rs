@@ -27,6 +27,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     tuning.add(&ui.echo_stale_spin);
     tuning.add(&ui.idle_commit_switch);
     tuning.add(&ui.idle_commit_spin);
+    tuning.add(&ui.nav_key_while_preedit);
     page.add(&tuning);
 
     // The badge marks the feature's primary row — the switch that turns it
@@ -38,6 +39,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.clipboard_restore_switch);
     decorate_experimental(&ui.echo_stale_switch);
     decorate_experimental(&ui.idle_commit_switch);
+    // A combo-only feature: the combo is its own primary row.
+    decorate_experimental(&ui.nav_key_while_preedit);
     // The switches themselves glow the same warning amber as the badge and
     // the tab label: one look, one meaning.
     for switch in [

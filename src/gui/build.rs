@@ -119,6 +119,14 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
         &labels(BACKSPACE_TONE_MODES),
     );
+    let nav_key_while_preedit = combo_row(
+        &t("rows.nav_key_while_preedit.title", "Phím điều hướng khi còn từ"),
+        &t(
+            "rows.nav_key_while_preedit.subtitle",
+            "Khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên: nuốt để commit trước (mặc định), hoặc cho caret chạy ngay. Thử nghiệm trên Wayland.",
+        ),
+        &labels(NAV_KEY_MODES),
+    );
     let em_dash = switch_row(
         &t("rows.em_dash.title", "Gạch ngang dài"),
         &t(
@@ -578,6 +586,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Xóa dấu trước (mặc định): hạ thành ha, rồi h. Xóa cả dấu và chữ: hạ thành h, việt thành việc rồi vi — mỗi Backspace xóa đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
     );
     tip!(
+        nav_key_while_preedit,
+        "tips.nav_key_while_preedit",
+        "Nuốt phím đầu (mặc định): lần nhấn đầu chỉ commit từ, lần hai mới di chuyển caret. Hai lựa chọn kia cho caret chạy ngay lần nhấn đầu; nếu chữ bị chèn sai chỗ thì quay lại mặc định."
+    );
+    tip!(
         em_dash,
         "tips.em_dash",
         "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
@@ -675,6 +688,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         w2u,
         bracket,
         backspace_tone,
+        nav_key_while_preedit,
         em_dash,
         auto_capitalize,
         auto_capitalize_after_switch,
