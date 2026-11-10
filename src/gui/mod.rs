@@ -934,27 +934,6 @@ pub(super) fn install_focus_extension() -> Result<String, String> {
     Ok(note)
 }
 
-/// Is a GNOME extension manager GUI present (GNOME's Extensions app or the
-/// flatpak Extension Manager)? The install button asks for one when absent:
-/// extensions surface through an app, not silent filesystem writes.
-pub(super) fn extension_app_present() -> bool {
-    let app_in_path = std::env::var("PATH")
-        .ok()
-        .and_then(|paths| {
-            std::env::split_paths(&paths)
-                .map(|p| p.join("gnome-extensions-app"))
-                .find(|p| p.is_file())
-        })
-        .is_some();
-    app_in_path
-        || std::process::Command::new("flatpak")
-            .args(["info", "com.mattjakeman.ExtensionManager"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-}
-
 const DESKTOP_ENTRY: &str = include_str!("../../data/org.freedesktop.IBus.mangrs.desktop");
 
 /// The user-level override that hides the settings app from the grid.
