@@ -27,6 +27,8 @@ panel = "Menu trên panel"
 hotkeys = "Phím tắt"
 other = "Cài đặt khác"
 about = "Giới thiệu"
+tune = "Tinh chỉnh"
+experimental = "Thử nghiệm"
 
 [search]
 tooltip = "Tìm chức năng trong mọi trang"
@@ -65,6 +67,7 @@ other_icon_toast_shown = "Đã hiện lại trong menu ứng dụng"
 dbus_error = "Không nối được D-Bus: {e}"
 focus_ext_error = "Không hỏi được extension MăngRS Focus (data/gnome-shell-extension)"
 focus_none = "Không có cửa sổ nào đang focus"
+logout_button = "Đăng xuất"
 
 # --- page Chung -------------------------------------------------------------
 
@@ -248,12 +251,23 @@ open_tooltip = "Mở macros.toml bằng ứng dụng mặc định"
 
 [rows.time_format]
 title = "Định dạng giờ ($TIME)"
+subtitle = ""
 
 [rows.date_format]
 title = "Định dạng ngày ($DATE)"
+subtitle = ""
 
 [rows.language]
 title = "Ngôn ngữ"
+subtitle = ""
+
+[rows.backspace_tone]
+title = "Xóa dấu bằng Backspace"
+subtitle = "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành ha). Hoặc xóa cả dấu và chữ (hạ thành h), hoặc lùi từng phím như unikey."
+
+[rows.smooth_per_key]
+title = "Hiện dấu từng bước ở Flow"
+subtitle = "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — mỗi phím trễ ~60 ms; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi"
 
 [rows.macro_enabled]
 title = "Bật gõ tắt"
@@ -433,6 +447,12 @@ title = "Kênh gửi chữ"
 title = "Tương thích X11/XIM"
 description = "Cho app X11 trực tiếp và app XIM (Java/JetBrains)."
 
+[groups.experimental.typing]
+title = "Dấu &amp; gõ tắt"
+
+[groups.experimental.tuning]
+title = "Tinh chỉnh"
+
 [groups.other.backup]
 title = "Sao lưu &amp; khôi phục"
 description = "Một tệp JSON chứa cấu hình, gõ tắt và từ điển."
@@ -460,6 +480,10 @@ description = "Cần cho luật theo app trên Wayland."
 extension_confirm_heading = "Cài extension MăngRS Focus?"
 extension_confirm_body = "Vài tệp sẽ được ghi vào ~/.local/share/gnome-shell/extensions và extension được bật — cần cho luật theo app trên Wayland."
 extension_apply = "Cài đặt"
+json_filter = "Tệp JSON"
+reset_heading = "Khôi phục mặc định?"
+reset_apply = "Khôi phục"
+reset_body = "Cấu hình sẽ về mặc định. Gõ tắt và từ điển được giữ nguyên."
 
 [groups.other.advanced]
 title = "Nâng cao"
@@ -584,3 +608,7 @@ post_delay = "Chờ sau khi viết lại cả từ trước khi gõ chữ tiếp
 unicode_channel = "Cách gửi từ có ký tự đặc biệt: CommitText là an toàn; Clipboard dùng Ctrl+V, tạm đè clipboard."
 export = "Lưu toàn bộ cấu hình, gõ tắt và từ điển ra một file JSON để mang sang máy khác."
 import = "Đọc lại file JSON đã xuất: ghi đè cấu hình, gõ tắt và từ điển hiện tại."
+desktop_icon = "Ẩn hay hiện dòng “MăngRS Cấu hình” trong lưới ứng dụng của GNOME (cần vài giây để GNOME nhận thay đổi)."
+focus_extension = "Extension báo cho engine tên cửa sổ đang focus, để luật theo app chạy được với app Wayland thuần (Chrome, Firefox…)."
+extension_logout = "Đăng xuất để extension mới được tải (GNOME giữ module cũ trong bộ nhớ)."
+reset_defaults = "Ghi đè config.toml bằng giá trị mặc định (kể cả menu panel, luật theo app, phím tắt). Gõ tắt và từ điển không bị đụng đến."

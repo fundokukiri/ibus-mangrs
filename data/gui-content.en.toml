@@ -25,6 +25,8 @@ panel = "Panel menu"
 hotkeys = "Shortcuts"
 other = "Other settings"
 about = "About"
+tune = "Tuning"
+experimental = "Experimental"
 
 [search]
 tooltip = "Search features across all pages"
@@ -63,6 +65,7 @@ other_icon_toast_shown = "Shown in the app menu again"
 dbus_error = "Could not connect to D-Bus: {e}"
 focus_ext_error = "Could not query the MăngRS Focus extension (data/gnome-shell-extension)"
 focus_none = "No window has focus"
+logout_button = "Log out"
 
 # --- page General -----------------------------------------------------------
 
@@ -246,12 +249,23 @@ open_tooltip = "Open macros.toml with the default app"
 
 [rows.time_format]
 title = "Time format ($TIME)"
+subtitle = ""
 
 [rows.date_format]
 title = "Date format ($DATE)"
+subtitle = ""
 
 [rows.language]
 title = "Language"
+subtitle = ""
+
+[rows.backspace_tone]
+title = "Delete tones with Backspace"
+subtitle = "Default: the tone is deleted first, the word stays (hạ becomes ha). Or delete the tone and the letter (hạ becomes h), or walk back one key like Unikey."
+
+[rows.smooth_per_key]
+title = "Per-key marks in Flow"
+subtitle = "Flow/Turbo show the accented letter as you type (ee → ê) instead of holding the raw keys until word end — each key lags ~60 ms; very fast typing merges the steps, the text appears when you pause; Select is unchanged"
 
 [rows.macro_enabled]
 title = "Enable shorthand"
@@ -431,6 +445,12 @@ title = "Text channel"
 title = "X11/XIM compatibility"
 description = "For direct X11 apps and XIM apps (Java/JetBrains)."
 
+[groups.experimental.typing]
+title = "Tones &amp; shorthand"
+
+[groups.experimental.tuning]
+title = "Tuning"
+
 [groups.other.backup]
 title = "Backup &amp; restore"
 description = "One JSON file holding the configuration, shorthand and dictionary."
@@ -458,6 +478,10 @@ description = "Needed for per-app rules on Wayland."
 extension_confirm_heading = "Install the MăngRS Focus extension?"
 extension_confirm_body = "A few files will be written into ~/.local/share/gnome-shell/extensions and the extension enabled — needed for per-app rules on Wayland."
 extension_apply = "Install"
+json_filter = "JSON file"
+reset_heading = "Restore defaults?"
+reset_apply = "Restore"
+reset_body = "The configuration returns to defaults. Shorthand and the dictionary are kept."
 
 [groups.other.advanced]
 title = "Advanced"
@@ -581,3 +605,7 @@ post_delay = "Waits after rewriting a whole word before the next character, for 
 unicode_channel = "How words with special characters are sent: CommitText is safe; Clipboard uses Ctrl+V and temporarily overwrites the clipboard."
 export = "Saves the whole configuration, shorthand and dictionary to one JSON file to carry to another machine."
 import = "Reads back an exported JSON file: overwrites the current configuration, shorthand and dictionary."
+desktop_icon = "Show or hide the “MăngRS Settings” entry in GNOME's app grid (GNOME takes a few seconds to notice)."
+focus_extension = "The extension tells the engine the focused window's name, so per-app rules work with native Wayland apps (Chrome, Firefox…)."
+extension_logout = "Log out so the new extension is loaded (GNOME keeps the old module in memory)."
+reset_defaults = "Overwrites config.toml with the defaults (including the panel menu, per-app rules, shortcuts). Shorthand and the dictionary are untouched."
