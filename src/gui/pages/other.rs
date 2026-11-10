@@ -42,6 +42,36 @@ fn window_of(btn: &gtk4::Button) -> Option<gtk4::Window> {
     btn.root().and_downcast::<gtk4::Window>()
 }
 
+/// The restart script: restart the daemon, then bring the XIM bridge back.
+///
+/// On a Wayland session `ibus-x11` starts once, from the distro hook
+/// `/etc/xdg/Xwayland-session.d/10-ibus-x11` (`/usr/lib/ibus/ibus-x11 &`),
+/// and nothing respawns it — after a plain `ibus restart` XIM clients
+/// (JetBrains) cannot type until the next login while the stale
+/// `XIM_SERVERS` root property still advertises the dead server. Wait for
+/// the daemon, then start the bridge the way the hook does (nohup: this
+/// script's shell exits right after), skipped when one already runs (an
+/// X11 session keeps its own under the daemon's `--xim`). Java apps opened
+/// before the restart may still need one reopen — AWT holds a stale XIC
+/// (JDK-8213183).
+pub(crate) fn restart_script(session_type: Option<&str>) -> &'static str {
+    if session_type == Some("wayland") {
+        "ibus restart; sleep 2; pgrep -x ibus-x11 >/dev/null 2>&1 \
+         || nohup /usr/lib/ibus/ibus-x11 >/dev/null 2>&1 &"
+    } else {
+        "ibus restart"
+    }
+}
+
+fn restart_ibus() -> std::io::Result<()> {
+    let script = restart_script(std::env::var("XDG_SESSION_TYPE").ok().as_deref());
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .spawn()
+        .map(|_| ())
+}
+
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let page = adw::PreferencesPage::new();
     let toast_overlay = adw::ToastOverlay::new();
@@ -193,6 +223,40 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     reset_row.add_suffix(&reset_btn);
     advanced.add(&reset_row);
     page.add(&advanced);
+
+    // The manual IBus restart, last on the page and centered: nothing in
+    // this window needs it (the run-loop hot-reload makes every settings
+    // change land live), so it stays a maintenance action — a stuck daemon,
+    // a hand-installed engine binary. It also brings the ibus-x11 bridge
+    // back, which a terminal `ibus restart` does not: without the bridge
+    // XIM apps (JetBrains) cannot type until the next logout.
+    let restart_group = adw::PreferencesGroup::new();
+    let restart_btn = gtk4::Button::new();
+    {
+        let b = gtk4::Box::new(Orientation::Horizontal, 8);
+        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
+        b.append(&gtk4::Label::new(Some(&t(
+            "misc.restart_button",
+            "Khởi động lại IBus",
+        ))));
+        restart_btn.set_child(Some(&b));
+    }
+    restart_btn.add_css_class("suggested-action");
+    restart_btn.add_css_class("pill");
+    restart_btn.set_halign(gtk4::Align::Center);
+    restart_btn.set_margin_top(6);
+    restart_btn.set_margin_bottom(6);
+    restart_group.add(&restart_btn);
+    page.add(&restart_group);
+
+    restart_btn.connect_clicked(move |btn| {
+        // User-initiated only — the engine never restarts IBus itself.
+        if let Err(e) = restart_ibus() {
+            if let Some(window) = window_of(btn) {
+                alert(&window, &format!("Không khởi động lại được IBus: {e}"));
+            }
+        }
+    });
 
     // The icon switch talks to the filesystem; report through a toast.
     {
