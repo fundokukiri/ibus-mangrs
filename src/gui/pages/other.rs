@@ -2,8 +2,7 @@
 //! per-feature page — the app-grid icon, the focus extension installer
 //! (GNOME sessions only), the JSON backup and the restore-defaults action
 //! next to the debug-log switch. The page owns its action buttons, their
-//! handlers and the toast host; the restart banner stays with the shell
-//! (the import and the reset reveal it through the shared button).
+//! handlers and the toast host.
 
 use super::*;
 
@@ -43,7 +42,7 @@ fn window_of(btn: &gtk4::Button) -> Option<gtk4::Window> {
     btn.root().and_downcast::<gtk4::Window>()
 }
 
-pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverlay {
+pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let page = adw::PreferencesPage::new();
     let toast_overlay = adw::ToastOverlay::new();
 
@@ -267,11 +266,10 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     }
 
     // Import: read a JSON backup back in; a success rewrites config.toml
-    // wholesale, so the restart banner applies like any other save.
+    // wholesale, like any other save.
     {
         let ui = ui.clone();
         let overlay_toasts = toast_overlay.clone();
-        let restart_btn = restart_btn.clone();
         import_btn.connect_clicked(move |btn| {
             let dialog = gtk4::FileDialog::builder()
                 .title(t("misc.import_dialog", "Nhập cấu hình"))
@@ -280,7 +278,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                 .build();
             let ui = ui.clone();
             let overlay_toasts = overlay_toasts.clone();
-            let restart_btn = restart_btn.clone();
             let window = window_of(btn);
             let dialog_parent = window.clone();
             dialog.open(
@@ -291,7 +288,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                     if let Ok(file) = result {
                         match import_json(file.path(), &ui) {
                             Ok(()) => {
-                                restart_btn.set_visible(true);
                                 ui.fire_toast(
                                     &overlay_toasts,
                                     &t("misc.imported_toast", "Đã nhập cấu hình"),
@@ -377,7 +373,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     {
         let ui = ui.clone();
         let overlay_toasts = toast_overlay.clone();
-        let restart_btn = restart_btn.clone();
         reset_btn.connect_clicked(move |btn| {
             let dialog = adw::AlertDialog::builder()
                 .heading(t("other.reset_heading", "Khôi phục mặc định?"))
@@ -394,7 +389,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
             {
                 let ui = ui.clone();
                 let overlay_toasts = overlay_toasts.clone();
-                let restart_btn = restart_btn.clone();
                 let window = window_of(btn);
                 dialog.connect_response(Some("apply"), move |_, _| {
                     if let Err(e) = Config::default().save_fresh() {
@@ -412,7 +406,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                     ui.suppress_save.set(true);
                     ui.refresh(&config, &macros, &dictionary);
                     ui.suppress_save.set(false);
-                    restart_btn.set_visible(true);
                     ui.fire_toast(
                         &overlay_toasts,
                         &t("misc.reset_toast", "Đã khôi phục mặc định"),
