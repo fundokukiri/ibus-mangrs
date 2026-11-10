@@ -59,7 +59,7 @@ fn gtk_widget_scenarios() {
     emoji_editor_follows_the_switch();
     toggling_off_releases_the_editor_caret();
     every_switch_triggers_save();
-    experimental_gate_hides_and_restores_rows();
+    experimental_gate_locks_rows_and_preserves_values();
     combo_value_stays_right_after_a_pick();
     popup_marks_the_selected_item();
     format_combos_keep_presets_and_unknowns();
@@ -736,43 +736,87 @@ fn every_switch_triggers_save() {
     );
 }
 
-/// The experimental master gate: off hides every experimental row (the
-/// engine forces the features off), and the saved switch states and
-/// values survive the round trip — reopening the gate restores them.
-fn experimental_gate_hides_and_restores_rows() {
+/// The experimental master gate lives inside the "Thử nghiệm" tab: off
+/// locks every experimental row and displays the shipped defaults, while
+/// the save funnel keeps the file's values and reopening restores them.
+/// widgets() has no page wiring, so the gate's presentation runs through
+/// the same methods its handler calls, and the file round trip runs
+/// through a real save_cb.
+fn experimental_gate_locks_rows_and_preserves_values() {
     let ui = widgets();
     let macros = Macros::load();
     let dictionary = Dictionary::load();
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("scenario save");
+        }));
+    }
 
-    let on = Config {
+    // Seed the sandbox file: the gate on, distinctive saved values.
+    let saved = Config {
         experimental_features: true,
-        macro_expand_valid_words: true,
         extra_url_chars_enabled: true,
         extra_url_chars: "`".into(),
+        echo_stale_enabled: true,
+        echo_stale_ms: 250,
+        smooth_per_key_delay_ms: 200,
         ..Config::default()
     };
+    saved.save().expect("seed config");
+    let on = Config::load();
     ui.refresh(&on, &macros, &dictionary);
-    assert!(ui.macro_valid_words.is_visible());
-    assert!(ui.extra_url_chars_entry.is_visible());
+    assert!(ui.macro_valid_words.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
+    assert_eq!(ui.echo_stale_spin.value(), 250.0);
 
-    // Off: hidden — and the saved value is NOT wiped by the refresh.
+    // Off (driven through the file, as the real funnel produces it): rows
+    // locked, shipped defaults on display.
     let mut off = on.clone();
     off.experimental_features = false;
+    off.save().expect("seed off");
+    let off = Config::load();
     ui.refresh(&off, &macros, &dictionary);
-    assert!(!ui.macro_valid_words.is_visible());
-    assert!(!ui.extra_url_chars_entry.is_visible());
+    assert!(!ui.macro_valid_words.is_sensitive());
+    assert!(!ui.extra_url_chars_entry.is_sensitive());
+    assert!(!ui.smooth_per_key_spin.is_sensitive());
+    assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
+    assert_eq!(ui.echo_stale_spin.value(), 150.0);
+    assert_eq!(ui.smooth_per_key_spin.value(), 60.0);
+
+    // A save with the gate off — the funnel reads the default-displaying
+    // widgets — must not wipe the file's values.
+    ui.fire_save();
+    let closed = Config::load();
+    assert!(!closed.experimental_features);
+    assert_eq!(closed.extra_url_chars, "`", "no wipe on save");
+    assert_eq!(closed.echo_stale_ms, 250);
+    assert_eq!(closed.smooth_per_key_delay_ms, 200);
+
+    // Reopen (what the real toggle does: flip the switch, then the
+    // presentation runs in the handler's order — restore first, sensitivity
+    // second, so the twin corrections see the restored switch states).
+    ui.experimental_features.set_active(true);
+    ui.restore_experimental_saved();
+    ui.set_experimental_sensitive(true);
+    assert!(ui.extra_url_chars_entry.is_sensitive());
     assert_eq!(
         ui.extra_url_chars_entry.text(),
         "`",
-        "the value stays saved while hidden"
+        "reopening restores the saved value"
     );
+    assert_eq!(ui.echo_stale_spin.value(), 250.0);
 
-    // Back on: the rows and their states reappear verbatim.
-    ui.refresh(&on, &macros, &dictionary);
-    assert!(ui.macro_valid_words.is_active());
-    assert!(ui.extra_url_chars_switch.is_active());
-    assert_eq!(ui.extra_url_chars_entry.text(), "`");
+    // Close again: locked and defaults on display.
+    ui.experimental_features.set_active(false);
+    ui.set_experimental_sensitive(false);
+    ui.show_experimental_defaults();
+    assert!(!ui.macro_valid_words.is_sensitive());
+    assert_eq!(ui.smooth_per_key_spin.value(), 60.0);
+    // Hand the sandbox file to the later scenarios the way they expect it:
+    // with the gate off, read() reports the file's experimental fields, so
+    // a leftover saved value would trip their refresh asserts.
+    Config::default().save().expect("reset sandbox config");
 }
 
 /// The $TIME/$DATE combos: a preset selects its preset index, a format the
@@ -890,6 +934,9 @@ fn nav_key_row_round_trips() {
 
     ui.refresh(
         &Config {
+            // The nav-key row is experimental: its round trip runs with the
+            // gate on, or read() would report the file's value instead.
+            experimental_features: true,
             nav_key_while_preedit: "forward".into(),
             ..Config::default()
         },
