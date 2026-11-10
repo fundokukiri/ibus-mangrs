@@ -294,6 +294,10 @@ pub struct Engine {
     /// `config.smooth_per_key`, on by default and outside the
     /// experimental gate.
     smooth_per_key: bool,
+    /// How long the per-key batch stays parked before it lands. Experimental:
+    /// apply_config bakes the built-in grace in while the gate is off, so the
+    /// shipped behavior cannot drift from the file.
+    smooth_per_key_delay_ms: u64,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -452,6 +456,7 @@ impl Engine {
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             smooth_per_key: false,
+            smooth_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -569,6 +574,13 @@ impl Engine {
         // Not part of the experimental set anymore: the gate must not force
         // it off or the always-visible switch would silently do nothing.
         self.smooth_per_key = config.smooth_per_key;
+        // The delay knob is experimental: gate off applies the built-in 60 ms
+        // whatever the file says; the value stays saved for when the gate reopens.
+        self.smooth_per_key_delay_ms = if experimental {
+            config.smooth_per_key_delay_ms
+        } else {
+            Self::ECHO_APPLY_GRACE_MS
+        };
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
@@ -709,6 +721,14 @@ impl Engine {
         } else {
             Self::DEFAULT_ECHO_STALE_MS
         })
+    }
+
+    /// The per-key display's park delay: the user value clamped into the
+    /// safe range. The floor keeps a mutter relay's ~7 ms apply window
+    /// covered for hand-edited configs; the two server-side rewrite parks
+    /// stay on the built-in constant and are not tunable.
+    pub fn per_key_delay(&self) -> Duration {
+        Duration::from_millis(self.smooth_per_key_delay_ms.clamp(20, 500))
     }
 
     /// The client dropped the protocol delete at least once; the server

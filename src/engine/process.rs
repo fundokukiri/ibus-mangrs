@@ -521,7 +521,7 @@ impl Engine {
             // deletes erase back to the common prefix on their own.
             self.per_key_park = None;
         } else {
-            let deadline = Instant::now() + Duration::from_millis(Self::ECHO_APPLY_GRACE_MS);
+            let deadline = Instant::now() + self.per_key_delay();
             match &mut self.per_key_park {
                 Some((dl, text)) => {
                     text.clear();
