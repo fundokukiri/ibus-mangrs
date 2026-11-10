@@ -20,14 +20,19 @@ pub(crate) fn preview(pattern: &str) -> Option<String> {
 }
 
 /// A dim live preview of the selected pattern, updated on every pick;
-/// empty or invalid patterns leave the label blank.
+/// empty or invalid patterns leave the label blank. The hint sits LEFT of
+/// the combo's own control (prepended into the suffixes box) — add_suffix
+/// would park it after the value+arrow, at the row's very end.
 fn add_preview(row: &adw::ComboRow) {
     let label = gtk4::Label::new(None);
     label.add_css_class("dim-label");
     label.add_css_class("caption");
     label.set_valign(gtk4::Align::Center);
     label.set_margin_end(6);
-    row.add_suffix(&label);
+    match row_suffixes(row) {
+        Some(suffixes) => suffixes.prepend(&label),
+        None => row.add_suffix(&label),
+    }
     {
         let into = label.clone();
         row.connect_selected_notify(move |row| {

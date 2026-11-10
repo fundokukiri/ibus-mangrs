@@ -203,6 +203,28 @@ pub(super) fn first_label<W: IsA<gtk4::Widget>>(w: &W) -> Option<gtk4::Label> {
     walk(w.upcast_ref())
 }
 
+/// The internal suffixes box of an Adw row: reaching it directly is the
+/// only way to place a widget LEFT of the row's own control — add_suffix
+/// always appends after the control (combo value+arrow), at the row's end.
+pub(crate) fn row_suffixes<W: IsA<gtk4::Widget>>(row: &W) -> Option<gtk4::Box> {
+    fn find(w: &gtk4::Widget) -> Option<gtk4::Box> {
+        if let Some(b) = w.downcast_ref::<gtk4::Box>() {
+            if b.css_classes().iter().any(|c| c.as_str() == "suffixes") {
+                return Some(b.clone());
+            }
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            if let Some(b) = find(&c) {
+                return Some(b);
+            }
+            child = c.next_sibling();
+        }
+        None
+    }
+    find(row.upcast_ref())
+}
+
 /// The inline value view of an AdwComboRow: a ListView showing the
 /// selected item, hidden behind internals with no public accessor — this
 /// reaches it so the value label can be aligned inside it.
