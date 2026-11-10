@@ -1,7 +1,7 @@
 //! The window shell: the Adwaita navigation split view (sidebar + content),
-//! the floating restart button, page accelerators, and the wiring between
-//! every control and the save funnel. The page contents themselves still
-//! live here and move to `pages/*.rs` one commit at a time.
+//! page accelerators, and the wiring between every control and the save
+//! funnel. The page contents themselves still live here and move to
+//! `pages/*.rs` one commit at a time.
 
 use super::*;
 
@@ -13,35 +13,6 @@ use super::*;
 thread_local! {
     static PENDING_REBUILD: RefCell<Option<gtk4::glib::SourceId>> =
         const { RefCell::new(None) };
-}
-
-/// The restart script: restart the daemon, then bring the XIM bridge back.
-///
-/// On a Wayland session `ibus-x11` starts once, from the distro hook
-/// `/etc/xdg/Xwayland-session.d/10-ibus-x11` (`/usr/lib/ibus/ibus-x11 &`),
-/// and nothing respawns it — an `ibus restart` left XIM clients (JetBrains,
-/// which force `-Dawt.toolkit.name=XToolkit`) unable to type until the next
-/// login, while the stale `XIM_SERVERS` root property still advertised a
-/// dead server. Wait for the daemon, then start the bridge the same way the
-/// hook does, skipped when one is already running (an X11 session keeps its
-/// own under the daemon's `--xim`). Java apps opened before the restart may
-/// still need one reopen — AWT holds a stale XIC (JDK-8213183).
-pub(super) fn restart_script(session_type: Option<&str>) -> &'static str {
-    if session_type == Some("wayland") {
-        "ibus restart; sleep 2; pgrep -x ibus-x11 >/dev/null 2>&1 \
-         || /usr/lib/ibus/ibus-x11 >/dev/null 2>&1 &"
-    } else {
-        "ibus restart"
-    }
-}
-
-fn restart_ibus() -> std::io::Result<()> {
-    let script = restart_script(std::env::var("XDG_SESSION_TYPE").ok().as_deref());
-    std::process::Command::new("sh")
-        .arg("-c")
-        .arg(script)
-        .spawn()
-        .map(|_| ())
 }
 
 /// Build the whole settings window (pages, shell, wiring) and present it.
@@ -58,34 +29,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
 
     // --- pages: grouped-card settings style (section header + cards) ---
 
-    // The floating restart button. It stays hidden until a change is saved:
-    // every control already writes straight to config.toml, so the only
-    // thing left for the user to do is restart IBus (a new engine binary or
-    // component XML needs it; plain settings changes apply within a second).
-    let restart_btn = gtk4::Button::new();
-    {
-        let b = gtk4::Box::new(Orientation::Horizontal, 8);
-        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
-        b.append(&gtk4::Label::new(Some(&t(
-            "misc.restart_button",
-            "Khởi động lại IBus",
-        ))));
-        restart_btn.set_child(Some(&b));
-    }
-    // The XIM caveat rides on the button as a hover hint: an app reached
-    // through ibus-x11 (JetBrains) recreates its input context only on the
-    // next focus-in, so one window switch is part of the restart ritual.
-    restart_btn.set_tooltip_text(Some(&t(
-        "misc.restart_xim_tooltip",
-        "Ứng dụng XIM (JetBrains): sau khi khởi động lại, đổi sang cửa sổ khác rồi quay lại để gõ tiếp tiếng Việt.",
-    )));
-    let restart_overlay = adw::ToastOverlay::new();
-    restart_btn.add_css_class("suggested-action");
-    restart_btn.add_css_class("pill");
-    restart_btn.set_halign(gtk4::Align::Center);
-    restart_btn.set_valign(gtk4::Align::End);
-    restart_btn.set_margin_bottom(18);
-    restart_btn.set_visible(false);
+    // There is no restart button: every settings change reaches the panel
+    // menu and the engine live (the config hot-reload on the engine's run
+    // loop re-emits per-item panel updates within a second), so a restart
+    // is never part of using this window. Only a new engine BINARY or
+    // component XML needs one — the installer performs it.
 
     // ===== Page 1: Chung — the everyday page, on its own preferences file.
     let typing_page = pages::typing::build(&ui);
@@ -106,7 +54,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     let rules_page = pages::rules::build(&ui);
 
     // ===== Page 6: Cài đặt khác — icon, extension, backup, reset.
-    let other_page = pages::other::build(&ui, &restart_btn);
+    let other_page = pages::other::build(&ui);
 
     // ===== Page 7: Thử nghiệm — every gated feature on one tab.
     let experimental_page = pages::experimental::build(&ui);
@@ -224,7 +172,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     // --- Adwaita shell: sidebar + content -----------------------------------
     // GNOME Settings layout: a navigation sidebar picks the page, the
     // content toolbar view holds the header (dynamic title) and the stack.
-    // The restart button floats over the content at the bottom center.
     let split_view = adw::NavigationSplitView::new();
     split_view.set_sidebar_width_fraction(0.24);
 
@@ -446,13 +393,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         .child(&sidebar_box)
         .build();
 
-    // The restart button floats over everything at the bottom center of
-    // the page; the toast overlay wraps the page stack so the post-restart
-    // hint can float above it (AdwToastOverlay's documented home).
     let page_overlay = gtk4::Overlay::new();
-    page_overlay.set_child(Some(&restart_overlay));
-    restart_overlay.set_child(Some(&stack));
-    page_overlay.add_overlay(&restart_btn);
+    page_overlay.set_child(Some(&stack));
     let content_toolbar = adw::ToolbarView::new();
 
     // --- search: the sidebar entry, results over every page -----------------
@@ -722,7 +664,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     {
         let window_for_save = window.clone();
         let ui_for_save = ui.clone();
-        let restart_for_save = restart_btn.clone();
         let save = move || {
             // Programmatic widget updates (external_reload) fire the same
             // handlers; saving then would write back what we just read.
@@ -730,10 +671,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
                 return;
             }
             match ui_for_save.save_all() {
-                // Every saved change raises the restart banner: the settings
-                // are already on disk, the button is only there so a restart
-                // is one click away.
-                Ok(()) => restart_for_save.set_visible(true),
+                // The change is live: the engine's run-loop hot-reload
+                // applies it and refreshes the panel menu within a second.
+                Ok(()) => {}
                 Err(e) => alert(&window_for_save, &e.to_string()),
             }
         };
@@ -814,15 +754,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
                             old.close();
                         }
                         build(&app, Some(&page));
-                        // The pick restarts IBus: the engine re-reads the
-                        // saved config, so the panel menu and every engine
-                        // setting apply at once (owner decision — simpler
-                        // than chasing live reloads). The window survives:
-                        // it was spawned outside IBus's cgroup. Tests skip
-                        // this — an IBus restart cannot run headless.
-                        if !cfg!(test) {
-                            let _ = restart_ibus();
-                        }
+                        // No IBus restart here: the run-loop hot-reload picks
+                        // up the saved language and refreshes the panel menu
+                        // within a second (supersedes the 03:17 decision).
                     });
                     PENDING_REBUILD.with(|c| {
                         // Only a still-pending idle reaches remove(); a fired
@@ -857,29 +791,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
             controller.connect_leave(move |_| s());
             view.add_controller(controller);
         }
-    }
-
-    {
-        let window = window.clone();
-        let btn = restart_btn.clone();
-        let ui = Rc::clone(&ui);
-        let overlay = restart_overlay.clone();
-        restart_btn.connect_clicked(move |_| {
-            // User-initiated only — the engine never restarts IBus itself.
-            match restart_ibus() {
-                Ok(_) => {
-                    btn.set_visible(false);
-                    ui.fire_toast(
-                        &overlay,
-                        &t(
-                            "misc.restart_xim_toast",
-                            "Đã khởi động lại IBus — ứng dụng XIM (JetBrains) cần đổi cửa sổ rồi quay lại để gõ tiếp.",
-                        ),
-                    );
-                }
-                Err(e) => alert(&window, &format!("Không khởi động lại được IBus: {e}")),
-            }
-        });
     }
 
     // Live reload: the engine's hotkeys (and any other writer) change the

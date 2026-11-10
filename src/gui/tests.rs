@@ -1,27 +1,5 @@
 use super::*;
 
-#[test]
-fn restart_script_respawns_the_xim_bridge_on_wayland() {
-    // The Wayland restart must bring ibus-x11 back: nothing else respawns
-    // the bridge (the distro hook runs once per login) and XIM apps lose
-    // input until the next logout without it.
-    let script = content::restart_script(Some("wayland"));
-    assert!(script.starts_with("ibus restart"));
-    assert!(
-        script.contains("pgrep -x ibus-x11"),
-        "skip the spawn when a bridge already runs: {script}"
-    );
-    assert!(
-        script.contains("/usr/lib/ibus/ibus-x11"),
-        "spawn the bridge the way the distro hook does: {script}"
-    );
-    assert_eq!(
-        content::restart_script(Some("x11")),
-        "ibus restart",
-        "an X11 session keeps its own bridge under the daemon's --xim"
-    );
-}
-
 /// GTK initializes once per process and only ever on the thread that did
 /// it, while libtest hands every `#[test]` its own thread — separate GTK
 /// tests flake with "Attempted to initialize GTK from two different
