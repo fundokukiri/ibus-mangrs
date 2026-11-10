@@ -27,6 +27,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     tuning.add(&ui.echo_stale_spin);
     tuning.add(&ui.idle_commit_switch);
     tuning.add(&ui.idle_commit_spin);
+    tuning.add(&ui.smooth_per_key_spin);
     tuning.add(&ui.nav_key_while_preedit);
     page.add(&tuning);
 
@@ -41,6 +42,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.idle_commit_switch);
     // A combo-only feature: the combo is its own primary row.
     decorate_experimental(&ui.nav_key_while_preedit);
+    // The per-key delay knob is experimental on its own: its switch lives on
+    // the Tuning page and is not gated, so the spin is this feature's only
+    // experimental row and carries the badge itself.
+    decorate_experimental(&ui.smooth_per_key_spin);
     // The switches themselves glow the same warning amber as the badge and
     // the tab label: one look, one meaning.
     for switch in [
@@ -92,6 +97,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             &ui.idle_commit_switch,
             ui.idle_commit_spin.upcast_ref::<gtk4::Widget>(),
         ),
+        (
+            &ui.smooth_per_key_switch,
+            ui.smooth_per_key_spin.upcast_ref::<gtk4::Widget>(),
+        ),
     ] {
         let value = value.clone();
         switch.connect_active_notify(move |sw| {
@@ -106,6 +115,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         &ui.clipboard_restore_spin,
         &ui.echo_stale_spin,
         &ui.idle_commit_spin,
+        &ui.smooth_per_key_spin,
     ] {
         let ui = Rc::clone(ui);
         spin.connect_value_notify(move |_| ui.fire_save());

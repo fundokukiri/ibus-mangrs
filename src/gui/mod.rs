@@ -322,6 +322,7 @@ struct Ui {
     idle_commit_switch: adw::SwitchRow,
     idle_commit_spin: adw::SpinRow,
     smooth_per_key_switch: adw::SwitchRow,
+    smooth_per_key_spin: adw::SpinRow,
     experimental_features: adw::SwitchRow,
     show_toasts: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
@@ -582,6 +583,12 @@ impl Ui {
         self.idle_commit_spin
             .set_value(config.idle_commit_ms as f64);
         self.smooth_per_key_switch.set_active(config.smooth_per_key);
+        // Same shape as the other switch+spin pairs: the stored value stays
+        // visible and locked while the switch is off.
+        self.smooth_per_key_spin
+            .set_sensitive(config.smooth_per_key);
+        self.smooth_per_key_spin
+            .set_value(config.smooth_per_key_delay_ms as f64);
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
@@ -726,6 +733,7 @@ impl Ui {
         config.idle_commit_enabled = self.idle_commit_switch.is_active();
         config.idle_commit_ms = self.idle_commit_spin.value() as u64;
         config.smooth_per_key = self.smooth_per_key_switch.is_active();
+        config.smooth_per_key_delay_ms = self.smooth_per_key_spin.value() as u64;
         config.experimental_features = self.experimental_features.is_active();
         config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
@@ -797,7 +805,7 @@ impl Ui {
         // itself (its sidebar row) and the rows inside it. States stay saved
         // either way; closing the tab under the user lands on "Cài đặt
         // khác", the page hosting the gate switch.
-        let rows: [&gtk4::Widget; 12] = [
+        let rows: [&gtk4::Widget; 13] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_switch.upcast_ref(),
             self.extra_url_chars_entry.upcast_ref(),
@@ -809,6 +817,7 @@ impl Ui {
             self.echo_stale_spin.upcast_ref(),
             self.idle_commit_switch.upcast_ref(),
             self.idle_commit_spin.upcast_ref(),
+            self.smooth_per_key_spin.upcast_ref(),
             self.nav_key_while_preedit.upcast_ref(),
         ];
         for row in rows {
