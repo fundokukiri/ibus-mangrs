@@ -2,8 +2,7 @@
 //! per-feature page — the app-grid icon, the focus extension installer
 //! (GNOME sessions only), the JSON backup and the restore-defaults action
 //! next to the debug-log switch. The page owns its action buttons, their
-//! handlers and the toast host; the restart banner stays with the shell
-//! (the import and the reset reveal it through the shared button).
+//! handlers and the toast host.
 
 use super::*;
 
@@ -43,7 +42,37 @@ fn window_of(btn: &gtk4::Button) -> Option<gtk4::Window> {
     btn.root().and_downcast::<gtk4::Window>()
 }
 
-pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverlay {
+/// The restart script: restart the daemon, then bring the XIM bridge back.
+///
+/// On a Wayland session `ibus-x11` starts once, from the distro hook
+/// `/etc/xdg/Xwayland-session.d/10-ibus-x11` (`/usr/lib/ibus/ibus-x11 &`),
+/// and nothing respawns it — after a plain `ibus restart` XIM clients
+/// (JetBrains) cannot type until the next login while the stale
+/// `XIM_SERVERS` root property still advertises the dead server. Wait for
+/// the daemon, then start the bridge the way the hook does (nohup: this
+/// script's shell exits right after), skipped when one already runs (an
+/// X11 session keeps its own under the daemon's `--xim`). Java apps opened
+/// before the restart may still need one reopen — AWT holds a stale XIC
+/// (JDK-8213183).
+pub(crate) fn restart_script(session_type: Option<&str>) -> &'static str {
+    if session_type == Some("wayland") {
+        "ibus restart; sleep 2; pgrep -x ibus-x11 >/dev/null 2>&1 \
+         || nohup /usr/lib/ibus/ibus-x11 >/dev/null 2>&1 &"
+    } else {
+        "ibus restart"
+    }
+}
+
+fn restart_ibus() -> std::io::Result<()> {
+    let script = restart_script(std::env::var("XDG_SESSION_TYPE").ok().as_deref());
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .spawn()
+        .map(|_| ())
+}
+
+pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let page = adw::PreferencesPage::new();
     let toast_overlay = adw::ToastOverlay::new();
 
@@ -62,6 +91,7 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     )));
     interface.add(&ui.desktop_icon);
     interface.add(&ui.show_toasts);
+    interface.add(&ui.language);
     page.add(&interface);
 
     // Focus extension: embedded, written into the user extension dir.
@@ -167,30 +197,12 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     backup.add(&import_row);
     page.add(&backup);
 
-    // Advanced: the debug-log switch and the destructive reset share one
-    // group, so the page holds four groups instead of five fragments.
+    // Advanced: the debug-log switches and the destructive reset share one
+    // group, so the page holds four groups instead of five fragments. The
+    // experimental gate moved into the "Thử nghiệm" tab it controls.
     let advanced = adw::PreferencesGroup::builder()
         .title(t("groups.other.advanced.title", "Nâng cao"))
         .build();
-    advanced.add(&ui.experimental_features);
-    // The gate toggles visibility itself (config save goes through
-    // wire_switch_saves): off hides every experimental row across the
-    // pages, on brings them back with their saved states. The jump to this
-    // page lives HERE, not in set_experimental_visible — that one runs on
-    // every refresh, where a jump would yank the user off their page on
-    // every save (the external-reload watcher fires it too).
-    {
-        let ui = Rc::clone(ui);
-        let switch = ui.experimental_features.clone();
-        switch.connect_active_notify(move |sw| {
-            ui.set_experimental_visible(sw.is_active());
-            if !sw.is_active() {
-                if let Some(select) = ui.sidebar_select.borrow().as_ref() {
-                    select("other");
-                }
-            }
-        });
-    }
     advanced.add(&ui.debug_log);
     advanced.add(&ui.debug_log_text);
     let reset_row = action_row(
@@ -211,6 +223,40 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     reset_row.add_suffix(&reset_btn);
     advanced.add(&reset_row);
     page.add(&advanced);
+
+    // The manual IBus restart, last on the page and centered: nothing in
+    // this window needs it (the run-loop hot-reload makes every settings
+    // change land live), so it stays a maintenance action — a stuck daemon,
+    // a hand-installed engine binary. It also brings the ibus-x11 bridge
+    // back, which a terminal `ibus restart` does not: without the bridge
+    // XIM apps (JetBrains) cannot type until the next logout.
+    let restart_group = adw::PreferencesGroup::new();
+    let restart_btn = gtk4::Button::new();
+    {
+        let b = gtk4::Box::new(Orientation::Horizontal, 8);
+        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
+        b.append(&gtk4::Label::new(Some(&t(
+            "misc.restart_button",
+            "Khởi động lại IBus",
+        ))));
+        restart_btn.set_child(Some(&b));
+    }
+    restart_btn.add_css_class("suggested-action");
+    restart_btn.add_css_class("pill");
+    restart_btn.set_halign(gtk4::Align::Center);
+    restart_btn.set_margin_top(6);
+    restart_btn.set_margin_bottom(6);
+    restart_group.add(&restart_btn);
+    page.add(&restart_group);
+
+    restart_btn.connect_clicked(move |btn| {
+        // User-initiated only — the engine never restarts IBus itself.
+        if let Err(e) = restart_ibus() {
+            if let Some(window) = window_of(btn) {
+                alert(&window, &format!("Không khởi động lại được IBus: {e}"));
+            }
+        }
+    });
 
     // The icon switch talks to the filesystem; report through a toast.
     {
@@ -284,11 +330,10 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     }
 
     // Import: read a JSON backup back in; a success rewrites config.toml
-    // wholesale, so the restart banner applies like any other save.
+    // wholesale, like any other save.
     {
         let ui = ui.clone();
         let overlay_toasts = toast_overlay.clone();
-        let restart_btn = restart_btn.clone();
         import_btn.connect_clicked(move |btn| {
             let dialog = gtk4::FileDialog::builder()
                 .title(t("misc.import_dialog", "Nhập cấu hình"))
@@ -297,7 +342,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                 .build();
             let ui = ui.clone();
             let overlay_toasts = overlay_toasts.clone();
-            let restart_btn = restart_btn.clone();
             let window = window_of(btn);
             let dialog_parent = window.clone();
             dialog.open(
@@ -308,7 +352,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                     if let Ok(file) = result {
                         match import_json(file.path(), &ui) {
                             Ok(()) => {
-                                restart_btn.set_visible(true);
                                 ui.fire_toast(
                                     &overlay_toasts,
                                     &t("misc.imported_toast", "Đã nhập cấu hình"),
@@ -394,7 +437,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     {
         let ui = ui.clone();
         let overlay_toasts = toast_overlay.clone();
-        let restart_btn = restart_btn.clone();
         reset_btn.connect_clicked(move |btn| {
             let dialog = adw::AlertDialog::builder()
                 .heading(t("other.reset_heading", "Khôi phục mặc định?"))
@@ -411,7 +453,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
             {
                 let ui = ui.clone();
                 let overlay_toasts = overlay_toasts.clone();
-                let restart_btn = restart_btn.clone();
                 let window = window_of(btn);
                 dialog.connect_response(Some("apply"), move |_, _| {
                     if let Err(e) = Config::default().save_fresh() {
@@ -423,8 +464,12 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                     let config = Config::load();
                     let macros = Macros::load();
                     let dictionary = Dictionary::load();
+                    // Suppressed like `external_reload`: the refresh fires
+                    // the row handlers, and a mid-refresh save would write
+                    // back the pre-reset values still held by the widgets.
+                    ui.suppress_save.set(true);
                     ui.refresh(&config, &macros, &dictionary);
-                    restart_btn.set_visible(true);
+                    ui.suppress_save.set(false);
                     ui.fire_toast(
                         &overlay_toasts,
                         &t("misc.reset_toast", "Đã khôi phục mặc định"),

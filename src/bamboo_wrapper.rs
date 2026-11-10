@@ -886,6 +886,21 @@ impl BambooWrapper {
         &self.raw
     }
 
+    /// Rebuild a LIVE composition from screen text: replay the keys the
+    /// re-encoder derives and verify the composition reproduces the screen.
+    /// The smooth Backspace experiment uses it to re-track a committed
+    /// word's shortened screen, so the next mark key keeps editing the
+    /// word. `false` for the presets the re-encoder does not cover
+    /// (MsLayout, VniFrench) and any screen it cannot reproduce — the
+    /// caller keeps the word as plain text.
+    pub fn retrack_from_screen(&mut self, screen: &str) -> bool {
+        let Some(keys) = self.encode_raw_keys(screen) else {
+            return false;
+        };
+        self.replay_raw(&keys);
+        self.output() == screen && self.has_composition()
+    }
+
     pub fn reset(&mut self) {
         self.engine.reset();
         self.last_output.clear();
@@ -1120,6 +1135,34 @@ mod tests {
         let mut w = wrapper(Method::Telex);
         type_str(&mut w, "tieengs");
         assert_eq!(w.output(), "tiếng");
+    }
+
+    #[test]
+    fn retrack_from_screen_rebuilds_a_live_composition() {
+        // The mark-editing goal: a committed word's shortened screen comes
+        // back as a live composition, and the next tone key REPLACES the
+        // mark (`tùn` + `s` -> `tún`), like editing in Preedit.
+        let mut w = wrapper(Method::Telex);
+        type_str(&mut w, "tungf");
+        assert_eq!(w.output(), "tùng");
+        w.reset();
+        assert!(!w.has_composition(), "the committed word is dead");
+        assert!(w.retrack_from_screen("tùn"));
+        assert!(w.has_composition());
+        assert_eq!(w.output(), "tùn");
+        w.process_char('s');
+        assert_eq!(w.output(), "tún", "the tone key replaces the mark");
+        // VNI re-encodes through its digit keys.
+        let mut v = wrapper(Method::Vni);
+        assert!(v.retrack_from_screen("tùn"));
+        assert_eq!(v.output(), "tùn");
+        // Presets the re-encoder does not cover fall back to plain text.
+        let mut m = wrapper(Method::MsLayout);
+        assert!(!m.retrack_from_screen("tùn"));
+        assert!(!m.has_composition());
+        // Plain latin recomposes too (it is just letters).
+        assert!(w.retrack_from_screen("abc"));
+        assert_eq!(w.output(), "abc");
     }
 
     #[test]

@@ -32,7 +32,7 @@ mod pages;
 mod text;
 mod widgets;
 
-use text::t;
+use text::{is_english, set_language, t};
 
 use content::*;
 use hotkey::*;
@@ -55,6 +55,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // page (menu "Mở bảng gõ tắt…"); GTK parses argv itself and rejects
     // these arguments, so read them here and hand GTK an empty argv.
     let page = std::env::args().find_map(|a| a.strip_prefix("--page=").map(str::to_string));
+    // Before any widget text resolves: t() reads the per-process language.
+    set_language(&Config::load().language);
     let app = adw::Application::builder()
         .application_id("org.freedesktop.IBus.mangrs")
         .build();
@@ -72,48 +74,83 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-const METHODS: &[&str] = &[
-    "Telex",
-    "Telex 2",
-    "Telex W",
-    "Telex + VNI",
-    "Telex + VNI + VIQR",
-    "VNI",
-    "VNI bàn phím Pháp",
-    "VIQR",
-    "Microsoft layout",
+/// (Vietnamese, English) display labels for the combo item lists. POSITION
+/// is the index contract between the item list and refresh/read — pairs are
+/// never reordered, only rendered in the window's language via `labels`.
+const METHODS: &[(&str, &str)] = &[
+    ("Telex", "Telex"),
+    ("Telex 2", "Telex 2"),
+    ("Telex W", "Telex W"),
+    ("Telex + VNI", "Telex + VNI"),
+    ("Telex + VNI + VIQR", "Telex + VNI + VIQR"),
+    ("VNI", "VNI"),
+    ("VNI bàn phím Pháp", "VNI (French keyboard)"),
+    ("VIQR", "VIQR"),
+    ("Microsoft layout", "Microsoft layout"),
 ];
-const MODES: &[&str] = &[
-    "Không gạch chân",
-    "Gạch chân (preedit)",
-    "Surrounding text",
-    "Flow (uinput)",
-    "Turbo (uinput)",
-    "Select (uinput)",
-    "Forward Backspace",
-    "Forward Selection",
-    "OFF",
+const MODES: &[(&str, &str)] = &[
+    ("Không gạch chân", "No underline"),
+    ("Gạch chân (preedit)", "Underline (preedit)"),
+    ("Surrounding text", "Surrounding text"),
+    ("Flow (uinput)", "Flow (uinput)"),
+    ("Turbo (uinput)", "Turbo (uinput)"),
+    ("Select (uinput)", "Select (uinput)"),
+    ("Forward Backspace", "Forward Backspace"),
+    ("Forward Selection", "Forward Selection"),
+    ("OFF", "OFF"),
 ];
-const CHARSETS: &[&str] = &[
-    "Unicode",
-    "Unicode tổ hợp",
-    "TCVN3",
-    "VNI",
-    "VIQR",
-    "VISCII",
-    "VPS",
-    "Windows 1258",
-    "BKHCM",
-    "Vietware X",
-    "Vietware Full",
+const CHARSETS: &[(&str, &str)] = &[
+    ("Unicode", "Unicode"),
+    ("Unicode tổ hợp", "Unicode (combining)"),
+    ("TCVN3", "TCVN3"),
+    ("VNI", "VNI"),
+    ("VIQR", "VIQR"),
+    ("VISCII", "VISCII"),
+    ("VPS", "VPS"),
+    ("Windows 1258", "Windows 1258"),
+    ("BKHCM", "BKHCM"),
+    ("Vietware X", "Vietware X"),
+    ("Vietware Full", "Vietware Full"),
 ];
-const ON_OFF_MODES: &[&str] = &["Tắt", "Trừ đầu từ", "Mọi vị trí"];
-const BACKSPACE_TONE_MODES: &[&str] = &[
-    "Xóa dấu trước",
-    "Xóa cả dấu và chữ",
-    "Unikey (lùi từng phím)",
+const ON_OFF_MODES: &[(&str, &str)] = &[
+    ("Tắt", "Off"),
+    ("Trừ đầu từ", "Not at word start"),
+    ("Mọi vị trí", "Everywhere"),
 ];
-const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
+const BACKSPACE_TONE_MODES: &[(&str, &str)] = &[
+    ("Xóa dấu trước", "Tone first"),
+    ("Xóa cả dấu và chữ", "Whole character"),
+    ("Unikey (lùi từng phím)", "Unikey (walk back)"),
+];
+/// The experimental nav-key behaviors while a preedit commit is pending, in
+/// `nav_key_while_preedit` config-value order (swallow/forward/replay); the
+/// combo index is the mapping contract for `refresh`/`read`.
+const NAV_KEY_MODES: &[(&str, &str)] = &[
+    ("Nuốt phím đầu (mặc định)", "Swallow first press (default)"),
+    (
+        "Chuyển caret ngay (kiểu bamboo)",
+        "Move the caret at once (bamboo-style)",
+    ),
+    ("Phát lại phím qua tín hiệu", "Replay the key as a signal"),
+];
+const CHANNELS: &[(&str, &str)] = &[
+    ("CommitText (an toàn)", "CommitText (safe)"),
+    ("Clipboard (Ctrl+V)", "Clipboard (Ctrl+V)"),
+];
+
+/// The combo item labels for `pairs` in the window's language.
+pub(crate) fn labels<'a>(pairs: &'a [(&'a str, &'a str)]) -> Vec<&'a str> {
+    let en = is_english();
+    pairs.iter().map(|p| if en { p.1 } else { p.0 }).collect()
+}
+/// The $TIME/$DATE strftime presets, the shipped defaults first; a format
+/// the old free-text rows saved that matches none of these is appended as
+/// its own item by `select_format` instead of being rewritten.
+const TIME_FORMATS: &[&str] = &["%H:%M", "%H:%M:%S", "%Hh%M", "%I:%M %p"];
+const DATE_FORMATS: &[&str] = &["%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%Y-%m-%d", "%d/%m/%y"];
+/// The interface languages, in combo order. The labels are proper names —
+/// they stay the same in every language.
+const LANGUAGES: &[&str] = &["Tiếng Việt", "English"];
 
 /// The custom-shortcut functions, in `config::CUSTOM_HOTKEY_ACTIONS` order:
 /// (action key, gui-content key) plus the code fallback labels — the
@@ -176,6 +213,9 @@ struct Ui {
     extra_url_chars_entry: adw::EntryRow,
     w2u: adw::ComboRow,
     backspace_tone: adw::ComboRow,
+    /// Experimental: what the first navigation key does while a preedit
+    /// commit is pending (the "Thử nghiệm" tab).
+    nav_key_while_preedit: adw::ComboRow,
     bracket: adw::ComboRow,
     em_dash: adw::SwitchRow,
     auto_capitalize: adw::SwitchRow,
@@ -186,8 +226,10 @@ struct Ui {
     capitalize_macro: adw::SwitchRow,
     macro_in_off_mode: adw::SwitchRow,
     macro_valid_words: adw::SwitchRow,
-    time_format: adw::EntryRow,
-    date_format: adw::EntryRow,
+    time_format: adw::ComboRow,
+    date_format: adw::ComboRow,
+    /// The interface language; picking it rebuilds the window (content.rs).
+    language: adw::ComboRow,
     /// Emoji shortcodes ("Emoji" tab): the on/off switch, the picker
     /// hotkey (the row itself lives on "Phím tắt", one row per shortcut)
     /// and the raw user table `name=glyph` lines of `emoji.toml`.
@@ -233,13 +275,8 @@ struct Ui {
     /// change handlers a user edit does, and saving them would write the
     /// half-updated state back over the change being picked up.
     suppress_save: Cell<bool>,
-    /// The sidebar row of the "Thử nghiệm" tab: the experimental gate shows
-    /// and hides the whole tab through it. `None` until the content shell
-    /// builds the sidebar — headless tests never get there.
-    experimental_nav: RefCell<Option<gtk4::ListBoxRow>>,
     /// Programmatic page jump: select_row drives the same row_selected
-    /// handler the clicks use. The gate lands the user on "Cài đặt khác"
-    /// when it closes the tab they were standing on. `None` headless.
+    /// handler the clicks use. `None` headless.
     sidebar_select: RefCell<Option<PageJump>>,
     /// "Thử luật" input, its verdict row and the verdict's status icon.
     rule_preview_input: adw::EntryRow,
@@ -280,6 +317,8 @@ struct Ui {
     idle_commit_switch: adw::SwitchRow,
     idle_commit_spin: adw::SpinRow,
     smooth_per_key_switch: adw::SwitchRow,
+    smooth_per_key_spin: adw::SpinRow,
+    smooth_backspace_retrack: adw::SwitchRow,
     experimental_features: adw::SwitchRow,
     show_toasts: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
@@ -304,6 +343,16 @@ type SharedSave = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
 /// lives in `content` where the sidebar rows do; the gate uses it to land
 /// the user somewhere sane after closing the tab they stood on.
 type PageJump = Rc<dyn Fn(&str)>;
+
+/// The combo-row index for a `nav_key_while_preedit` value — shared by
+/// refresh, the gate's defaults display and its restore.
+fn nav_key_selected(v: &str) -> u32 {
+    match v {
+        "forward" => 1,
+        "replay" => 2,
+        _ => 0,
+    }
+}
 
 fn method_index(m: MethodConfig) -> u32 {
     match m {
@@ -377,6 +426,31 @@ fn on_off_index<T: PartialEq>(value: &T, disabled: T, nonstart: T) -> u32 {
     }
 }
 
+/// Select `value` in a format combo: the matching preset's index, or — for
+/// a format stored by the old free-text rows — a temporary extra item
+/// appended to the end, so no stored format is rewritten on save.
+fn select_format(row: &adw::ComboRow, presets: &[&str], value: &str) {
+    let list = StringList::new(presets);
+    let index = match presets.iter().position(|p| *p == value) {
+        Some(i) => i as u32,
+        None => {
+            list.append(value);
+            list.n_items() - 1
+        }
+    };
+    row.set_model(Some(&list));
+    row.set_selected(index);
+}
+
+/// The pattern the combo currently shows: presets and appended values read
+/// back the same way, the model being the single source of truth.
+pub(crate) fn format_selected(row: &adw::ComboRow) -> String {
+    row.selected_item()
+        .and_downcast::<gtk4::StringObject>()
+        .map(|o| o.string().into())
+        .unwrap_or_default()
+}
+
 impl Ui {
     /// Push a config (plus the two text lists) into every widget. This is the
     /// only config → widget mapping: the initial build and the import both go
@@ -391,6 +465,20 @@ impl Ui {
         let mut config = config.clone();
         if config.menu.as_ref().is_none_or(|m| m.is_empty()) {
             config.menu = Some(config.default_menu());
+        }
+        // Same for the language: read() always produces "vi"/"en", so a
+        // hand-edited value must normalize here or the round-trip assert
+        // below fails.
+        if config.language != "en" {
+            config.language = "vi".into();
+        }
+        // Same for the nav-key choice: read() always produces a known
+        // value, so a hand-edited one normalizes to the shipped swallow.
+        if !matches!(
+            config.nav_key_while_preedit.as_str(),
+            "swallow" | "forward" | "replay"
+        ) {
+            config.nav_key_while_preedit = "swallow".into();
         }
         self.enabled.set_active(config.enabled);
         self.method.set_selected(method_index(config.method));
@@ -432,6 +520,8 @@ impl Ui {
                 BackspaceToneConfig::WholeChar => 1,
                 BackspaceToneConfig::UnikeyWalk => 2,
             });
+        self.nav_key_while_preedit
+            .set_selected(nav_key_selected(&config.nav_key_while_preedit));
         self.em_dash.set_active(config.em_dash);
         self.auto_capitalize.set_active(config.auto_capitalize);
         self.auto_capitalize_after_switch
@@ -446,8 +536,10 @@ impl Ui {
         self.macro_in_off_mode.set_active(config.macro_in_off_mode);
         self.macro_valid_words
             .set_active(config.macro_expand_valid_words);
-        self.time_format.set_text(&config.time_format);
-        self.date_format.set_text(&config.date_format);
+        select_format(&self.time_format, TIME_FORMATS, &config.time_format);
+        select_format(&self.date_format, DATE_FORMATS, &config.date_format);
+        self.language
+            .set_selected(u32::from(config.language == "en"));
         self.emoji_enabled.set_active(config.emoji_enabled);
         *self.emoji_hotkey_value.borrow_mut() = config.emoji_hotkey.clone();
         self.emoji_hotkey_display.render(&config.emoji_hotkey);
@@ -493,13 +585,25 @@ impl Ui {
         self.idle_commit_spin
             .set_value(config.idle_commit_ms as f64);
         self.smooth_per_key_switch.set_active(config.smooth_per_key);
+        // Same shape as the other switch+spin pairs: the stored value stays
+        // visible and locked while the switch is off.
+        self.smooth_per_key_spin
+            .set_sensitive(config.smooth_per_key);
+        self.smooth_per_key_spin
+            .set_value(config.smooth_per_key_delay_ms as f64);
+        self.smooth_backspace_retrack
+            .set_active(config.smooth_backspace_retrack);
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
-        // The master gate: off hides every experimental row (its feature is
-        // also forced off in the engine); back on, they reappear with their
-        // saved switch states and values.
-        self.set_experimental_visible(config.experimental_features);
+        // The master gate: off locks every experimental row and displays
+        // the shipped defaults — config.toml keeps the user's values (the
+        // save funnel skips the experimental fields) and the engine bakes
+        // the defaults in, so what is on screen is what typing does.
+        self.set_experimental_sensitive(config.experimental_features);
+        if !config.experimental_features {
+            self.show_experimental_defaults();
+        }
         let menu = config.menu.clone().unwrap_or_else(|| config.default_menu());
         *self.menu.borrow_mut() = normalize_menu(&menu);
         self.fill_menu_list();
@@ -541,6 +645,11 @@ impl Ui {
         // Start from the file so options this window does not show are not
         // overwritten.
         let mut config = Config::load();
+        // The gate is off: the experimental widgets display the shipped
+        // defaults, and the user's saved values must survive any save — the
+        // file's own values win over the widgets for those fields.
+        let gate_on = self.experimental_features.is_active();
+        let saved_experimental = config.clone();
         config.enabled = self.enabled.is_active();
         config.method = match self.method.selected() {
             0 => MethodConfig::Telex,
@@ -593,6 +702,11 @@ impl Ui {
             2 => BackspaceToneConfig::UnikeyWalk,
             _ => BackspaceToneConfig::ToneFirst,
         };
+        config.nav_key_while_preedit = match self.nav_key_while_preedit.selected() {
+            1 => "forward".into(),
+            2 => "replay".into(),
+            _ => "swallow".into(),
+        };
         config.bracket = match self.bracket.selected() {
             1 => BracketConfig::NonStart,
             2 => BracketConfig::Everywhere,
@@ -607,8 +721,14 @@ impl Ui {
         config.capitalize_macro = self.capitalize_macro.is_active();
         config.macro_in_off_mode = self.macro_in_off_mode.is_active();
         config.macro_expand_valid_words = self.macro_valid_words.is_active();
-        config.time_format = self.time_format.text().trim().to_string();
-        config.date_format = self.date_format.text().trim().to_string();
+        config.time_format = format_selected(&self.time_format);
+        config.date_format = format_selected(&self.date_format);
+        config.language = if self.language.selected() == 1 {
+            "en"
+        } else {
+            "vi"
+        }
+        .into();
         config.emoji_enabled = self.emoji_enabled.is_active();
         config.emoji_hotkey = self.emoji_hotkey_value.borrow().clone();
         config.dictionary_enabled = self.dictionary_enabled.is_active();
@@ -626,6 +746,8 @@ impl Ui {
         config.idle_commit_enabled = self.idle_commit_switch.is_active();
         config.idle_commit_ms = self.idle_commit_spin.value() as u64;
         config.smooth_per_key = self.smooth_per_key_switch.is_active();
+        config.smooth_per_key_delay_ms = self.smooth_per_key_spin.value() as u64;
+        config.smooth_backspace_retrack = self.smooth_backspace_retrack.is_active();
         config.experimental_features = self.experimental_features.is_active();
         config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
@@ -644,6 +766,23 @@ impl Ui {
                 action: action.clone(),
             })
             .collect();
+        if !gate_on {
+            config.extra_url_chars_enabled = saved_experimental.extra_url_chars_enabled;
+            config.extra_url_chars = saved_experimental.extra_url_chars;
+            config.auto_capitalize_after_enabled = saved_experimental.auto_capitalize_after_enabled;
+            config.auto_capitalize_after = saved_experimental.auto_capitalize_after;
+            config.macro_expand_valid_words = saved_experimental.macro_expand_valid_words;
+            config.clipboard_restore_delay_enabled =
+                saved_experimental.clipboard_restore_delay_enabled;
+            config.clipboard_restore_delay_ms = saved_experimental.clipboard_restore_delay_ms;
+            config.echo_stale_enabled = saved_experimental.echo_stale_enabled;
+            config.echo_stale_ms = saved_experimental.echo_stale_ms;
+            config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
+            config.idle_commit_ms = saved_experimental.idle_commit_ms;
+            config.nav_key_while_preedit = saved_experimental.nav_key_while_preedit;
+            config.smooth_per_key_delay_ms = saved_experimental.smooth_per_key_delay_ms;
+            config.smooth_backspace_retrack = saved_experimental.smooth_backspace_retrack;
+        }
         config
     }
 
@@ -687,17 +826,13 @@ impl Ui {
             .collect()
     }
 
-    /// Show or hide every experimental row across the pages — the master
-    /// "Tính năng thử nghiệm" switch ("Cài đặt khác"). Hiding is display
-    /// only: the saved switch states and values stay in config.toml and
-    /// come back verbatim when the gate reopens; the engine forces the
-    /// features off while the gate is closed.
-    fn set_experimental_visible(&self, on: bool) {
-        // The rows live on the "Thử nghiệm" tab: the gate hides the tab
-        // itself (its sidebar row) and the rows inside it. States stay saved
-        // either way; closing the tab under the user lands on "Cài đặt
-        // khác", the page hosting the gate switch.
-        let rows: [&gtk4::Widget; 11] = [
+    /// Lock or unlock every experimental row for the master gate — the tab
+    /// itself always stays visible now. Locking is display only: the saved
+    /// switch states and values stay in config.toml and come back verbatim
+    /// when the gate reopens; the engine forces the features off while the
+    /// gate is closed.
+    pub(crate) fn set_experimental_sensitive(&self, on: bool) {
+        let rows: [&gtk4::Widget; 14] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_switch.upcast_ref(),
             self.extra_url_chars_entry.upcast_ref(),
@@ -709,17 +844,96 @@ impl Ui {
             self.echo_stale_spin.upcast_ref(),
             self.idle_commit_switch.upcast_ref(),
             self.idle_commit_spin.upcast_ref(),
+            self.smooth_per_key_spin.upcast_ref(),
+            self.smooth_backspace_retrack.upcast_ref(),
+            self.nav_key_while_preedit.upcast_ref(),
         ];
         for row in rows {
-            row.set_visible(on);
+            row.set_sensitive(on);
         }
-        if let Some(nav) = self.experimental_nav.borrow().as_ref() {
-            nav.set_visible(on);
+        if on {
+            // The entry/spin twins follow their own switch again — a twin
+            // stays locked while its switch is off, always inside the gate.
+            let gate = self.experimental_features.is_active();
+            self.clipboard_restore_spin
+                .set_sensitive(gate && self.clipboard_restore_switch.is_active());
+            self.echo_stale_spin
+                .set_sensitive(gate && self.echo_stale_switch.is_active());
+            self.idle_commit_spin
+                .set_sensitive(gate && self.idle_commit_switch.is_active());
+            self.smooth_per_key_spin
+                .set_sensitive(gate && self.smooth_per_key_switch.is_active());
+            self.extra_url_chars_entry
+                .set_sensitive(gate && self.extra_url_chars_switch.is_active());
+            self.auto_capitalize_after_entry
+                .set_sensitive(gate && self.auto_capitalize_after_switch.is_active());
         }
-        // Pure visibility: this runs on every refresh (external reload
-        // included), where a page jump would yank the user off whatever
-        // they are doing on every save. The live-toggle jump lives on the
-        // gate switch's own handler in other.rs.
+    }
+
+    /// Display the shipped defaults on the experimental rows while the gate
+    /// is off — what the user sees is what typing does (the engine bakes the
+    /// defaults in too). The swap runs under suppress_save: these are display
+    /// values, and config.toml keeps the user's saved ones (read() reverts
+    /// the experimental fields to the file while the gate is off).
+    pub(crate) fn show_experimental_defaults(&self) {
+        let d = crate::config::Config::default();
+        self.suppress_save.set(true);
+        self.macro_valid_words
+            .set_active(d.macro_expand_valid_words);
+        self.extra_url_chars_switch
+            .set_active(d.extra_url_chars_enabled);
+        self.extra_url_chars_entry.set_text(&d.extra_url_chars);
+        self.auto_capitalize_after_switch
+            .set_active(d.auto_capitalize_after_enabled);
+        self.auto_capitalize_after_entry
+            .set_text(&d.auto_capitalize_after);
+        self.clipboard_restore_switch
+            .set_active(d.clipboard_restore_delay_enabled);
+        self.clipboard_restore_spin
+            .set_value(d.clipboard_restore_delay_ms as f64);
+        self.echo_stale_switch.set_active(d.echo_stale_enabled);
+        self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
+        self.idle_commit_switch.set_active(d.idle_commit_enabled);
+        self.idle_commit_spin.set_value(d.idle_commit_ms as f64);
+        self.smooth_per_key_spin
+            .set_value(d.smooth_per_key_delay_ms as f64);
+        self.smooth_backspace_retrack
+            .set_active(d.smooth_backspace_retrack);
+        self.nav_key_while_preedit
+            .set_selected(nav_key_selected(&d.nav_key_while_preedit));
+        self.suppress_save.set(false);
+    }
+
+    /// Put the user's saved values back on the experimental rows when the
+    /// gate reopens — from the file, which read() never let the displayed
+    /// defaults overwrite. Same suppress_save discipline as the swap out.
+    pub(crate) fn restore_experimental_saved(&self) {
+        let c = crate::config::Config::load();
+        self.suppress_save.set(true);
+        self.macro_valid_words
+            .set_active(c.macro_expand_valid_words);
+        self.extra_url_chars_switch
+            .set_active(c.extra_url_chars_enabled);
+        self.extra_url_chars_entry.set_text(&c.extra_url_chars);
+        self.auto_capitalize_after_switch
+            .set_active(c.auto_capitalize_after_enabled);
+        self.auto_capitalize_after_entry
+            .set_text(&c.auto_capitalize_after);
+        self.clipboard_restore_switch
+            .set_active(c.clipboard_restore_delay_enabled);
+        self.clipboard_restore_spin
+            .set_value(c.clipboard_restore_delay_ms as f64);
+        self.echo_stale_switch.set_active(c.echo_stale_enabled);
+        self.echo_stale_spin.set_value(c.echo_stale_ms as f64);
+        self.idle_commit_switch.set_active(c.idle_commit_enabled);
+        self.idle_commit_spin.set_value(c.idle_commit_ms as f64);
+        self.smooth_per_key_spin
+            .set_value(c.smooth_per_key_delay_ms as f64);
+        self.smooth_backspace_retrack
+            .set_active(c.smooth_backspace_retrack);
+        self.nav_key_while_preedit
+            .set_selected(nav_key_selected(&c.nav_key_while_preedit));
+        self.suppress_save.set(false);
     }
 
     /// True while the "Thông báo nhanh" switch is on — the single gate
@@ -1047,8 +1261,13 @@ fn import_json(path: Option<PathBuf>, ui: &Rc<Ui>) -> Result<(), String> {
         emoji.save().map_err(|e| e.to_string())?;
     }
     // Every widget, not just the visible ones: a stale switch is written
-    // back over the imported file by the next save.
+    // back over the imported file by the next save. Suppressed like
+    // `external_reload` — programmatic updates fire the row handlers, and
+    // an unsuppressed save mid-refresh would write back the pre-import
+    // values still held by the not-yet-refreshed widgets.
     let config = Config::load();
+    ui.suppress_save.set(true);
     ui.refresh(&config, &macros, &dict);
+    ui.suppress_save.set(false);
     Ok(())
 }

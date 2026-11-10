@@ -55,48 +55,48 @@ pub const KEY_FREE_TONE: &str = "free_tone";
 pub const KEY_MODERN_TONE: &str = "modern_tone";
 pub const KEY_HIDE_UNDERLINE: &str = "hide_underline";
 
-/// (menu key, label) for every output charset.
-pub const CHARSETS: &[(&str, &str)] = &[
-    ("unicode", "Unicode"),
-    ("nfd", "Unicode tổ hợp"),
-    ("tcvn3", "TCVN3"),
-    ("vni", "VNI"),
-    ("viqr", "VIQR"),
-    ("viscii", "VISCII"),
-    ("vps", "VPS"),
-    ("cp1258", "Windows 1258"),
-    ("bkhcm", "BKHCM"),
-    ("vietwarex", "Vietware X"),
-    ("vietwarefull", "Vietware Full"),
+/// (menu key, Vietnamese label, English label) for every output charset.
+pub const CHARSETS: &[(&str, &str, &str)] = &[
+    ("unicode", "Unicode", "Unicode"),
+    ("nfd", "Unicode tổ hợp", "Unicode (combining)"),
+    ("tcvn3", "TCVN3", "TCVN3"),
+    ("vni", "VNI", "VNI"),
+    ("viqr", "VIQR", "VIQR"),
+    ("viscii", "VISCII", "VISCII"),
+    ("vps", "VPS", "VPS"),
+    ("cp1258", "Windows 1258", "Windows 1258"),
+    ("bkhcm", "BKHCM", "BKHCM"),
+    ("vietwarex", "Vietware X", "Vietware X"),
+    ("vietwarefull", "Vietware Full", "Vietware Full"),
 ];
 
-/// (menu key, label) for every input method.
-pub const METHODS: &[(&str, &str)] = &[
-    ("telex", "Telex"),
-    ("telex2", "Telex 2"),
-    ("telexw", "Telex W"),
-    ("telexvni", "Telex + VNI"),
-    ("telexvniviqr", "Telex + VNI + VIQR"),
-    ("vni", "VNI"),
-    ("vnifrench", "VNI bàn phím Pháp"),
-    ("viqr", "VIQR"),
-    ("microsoft", "Microsoft layout"),
+/// (menu key, Vietnamese label, English label) for every input method.
+pub const METHODS: &[(&str, &str, &str)] = &[
+    ("telex", "Telex", "Telex"),
+    ("telex2", "Telex 2", "Telex 2"),
+    ("telexw", "Telex W", "Telex W"),
+    ("telexvni", "Telex + VNI", "Telex + VNI"),
+    ("telexvniviqr", "Telex + VNI + VIQR", "Telex + VNI + VIQR"),
+    ("vni", "VNI", "VNI"),
+    ("vnifrench", "VNI bàn phím Pháp", "VNI (French keyboard)"),
+    ("viqr", "VIQR", "VIQR"),
+    ("microsoft", "Microsoft layout", "Microsoft layout"),
 ];
 
-/// (menu key, label) for every display mode. The menu popup shows the user's
-/// `config.menu_modes` selection (default: the four main entries); the rest
-/// are reachable through the GUI — duplicated near-identical choices only
-/// widen the popup.
-pub const MODES: &[(&str, &str)] = &[
-    ("nonpreedit", "Không gạch chân"),
-    ("preedit", "Gạch chân (preedit)"),
-    ("surrounding", "Surrounding text"),
-    ("smooth", "Flow (uinput)"),
-    ("supersmooth", "Turbo (uinput)"),
-    ("select", "Select (uinput)"),
-    ("forwardkeyevent", "Forward Backspace"),
-    ("forwardselect", "Forward Selection"),
-    ("off", "OFF"),
+/// (menu key, Vietnamese label, English label) for every display mode. The
+/// menu popup shows the user's `config.menu_modes` selection (default: the
+/// four main entries); the rest are reachable through the GUI — duplicated
+/// near-identical choices only widen the popup.
+pub const MODES: &[(&str, &str, &str)] = &[
+    ("nonpreedit", "Không gạch chân", "No underline"),
+    ("preedit", "Gạch chân (preedit)", "Underline (preedit)"),
+    ("surrounding", "Surrounding text", "Surrounding text"),
+    ("smooth", "Flow (uinput)", "Flow (uinput)"),
+    ("supersmooth", "Turbo (uinput)", "Turbo (uinput)"),
+    ("select", "Select (uinput)", "Select (uinput)"),
+    ("forwardkeyevent", "Forward Backspace", "Forward Backspace"),
+    ("forwardselect", "Forward Selection", "Forward Selection"),
+    ("off", "OFF", "OFF"),
 ];
 
 /// One item in the engine's property list.
@@ -183,9 +183,10 @@ pub fn prop_list_variant(props: &[Prop]) -> Variant<Box<dyn RefArg>> {
 /// the panel and the GUI always edit the same value.
 pub struct QuickToggle {
     pub key: &'static str,
-    /// Short label: GNOME sizes the popup to the widest one.
-    pub label: &'static str,
-    pub tooltip: &'static str,
+    /// (Vietnamese, English) labels: GNOME sizes the popup to the widest
+    /// one.
+    pub label: (&'static str, &'static str),
+    pub tooltip: (&'static str, &'static str),
     pub get: fn(&Config) -> bool,
     pub set: fn(&mut Config, bool),
 }
@@ -196,89 +197,147 @@ pub struct QuickToggle {
 pub const QUICK_TOGGLES: &[QuickToggle] = &[
     QuickToggle {
         key: KEY_MACROS,
-        label: "Gõ tắt",
-        tooltip: "Khóa gõ tắt mở rộng thành cụm khi hết từ",
+        label: ("Gõ tắt", "Shorthand"),
+        tooltip: (
+            "Khóa gõ tắt mở rộng thành cụm khi hết từ",
+            "A key expands into its phrase at word end",
+        ),
         get: |c| c.macro_enabled,
         set: |c, on| c.macro_enabled = on,
     },
     QuickToggle {
         key: KEY_AUTO_CAPITALIZE,
-        label: "Tự viết hoa",
-        tooltip: "Viết hoa chữ đầu sau . ! ? và Enter",
+        label: ("Tự viết hoa", "Auto-capitalize"),
+        tooltip: (
+            "Viết hoa chữ đầu sau . ! ? và Enter",
+            "Capitalize the first letter after . ! ? and Enter",
+        ),
         get: |c| c.auto_capitalize,
         set: |c, on| c.auto_capitalize = on,
     },
     QuickToggle {
         key: KEY_ABBREV,
-        label: "Viết tắt",
-        tooltip: "Giữ đ trong từ viết tắt: ddc → đc, đk, đt",
+        label: ("Viết tắt", "Abbreviations"),
+        tooltip: (
+            "Giữ đ trong từ viết tắt: ddc → đc, đk, đt",
+            "Keep đ in abbreviations: ddc → đc, đk, đt",
+        ),
         get: |c| c.abbreviations,
         set: |c, on| c.abbreviations = on,
     },
     QuickToggle {
         key: KEY_AUTO_RESTORE,
-        label: "Khôi phục từ nước ngoài",
-        tooltip: "Từ không phải tiếng Việt trả về chuỗi phím gốc",
+        label: ("Khôi phục từ nước ngoài", "Restore foreign words"),
+        tooltip: (
+            "Từ không phải tiếng Việt trả về chuỗi phím gốc",
+            "Foreign words return the raw keys",
+        ),
         get: |c| c.auto_restore,
         set: |c, on| c.auto_restore = on,
     },
     QuickToggle {
         key: KEY_AUTO_CORRECT,
-        label: "Từ sai trả phím gốc",
-        tooltip: "Âm tiết không hợp lệ trả về đúng phím đã bấm",
+        label: ("Từ sai trả phím gốc", "Invalid words return raw keys"),
+        tooltip: (
+            "Âm tiết không hợp lệ trả về đúng phím đã bấm",
+            "Invalid syllables return the exact keys typed",
+        ),
         get: |c| c.auto_correct,
         set: |c, on| c.auto_correct = on,
     },
     QuickToggle {
         key: KEY_BYPASS_URL,
-        label: "Không dấu sau URL",
-        tooltip: "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
+        label: ("Không dấu sau URL", "No tones after URLs"),
+        tooltip: (
+            "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
+            "A word right after / : @ . _ ~ = # & % ? stays raw",
+        ),
         get: |c| c.bypass_url,
         set: |c, on| c.bypass_url = on,
     },
     QuickToggle {
         key: KEY_DICTIONARY,
-        label: "Từ điển của tôi",
-        tooltip: "Từ trong từ điển không bị trả về phím gốc",
+        label: ("Từ điển của tôi", "My dictionary"),
+        tooltip: (
+            "Từ trong từ điển không bị trả về phím gốc",
+            "Words in my dictionary never return to raw keys",
+        ),
         get: |c| c.dictionary_enabled,
         set: |c, on| c.dictionary_enabled = on,
     },
     QuickToggle {
         key: KEY_DOUBLE_SPACE,
-        label: "2 dấu cách = chấm",
-        tooltip: "(Thử nghiệm) Hai dấu cách chèn '. '",
+        label: ("2 dấu cách = chấm", "2 spaces = period"),
+        tooltip: (
+            "(Thử nghiệm) Hai dấu cách chèn '. '",
+            "(Experimental) Two spaces insert '. '",
+        ),
         get: |c| c.double_space_period,
         set: |c, on| c.double_space_period = on,
     },
     QuickToggle {
         key: KEY_EM_DASH,
-        label: "Gạch ngang dài",
-        tooltip: "Gõ hai dấu trừ -- thành —",
+        label: ("Gạch ngang dài", "Em dash"),
+        tooltip: (
+            "Gõ hai dấu trừ -- thành —",
+            "Two hyphens -- become an em dash —",
+        ),
         get: |c| c.em_dash,
         set: |c, on| c.em_dash = on,
     },
     QuickToggle {
         key: KEY_FREE_TONE,
-        label: "Dấu tự do",
-        tooltip: "Dấu gõ sai vị trí vẫn nhận: hoangf → hoàng",
+        label: ("Dấu tự do", "Free tone placement"),
+        tooltip: (
+            "Dấu gõ sai vị trí vẫn nhận: hoangf → hoàng",
+            "A misplaced tone still lands: hoangf → hoàng",
+        ),
         get: |c| c.free_tone_marking,
         set: |c, on| c.free_tone_marking = on,
     },
     QuickToggle {
         key: KEY_MODERN_TONE,
-        label: "Kiểu dấu mới",
-        tooltip: "hòa (chuẩn mới) thay vì hoà (cũ)",
+        label: ("Kiểu dấu mới", "New tone style"),
+        tooltip: (
+            "hòa (chuẩn mới) thay vì hoà (cũ)",
+            "hòa (new standard) instead of hoà (old)",
+        ),
         get: |c| c.modern_tone_style,
         set: |c, on| c.modern_tone_style = on,
     },
     QuickToggle {
         key: KEY_HIDE_UNDERLINE,
-        label: "Ẩn gạch chân",
-        tooltip: "Chữ đang gõ không có gạch chân (tùy app)",
+        label: ("Ẩn gạch chân", "Hide underline"),
+        tooltip: (
+            "Chữ đang gõ không có gạch chân (tùy app)",
+            "The in-flight text has no underline (app-dependent)",
+        ),
         get: |c| c.hide_underline,
         set: |c, on| c.hide_underline = on,
     },
 ];
+
+/// Shipped default folder labels (stored Vietnamese, English display). The
+/// menu design stores the Vietnamese text; the language switches only the
+/// rendered label, never the saved design.
+const FOLDER_LABELS: &[(&str, &str)] = &[
+    ("Cấu hình nhanh", "Quick settings"),
+    ("Cá nhân", "Personal"),
+];
+
+/// The display label for a folder: the English rendering of a known shipped
+/// default, or the stored label unchanged (a user-renamed folder).
+pub fn folder_display_label(label: &str, en: bool) -> &str {
+    if en {
+        FOLDER_LABELS
+            .iter()
+            .find(|(vi, _)| *vi == label)
+            .map(|(_, en_label)| *en_label)
+            .unwrap_or(label)
+    } else {
+        label
+    }
+}
 
 /// The registered toggle with this menu key, if any.
 pub fn quick_toggle(key: &str) -> Option<&'static QuickToggle> {
@@ -306,6 +365,7 @@ pub fn properties(config: &Config) -> Vec<Prop> {
 /// depth 1 the inside of a folder; a folder deeper than that is skipped, so
 /// a hand-edited nesting can never render an unusable popup.
 fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
+    let en = config.language == "en";
     nodes
         .iter()
         .filter_map(|node| {
@@ -314,11 +374,23 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                     // "enabled" predates the registry — it is the one toggle
                     // outside QUICK_TOGGLES.
                     if key == KEY_ENABLED {
-                        Prop::toggle(KEY_ENABLED, "Bật tiếng Việt", config.enabled)
+                        Prop::toggle(
+                            KEY_ENABLED,
+                            if en {
+                                "Vietnamese typing"
+                            } else {
+                                "Bật tiếng Việt"
+                            },
+                            config.enabled,
+                        )
                     } else {
                         let t = quick_toggle(key)?;
-                        let mut p = Prop::toggle(t.key, t.label, (t.get)(config));
-                        p.tooltip = t.tooltip.into();
+                        let mut p = Prop::toggle(
+                            t.key,
+                            if en { t.label.1 } else { t.label.0 },
+                            (t.get)(config),
+                        );
+                        p.tooltip = if en { t.tooltip.1 } else { t.tooltip.0 }.into();
                         p
                     }
                 }
@@ -331,17 +403,40 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                     // existed (or a hand edit) shows what the group showed
                     // before the tree: every entry, or the menu_modes
                     // selection for display.
-                    let (group_key, label, entries, active): (&str, &str, &[(&str, &str)], &str) =
-                        match group.as_str() {
-                            "charset" => (KEY_CHARSET, "Bảng mã", CHARSETS, config.charset.key()),
-                            "method" => (KEY_METHOD, "Kiểu gõ", METHODS, config.method.key()),
-                            "display" => (KEY_DISPLAY, "Chế độ gõ", MODES, config.mode.key()),
-                            _ => return None,
-                        };
+                    let (group_key, label, entries, active): (
+                        &str,
+                        &str,
+                        &[(&str, &str, &str)],
+                        &str,
+                    ) = match group.as_str() {
+                        "charset" => (
+                            KEY_CHARSET,
+                            if en { "Charset" } else { "Bảng mã" },
+                            CHARSETS,
+                            config.charset.key(),
+                        ),
+                        "method" => (
+                            KEY_METHOD,
+                            if en { "Typing method" } else { "Kiểu gõ" },
+                            METHODS,
+                            config.method.key(),
+                        ),
+                        "display" => (
+                            KEY_DISPLAY,
+                            if en {
+                                "Display mode"
+                            } else {
+                                "Chế độ gõ"
+                            },
+                            MODES,
+                            config.mode.key(),
+                        ),
+                        _ => return None,
+                    };
                     let fallback: Vec<String> = if keys.is_empty() {
                         match group.as_str() {
                             "display" => config.menu_modes.clone(),
-                            _ => entries.iter().map(|(k, _)| k.to_string()).collect(),
+                            _ => entries.iter().map(|(k, ..)| k.to_string()).collect(),
                         }
                     } else {
                         keys.clone()
@@ -354,14 +449,26 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                     Prop::menu(
                         group_key,
                         label,
-                        radio_items(entries, &fallback, active, group_key),
+                        radio_items(entries, &fallback, active, group_key, en),
                     )
                 }
                 MenuNode::Action { key } => match key.as_str() {
-                    "macro_editor" => Prop::normal(KEY_MACRO_EDITOR, "Mở bảng gõ tắt…"),
+                    "macro_editor" => Prop::normal(
+                        KEY_MACRO_EDITOR,
+                        if en {
+                            "Open the shorthand table…"
+                        } else {
+                            "Mở bảng gõ tắt…"
+                        },
+                    ),
                     "settings" => {
-                        let mut p = Prop::normal(KEY_SHORTCUTS, "Cài đặt");
-                        p.tooltip = "Mở cửa sổ cấu hình MăngRS".into();
+                        let mut p =
+                            Prop::normal(KEY_SHORTCUTS, if en { "Settings" } else { "Cài đặt" });
+                        p.tooltip = if en {
+                            "Open the MăngRS settings window".into()
+                        } else {
+                            "Mở cửa sổ cấu hình MăngRS".into()
+                        };
                         p
                     }
                     "about" => {
@@ -369,7 +476,11 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                             KEY_ABOUT,
                             format!("MăngRS {}", env!("CARGO_PKG_VERSION")),
                         );
-                        p.tooltip = "Mở trang GitHub của MăngRS".into();
+                        p.tooltip = if en {
+                            "Open the MăngRS GitHub page".into()
+                        } else {
+                            "Mở trang GitHub của MăngRS".into()
+                        };
                         p
                     }
                     _ => return None,
@@ -379,7 +490,15 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                     if depth > 0 {
                         return None;
                     }
-                    Prop::menu(label, label, build_menu(config, children, depth + 1))
+                    // A folder's label is the user's own saved design — the
+                    // stored text is never rewritten; only a SHIPPED default
+                    // label renders in the config's language. A folder the
+                    // user renamed is unknown here and shows its own text.
+                    Prop::menu(
+                        label,
+                        folder_display_label(label, en),
+                        build_menu(config, children, depth + 1),
+                    )
                 }
             })
         })
@@ -389,14 +508,16 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
 /// One radio item per listed key, in list order; unknown keys are skipped
 /// and the check mark follows the group's active value.
 fn radio_items(
-    entries: &[(&str, &str)],
+    entries: &[(&str, &str, &str)],
     keys: &[String],
     active: &str,
     group_key: &str,
+    en: bool,
 ) -> Vec<Prop> {
     keys.iter()
         .filter_map(|key| {
-            let (_, label) = entries.iter().find(|(k, _)| k == key)?;
+            let (_, vi, en_label) = entries.iter().find(|(k, ..)| k == key)?;
+            let label = if en { *en_label } else { *vi };
             Some(Prop::radio(
                 &format!("{group_key}:{key}"),
                 label,
@@ -438,6 +559,71 @@ mod tests {
     use super::*;
     use crate::config::MenuNode;
     use dbus::arg::RefArg;
+
+    /// Collect every (key, label) in the tree, folders included.
+    fn flat(props: &[Prop]) -> Vec<(String, String)> {
+        props
+            .iter()
+            .flat_map(|p| {
+                let mut out = vec![(p.key.clone(), p.label.clone())];
+                out.extend(flat(&p.sub));
+                out
+            })
+            .collect()
+    }
+
+    #[test]
+    fn properties_follow_the_language() {
+        let mut config = Config {
+            menu: Some(vec![
+                MenuNode::Toggle {
+                    key: "enabled".into(),
+                },
+                MenuNode::Radios {
+                    group: "display".into(),
+                    children: vec!["preedit".into()],
+                },
+            ]),
+            ..Config::default()
+        };
+        config.menu = Some(vec![
+            MenuNode::Toggle {
+                key: "enabled".into(),
+            },
+            MenuNode::Radios {
+                group: "display".into(),
+                children: vec!["preedit".into()],
+            },
+            MenuNode::Folder {
+                // A shipped default folder label: rendered in the config's
+                // language while the stored design stays untouched.
+                label: "Cấu hình nhanh".into(),
+                children: vec![],
+            },
+        ]);
+        config.language = "vi".into();
+        let vi = flat(&properties(&config));
+        assert!(vi.contains(&("enabled".into(), "Bật tiếng Việt".into())));
+        assert!(
+            vi.contains(&("display:preedit".into(), "Gạch chân (preedit)".into())),
+            "vi radio label: {vi:?}"
+        );
+        assert!(
+            vi.contains(&("Cấu hình nhanh".into(), "Cấu hình nhanh".into())),
+            "vi folder keeps its stored label: {vi:?}"
+        );
+        config.language = "en".into();
+        let en = flat(&properties(&config));
+        assert!(en.contains(&("enabled".into(), "Vietnamese typing".into())));
+        assert!(
+            en.contains(&("display:preedit".into(), "Underline (preedit)".into())),
+            "en radio label: {en:?}"
+        );
+        assert!(
+            en.contains(&("Cấu hình nhanh".into(), "Quick settings".into())),
+            "en folder renders the translated default: {en:?}"
+        );
+    }
 
     #[test]
     fn menu_has_the_expected_shape() {

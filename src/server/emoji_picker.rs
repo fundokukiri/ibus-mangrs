@@ -41,6 +41,9 @@ pub(super) struct EmojiPickerState {
     /// (name, glyph, folded blob) of the whole table, built once at open —
     /// filtering never touches the filesystem.
     entries: Vec<(String, String, String)>,
+    /// The auxiliary hint line renders in this language, picked once at
+    /// open time from the config.
+    en: bool,
     /// The search query (what the user typed), the page cursor and the
     /// highlighted row within the page — pub(super) so the tests can drive
     /// the state directly.
@@ -54,6 +57,7 @@ pub(super) struct EmojiPickerState {
 
 impl EmojiPickerState {
     pub fn new() -> Self {
+        let en = crate::config::Config::load().language == "en";
         let rows = search_rows(&UserEmoji::load().map);
         let recents = RecentEmoji::load()
             .names()
@@ -64,12 +68,23 @@ impl EmojiPickerState {
                     .map(|r| (name.clone(), r.glyph.clone()))
             })
             .collect();
-        Self::with(rows, recents)
+        Self::with_lang(rows, recents, en)
     }
 
     /// Injection seam for the tests: the developer's real recents file and
     /// user table must not decide what a test sees.
+    /// The tests' vi-language default (the engine path goes through new()).
+    #[cfg(test)]
     pub fn with(rows: Vec<crate::emoji::SearchRow>, recents: Vec<(String, String)>) -> Self {
+        Self::with_lang(rows, recents, false)
+    }
+
+    /// The tests' injection seam, with the hint language.
+    pub fn with_lang(
+        rows: Vec<crate::emoji::SearchRow>,
+        recents: Vec<(String, String)>,
+        en: bool,
+    ) -> Self {
         Self {
             entries: rows
                 .into_iter()
@@ -79,6 +94,7 @@ impl EmojiPickerState {
             page: 0,
             cursor: 0,
             recents,
+            en,
         }
     }
 
@@ -124,10 +140,22 @@ impl EmojiPickerState {
             .collect()
     }
 
-    /// The auxiliary line under the popup: the query state and the keys.
+    /// The auxiliary line under the popup: the query state and the keys, in
+    /// the engine language.
     pub(super) fn auxiliary(&self) -> String {
         if self.query.is_empty() {
-            "Emoji — gõ chữ để tìm, ↑↓ chọn, ←→ lật trang, Enter/1-9 chọn, Esc đóng".to_string()
+            if self.en {
+                "Emoji — type to search, ↑↓ pick, ←→ pages, Enter/1-9 choose, Esc closes"
+                    .to_string()
+            } else {
+                "Emoji — gõ chữ để tìm, ↑↓ chọn, ←→ lật trang, Enter/1-9 chọn, Esc đóng".to_string()
+            }
+        } else if self.en {
+            format!(
+                "Search \"{}\" — {} results, ↑↓ pick, ←→ pages, Enter chooses, Esc closes",
+                self.query,
+                self.results().len()
+            )
         } else {
             format!(
                 "Tìm \"{}\" — {} kết quả, ↑↓ chọn, ←→ lật trang, Enter chọn, Esc đóng",

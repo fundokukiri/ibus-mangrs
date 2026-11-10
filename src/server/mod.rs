@@ -27,7 +27,7 @@ use dbus::{Message, MessageType};
 
 use crate::config::{CharsetConfig, Config, MethodConfig, ModeConfig};
 use crate::debug_log::{self, brief};
-use crate::engine::{Action, Engine};
+use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
 use crate::ibus_text::{plain_text, text_from_variant, text_variant, Attr};
 use crate::keymap;
@@ -85,6 +85,10 @@ fn lock_engine(engine: &SharedEngine) -> std::sync::MutexGuard<'_, Engine> {
 pub struct Server {
     conn: Connection,
     engine: SharedEngine,
+    /// Shared with the message callback: the config hot-reload also runs on
+    /// the run loop's own passes, so a GUI edit reaches the panel menu
+    /// without waiting for a key event.
+    handler: std::rc::Rc<std::cell::RefCell<EngineHandler>>,
 }
 
 impl Server {
@@ -105,7 +109,7 @@ impl Server {
         // an object path: libdbus answers any method call on an unregistered
         // path with UnknownMethod before the filter returns, so the reply must
         // be sent and the message claimed (return `true`) inside the filter.
-        let mut handler = EngineHandler {
+        let handler = std::rc::Rc::new(std::cell::RefCell::new(EngineHandler {
             engine: Arc::clone(&engine),
             last_config_check: Instant::now(),
             last_config_mtime: None,
@@ -114,23 +118,28 @@ impl Server {
             picker: None,
             emoji_picker: None,
             focus_ext: None,
-        };
-        handler.last_config_mtime = Config::path()
+        }));
+        handler.borrow_mut().last_config_mtime = Config::path()
             .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
         let initial = Config::load();
-        handler.refresh_hotkey_cache(&initial);
+        handler.borrow_mut().refresh_hotkey_cache(&initial);
+        let handler_for_cb = std::rc::Rc::clone(&handler);
         conn.replace_message_callback(Some(Box::new(move |conn, msg| {
             if msg.msg_type() != MessageType::MethodCall {
                 return false;
             }
-            match handler.handle(conn, &msg) {
+            match handler_for_cb.borrow_mut().handle(conn, &msg) {
                 Some(()) => true,
                 None => false,
             }
         })));
 
-        Ok(Self { conn, engine })
+        Ok(Self {
+            conn,
+            engine,
+            handler,
+        })
     }
 
     /// Run the main loop until the bus goes away.
@@ -156,6 +165,15 @@ impl Server {
                 e.add_injected(injected);
                 out
             };
+            for msg in out {
+                send(&self.conn, msg);
+            }
+            // Config hot-reload between messages, not only on key events:
+            // a GUI edit (a feature toggle, a language pick) reaches the
+            // panel menu within a second, without typing or a focus change.
+            // The handler's own 1s gate keeps this to one stat call per pass.
+            let mut out = Vec::new();
+            self.handler.borrow_mut().maybe_reload_config(&mut out);
             for msg in out {
                 send(&self.conn, msg);
             }
@@ -550,6 +568,24 @@ const BACKSPACE_KEYCODE: u32 = 14;
 /// minus 8). ibus-bamboo forwards the same value for its ForwardKeyEvent II.
 const LEFT_KEYCODE: u32 = 105;
 
+/// Evdev scancode of a navigation key, same convention — the experimental
+/// nav-key replay re-emits the swallowed key with its original keyval and one
+/// of these (kernel input-event-codes.h values). `None` keys fall back to the
+/// swallow.
+fn nav_evdev_keycode(keyval: u32) -> Option<u32> {
+    match keyval {
+        keymap::LEFT => Some(LEFT_KEYCODE),
+        keymap::UP => Some(103),
+        keymap::RIGHT => Some(106),
+        keymap::DOWN => Some(108),
+        keymap::PAGE_UP => Some(104),
+        keymap::PAGE_DOWN => Some(109),
+        keymap::HOME => Some(110),
+        keymap::END => Some(115),
+        _ => None,
+    }
+}
+
 /// One forwarded key as press + release. The release carries no modifier (the
 /// app has already acted on the press); ibus-bamboo's ForwardKeyEvent modes
 /// send the same pair.
@@ -668,16 +704,40 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         // A preedit commit and the forwarded navigation key travel different
         // transports on relayed contexts; a burst of arrows moves the caret
         // before the commit lands and the word is inserted mid-text
-        // ("em tên tùng" → "etùngm tên"). Swallow the first navigation key so
-        // the commit lands while the caret is still in place; the next press
-        // moves the caret normally.
-        let swallow = keymap::is_navigation_key(keyval)
+        // ("em tên tùng" → "etùngm tên"). The shipped swallow consumes the
+        // first press so the commit lands while the caret is still in place;
+        // the experimental `nav_key_while_preedit` values trade that for an
+        // immediate caret move.
+        let nav_pending = keymap::is_navigation_key(keyval)
             && engine.relay_context()
             && engine.preedit_commit_pending();
+        let nav_behavior = engine.nav_key_while_preedit();
         let actions = engine.reset();
         let injected = emit(engine, &actions, out);
         engine.add_injected(injected);
-        if swallow {
+        if nav_pending {
+            match nav_behavior {
+                NavKeyWhilePreedit::Forward => {
+                    // The commit signals above are already in `out`, so the
+                    // reply-forwarded key cannot overtake them on the wire.
+                    debug_log::log("nav-key forward: commit and key ride one reply");
+                    return false;
+                }
+                // The relay drops modifier state on forwarded keys (the
+                // Shift+Left selection defect), so a modified key must not be
+                // replayed as a plain one; an unknown keyval has no evdev
+                // keycode to replay with. Both fall back to the swallow.
+                NavKeyWhilePreedit::Replay if state & !keymap::RELEASE_MASK == 0 => {
+                    if let Some(keycode) = nav_evdev_keycode(keyval) {
+                        debug_log::log(&format!(
+                            "nav-key replay: keyval={keyval:#x} keycode={keycode} after the commit"
+                        ));
+                        push_forward_keys(out, keyval, keycode, 0);
+                        return true;
+                    }
+                }
+                _ => {}
+            }
             debug_log::log(
                 "navigation key consumed: preedit commit must land before the caret moves",
             );

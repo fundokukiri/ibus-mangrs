@@ -6,6 +6,7 @@
 //! focus-leave through the shared funnel.
 
 use super::*;
+use crate::gui::pages::typing::widen_value;
 
 /// The current time/date as the engine formats it — chrono's strftime, the
 /// very call inside `Macros::expand`. A pattern chrono rejects (Item::Error)
@@ -18,43 +19,16 @@ pub(crate) fn preview(pattern: &str) -> Option<String> {
     Some(chrono::Local::now().format(pattern).to_string())
 }
 
-/// A dim live preview of the pattern typed into the row, updated while
-/// typing; empty or invalid patterns leave the label blank.
-fn add_preview(row: &adw::EntryRow) {
-    let label = gtk4::Label::new(None);
-    label.add_css_class("dim-label");
-    label.add_css_class("caption");
-    label.set_valign(gtk4::Align::Center);
-    label.set_margin_end(6);
-    row.add_suffix(&label);
-    {
-        let into = label.clone();
-        row.connect_changed(move |row| {
-            into.set_text(&preview(row.text().trim()).unwrap_or_default());
-        });
-        label.set_text(&preview(row.text().trim()).unwrap_or_default());
-    }
-}
-
-/// The pencil (edit-icon) inside an AdwEntryRow has no API to hide it and
-/// CSS cannot remove a widget's paint. The template never toggles it in
-/// code, so hiding it once — and again on every map, for safety — sticks;
-/// the row stays fully editable without it.
-fn hide_edit_icon(row: &adw::EntryRow) {
-    fn hide(w: &gtk4::Widget) {
-        if let Some(img) = w.downcast_ref::<gtk4::Image>() {
-            if img.css_classes().iter().any(|c| c.as_str() == "edit-icon") {
-                img.set_visible(false);
-            }
-        }
-        let mut child = w.first_child();
-        while let Some(c) = child {
-            hide(&c);
-            child = c.next_sibling();
-        }
-    }
-    hide(row.upcast_ref());
-    row.connect_map(|row| hide(row.upcast_ref()));
+/// A live preview of the selected pattern, in the row's subtitle — the
+/// spot the static "Ví dụ" line used to hold, under the title.
+/// use_subtitle stays on so the row height does not jump; an empty or
+/// invalid pattern leaves the subtitle blank.
+fn add_preview(row: &adw::ComboRow) {
+    row.set_use_subtitle(true);
+    row.connect_selected_notify(move |row| {
+        row.set_subtitle(&preview(&format_selected(row)).unwrap_or_default());
+    });
+    row.set_subtitle(&preview(&format_selected(row)).unwrap_or_default());
 }
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
@@ -71,18 +45,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     settings.add(&ui.capitalize_macro);
     settings.add(&ui.macro_in_off_mode);
     // macro_valid_words moved to the dedicated "Thử nghiệm" tab.
-    // The old subtitle examples ("Ví dụ %H:%M") live on as the row
-    // tooltip: EntryRow has no placeholder in this libadwaita.
-    ui.time_format
-        .set_tooltip_text(Some(&t("rows.time_format.subtitle", "Ví dụ %H:%M")));
-    ui.date_format
-        .set_tooltip_text(Some(&t("rows.date_format.subtitle", "Ví dụ %d/%m/%Y")));
-    ui.time_format.add_css_class("format-row");
-    ui.date_format.add_css_class("format-row");
-    hide_edit_icon(&ui.time_format);
-    hide_edit_icon(&ui.date_format);
+    // The format suffixes show the formatted result live — the engine's
+    // own strftime call, so an unusable pattern previews as blank.
     add_preview(&ui.time_format);
     add_preview(&ui.date_format);
+    // The selected pattern renders at the row's end — the same widening
+    // the typing page combos get, and a long custom format stays whole.
+    widen_value(&ui.time_format);
+    widen_value(&ui.date_format);
     settings.add(&ui.time_format);
     settings.add(&ui.date_format);
     page.add(&settings);

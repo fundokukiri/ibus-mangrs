@@ -106,7 +106,7 @@ fn shift_punctuation_hotkeys_pass_the_key_through() {
 
 #[test]
 fn cycle_next_wraps_around_the_list() {
-    let list = &[("a", "A"), ("b", "B"), ("c", "C")];
+    let list = &[("a", "A", "a'"), ("b", "B", "b'"), ("c", "C", "c'")];
     assert_eq!(cycle_next(list, "a"), Some("b"));
     assert_eq!(cycle_next(list, "c"), Some("a"));
     assert_eq!(cycle_next(list, "z"), None);
@@ -963,6 +963,122 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
     assert!(!process_key(&mut e, 0xff51, 0, &mut out));
 }
 
+// --- experimental nav_key_while_preedit values ---
+
+/// Type "tung" into a relayed Preedit engine configured with `value`.
+fn pending_preedit_engine(value: &str, experimental: bool) -> Engine {
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        experimental_features: experimental,
+        nav_key_while_preedit: value.into(),
+        ..Config::default()
+    });
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(0b101001);
+    for c in "tung".chars() {
+        process_key(&mut e, c as u32, 0, &mut Vec::new());
+    }
+    e
+}
+
+fn member_names(out: &[Message]) -> Vec<String> {
+    out.iter()
+        .map(|m| m.member().map(|m| m.to_string()).unwrap_or_default())
+        .collect()
+}
+
+#[test]
+fn forward_mode_commits_and_forwards_the_first_navigation_key() {
+    // The forward value: commit and key ride one reply — ibus-bamboo's
+    // sequence. The caret moves on the first press.
+    let mut e = pending_preedit_engine("forward", true);
+    let mut out = Vec::new();
+    assert!(
+        !process_key(&mut e, 0xff51, 0, &mut out),
+        "Left must be forwarded"
+    );
+    let members = member_names(&out);
+    assert!(
+        members.iter().any(|m| m == "CommitText"),
+        "the pending word must be committed: {members:?}"
+    );
+    // The second press is still a plain forward (nothing pending).
+    let mut out = Vec::new();
+    assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+}
+
+#[test]
+fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
+    // The replay value: the key is consumed and re-emitted as a
+    // ForwardKeyEvent press+release pair AFTER the commit signals, so the
+    // caret still moves on the first physical press.
+    let mut e = pending_preedit_engine("replay", true);
+    let mut out = Vec::new();
+    assert!(
+        process_key(&mut e, 0xff51, 0, &mut out),
+        "Left must be consumed"
+    );
+    let members = member_names(&out);
+    let commit = members
+        .iter()
+        .position(|m| m == "CommitText")
+        .expect("the pending word must be committed");
+    let press = members
+        .iter()
+        .position(|m| m == "ForwardKeyEvent")
+        .expect("the key must be replayed");
+    assert!(commit < press, "commit must land first: {members:?}");
+    let keys: Vec<(u32, u32, u32)> = out
+        .iter()
+        .filter(|m| m.member().map(|x| x == "ForwardKeyEvent").unwrap_or(false))
+        .filter_map(|m| m.read3::<u32, u32, u32>().ok())
+        .collect();
+    assert_eq!(
+        keys,
+        vec![(0xff51, 105, 0), (0xff51, 105, keymap::RELEASE_MASK)],
+        "one press and one release at the evdev scancode: {keys:?}"
+    );
+}
+
+#[test]
+fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
+    // The relay drops modifier state on forwarded keys: a replayed
+    // Shift+Left would move instead of select, so the swallow stands.
+    let mut e = pending_preedit_engine("replay", true);
+    let mut out = Vec::new();
+    assert!(process_key(&mut e, 0xff51, keymap::SHIFT_MASK, &mut out));
+    let members = member_names(&out);
+    assert!(
+        members.iter().all(|m| m != "ForwardKeyEvent"),
+        "no key may be replayed: {members:?}"
+    );
+    assert!(
+        members.iter().any(|m| m == "CommitText"),
+        "the pending word must still be committed: {members:?}"
+    );
+}
+
+#[test]
+fn the_experimental_gate_forces_the_nav_key_swallow_back_on() {
+    // Gate off: the chosen value stays saved but the engine keeps the
+    // shipped swallow, like every other gated feature.
+    let mut e = pending_preedit_engine("forward", false);
+    let mut out = Vec::new();
+    assert!(
+        process_key(&mut e, 0xff51, 0, &mut out),
+        "Left must be consumed with the gate off"
+    );
+    let members = member_names(&out);
+    assert!(
+        members.iter().all(|m| m != "ForwardKeyEvent"),
+        "no key may be replayed: {members:?}"
+    );
+    assert!(
+        members.iter().any(|m| m == "CommitText"),
+        "the pending word must still be committed: {members:?}"
+    );
+}
+
 #[test]
 fn hotkey_registry_maps_assigned_specs_in_page_order() {
     let mut config = Config {
@@ -1000,7 +1116,7 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
 #[test]
 fn picker_keys_map_onto_entries() {
     use super::picker::{picker_entries, PickerKey, PickerState};
-    let len = picker_entries(ModeConfig::Preedit).len();
+    let len = picker_entries(ModeConfig::Preedit, false).len();
     assert_eq!(len, ibus_prop::MODES.len(), "nine modes, nothing else");
     let state = PickerState::new("e2epick".into(), 1);
     // Digits 1..9 pick entries 1..9, 0 picks the last; Enter picks the
@@ -1018,7 +1134,7 @@ fn picker_keys_map_onto_entries() {
     assert_eq!(state.on_key(65364), PickerKey::Move(1)); // Down
     assert_eq!(state.on_key(0x76), PickerKey::Ignore);
     // The current mode's entry carries the dot marker.
-    let entries = picker_entries(ModeConfig::Preedit);
+    let entries = picker_entries(ModeConfig::Preedit, false);
     assert!(
         entries[1].starts_with("● "),
         "preedit is the default: {}",
@@ -1220,4 +1336,73 @@ fn emoji_menu_keys_map_onto_actions() {
     assert_eq!(map(0x5f), EmojiKey::Query('_'), "underscore searches");
     assert_eq!(map(0x3b), EmojiKey::Ignore, "punctuation closes");
     assert_eq!(map(0xff51), EmojiKey::PageLeft, "arrows navigate now");
+}
+
+/// The auxiliary hint line under the emoji popup follows the engine
+/// language — the owner found it Vietnamese after switching to English.
+#[test]
+fn emoji_menu_auxiliary_follows_the_language() {
+    use super::emoji_picker::EmojiPickerState;
+    let mut en = EmojiPickerState::with_lang(emoji_rows(), Vec::new(), true);
+    assert!(
+        en.auxiliary().contains("type to search"),
+        "{}",
+        en.auxiliary()
+    );
+    for c in "lua".chars() {
+        en.query.push(c);
+    }
+    assert!(en.auxiliary().contains("results"), "{}", en.auxiliary());
+    let vi = EmojiPickerState::with(emoji_rows(), Vec::new());
+    assert!(vi.auxiliary().contains("gõ chữ"), "{}", vi.auxiliary());
+}
+
+/// The panel refreshes when the config file changes, on the engine's own
+/// loop pass — no key event or IBus restart needed (a GUI toggle reaches
+/// the panel within a second). GNOME applies only per-item UpdateProperty
+/// mid-session; a full RegisterProperties re-register is ignored there.
+#[test]
+fn config_reload_refreshes_the_panel_without_a_key_event() {
+    let config_path = Config::path().expect("a config path");
+    if !config_path.exists() {
+        eprintln!("server: SKIP (no config.toml to watch)");
+        return;
+    }
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+    lock_engine(&engine).set_capabilities(1);
+    let mut handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        // A stale clock: maybe_reload_config gets past its 1s gate.
+        last_config_check: Instant::now() - Duration::from_secs(2),
+        // Older than the real file's mtime: the first pass sees a change.
+        last_config_mtime: Some(SystemTime::UNIX_EPOCH),
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        focus_ext: None,
+    };
+    let mut out = Vec::new();
+    handler.maybe_reload_config(&mut out);
+    let members: Vec<String> = out
+        .iter()
+        .map(|m| m.member().map(|m| m.to_string()).unwrap_or_default())
+        .collect();
+    // String::as_str via UFCS: `m.as_str()` with m: &&String resolves to
+    // dbus's RefArg::as_str (impl for &T, returns Option<&str>) before the
+    // autoderef chain reaches the inherent method — RefArg is in scope here.
+    let updates = members
+        .iter()
+        .filter(|m| String::as_str(m) == "UpdateProperty")
+        .count();
+    assert!(
+        updates >= 5,
+        "the panel gets per-item UpdateProperty on the loop pass: {members:?}"
+    );
+    assert!(
+        !members
+            .iter()
+            .any(|m| String::as_str(m) == "RegisterProperties"),
+        "a mid-session re-register is ignored by GNOME — per-item updates only: {members:?}"
+    );
 }
