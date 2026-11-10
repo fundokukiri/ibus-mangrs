@@ -1221,3 +1221,36 @@ fn emoji_menu_keys_map_onto_actions() {
     assert_eq!(map(0x3b), EmojiKey::Ignore, "punctuation closes");
     assert_eq!(map(0xff51), EmojiKey::PageLeft, "arrows navigate now");
 }
+
+/// The panel re-registers when the config file changes, on the engine's own
+/// loop pass — no key event or IBus restart needed (the language switch
+/// updates the panel menu within a second).
+#[test]
+fn config_reload_reregisters_the_panel_without_a_key_event() {
+    let config_path = Config::path().expect("a config path");
+    if !config_path.exists() {
+        eprintln!("server: SKIP (no config.toml to watch)");
+        return;
+    }
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+    lock_engine(&engine).set_capabilities(1);
+    let mut handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        // A stale clock: maybe_reload_config gets past its 1s gate.
+        last_config_check: Instant::now() - Duration::from_secs(2),
+        // Older than the real file's mtime: the first pass sees a change.
+        last_config_mtime: Some(SystemTime::UNIX_EPOCH),
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        focus_ext: None,
+    };
+    let mut out = Vec::new();
+    handler.maybe_reload_config(&mut out);
+    assert!(
+        out.iter()
+            .any(|m| &*m.member().unwrap() == "RegisterProperties"),
+        "the panel re-registers on the loop pass, no key event needed"
+    );
+}
