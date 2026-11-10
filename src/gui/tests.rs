@@ -27,6 +27,7 @@ fn gtk_widget_scenarios() {
     experimental_gate_hides_and_restores_rows();
     combo_value_stays_right_after_a_pick();
     popup_marks_the_selected_item();
+    format_combos_keep_presets_and_unknowns();
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -705,4 +706,45 @@ fn experimental_gate_hides_and_restores_rows() {
     assert!(ui.macro_valid_words.is_active());
     assert!(ui.extra_url_chars_switch.is_active());
     assert_eq!(ui.extra_url_chars_entry.text(), "`");
+}
+
+/// The $TIME/$DATE combos: a preset selects its preset index, a format the
+/// old free-text rows saved comes back verbatim as its own appended item
+/// (never rewritten to a preset), and re-refreshing does not stack
+/// duplicates.
+fn format_combos_keep_presets_and_unknowns() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+
+    let config = Config {
+        time_format: TIME_FORMATS[1].into(),
+        date_format: DATE_FORMATS[2].into(),
+        ..Config::default()
+    };
+    ui.refresh(&config, &macros, &dictionary);
+    assert_eq!(ui.time_format.selected(), 1, "preset selects its index");
+    assert_eq!(ui.read().time_format, TIME_FORMATS[1]);
+    assert_eq!(ui.read().date_format, DATE_FORMATS[2]);
+
+    let mut unknown = config.clone();
+    unknown.time_format = "%Hh%M-%S".into();
+    unknown.date_format = "%Y-%m".into();
+    ui.refresh(&unknown, &macros, &dictionary);
+    assert_eq!(ui.read().time_format, "%Hh%M-%S", "unknown stays saved");
+    assert_eq!(ui.read().date_format, "%Y-%m");
+    assert!(
+        ui.time_format.selected() >= TIME_FORMATS.len() as u32,
+        "the unknown sits beyond the presets"
+    );
+
+    // The appended items are temporary: a second refresh rebuilds the list
+    // from the presets, so the unknown never stacks twice.
+    let items = ui.time_format.model().map(|m| m.n_items());
+    ui.refresh(&unknown, &macros, &dictionary);
+    assert_eq!(
+        ui.time_format.model().map(|m| m.n_items()),
+        items,
+        "no duplicate items after a re-refresh"
+    );
 }

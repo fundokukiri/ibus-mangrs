@@ -184,20 +184,19 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Phím tắt trùng từ thật (vd “cam”) sẽ nở thay vì giữ nguyên — Backspace một phím để gõ từ thật",
         ),
     );
-    // The formats live in native EntryRows (the row carries the title, the
-    // old subtitle examples moved to the page as tooltips — EntryRow has
-    // no placeholder in this libadwaita). Markup off before the title, as
-    // in every row helper.
-    let time_format = adw::EntryRow::builder()
-        .use_markup(false)
-        .title(t("rows.time_format.title", "Định dạng giờ ($TIME)"))
-        .show_apply_button(false)
-        .build();
-    let date_format = adw::EntryRow::builder()
-        .use_markup(false)
-        .title(t("rows.date_format.title", "Định dạng ngày ($DATE)"))
-        .show_apply_button(false)
-        .build();
+    // The formats are preset dropdowns like every other combo; a format
+    // the old free-text rows saved that matches no preset is appended by
+    // `select_format` instead of being rewritten.
+    let time_format = combo_row(
+        &t("rows.time_format.title", "Định dạng giờ ($TIME)"),
+        &t("rows.time_format.subtitle", "Ví dụ 13:45"),
+        TIME_FORMATS,
+    );
+    let date_format = combo_row(
+        &t("rows.date_format.title", "Định dạng ngày ($DATE)"),
+        &t("rows.date_format.subtitle", "Ví dụ 10/11/2026"),
+        DATE_FORMATS,
+    );
     let macros_text = text_view("");
     let emoji_enabled = switch_row(
         &t("rows.emoji_enabled.title", "Gõ tắt emoji"),
