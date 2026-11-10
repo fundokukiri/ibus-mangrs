@@ -1,7 +1,580 @@
-# English GUI content — the mirror of gui-content.toml. The owner edits
-# wording here and rebuilds; the key-parity test in src/gui/text.rs forbids
-# missing keys. Placeholders ({n}, {page}, {e}) and proper nouns stay
-# verbatim.
+# English GUI content for MăngRS: the mirror of gui-content.toml. Edit this
+# file and rebuild - no code changes needed. The key-parity test in
+# src/gui/text.rs forbids missing keys, so a key added to the Vietnamese
+# file without an entry here fails cargo test.
+#
+# Notes:
+# - Placeholders ({n}, {page}, {e}, {f}, {app}), markup tags (<tt>, &amp;)
+#   and URLs/file paths stay verbatim.
+# - Row titles and subtitles render as plain text; group titles and
+#   descriptions are Pango markup: escape & as &amp;.
+# - Proper nouns (MăngRS, Telex, VNI, TCVN3, Flow, Turbo, bamboo-core) keep
+#   their spelling; the mode/charset/method item lists live in the code.
+
+[app]
+name = "MăngRS"
 
 [pages]
+typing = "General"
+tone = "Tones & automation"
+macros = "Shorthand"
+emoji = "Emoji"
+data = "Dictionary"
+rules = "Per-app rules"
+panel = "Panel menu"
+hotkeys = "Shortcuts"
 other = "Other settings"
+about = "About"
+
+[search]
+tooltip = "Search features across all pages"
+placeholder = "Search features…"
+none = "No results"
+page_kind = "Page"
+
+[misc]
+experimental_badge = "Experimental"
+reinstall_button = "Reinstall"
+exported_toast = "Configuration exported"
+imported_toast = "Configuration imported"
+reset_toast = "Defaults restored"
+json_filter = "JSON file"
+unassigned = "Unassigned"
+a11y_unassigned = "unassigned"
+capture_waiting = "Waiting for keys…"
+capture_body = "Press a new key combination. Esc to cancel, Backspace to clear."
+capture_add_body = "Pick a function, then press a key combination. Esc to cancel."
+capture_bad_key = "This key cannot be used — try another"
+conflict_used = "Already used for: {f}"
+cancel = "Cancel"
+delete = "Delete"
+deleted_toast = "Deleted"
+undo = "Undo"
+restart_button = "Restart IBus"
+save_alert_heading = "Could not save the configuration"
+export_dialog = "Export configuration"
+import_dialog = "Import configuration"
+export_button = "Export…"
+import_button = "Import…"
+extension_button = "Install"
+reset_button = "Restore"
+other_icon_toast_hidden = "Hidden from the app menu"
+other_icon_toast_shown = "Shown in the app menu again"
+dbus_error = "Could not connect to D-Bus: {e}"
+focus_ext_error = "Could not query the MăngRS Focus extension (data/gnome-shell-extension)"
+focus_none = "No window has focus"
+
+# --- page General -----------------------------------------------------------
+
+[groups.typing.style]
+title = "Typing"
+
+[groups.typing.display]
+title = "Display"
+
+[groups.hotkeys.custom]
+title = "Custom shortcuts"
+description = "Assign extra keys to the same functions as the defaults."
+add_row = "Add a custom shortcut"
+function = "Function"
+empty = "No custom shortcuts yet"
+
+[groups.hotkeys.cycle]
+title = "Cycle order"
+subtitle = "{n} modes, cycling"
+
+[rows.enabled]
+title = "Vietnamese typing"
+subtitle = "Turn off to send every key straight through. Shorthand still runs if enabled on the {page} page."
+
+[rows.method]
+title = "Typing method"
+subtitle = "How Vietnamese tone marks are typed"
+
+[rows.mode]
+title = "Display mode"
+subtitle = "How typed text reaches the app"
+
+[rows.charset]
+title = "Character set"
+subtitle = "Unicode and 10 legacy tables"
+
+[rows.hotkey_mode]
+title = "Display-mode shortcut"
+subtitle = "Example: Control+Alt+v"
+
+[rows.hotkey_enabled]
+title = "Vietnamese on/off shortcut"
+subtitle = "Example: Control+Alt+space"
+
+[rows.hotkey_app_rule]
+title = "Per-app rule shortcut"
+subtitle = "Opens the mode picker right at the caret (arrows + Enter)"
+
+[rows.hide_underline]
+title = "Hide underline"
+subtitle = "The in-flight text has no underline (app-dependent)"
+
+# --- page Tones & automation -------------------------------------------------
+
+[groups.tone.tones]
+title = "Tone marks"
+description = "How tone marks sit on vowels"
+
+[groups.tone.spelling]
+title = "Spelling"
+description = "Fixes and word recovery"
+
+[groups.tone.auto]
+title = "Automatic"
+description = "Auto capitalization and punctuation"
+
+[groups.tone.special]
+title = "Special characters"
+description = "Character shortcut conversions"
+
+[rows.modern]
+title = "New tone placement"
+subtitle = "hòa (new standard) instead of hoà (old standard)"
+
+[rows.free]
+title = "Free tone placement"
+subtitle = "Place the tone anywhere in the word: hoangf → hoàng"
+
+[rows.auto_correct]
+title = "Restore invalid words"
+subtitle = "Invalid syllables return the exact keys typed"
+
+[rows.auto_restore]
+title = "Restore foreign words"
+subtitle = "Non-Vietnamese-syllable words return the raw key string"
+
+[rows.abbrev]
+title = "Keep abbreviated words"
+subtitle = "Keep đ in abbreviations: ddc → đc, ddk → đk, ddt → đt"
+
+[rows.bypass_url]
+title = "No tones after URLs"
+subtitle = "A word typed right after / : @ . _ ~ = # & % ? stays raw"
+
+[rows.w2u]
+title = "W to ư"
+subtitle = "Choose where it applies"
+
+[rows.bracket]
+title = "[ ] to ơ ư"
+subtitle = "Choose where it applies"
+
+[rows.em_dash]
+title = "Em dash"
+subtitle = "Two hyphens in a row become an em dash (-- becomes —)"
+
+[rows.auto_capitalize]
+title = "Auto-capitalize"
+subtitle = "After . ! ? and Enter"
+
+[rows.double_space]
+title = "Double Space becomes a period"
+subtitle = "Two spaces become a period"
+
+[rows.macro_valid_words]
+title = "Shorthand expands on real words too"
+subtitle = "A shortcut colliding with a real word (e.g. \"cam\") expands instead of staying — Backspace once to type the word"
+
+[rows.extra_url_chars]
+title = "Extra no-tone characters"
+subtitle = "A word right after any character below keeps its raw keys too"
+
+[rows.extra_url_chars_entry]
+title = "Custom characters"
+subtitle = "Example: ` ' ! — no -, letters, digits or spaces"
+
+[rows.auto_capitalize_after]
+title = "Capitalize after extra characters"
+subtitle = "Same set . ! ? + Enter: the word right after the characters below is capitalized too"
+
+[rows.auto_capitalize_after_entry]
+title = "Trigger characters"
+subtitle = "Example : ” — no letters, digits or spaces"
+
+[rows.clipboard_restore]
+title = "Clipboard restore timing"
+subtitle = "Change how long the old clipboard waits to come back after a paste — only effective when the channel is Clipboard"
+
+[rows.clipboard_restore_spin]
+title = "Restore clipboard after (ms)"
+subtitle = "100–5000 ms. Default: 600"
+
+[rows.echo_stale]
+title = "Flush commits on stale echo"
+subtitle = "How long to wait before giving up on the virtual Backspace returning and flushing the text instead — raise it when a mark flashes then reverts, lower it when text appears late"
+
+[rows.echo_stale_spin]
+title = "Flush after (ms)"
+subtitle = "50–1000 ms. Default: 150. Too low risks losing text, too high delays it"
+
+[rows.idle_commit]
+title = "Commit the word when typing pauses"
+subtitle = "Pausing long enough on an underlined word commits it, as if Space was pressed"
+
+[rows.idle_commit_spin]
+title = "Pause before commit (ms)"
+subtitle = "300–2000 ms. Default: 700"
+
+[rows.experimental_features]
+title = "Experimental features"
+subtitle = "Show the in-testing features across the pages. Off hides and disables all of them; adjusted values are kept for when it returns"
+
+[groups.tune.advanced]
+title = "Advanced"
+
+# --- page Shorthand ----------------------------------------------------------
+
+[groups.macros.settings]
+title = "Shorthand"
+description = "Expand abbreviations into full phrases"
+
+[groups.macros.raw]
+title = "Shorthand table"
+description = "One key=value pair per line. Use <tt>$TIME</tt> and <tt>$DATE</tt> to insert the time and the date."
+hint = "vn=Vietnam\ntphcm=Ho Chi Minh City\ngio=$TIME"
+count = "{n} items"
+error_one = "Line {n} is missing an ="
+error_many = "{k} lines are missing an =, starting at line {n}"
+open_button = "Open file"
+open_tooltip = "Open macros.toml with the default app"
+
+[rows.time_format]
+title = "Time format ($TIME)"
+
+[rows.date_format]
+title = "Date format ($DATE)"
+
+[rows.macro_enabled]
+title = "Enable shorthand"
+subtitle = "Keys expand into phrases at word end"
+
+[rows.capitalize_macro]
+title = "Capitalize shorthand"
+subtitle = "An uppercase key → the expansion is capitalized too"
+
+[rows.macro_in_off_mode]
+title = "Shorthand while Vietnamese is off"
+subtitle = "Still expands when Vietnamese typing is off"
+
+[rows.emoji_enabled]
+title = "Emoji shorthand"
+subtitle = "Typing <tt>:name:</tt> with the colons becomes an emoji at word end"
+
+[rows.hotkey_emoji]
+title = "Emoji picker shortcut"
+subtitle = "Opens the emoji picker at the caret: 1-9/0 pick, type to search"
+
+[groups.emoji.shortcut]
+subtitle = "Opens the emoji picker at the caret. Assign it on the Shortcuts page."
+
+[groups.emoji.raw]
+title = "Custom emoji table"
+description = "One <tt>name=emoji</tt> pair per line. Overrides or adds shortcodes (lowercase)."
+hint = "cuoi=😄\ntim=❤️\nok=👌"
+count = "{n} items"
+error_one = "Line {n} is missing an ="
+error_many = "{k} lines are missing an =, starting at line {n}"
+
+[rows.macro_key]
+tooltip = "The shorthand key (expands when the word ends)"
+
+[rows.macro_value]
+tooltip = "The expansion ($TIME, $DATE)"
+
+[rows.macro_delete]
+tooltip = "Delete this pair"
+
+# --- page Dictionary ---------------------------------------------------------
+
+[groups.data.dictionary]
+title = "My dictionary"
+description = "Words in the dictionary are never restored to raw keys."
+
+[groups.data.words]
+title = "Word list"
+description = "One word per line."
+count = "{n} words"
+open_button = "Open file"
+open_tooltip = "Open the dictionary file in an editor"
+hint = "github\nlinux\nrust"
+
+[rows.dictionary_enabled]
+title = "Use my dictionary"
+subtitle = "~/.config/ibus-mangrs/dictionary.txt"
+
+# --- page Rules ---------------------------------------------------------------
+
+[groups.rules.add]
+title = "Add a rule"
+description = "Switch to the target app and back — its name dims into the input field."
+
+[groups.rules.list]
+title = "Rule list"
+description = "The first rule wins; none = the app reports no name."
+tooltip = "Only apps using the GTK IM module report their own name; Wayland apps appear as gnome-shell, X11/others as none. Install the MăngRS Focus extension (data/gnome-shell-extension) to get native Wayland app names."
+
+[groups.rules.preview]
+title = "Test a rule"
+description = "Type an app name to see which rule matches."
+
+[rows.rule_name]
+title = "App name"
+placeholder = "e.g.: firefox, org.gnome.Console"
+tooltip = "App name: partial match, case-insensitive (e.g. firefox, sublime)"
+
+[rows.rule_combo]
+tooltip = "Pick from seen apps"
+label = "Pick from seen apps"
+
+[rows.rule_copy]
+tooltip = "Copy the focused app"
+
+[rows.rule_apply]
+tooltip = "Use the focused app"
+
+[rows.rule_mode]
+tooltip = "Display mode of the new rule"
+
+[rows.rule_handle]
+tooltip = "Drag to reorder rules"
+
+[rows.rule_menu]
+tooltip = "Actions for this rule"
+up = "Up"
+down = "Down"
+delete = "Delete"
+
+[rows.rule_preview_input]
+placeholder = "Firefox / wayland:Firefox / xim"
+tooltip = "Type an app name and Enter: shows which rule would match and the resulting display mode"
+
+[rules]
+add_button = "Add a rule"
+add_toast = "Added a rule for {app}"
+copy_toast = "Copied {app}"
+deleted_toast = "Rule deleted"
+empty = "No rules yet"
+result_title = "Result"
+preview_empty = "Type an app name above to see the result"
+match_result = "Matches rule #{n}: {mode}"
+no_match = "No rule matches"
+pseudo_wayland = "gnome-shell (Wayland apps)"
+pseudo_none = "(app reports no name)"
+
+# --- page Panel menu ---------------------------------------------------------
+
+[groups.panel.menu]
+title = "Panel menu"
+description = "Customize the popup menu on the IBus panel."
+
+[panel]
+add_button = "Add an item"
+add_tooltip = "Append an item to the end of the menu"
+added_toast = "Item added"
+deleted_toast = "Deleted"
+empty = "Empty"
+add_here = "Add here…"
+row_menu_tooltip = "Actions for this item"
+move_up = "Up"
+move_down = "Down"
+move_out = "Move out of the folder"
+item_delete = "Delete"
+reset_button = "Reset"
+reset_heading = "Reset the menu?"
+reset_body = "All changes to the current design will be lost."
+reset_tooltip = "Reset the menu to the default design"
+rename_heading = "Rename folder"
+rename_body = "Type a new name for the selected folder"
+rename_cancel = "Cancel"
+rename_apply = "Rename"
+
+# Picker labels (the overall menu for picking the item kind to add)
+[menu]
+toggle_enabled = "Vietnamese on/off"
+radios_charset = "Charset (radio group)"
+radios_method = "Typing method (radio group)"
+radios_display = "Display mode (radio group)"
+action_macro_editor = "Open the shorthand table…"
+action_settings = "Settings"
+action_about = "About"
+sep = "Separator"
+folder = "New folder"
+label_charset = "Charset"
+label_method = "Typing method"
+label_display = "Display mode"
+kind_toggle = "Toggle"
+kind_radios = "Radio group"
+kind_action = "Action"
+kind_sep = "Separator"
+kind_folder = "Folder"
+kind_entry = "Entry"
+
+# --- page Tuning -------------------------------------------------------------
+
+[groups.tune.pacing]
+title = "uinput tuning"
+description = "Applies only to Smooth, Super Smooth and Select."
+
+[groups.tune.channel]
+title = "Text channel"
+
+[groups.tune.xim]
+title = "X11/XIM compatibility"
+description = "For direct X11 apps and XIM apps (Java/JetBrains)."
+
+[groups.other.backup]
+title = "Backup &amp; restore"
+description = "One JSON file holding the configuration, shorthand and dictionary."
+
+[rows.export]
+title = "Export configuration to JSON"
+subtitle = "Save to a file to carry over or keep as backup"
+
+[rows.import]
+title = "Import configuration from JSON"
+subtitle = "Read back a previously exported file"
+
+[groups.hotkeys.keys]
+title = "Default shortcuts"
+description = "Click a row, then press a new key combination."
+
+[groups.other.interface]
+title = "Interface"
+
+[groups.other.extension]
+title = "GNOME Shell extension"
+description = "Needed for per-app rules on Wayland."
+
+[other]
+extension_confirm_heading = "Install the MăngRS Focus extension?"
+extension_confirm_body = "A few files will be written into ~/.local/share/gnome-shell/extensions and the extension enabled — needed for per-app rules on Wayland."
+extension_apply = "Install"
+
+[groups.other.advanced]
+title = "Advanced"
+
+[rows.show_toasts]
+title = "Quick notifications"
+subtitle = "Small bubbles for add, delete, export, import, extension install. Turn off to stay silent — errors still show a dialog"
+
+[rows.desktop_icon]
+title = "Show in the app menu"
+subtitle = "Show the MăngRS Settings icon in GNOME's app grid"
+
+[rows.focus_extension]
+title = "MăngRS Focus extension"
+subtitle = "Installs into <tt>~/.local/share/gnome-shell/extensions</tt> and enables it"
+subtitle_installed = "Installed into <tt>~/.local/share/gnome-shell/extensions</tt>"
+
+[rows.reset_defaults]
+title = "Restore defaults"
+subtitle = "Configuration returns to defaults; shorthand and dictionary are kept"
+
+[rows.debug_log]
+title = "Debug logging"
+subtitle_markup = "Logs the engine's decisions to <tt>~/.cache/ibus-mangrs/debug.log</tt>"
+
+[rows.debug_log_text]
+title = "Log the in-flight text too"
+subtitle = "Logs the text being typed as well — enable only when reproducing lost-text/wrong-character bugs, and do not attach this log to an issue"
+
+[rows.x11_delete]
+title = "Delete word tails on X11 apps"
+subtitle = "X11 apps delete word tails without reporting, like ibus-bamboo. May delete a wrong character if the caret was moved."
+
+[rows.preedit_xim]
+title = "Preedit for XIM apps"
+subtitle = "Keeps the underline for XIM apps: the in-flight text shows in its own window and commits at word end."
+
+[rows.commit_interval]
+title = "Typing pace"
+subtitle = "Distance between two text sends, in ms. Default: {n}"
+
+[rows.backspace_interval]
+title = "Backspace pace"
+subtitle = "Distance between two Backspaces, in ms. Default: {n}"
+
+[rows.post_delay]
+title = "Post-word delay"
+subtitle = "Wait after rewriting a word before typing on, in ms. Default: {n}"
+
+[rows.unicode_channel]
+title = "Vietnamese word channel"
+subtitle = "Clipboard temporarily overwrites your clipboard content."
+
+# --- page About ---------------------------------------------------------------
+
+[about]
+name = "MăngRS IBus"
+tagline = "Rust + bamboo-core"
+group_title = "Project info"
+source_title = "Source on GitHub"
+source_url = "https://github.com/fundokukiri/ibus-mangrs"
+author_title = "Author"
+author_value = "Phùng Đức Tùng (Fundoku)"
+author_url = "https://fundoku.io.vn"
+homepage_title = "Homepage"
+homepage_url = "https://mangrs.fundoku.io.vn"
+license_title = "Open-source license"
+license_value = "GPL — version 3, details in LICENSE"
+credits_title = "Credits"
+credits_value = "Typing core bamboo-core (MIT, third party)"
+detail_title = "Detailed introduction"
+detail_subtitle = ""
+issue_url = "https://github.com/fundokukiri/ibus-mangrs/issues"
+
+# Explanation markers ("?") - the longer text shown on hover or click next
+# to each feature title.
+[actions]
+hotkey_mode = "Switch display mode"
+hotkey_emoji = "Open the emoji picker"
+hotkey_charset = "Cycle the charset"
+hotkey_method = "Cycle the typing method"
+hotkey_auto_capitalize = "Auto-capitalize"
+hotkey_abbrev = "Shorthand"
+hotkey_auto_restore = "Restore foreign words"
+hotkey_auto_correct = "Invalid words return raw keys"
+hotkey_bypass_url = "No tones after URLs"
+hotkey_dictionary = "My dictionary"
+hotkey_double_space = "2 spaces = period"
+hotkey_em_dash = "Em dash"
+hotkey_macro_editor = "Open the Shorthand page"
+hotkey_settings = "Open Settings"
+
+[tips]
+enabled = "Toggles the whole input method. When off, every key goes straight into the app as if MăngRS were not installed."
+method = "The typing method decides how accented text is built from the keys: Telex (ss → á), VNI (a1 → á) or VIQR."
+mode = "How the in-flight text is displayed: preedit (underlined) works in every app; the uinput modes send real keys but can drift per app."
+charset = "The character table: Unicode for every normal use; the VNI/TCVN3 tables are only needed when reading old text files."
+hide_underline = "Hides the preedit underline for apps that draw it broken (some games, terminals)."
+modern = "The Ministry of Education's new tone standard: hòa instead of hoà, thuế instead of thuể."
+free = "Allows the tone to sit anywhere in the word instead of always on the nearest vowel."
+auto_correct = "Syllables missing from the Vietnamese syllable table return the exact keys typed."
+auto_restore = "Foreign words (english, hello) return to the raw key string once typed instead of staying."
+abbrev = "Keeps đ intact in abbreviations: ddc, ddk, ddt are not turned into đ."
+bypass_url = "Words right after a URL/email/path get no tones, so links stay intact while chatting."
+w2u = "Typing w gives ư: w = ư, wa = ưa… handy on keyboards without a ư key."
+bracket = "Typing [ and ] gives ơ and ư depending on the position in the word."
+em_dash = "Two hyphens in a row (--) become an em dash (—)."
+auto_capitalize = "Auto-capitalizes the first letter of a sentence after a period, !, ? or Enter."
+double_space = "Two consecutive spaces become a period + space (experimental)."
+macro_enabled = "Enables the shorthand table: a key string expands into its content at word end."
+capitalize_macro = "An uppercase key (Gs) capitalizes the expansion too."
+macro_in_off_mode = "Shorthand keeps working while Vietnamese typing is off."
+emoji_enabled = "Typing :smile: becomes an emoji. A word glued right after the colon gets no tones while this is on (like the URL bypass); turn it off if you often type :word_style."
+dictionary_enabled = "Enables my dictionary: words in the list are never restored to raw keys."
+debug_log = "Logs the engine's decisions to ~/.cache/ibus-mangrs/debug.log for bug reports."
+x11_delete = "How words are deleted on direct X11 apps: delete the word tail like ibus-bamboo, or delete only as reported by the app."
+preedit_xim = "Uses a separate preedit window for XIM apps (Java/JetBrains) that lack IBus preedit support."
+commit_interval = "The per-word send pace in uinput modes — lower it if an app loses text, raise it if it stalls."
+backspace_interval = "The Backspace send pace in uinput modes — lower it if deletion lags, raise it if the app cannot keep up."
+post_delay = "Waits after rewriting a whole word before the next character, for apps with slow key handling."
+unicode_channel = "How words with special characters are sent: CommitText is safe; Clipboard uses Ctrl+V and temporarily overwrites the clipboard."
+export = "Saves the whole configuration, shorthand and dictionary to one JSON file to carry to another machine."
+import = "Reads back an exported JSON file: overwrites the current configuration, shorthand and dictionary."
