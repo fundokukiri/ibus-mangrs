@@ -1356,3 +1356,53 @@ fn emoji_menu_auxiliary_follows_the_language() {
     let vi = EmojiPickerState::with(emoji_rows(), Vec::new());
     assert!(vi.auxiliary().contains("gõ chữ"), "{}", vi.auxiliary());
 }
+
+/// The panel refreshes when the config file changes, on the engine's own
+/// loop pass — no key event or IBus restart needed (a GUI toggle reaches
+/// the panel within a second). GNOME applies only per-item UpdateProperty
+/// mid-session; a full RegisterProperties re-register is ignored there.
+#[test]
+fn config_reload_refreshes_the_panel_without_a_key_event() {
+    let config_path = Config::path().expect("a config path");
+    if !config_path.exists() {
+        eprintln!("server: SKIP (no config.toml to watch)");
+        return;
+    }
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+    lock_engine(&engine).set_capabilities(1);
+    let mut handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        // A stale clock: maybe_reload_config gets past its 1s gate.
+        last_config_check: Instant::now() - Duration::from_secs(2),
+        // Older than the real file's mtime: the first pass sees a change.
+        last_config_mtime: Some(SystemTime::UNIX_EPOCH),
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        focus_ext: None,
+    };
+    let mut out = Vec::new();
+    handler.maybe_reload_config(&mut out);
+    let members: Vec<String> = out
+        .iter()
+        .map(|m| m.member().map(|m| m.to_string()).unwrap_or_default())
+        .collect();
+    // String::as_str via UFCS: `m.as_str()` with m: &&String resolves to
+    // dbus's RefArg::as_str (impl for &T, returns Option<&str>) before the
+    // autoderef chain reaches the inherent method — RefArg is in scope here.
+    let updates = members
+        .iter()
+        .filter(|m| String::as_str(m) == "UpdateProperty")
+        .count();
+    assert!(
+        updates >= 5,
+        "the panel gets per-item UpdateProperty on the loop pass: {members:?}"
+    );
+    assert!(
+        !members
+            .iter()
+            .any(|m| String::as_str(m) == "RegisterProperties"),
+        "a mid-session re-register is ignored by GNOME — per-item updates only: {members:?}"
+    );
+}
