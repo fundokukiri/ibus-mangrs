@@ -424,7 +424,12 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                     let config = Config::load();
                     let macros = Macros::load();
                     let dictionary = Dictionary::load();
+                    // Suppressed like `external_reload`: the refresh fires
+                    // the row handlers, and a mid-refresh save would write
+                    // back the pre-reset values still held by the widgets.
+                    ui.suppress_save.set(true);
                     ui.refresh(&config, &macros, &dictionary);
+                    ui.suppress_save.set(false);
                     restart_btn.set_visible(true);
                     ui.fire_toast(
                         &overlay_toasts,

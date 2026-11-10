@@ -9,6 +9,11 @@ use super::*;
 /// cannot start.
 #[test]
 fn gtk_widget_scenarios() {
+    // Serialized against the text.rs language tests: both sides read the
+    // process-global language, and libtest runs tests on separate threads.
+    let _g = crate::gui::text::LANG_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     if gtk4::init().is_err() {
         eprintln!("gui: SKIP (no display)");
         return;
@@ -806,13 +811,24 @@ fn language_row_round_trips() {
         "Vietnamese (default) selects index 0"
     );
     assert_eq!(ui.read().language, "vi");
+    // A hand-edited value behaves as Vietnamese, and the refresh round
+    // trip must not trip the debug assert (read() normalizes to "vi").
+    let config = Config {
+        language: "fr".into(),
+        ..Config::default()
+    };
+    ui.refresh(&config, &macros, &dictionary);
+    assert_eq!(ui.language.selected(), 0, "an unknown value selects vi");
+    assert_eq!(ui.read().language, "vi", "an unknown value behaves as vi");
 }
 
 /// The rebuild path behind the language pick: building the window again
 /// after set_language re-resolves every text in the new language and lands
 /// on the requested page. Runs LAST (global language + windows cleaned up
 /// here). The row handler itself saves the user's config, so it is never
-/// driven in tests — the owner verifies the live switch.
+/// driven in tests — the owner verifies the live switch. The two
+/// Gtk-CRITICALs about windows created outside GApplication::startup are
+/// expected noise from building windows without the app having run.
 fn language_switch_rebuilds_the_window() {
     let app = adw::Application::builder()
         .application_id("org.freedesktop.IBus.mangrs.test-lang")
@@ -828,6 +844,14 @@ fn language_switch_rebuilds_the_window() {
     };
     let win1 = crate::gui::content::build(&app, Some("typing"));
     assert_eq!(nav_tip(&win1, "other"), "Cài đặt khác", "vi by default");
+    let picked = |w: &adw::ApplicationWindow, name: &str| {
+        descendants::<gtk4::ListBoxRow>(w.upcast_ref())
+            .into_iter()
+            .find(|r| r.widget_name() == name)
+            .expect("nav row")
+            .is_selected()
+    };
+    assert!(picked(&win1, "typing"), "the requested page is selected");
     // Rebuild in English: texts re-resolve, the requested page is honored.
     set_language("en");
     let win2 = crate::gui::content::build(&app, Some("other"));
@@ -835,6 +859,10 @@ fn language_switch_rebuilds_the_window() {
         nav_tip(&win2, "other"),
         "Other settings",
         "rebuild re-resolves texts"
+    );
+    assert!(
+        picked(&win2, "other"),
+        "the rebuild lands on the viewed page"
     );
     // Cleanup: the global language is process state, restore it.
     win1.close();

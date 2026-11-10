@@ -429,6 +429,12 @@ impl Ui {
         if config.menu.as_ref().is_none_or(|m| m.is_empty()) {
             config.menu = Some(config.default_menu());
         }
+        // Same for the language: read() always produces "vi"/"en", so a
+        // hand-edited value must normalize here or the round-trip assert
+        // below fails.
+        if config.language != "en" {
+            config.language = "vi".into();
+        }
         self.enabled.set_active(config.enabled);
         self.method.set_selected(method_index(config.method));
         self.mode.set_selected(mode_index(config.mode));
@@ -1092,8 +1098,13 @@ fn import_json(path: Option<PathBuf>, ui: &Rc<Ui>) -> Result<(), String> {
         emoji.save().map_err(|e| e.to_string())?;
     }
     // Every widget, not just the visible ones: a stale switch is written
-    // back over the imported file by the next save.
+    // back over the imported file by the next save. Suppressed like
+    // `external_reload` — programmatic updates fire the row handlers, and
+    // an unsuppressed save mid-refresh would write back the pre-import
+    // values still held by the not-yet-refreshed widgets.
     let config = Config::load();
+    ui.suppress_save.set(true);
     ui.refresh(&config, &macros, &dict);
+    ui.suppress_save.set(false);
     Ok(())
 }
