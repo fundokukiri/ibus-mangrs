@@ -37,6 +37,22 @@ fn gtk_widget_scenarios() {
     language_switch_rebuilds_the_window();
 }
 
+/// The combo item lists (mode/charset/method/...) render in the window's
+/// language; positions stay the index contract either way.
+#[test]
+fn labels_follow_the_language() {
+    let _g = crate::gui::text::LANG_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    set_language("vi");
+    assert_eq!(labels(CHANNELS)[0], "CommitText (an toàn)");
+    set_language("en");
+    assert_eq!(labels(CHANNELS)[0], "CommitText (safe)");
+    assert_eq!(labels(MODES)[0], "No underline");
+    set_language("vi");
+    assert_eq!(labels(MODES)[0], "Không gạch chân");
+}
+
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
 /// combo internals (popover, value view) have no public accessors.
 fn descendants<T: IsA<gtk4::Widget>>(w: &gtk4::Widget) -> Vec<T> {
@@ -543,11 +559,14 @@ fn refresh_round_trips_every_widget() {
     // Surrounding text) and the round-trip below could not see it because
     // it only walks the mappers, never the labels.
     assert_eq!(
-        MODES[0], "Không gạch chân",
+        MODES[0].0, "Không gạch chân",
         "the list must lead with the first display mode"
     );
     assert!(
-        !MODES.contains(&"Tự động") && !MODES.contains(&"Gõ mặc định"),
+        !MODES
+            .iter()
+            .any(|(vi, en)| matches!(*vi, "Tự động" | "Gõ mặc định")
+                || matches!(*en, "Tự động" | "Gõ mặc định")),
         "removed modes must not linger in the list"
     );
     for m in [

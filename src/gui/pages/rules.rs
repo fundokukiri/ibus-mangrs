@@ -153,7 +153,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // Block B — mode and Thêm on one line, one 10px gap below Block A.
     // Both children get the SizeGroup's equal width and a 40px height.
-    let mode_pick = gtk4::DropDown::new(Some(StringList::new(MODES)), gtk4::Expression::NONE);
+    let mode_pick = gtk4::DropDown::new(
+        Some(StringList::new(&labels(MODES))),
+        gtk4::Expression::NONE,
+    );
     // Preedit is the default rule mode (index of "Gạch chân (preedit)").
     mode_pick.set_selected(mode_index(ModeConfig::Preedit));
     mode_pick.set_hexpand(true);
