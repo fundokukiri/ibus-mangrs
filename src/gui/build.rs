@@ -477,8 +477,21 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.smooth_per_key.title", "Hiện dấu từng bước ở Flow"),
         &t(
             "rows.smooth_per_key.subtitle",
-            "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — mỗi phím trễ ~60 ms; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi",
+            "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — trễ chỉnh ở hàng dưới; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi",
         ),
+    );
+    let smooth_per_key_spin = spin_row(
+        &t(
+            "rows.smooth_per_key_delay.title",
+            "Trễ hiện dấu từng bước (ms)",
+        ),
+        &t(
+            "rows.smooth_per_key_delay.subtitle",
+            "20–500 ms. Mặc định: 60",
+        ),
+        20.0,
+        500.0,
+        5.0,
     );
     let idle_commit_spin = spin_row(
         &t(
@@ -746,6 +759,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         idle_commit_switch,
         idle_commit_spin,
         smooth_per_key_switch,
+        smooth_per_key_spin,
         experimental_features,
         menu,
         menu_box,

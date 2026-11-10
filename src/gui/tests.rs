@@ -523,6 +523,7 @@ fn refresh_round_trips_every_widget() {
         idle_commit_enabled: true,
         idle_commit_ms: 800,
         smooth_per_key: true,
+        smooth_per_key_delay_ms: 80,
         experimental_features: true,
         show_toasts: false,
         debug_log: true,

@@ -269,7 +269,11 @@ subtitle = "With a word still underlined, the first arrow key: swallow it to com
 
 [rows.smooth_per_key]
 title = "Per-key marks in Flow"
-subtitle = "Flow/Turbo show the accented letter as you type (ee → ê) instead of holding the raw keys until word end — each key lags ~60 ms; very fast typing merges the steps, the text appears when you pause; Select is unchanged"
+subtitle = "Flow/Turbo show the accented letter as you type (ee → ê) instead of holding the raw keys until word end — the delay is the row below; very fast typing merges the steps, the text appears when you pause; Select is unchanged"
+
+[rows.smooth_per_key_delay]
+title = "Per-key display delay (ms)"
+subtitle = "How many ms a key waits before it lands in the text: lower shows marks sooner, higher types smoother. 20–500 ms. Default: 60. Experimental."
 
 [rows.macro_enabled]
 title = "Enable shorthand"
