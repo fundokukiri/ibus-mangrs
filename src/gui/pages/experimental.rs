@@ -57,6 +57,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     tuning.add(&ui.idle_commit_switch);
     tuning.add(&ui.idle_commit_spin);
     tuning.add(&ui.smooth_per_key_spin);
+    tuning.add(&ui.smooth_backspace_retrack);
     tuning.add(&ui.nav_key_while_preedit);
     page.add(&tuning);
 
@@ -75,6 +76,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // the Tuning page and is not gated, so the spin is this feature's only
     // experimental row and carries the badge itself.
     decorate_experimental(&ui.smooth_per_key_spin);
+    decorate_experimental(&ui.smooth_backspace_retrack);
     // The switches themselves glow the same warning amber as the badge and
     // the tab label: one look, one meaning.
     for switch in [

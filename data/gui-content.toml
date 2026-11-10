@@ -279,6 +279,10 @@ subtitle = "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) th
 title = "Trễ hiện dấu từng bước (ms)"
 subtitle = "Số ms một phím chờ trước khi đổ vào văn bản: thấp hơn thì dấu hiện sớm hơn, cao hơn thì gõ mượt hơn. 0–500 ms, giá trị quá thấp có thể làm lệch thứ tự chữ trên Wayland. Mặc định: 60. Thử nghiệm."
 
+[rows.smooth_backspace_retrack]
+title = "Sửa dấu sau Backspace (Flow/Turbo)"
+subtitle = "Xóa một ký tự của từ đã gõ xong rồi gõ phím dấu mới sẽ tiếp tục biến hóa từ (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước bật. Thử nghiệm."
+
 [rows.macro_enabled]
 title = "Bật gõ tắt"
 subtitle = "Khóa mở rộng thành cụm khi hết từ"
