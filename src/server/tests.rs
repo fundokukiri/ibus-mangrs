@@ -106,7 +106,7 @@ fn shift_punctuation_hotkeys_pass_the_key_through() {
 
 #[test]
 fn cycle_next_wraps_around_the_list() {
-    let list = &[("a", "A"), ("b", "B"), ("c", "C")];
+    let list = &[("a", "A", "a'"), ("b", "B", "b'"), ("c", "C", "c'")];
     assert_eq!(cycle_next(list, "a"), Some("b"));
     assert_eq!(cycle_next(list, "c"), Some("a"));
     assert_eq!(cycle_next(list, "z"), None);
@@ -1000,7 +1000,7 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
 #[test]
 fn picker_keys_map_onto_entries() {
     use super::picker::{picker_entries, PickerKey, PickerState};
-    let len = picker_entries(ModeConfig::Preedit).len();
+    let len = picker_entries(ModeConfig::Preedit, false).len();
     assert_eq!(len, ibus_prop::MODES.len(), "nine modes, nothing else");
     let state = PickerState::new("e2epick".into(), 1);
     // Digits 1..9 pick entries 1..9, 0 picks the last; Enter picks the
@@ -1018,7 +1018,7 @@ fn picker_keys_map_onto_entries() {
     assert_eq!(state.on_key(65364), PickerKey::Move(1)); // Down
     assert_eq!(state.on_key(0x76), PickerKey::Ignore);
     // The current mode's entry carries the dot marker.
-    let entries = picker_entries(ModeConfig::Preedit);
+    let entries = picker_entries(ModeConfig::Preedit, false);
     assert!(
         entries[1].starts_with("● "),
         "preedit is the default: {}",
