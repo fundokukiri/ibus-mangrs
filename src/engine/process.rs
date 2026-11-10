@@ -574,6 +574,13 @@ impl Engine {
                 break;
             }
         }
+        if !matched && self.smooth_backspace_retrack {
+            // The pop search only deletes whole raw keys — a screen whose
+            // tone outlives its key (`tùng` -> `tùn`) never matches. The
+            // re-encoder rebuilds a live composition for it instead, so the
+            // next mark key keeps editing here too.
+            matched = self.wrapper.retrack_from_screen(&target);
+        }
         if matched {
             // Tracking survives: the recomposition IS the post-delete
             // screen, so the next keys keep transforming the word.

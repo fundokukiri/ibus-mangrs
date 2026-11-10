@@ -493,6 +493,16 @@ pub(super) fn widgets() -> Rc<Ui> {
         500.0,
         5.0,
     );
+    let smooth_backspace_retrack = switch_row(
+        &t(
+            "rows.smooth_backspace_retrack.title",
+            "Sửa dấu sau Backspace (Flow/Turbo)",
+        ),
+        &t(
+            "rows.smooth_backspace_retrack.subtitle",
+            "Xóa một ký tự của từ đã gõ xong rồi gõ phím dấu mới sẽ tiếp tục biến hóa từ (tùn + s → tún) thay vì rơi thành chữ thường",
+        ),
+    );
     let idle_commit_spin = spin_row(
         &t(
             "rows.idle_commit_spin.title",
@@ -759,6 +769,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         idle_commit_spin,
         smooth_per_key_switch,
         smooth_per_key_spin,
+        smooth_backspace_retrack,
         experimental_features,
         menu,
         menu_box,

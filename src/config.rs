@@ -136,6 +136,12 @@ pub struct Config {
     /// parks stay on the engine's built-in grace constant, so a mistuned
     /// value here cannot reintroduce the relay ordering bug.
     pub smooth_per_key_delay_ms: u64,
+    /// Experimental: a Backspace on a committed word in the uinput modes
+    /// re-tracks the shortened screen (the composition is rebuilt from the
+    /// re-encoded keys), so the next mark key keeps editing the word
+    /// (`tùn` + `s` -> `tún`) instead of landing as a literal letter. Off
+    /// keeps today's plain-text behavior byte for byte.
+    pub smooth_backspace_retrack: bool,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
     /// each switch and value stays saved in this file and comes back when
@@ -810,6 +816,7 @@ impl Default for Config {
             idle_commit_ms: 700,
             smooth_per_key: true,
             smooth_per_key_delay_ms: 60,
+            smooth_backspace_retrack: false,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
@@ -1285,6 +1292,13 @@ children = ["preedit", "smooth"]
         let c: Config = toml::from_str("smooth_per_key_delay_ms = 120").unwrap();
         assert_eq!(c.smooth_per_key_delay_ms, 120);
         assert_eq!(Config::default().smooth_per_key_delay_ms, 60);
+    }
+
+    #[test]
+    fn smooth_backspace_retrack_round_trips_and_defaults_off() {
+        let c: Config = toml::from_str("smooth_backspace_retrack = true").unwrap();
+        assert!(c.smooth_backspace_retrack);
+        assert!(!Config::default().smooth_backspace_retrack);
     }
 
     #[test]
