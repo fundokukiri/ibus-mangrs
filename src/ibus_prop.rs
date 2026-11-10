@@ -317,6 +317,28 @@ pub const QUICK_TOGGLES: &[QuickToggle] = &[
     },
 ];
 
+/// Shipped default folder labels (stored Vietnamese, English display). The
+/// menu design stores the Vietnamese text; the language switches only the
+/// rendered label, never the saved design.
+const FOLDER_LABELS: &[(&str, &str)] = &[
+    ("Cấu hình nhanh", "Quick settings"),
+    ("Cá nhân", "Personal"),
+];
+
+/// The display label for a folder: the English rendering of a known shipped
+/// default, or the stored label unchanged (a user-renamed folder).
+pub fn folder_display_label(label: &str, en: bool) -> &str {
+    if en {
+        FOLDER_LABELS
+            .iter()
+            .find(|(vi, _)| *vi == label)
+            .map(|(_, en_label)| *en_label)
+            .unwrap_or(label)
+    } else {
+        label
+    }
+}
+
 /// The registered toggle with this menu key, if any.
 pub fn quick_toggle(key: &str) -> Option<&'static QuickToggle> {
     QUICK_TOGGLES.iter().find(|t| t.key == key)
@@ -468,9 +490,15 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                     if depth > 0 {
                         return None;
                     }
-                    // A folder's label is the user's own saved design —
-                    // never rewritten by the language.
-                    Prop::menu(label, label, build_menu(config, children, depth + 1))
+                    // A folder's label is the user's own saved design — the
+                    // stored text is never rewritten; only a SHIPPED default
+                    // label renders in the config's language. A folder the
+                    // user renamed is unknown here and shows its own text.
+                    Prop::menu(
+                        label,
+                        folder_display_label(label, en),
+                        build_menu(config, children, depth + 1),
+                    )
                 }
             })
         })
@@ -558,6 +586,21 @@ mod tests {
             ]),
             ..Config::default()
         };
+        config.menu = Some(vec![
+            MenuNode::Toggle {
+                key: "enabled".into(),
+            },
+            MenuNode::Radios {
+                group: "display".into(),
+                children: vec!["preedit".into()],
+            },
+            MenuNode::Folder {
+                // A shipped default folder label: rendered in the config's
+                // language while the stored design stays untouched.
+                label: "Cấu hình nhanh".into(),
+                children: vec![],
+            },
+        ]);
         config.language = "vi".into();
         let vi = flat(&properties(&config));
         assert!(vi.contains(&("enabled".into(), "Bật tiếng Việt".into())));
@@ -565,12 +608,20 @@ mod tests {
             vi.contains(&("display:preedit".into(), "Gạch chân (preedit)".into())),
             "vi radio label: {vi:?}"
         );
+        assert!(
+            vi.contains(&("Cấu hình nhanh".into(), "Cấu hình nhanh".into())),
+            "vi folder keeps its stored label: {vi:?}"
+        );
         config.language = "en".into();
         let en = flat(&properties(&config));
         assert!(en.contains(&("enabled".into(), "Vietnamese typing".into())));
         assert!(
             en.contains(&("display:preedit".into(), "Underline (preedit)".into())),
             "en radio label: {en:?}"
+        );
+        assert!(
+            en.contains(&("Cấu hình nhanh".into(), "Quick settings".into())),
+            "en folder renders the translated default: {en:?}"
         );
     }
 

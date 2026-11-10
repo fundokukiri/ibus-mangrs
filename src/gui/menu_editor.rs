@@ -27,13 +27,16 @@ fn menu_row(node: &MenuNode) -> (String, String, String, String) {
         MenuNode::Separator => (
             "sep".into(),
             String::new(),
-            "— phân cách —".into(),
+            t("menu.sep_display", "— phân cách —"),
             t("menu.kind_sep", "Gạch ngang"),
         ),
         MenuNode::Folder { label, .. } => (
             "folder".into(),
             String::new(),
-            label.clone(),
+            // A shipped default folder label renders in the window's
+            // language; a renamed folder shows its own stored text.
+            crate::ibus_prop::folder_display_label(label, crate::gui::text::is_english())
+                .to_string(),
             t("menu.kind_folder", "Thư mục"),
         ),
     }
