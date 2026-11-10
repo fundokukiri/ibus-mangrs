@@ -33,27 +33,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     spelling.add(&ui.auto_correct);
     spelling.add(&ui.auto_restore);
     spelling.add(&ui.bypass_url);
-    spelling.add(&ui.extra_url_chars_switch);
-    spelling.add(&ui.extra_url_chars_entry);
     spelling.add(&ui.abbrev);
-    decorate_experimental(&ui.extra_url_chars_switch);
-    decorate_experimental(&ui.extra_url_chars_entry);
-    // The switch gates its entry: off locks the input, and the engine
-    // applies the default while the typed value stays saved for when the
-    // switch returns. The save itself goes through wire_switch_saves.
-    {
-        let ui = Rc::clone(ui);
-        let switch = ui.extra_url_chars_switch.clone();
-        let entry = ui.extra_url_chars_entry.clone();
-        switch.connect_active_notify(move |sw| {
-            entry.set_sensitive(sw.is_active());
-        });
-    }
-    {
-        let ui = Rc::clone(ui);
-        let entry = ui.extra_url_chars_entry.clone();
-        entry.connect_changed(move |_| ui.fire_save());
-    }
     page.add(&spelling);
 
     let automatic = adw::PreferencesGroup::builder()
@@ -64,27 +44,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         ))
         .build();
     automatic.add(&ui.auto_capitalize);
-    automatic.add(&ui.auto_capitalize_after_switch);
-    automatic.add(&ui.auto_capitalize_after_entry);
     automatic.add(&ui.double_space);
-    decorate_experimental(&ui.auto_capitalize_after_switch);
-    decorate_experimental(&ui.auto_capitalize_after_entry);
     // double_space graduated: no "Thử nghiệm" badge, not gated by the
-    // experimental master switch.
-    // Same pair shape: off locks the input, the value stays saved.
-    {
-        let ui = Rc::clone(ui);
-        let switch = ui.auto_capitalize_after_switch.clone();
-        let entry = ui.auto_capitalize_after_entry.clone();
-        switch.connect_active_notify(move |sw| {
-            entry.set_sensitive(sw.is_active());
-        });
-    }
-    {
-        let ui = Rc::clone(ui);
-        let entry = ui.auto_capitalize_after_entry.clone();
-        entry.connect_changed(move |_| ui.fire_save());
-    }
+    // experimental master switch. The auto_capitalize_after pair moved to the
+    // dedicated "Thử nghiệm" tab.
     page.add(&automatic);
 
     let special = adw::PreferencesGroup::builder()

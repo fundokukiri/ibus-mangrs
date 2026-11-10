@@ -8,7 +8,7 @@ LIBDIR="$PREFIX/lib/ibus-mangrs"
 COMPONENT_DIR="$PREFIX/share/ibus/component"
 
 here=$(cd "$(dirname "$0")/.." && pwd)
-bin="$here/target/release/ibus-engine-ibus-mangrs"
+bin="$here/target/release/ibus-engine-mangrs"
 
 [ -x "$bin" ] || {
     echo "missing $bin" >&2
@@ -18,7 +18,7 @@ bin="$here/target/release/ibus-engine-ibus-mangrs"
 
 # IBus runs engines as the logged-in user, not as root, so the binary must be
 # world-readable and executable.
-install -Dm755 "$bin" "$LIBDIR/ibus-engine-ibus-mangrs"
+install -Dm755 "$bin" "$LIBDIR/ibus-engine-mangrs"
 install -Dm644 "$here/data/ibus-mangrs.xml" "$COMPONENT_DIR/ibus-mangrs.xml"
 
 # Rebuild the registry cache; without -t refresh the daemon serves the old list.
@@ -51,7 +51,7 @@ if [ -f "$here/data/80-uinput.rules" ]; then
 fi
 
 echo "installed:"
-echo "  $LIBDIR/ibus-engine-ibus-mangrs"
+echo "  $LIBDIR/ibus-engine-mangrs"
 echo "  $COMPONENT_DIR/ibus-mangrs.xml"
 echo "  $PREFIX/share/icons/hicolor/512x512/apps/ibus-mangrs.png"
 echo "  $PREFIX/share/applications/org.freedesktop.IBus.mangrs.desktop"

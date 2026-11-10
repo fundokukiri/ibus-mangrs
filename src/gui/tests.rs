@@ -25,6 +25,88 @@ fn gtk_widget_scenarios() {
     toggling_off_releases_the_editor_caret();
     every_switch_triggers_save();
     experimental_gate_hides_and_restores_rows();
+    combo_value_stays_right_after_a_pick();
+    popup_marks_the_selected_item();
+}
+
+/// Every widget below `w` matching `T`, in tree order. Test-only — the
+/// combo internals (popover, value view) have no public accessors.
+fn descendants<T: IsA<gtk4::Widget>>(w: &gtk4::Widget) -> Vec<T> {
+    fn walk<T: IsA<gtk4::Widget>>(w: &gtk4::Widget, out: &mut Vec<T>) {
+        if let Some(matched) = w.downcast_ref::<T>() {
+            out.push(matched.clone());
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            walk(&c, out);
+            child = c.next_sibling();
+        }
+    }
+    let mut out = Vec::new();
+    walk(w, &mut out);
+    out
+}
+
+/// The widened combo value stays right-aligned after a pick: the value
+/// view rebuilds the item widget for the new selection, so the align poke
+/// must run on the selection change too — a one-time poke left the picked
+/// value at the default alignment (the text jumped toward the center
+/// until the window reopened).
+fn combo_value_stays_right_after_a_pick() {
+    let ui = widgets();
+    let page = crate::gui::pages::typing::build(&ui);
+    let win = gtk4::Window::new();
+    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
+    win.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let view = combo_value_view(&ui.method).expect("the combo's value view");
+    let label = first_label(&view).expect("the value label after map");
+    assert_eq!(label.xalign(), 1.0, "map aligns the selected value");
+    // Pick another item: the displayed label is rebuilt for it.
+    let model = ui.method.model().expect("the combo model");
+    let next = (ui.method.selected() + 1) % model.n_items();
+    ui.method.set_selected(next);
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let view = combo_value_view(&ui.method).expect("the value view after pick");
+    let label = first_label(&view).expect("the value label after pick");
+    assert_eq!(label.xalign(), 1.0, "a pick must not reset the alignment");
+}
+
+/// The popup list marks the combo's selected item with a checkmark: the
+/// checkmark exists only in libadwaita's default factory, which the
+/// widened combos replace, so the popup factory rebuilds it. With the
+/// popup open, exactly one checkmark must be lit — the selected item's.
+fn popup_marks_the_selected_item() {
+    let ui = widgets();
+    let page = crate::gui::pages::typing::build(&ui);
+    let win = gtk4::Window::new();
+    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
+    win.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let popover = descendants::<gtk4::Popover>(ui.method.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the combo popover");
+    popover.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    // Template order: the inline value view first, the popup list second.
+    let list = descendants::<gtk4::ListView>(ui.method.upcast_ref())
+        .into_iter()
+        .nth(1)
+        .expect("the popup list view");
+    let lit = descendants::<gtk4::Image>(list.upcast_ref())
+        .into_iter()
+        .filter(|icon| icon.opacity() == 1.0)
+        .count();
+    assert_eq!(lit, 1, "exactly the selected item carries a lit checkmark");
 }
 
 /// While typing in a raw table, a switch turned off (by hand or by a live

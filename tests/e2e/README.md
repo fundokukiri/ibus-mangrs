@@ -27,7 +27,7 @@ harness (engine session, client simulation, signal parsing) lives in
 `tests/common/mod.rs`.
 
 The suites are `#[ignore]`d, so plain `cargo test` never runs them (CI/sandbox
-safe). `run.sh` builds `target/release/ibus-engine-ibus-mangrs` when missing,
+safe). `run.sh` builds `target/release/ibus-engine-mangrs` when missing,
 wraps everything in `dbus-run-session`, sets the `MANGRS_E2E`/`MANGRS_E2E_BIN`
 gates, and runs the selected targets with `--test-threads=1`. Exit code is 0
 only when every selected case passes.

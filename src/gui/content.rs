@@ -58,6 +58,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // ===== Page 6: Cài đặt khác — icon, extension, backup, reset.
     let other_page = pages::other::build(&ui, &restart_btn);
 
+    // ===== Page 7: Thử nghiệm — every gated feature on one tab.
+    let experimental_page = pages::experimental::build(&ui);
+
     // ===== Page 7: Tinh chỉnh — uinput pacing + X11/XIM workarounds.
     let tune_page = pages::tune::build(&ui);
 
@@ -71,7 +74,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     // Content: one page per section, crossfading. Stack names are stable —
     // the engine opens pages with `--page=<name>`.
     // (stack name, sidebar label, symbolic icon from the icon theme)
-    let pages: [(&str, String, &str); 11] = [
+    let pages: [(&str, String, &str); 12] = [
         (
             "typing",
             t("pages.typing", "Chung"),
@@ -109,6 +112,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             "preferences-desktop-keyboard-shortcuts-symbolic",
         ),
         (
+            "experimental",
+            t("pages.experimental", "Thử nghiệm"),
+            "applications-science-symbolic",
+        ),
+        (
             "other",
             t("pages.other", "Cài đặt khác"),
             "view-more-horizontal-symbolic",
@@ -124,11 +132,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             "help-about-symbolic",
         ),
     ];
-    let pages_refs: [(&str, &str, &str); 11] = std::array::from_fn(|i| {
+    let pages_refs: [(&str, &str, &str); 12] = std::array::from_fn(|i| {
         let (name, title, icon) = &pages[i];
         (*name, title.as_str(), *icon)
     });
-    let page_boxes: [&gtk4::Widget; 11] = [
+    let page_boxes: [&gtk4::Widget; 12] = [
         typing_page.upcast_ref(),
         tone_page.upcast_ref(),
         macro_page.upcast_ref(),
@@ -137,6 +145,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         rules_page.upcast_ref(),
         panel_page.upcast_ref(),
         hotkeys_page.upcast_ref(),
+        experimental_page.upcast_ref(),
         other_page.upcast_ref(),
         tune_page.upcast_ref(),
         about_page.upcast_ref(),
@@ -173,8 +182,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     about_list.add_css_class("navigation-sidebar");
     let mut page_rows: Vec<(String, gtk4::ListBoxRow)> = Vec::new();
     /// One navigation row: icon + label, the accessible label and tooltip
-    /// carry the full text, long labels ellipsize at the end.
-    fn nav_row(title: &str, icon: &str, name: &str) -> gtk4::ListBoxRow {
+    /// carry the full text, long labels ellipsize at the end. `warn` tints
+    /// the label with the theme's warning amber (the "Thử nghiệm" tab).
+    fn nav_row(title: &str, icon: &str, name: &str, warn: bool) -> gtk4::ListBoxRow {
         let row = gtk4::ListBoxRow::new();
         let h = gtk4::Box::new(Orientation::Horizontal, 12);
         // A little breathing room: navigation-sidebar's padding alone leaves
@@ -182,6 +192,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         h.set_margin_start(6);
         h.append(&gtk4::Image::from_icon_name(icon));
         let label = gtk4::Label::new(Some(title));
+        if warn {
+            label.add_css_class("warning");
+        }
         label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         label.set_hexpand(true);
         label.set_xalign(0.0);
@@ -224,7 +237,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     };
     let groups: [&[&str]; 3] = [
         &["typing", "tone", "macros", "emoji", "data"],
-        &["rules", "panel", "hotkeys"],
+        &["rules", "panel", "hotkeys", "experimental"],
         &["tune", "other"],
     ];
     for (gi, group) in groups.iter().copied().enumerate() {
@@ -232,16 +245,25 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             sidebar_list.append(&separator_row());
         }
         for name in group {
-            let row = nav_row(label_of(name), icon_of(name), name);
+            let row = nav_row(label_of(name), icon_of(name), name, *name == "experimental");
+            // The experimental gate hides the whole tab through its row.
+            if *name == "experimental" {
+                *ui.experimental_nav.borrow_mut() = Some(row.clone());
+            }
             sidebar_list.append(&row);
             page_rows.push((name.to_string(), row.clone()));
         }
     }
-    let about_row = nav_row(label_of("about"), icon_of("about"), "about");
+    let about_row = nav_row(label_of("about"), icon_of("about"), "about", false);
     // The pinned About group keeps the same separator style above it.
     about_list.append(&separator_row());
     about_list.append(&about_row);
     page_rows.push(("about".to_string(), about_row.clone()));
+    // refresh() ran before the sidebar existed: the eleven rows hid fine,
+    // but the gate's nav-row hide found nothing and the "Thử nghiệm" tab
+    // reappeared on every open. The nav row is stored now — apply the gate
+    // (pure visibility; it no longer jumps pages).
+    ui.set_experimental_visible(config.experimental_features);
     // Owned copies for the 'static signal handlers (the const PAGES they
     // replaced lives only in the content file now).
     let app_name = t("app.name", "MăngRS");
@@ -297,6 +319,26 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                 main_list.select_row(None::<&gtk4::ListBoxRow>);
             }
         });
+    }
+
+    // Programmatic page jump for the non-widget code paths: the experimental
+    // gate closes its tab while the user may be standing on it and lands
+    // them on "Cài đặt khác". select_row drives the same row_selected
+    // handler the clicks use, so the stack, the title and the single
+    // selection all stay in sync.
+    {
+        let list = sidebar_list.clone();
+        // GObject clones are new references, so the shared list stays cheap
+        // and the search jump below keeps its own copy of page_rows.
+        let page_rows = page_rows.clone();
+        *ui.sidebar_select.borrow_mut() = Some(Rc::new(move |name: &str| {
+            for (n, row) in &page_rows {
+                if n == name {
+                    list.select_row(Some(row));
+                    break;
+                }
+            }
+        }));
     }
 
     // Search lives in the sidebar: the magnifier button stays visible and

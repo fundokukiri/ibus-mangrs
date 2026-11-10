@@ -1,6 +1,6 @@
 [package]
 name = "ibus-mangrs"
-version = "1.1.8"
+version = "1.1.9"
 edition = "2021"
 authors = ["fundoku"]
 description = "MăngRS - Vietnamese IBus engine built on bamboo-core (make by fundoku with agents coding)"
@@ -11,13 +11,13 @@ name = "ibus_mangrs"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ibus-engine-ibus-mangrs"
+name = "ibus-engine-mangrs"
 path = "src/main.rs"
 
 [dependencies]
-# Source browsing of bamboo-core v0.5.3: `git submodule update --init`.
-# The build itself uses the crates.io package.
-bamboo-core = "0.5.3"
+# 0.5.4 (tag 99a02d9) carries the 08/11 hot-path perf merge plus the
+# FFI-safety audit branch; the wrapper guards it actually needs stay.
+bamboo-core = "0.5.4"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dbus = "0.9.12"
 dirs = "6"
@@ -35,8 +35,9 @@ gui = ["dep:gtk4", "dep:libadwaita"]
 version = "0.9"
 optional = true
 # v4_6: gdk Texture::from_bytes for the embedded logo on the About page.
+# v4_8: glib::Propagation for the modern hotkey-capture button.
 # v4_10: gtk::FileDialog for the JSON import/export pickers.
-features = ["v4_6", "v4_10"]
+features = ["v4_6", "v4_8", "v4_10"]
 
 [dependencies.libadwaita]
 version = "0.7"

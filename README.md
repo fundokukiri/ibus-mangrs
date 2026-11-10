@@ -8,7 +8,7 @@
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
 [`bamboo-core`](https://crates.io/crates/bamboo-core). 9 input method presets (Telex, VNI,
-VIQR, Microsoft layout and 5 combinations), 10 display modes (Auto, Preedit, NonPreedit,
+VIQR, Microsoft layout and 5 combinations), 9 display modes (Preedit, NonPreedit,
 Surrounding, 3 uinput modes, 2 ForwardKeyEvent modes, OFF), a GTK4 settings window,
 macros, a custom dictionary, emoji shortcodes with a picker at the caret, per-app rules and an
 editable panel menu.
@@ -27,7 +27,7 @@ editable panel menu.
   VNI for French/AZERTY keyboards, VIQR and the Microsoft layout (`ti3ng8` → `tiếng`).
 - **11 output charsets**: Unicode (default), Unicode NFD, TCVN3, VNI, VIQR, VISCII, VPS,
   CP1258, BKHCM, Vietware X, Vietware Full.
-- **10 display modes** (see below), selectable per application via App Rules.
+- **9 display modes** (see below), selectable per application via App Rules.
 - **Per-app rules for Wayland-native apps** (Chrome, Firefox, Sublime Text, ...) through the
   companion GNOME Shell extension: IBus reports those apps only as an anonymous mutter relay,
   so the extension names the focused window from inside the Shell. Optional — without it rules
@@ -37,6 +37,13 @@ editable panel menu.
   auto-restore of non-Vietnamese words, raw-key bypass after URL/email/path characters
   (`/ : @ . _ ~ = # & % ?`), `w` → `ư`, `[`/`]` → `ơ`/`ư`, `--` → `—`, auto-capitalize,
   double space → period.
+- **Three Backspace behaviors on tone-marked words**: tone first (`hạ` → `ha` → `h`),
+  whole screen character (`việt` → `việ` → `vi` → `v`), or the unikey walk that undoes one
+  raw key at a time (`hạ` → `hã` → `hả` → `hà` → `há` → `ha`). The uinput modes keep the
+  raw-key undo.
+- **Per-key progressive display in the Flow and Turbo modes** (on by default): `ee` shows `ê` the
+  moment it lands instead of holding raw keys until the word ends; Backspace mid-word deletes
+  the last visible character and the word keeps composing (`việt` Backspace `t` → `việt` again).
 - **A click never loses the half-typed word**: the preedit is committed by the app itself when
   it resets the input context (mouse click, focus change), so the word being composed lands in
   the text on every interruption. Vietnamese abbreviations stay intact (`ddc` → `đc`,
@@ -58,21 +65,20 @@ editable panel menu.
   hot-reloads within ~1 second.
 - **Backup/restore** of all settings — config, macros, dictionary and the emoji table — as one
   JSON file.
-- 300 unit tests including an 894-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR + 72 extra-method rows x 3 case variants, 12 Microsoft rows); the GTK widget tests add one more when built with `--features gui` (301).
+- 348 unit tests including an 894-case keystroke→text golden table (102 Telex + 96 VNI + 24 VIQR + 72 extra-method rows x 3 case variants, 12 Microsoft rows); the GTK widget tests add one more when built with `--features gui` (349).
 
 ## Display modes
 
 | Mode                  | How it works                                                                            | Best for                                                                          |
 | --------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Auto                  | the engine picks the safest mode per app from what the app reports                      | set it and forget it (new from v1.1.6)                                            |
 | Preedit (default)     | word shows inline with underline, commits at word end                                   | widest compatibility                                                              |
 | Non-preedit           | every key commits immediately, tail rewritten on marks                                  | Firefox, GTK apps                                                                 |
 | Surrounding text      | non-preedit + verifies against the app's own text report                                | Sublime Text                                                                      |
-| Smooth (uinput)       | raw keys forwarded while typing, latin tail erased with real Backspaces at word end     | terminals, quirky apps (X11)                                                      |
-| Super Smooth (uinput) | same, without the safety check before rewriting                                         | fast typing (X11)                                                                 |
+| Flow (uinput)         | raw keys forwarded while typing, latin tail erased with real Backspaces at word end     | terminals, quirky apps (X11)                                                      |
+| Turbo (uinput)        | same, without the safety check before rewriting                                         | fast typing (X11)                                                                 |
 | Select (uinput)       | Shift+← selects the tail, Delete erases it, word commits                                | apps where Backspaces misbehave (X11)                                             |
-| ForwardKeyEvent       | non-preedit whose tail rewrite deletes with Backspace key events forwarded through IBus | apps that ignore the delete signal: Chrome, Electron, GNOME Console, Sublime Text |
-| ForwardKeyEvent II    | the same, but the tail is selected with forwarded Shift+← and the commit replaces it    | apps where a forwarded Backspace is mishandled, X11/XIM apps (JetBrains)          |
+| Forward Backspace     | non-preedit whose tail rewrite deletes with Backspace key events forwarded through IBus | apps that ignore the delete signal: Chrome, Electron, GNOME Console, Sublime Text |
+| Forward Selection     | the same, but the tail is selected with forwarded Shift+← and the commit replaces it    | apps where a forwarded Backspace is mishandled, X11/XIM apps (JetBrains)          |
 | OFF                   | Vietnamese off, macros still work                                                       | mixed Vietnamese/English sessions                                                 |
 
 Switch modes from the input-source menu, the settings window, an assignable cycle hotkey, or per
@@ -93,30 +99,81 @@ Rust to rustup; GTK 4.10+ and libadwaita 1.5+ are required (Ubuntu 22.04 ships 4
 the Debian/Ubuntu and Fedora package names are the standard ones but unverified there. IBus must
 be your active input-method framework (on GNOME it is).
 
+### Install the dependencies yourself
+
+Exactly what the one-line installer runs, per distro:
+
+```sh
+# Arch / Manjaro / EndeavourOS
+sudo pacman -S --needed gcc pkgconf tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils
+
+# Debian / Ubuntu / Mint / Pop!_OS
+sudo apt install gcc libc6-dev pkg-config tar gzip curl ibus desktop-file-utils \
+    libdbus-1-dev libgtk-4-dev libadwaita-1-dev
+
+# Fedora / RHEL / CentOS
+sudo dnf install gcc pkgconf-pkg-config tar gzip curl ibus dbus-devel \
+    gtk4-devel libadwaita-devel desktop-file-utils
+
+# openSUSE
+sudo zypper install gcc pkg-config tar gzip curl ibus dbus-1-devel \
+    gtk4-devel libadwaita-devel desktop-file-utils
+
+# Rust (all distros)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
 ## Build
 
 ```sh
 cargo build --release --features gui
 ```
 
-The engine core comes from the `bamboo-core` crate on crates.io. Source browsing of the pinned
-`v0.5.3` is available via `git submodule update --init` (optional; the build uses crates.io).
+The engine core comes from the `bamboo-core` crate on crates.io (0.5.4).
 
 ## Install
 
 ### One-line install (online)
 
 Downloads the source, builds it and installs; missing build dependencies (IBus, GTK4, the build
-toolchain, Rust) are installed for you, so only `curl` and `sudo` are needed up front. The
-`/dev/uinput` udev rule and the `input` group are set up too:
+toolchain, Rust) are detected and installed, so only `curl` (or `wget`) and `sudo` are needed up
+front — re-running installs nothing new. The `/dev/uinput` udev rule and the `input` group are
+set up too. After a successful install the build-only packages that this run installed are
+removed again (`KEEP_BUILD_DEPS=1` keeps them); packages already on the machine are never
+touched, the runtime libraries stay, and Rust (rustup) stays — remove it with
+`rustup self uninstall` if you do not develop:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
+# or, without curl:
+wget -qO- https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
 ```
 
 (Piping a script to `sh` runs code from the network — review it first if that matters to you.)
 
 ### From a local checkout
+
+Install the build dependencies once (Arch, Debian/Ubuntu, Fedora — Rust on every distro):
+
+```sh
+# Arch / Manjaro / EndeavourOS
+sudo pacman -S --needed gcc pkgconf ibus dbus gtk4 libadwaita desktop-file-utils
+
+# Debian / Ubuntu / Mint / Pop!_OS
+sudo apt install gcc libc6-dev pkg-config ibus libdbus-1-dev libgtk-4-dev \
+    libadwaita-1-dev desktop-file-utils
+
+# Fedora / RHEL / CentOS
+sudo dnf install gcc pkgconf-pkg-config ibus dbus-devel gtk4-devel \
+    libadwaita-devel desktop-file-utils
+
+# openSUSE
+sudo zypper install gcc pkg-config ibus dbus-1-devel gtk4-devel \
+    libadwaita-devel desktop-file-utils
+
+# Rust (all distros)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
 Build, install and restart IBus:
 
@@ -170,10 +227,10 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 | Action                    | How                                                                                    |
 | ------------------------- | -------------------------------------------------------------------------------------- |
 | Toggle Vietnamese         | input-source menu → _Enable Vietnamese_, or `Super+Space`                              |
-| Open settings window      | input-source menu → _Cài đặt…_, or `ibus-engine-ibus-mangrs -gui`                      |
+| Open settings window      | input-source menu → _Cài đặt…_, or `ibus-engine-mangrs -gui`                      |
 | Change input method       | menu → _Input Method_ (9 presets), or GUI                                              |
 | Change charset            | menu → _Charset_ (11 charsets), or GUI                                                 |
-| Change display mode       | menu → _Display_ (4 modes by default; the menu is editable), or GUI (10 modes), or the cycle hotkey |
+| Change display mode       | menu → _Display_ (4 modes by default; the menu is editable), or GUI (9 modes), or the cycle hotkey |
 | Display mode cycle hotkey | GUI _Phím tắt_ page → _Thứ tự khi đổi chế độ_ (e.g. `Control+Alt+v`)                   |
 | Quick settings            | menu → _Quick Settings_ (macros, auto-capitalize, abbreviations, foreign-word restore) |
 | Type an emoji             | type `:name:` (enable in GUI _Emoji_ page), or the emoji hotkey opens the picker at the caret |
@@ -283,8 +340,8 @@ for apps that reach the engine in unusual ways:
 ## Testing
 
 ```sh
-cargo test                      # 300 unit tests, including the 894-case golden table
-cargo clippy --all-targets      # (301 with --features gui)
+cargo test                      # 348 unit tests, including the 894-case golden table
+cargo clippy --all-targets      # (349 with --features gui)
 ```
 
 Live test against a real daemon without installing:
