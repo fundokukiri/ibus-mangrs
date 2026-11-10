@@ -1254,3 +1254,22 @@ fn config_reload_reregisters_the_panel_without_a_key_event() {
         "the panel re-registers on the loop pass, no key event needed"
     );
 }
+
+/// The auxiliary hint line under the emoji popup follows the engine
+/// language — the owner found it Vietnamese after switching to English.
+#[test]
+fn emoji_menu_auxiliary_follows_the_language() {
+    use super::emoji_picker::EmojiPickerState;
+    let mut en = EmojiPickerState::with_lang(emoji_rows(), Vec::new(), true);
+    assert!(
+        en.auxiliary().contains("type to search"),
+        "{}",
+        en.auxiliary()
+    );
+    for c in "lua".chars() {
+        en.query.push(c);
+    }
+    assert!(en.auxiliary().contains("results"), "{}", en.auxiliary());
+    let vi = EmojiPickerState::with(emoji_rows(), Vec::new());
+    assert!(vi.auxiliary().contains("gõ chữ"), "{}", vi.auxiliary());
+}
