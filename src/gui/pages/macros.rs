@@ -6,6 +6,7 @@
 //! focus-leave through the shared funnel.
 
 use super::*;
+use crate::gui::pages::typing::widen_value;
 
 /// The current time/date as the engine formats it — chrono's strftime, the
 /// very call inside `Macros::expand`. A pattern chrono rejects (Item::Error)
@@ -54,6 +55,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // own strftime call, so an unusable pattern previews as blank.
     add_preview(&ui.time_format);
     add_preview(&ui.date_format);
+    // The selected pattern renders at the row's end — the same widening
+    // the typing page combos get, and a long custom format stays whole.
+    widen_value(&ui.time_format);
+    widen_value(&ui.date_format);
     settings.add(&ui.time_format);
     settings.add(&ui.date_format);
     page.add(&settings);
