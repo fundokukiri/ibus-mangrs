@@ -487,9 +487,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
         &t(
             "rows.smooth_per_key_delay.subtitle",
-            "20–500 ms. Mặc định: 60",
+            "0–500 ms. Mặc định: 60",
         ),
-        20.0,
+        0.0,
         500.0,
         5.0,
     );

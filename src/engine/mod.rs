@@ -723,12 +723,13 @@ impl Engine {
         })
     }
 
-    /// The per-key display's park delay: the user value clamped into the
-    /// safe range. The floor keeps a mutter relay's ~7 ms apply window
-    /// covered for hand-edited configs; the two server-side rewrite parks
+    /// The per-key display's park delay: the user value clamped to a
+    /// sane ceiling. Zero is allowed by owner decision — the knob is
+    /// experimental and gate-hidden, and a too-low value can only reorder
+    /// text for the user who set it; the two server-side rewrite parks
     /// stay on the built-in constant and are not tunable.
     pub fn per_key_delay(&self) -> Duration {
-        Duration::from_millis(self.smooth_per_key_delay_ms.clamp(20, 500))
+        Duration::from_millis(self.smooth_per_key_delay_ms.clamp(0, 500))
     }
 
     /// The client dropped the protocol delete at least once; the server

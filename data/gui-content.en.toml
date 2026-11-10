@@ -273,7 +273,7 @@ subtitle = "Flow/Turbo show the accented letter as you type (ee → ê) instead 
 
 [rows.smooth_per_key_delay]
 title = "Per-key display delay (ms)"
-subtitle = "How many ms a key waits before it lands in the text: lower shows marks sooner, higher types smoother. 20–500 ms. Default: 60. Experimental."
+subtitle = "How many ms a key waits before it lands in the text: lower shows marks sooner, higher types smoother. 0–500 ms, a too-low value can reorder text on Wayland. Default: 60. Experimental."
 
 [rows.macro_enabled]
 title = "Enable shorthand"
