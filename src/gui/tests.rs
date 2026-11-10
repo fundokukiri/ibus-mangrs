@@ -28,6 +28,7 @@ fn gtk_widget_scenarios() {
     combo_value_stays_right_after_a_pick();
     popup_marks_the_selected_item();
     format_combos_keep_presets_and_unknowns();
+    language_row_round_trips();
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -781,4 +782,27 @@ fn format_combos_keep_presets_and_unknowns() {
         items,
         "no duplicate items after a re-refresh"
     );
+}
+
+/// The Language combo: the config's language selects the right item and
+/// the pick reads back as "vi"/"en".
+fn language_row_round_trips() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+
+    let config = Config {
+        language: "en".into(),
+        ..Config::default()
+    };
+    ui.refresh(&config, &macros, &dictionary);
+    assert_eq!(ui.language.selected(), 1, "English selects index 1");
+    assert_eq!(ui.read().language, "en");
+    ui.refresh(&Config::default(), &macros, &dictionary);
+    assert_eq!(
+        ui.language.selected(),
+        0,
+        "Vietnamese (default) selects index 0"
+    );
+    assert_eq!(ui.read().language, "vi");
 }

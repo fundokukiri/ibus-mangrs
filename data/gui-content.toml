@@ -252,6 +252,9 @@ title = "Định dạng giờ ($TIME)"
 [rows.date_format]
 title = "Định dạng ngày ($DATE)"
 
+[rows.language]
+title = "Ngôn ngữ"
+
 [rows.macro_enabled]
 title = "Bật gõ tắt"
 subtitle = "Khóa mở rộng thành cụm khi hết từ"
