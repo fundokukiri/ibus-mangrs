@@ -2693,6 +2693,73 @@ fn smooth_per_key_burst_coalesces_into_one_commit() {
 }
 
 #[test]
+fn per_key_delay_follows_the_configured_value() {
+    let mut e = engine(
+        Mode::Smooth,
+        Config {
+            experimental_features: true,
+            smooth_per_key: true,
+            smooth_per_key_delay_ms: 200,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let start = Instant::now();
+    type_str(&mut e, "t");
+    let (deadline, _) = e.per_key_park.as_ref().expect("per-key batch parked");
+    let lag = deadline.duration_since(start);
+    assert!(
+        lag > Duration::from_millis(150) && lag < Duration::from_millis(250),
+        "park deadline must follow the configured 200 ms, got {lag:?}"
+    );
+}
+
+#[test]
+fn per_key_delay_clamps_out_of_range_values() {
+    let e = engine(
+        Mode::Smooth,
+        Config {
+            experimental_features: true,
+            smooth_per_key: true,
+            smooth_per_key_delay_ms: 0,
+            ..Config::default()
+        },
+    );
+    assert_eq!(e.per_key_delay(), Duration::from_millis(20));
+    let e = engine(
+        Mode::Smooth,
+        Config {
+            experimental_features: true,
+            smooth_per_key: true,
+            smooth_per_key_delay_ms: 700,
+            ..Config::default()
+        },
+    );
+    assert_eq!(e.per_key_delay(), Duration::from_millis(500));
+    assert_eq!(
+        Engine::new(Method::Telex, Mode::Smooth).per_key_delay(),
+        Duration::from_millis(60),
+        "engine default stays today's behavior"
+    );
+}
+
+#[test]
+fn per_key_delay_gate_off_forces_the_builtin_60() {
+    // The knob is experimental: gate off bakes the built-in 60 ms into the
+    // engine whatever the file says (the stored value stays saved).
+    let e = engine(
+        Mode::Smooth,
+        Config {
+            smooth_per_key: true,
+            smooth_per_key_delay_ms: 200,
+            experimental_features: false,
+            ..Config::default()
+        },
+    );
+    assert_eq!(e.per_key_delay(), Duration::from_millis(60));
+}
+
+#[test]
 fn smooth_per_key_word_end_carries_the_terminator_in_the_batch() {
     // The word-end terminator joins the coalesced batch — a forwarded key
     // would race the pending commit on a relay.

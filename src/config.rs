@@ -131,6 +131,11 @@ pub struct Config {
     /// the per-key display as the smooth look; the word-end rewrite stays
     /// one switch away and the per-key commit costs ~60 ms per key.
     pub smooth_per_key: bool,
+    /// How long the per-key display parks each keystroke's commit before
+    /// it lands (ms). Per-key pacing only: the two server-side rewrite
+    /// parks stay on the engine's built-in grace constant, so a mistuned
+    /// value here cannot reintroduce the relay ordering bug.
+    pub smooth_per_key_delay_ms: u64,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
     /// each switch and value stays saved in this file and comes back when
@@ -804,6 +809,7 @@ impl Default for Config {
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             smooth_per_key: true,
+            smooth_per_key_delay_ms: 60,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
@@ -1272,6 +1278,13 @@ children = ["preedit", "smooth"]
         let c: Config = toml::from_str("smooth_per_key = false").unwrap();
         assert!(!c.smooth_per_key);
         assert!(Config::default().smooth_per_key);
+    }
+
+    #[test]
+    fn smooth_per_key_delay_round_trips_and_defaults_to_60() {
+        let c: Config = toml::from_str("smooth_per_key_delay_ms = 120").unwrap();
+        assert_eq!(c.smooth_per_key_delay_ms, 120);
+        assert_eq!(Config::default().smooth_per_key_delay_ms, 60);
     }
 
     #[test]
