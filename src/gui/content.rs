@@ -72,6 +72,14 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         ))));
         restart_btn.set_child(Some(&b));
     }
+    // The XIM caveat rides on the button as a hover hint: an app reached
+    // through ibus-x11 (JetBrains) recreates its input context only on the
+    // next focus-in, so one window switch is part of the restart ritual.
+    restart_btn.set_tooltip_text(Some(&t(
+        "misc.restart_xim_tooltip",
+        "Ứng dụng XIM (JetBrains): sau khi khởi động lại, đổi sang cửa sổ khác rồi quay lại để gõ tiếp tiếng Việt.",
+    )));
+    let restart_overlay = adw::ToastOverlay::new();
     restart_btn.add_css_class("suggested-action");
     restart_btn.add_css_class("pill");
     restart_btn.set_halign(gtk4::Align::Center);
@@ -439,9 +447,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         .build();
 
     // The restart button floats over everything at the bottom center of
-    // the page.
+    // the page; the toast overlay wraps the page stack so the post-restart
+    // hint can float above it (AdwToastOverlay's documented home).
     let page_overlay = gtk4::Overlay::new();
-    page_overlay.set_child(Some(&stack));
+    page_overlay.set_child(Some(&restart_overlay));
+    restart_overlay.set_child(Some(&stack));
     page_overlay.add_overlay(&restart_btn);
     let content_toolbar = adw::ToolbarView::new();
 
@@ -852,10 +862,21 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     {
         let window = window.clone();
         let btn = restart_btn.clone();
+        let ui = Rc::clone(&ui);
+        let overlay = restart_overlay.clone();
         restart_btn.connect_clicked(move |_| {
             // User-initiated only — the engine never restarts IBus itself.
             match restart_ibus() {
-                Ok(_) => btn.set_visible(false),
+                Ok(_) => {
+                    btn.set_visible(false);
+                    ui.fire_toast(
+                        &overlay,
+                        &t(
+                            "misc.restart_xim_toast",
+                            "Đã khởi động lại IBus — ứng dụng XIM (JetBrains) cần đổi cửa sổ rồi quay lại để gõ tiếp.",
+                        ),
+                    );
+                }
                 Err(e) => alert(&window, &format!("Không khởi động lại được IBus: {e}")),
             }
         });
