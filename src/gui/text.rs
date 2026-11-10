@@ -120,5 +120,13 @@ mod tests {
             missing.is_empty(),
             "keys missing from the EN file: {missing:?}"
         );
+        // Symmetry: an EN key with no VI entry means the files drifted —
+        // a key defined in code but missing from BOTH files is how the
+        // "Tinh chỉnh" tab survived its own translation round.
+        let extra: Vec<&String> = en_keys
+            .iter()
+            .filter(|k| vi_keys.binary_search(k).is_err())
+            .collect();
+        assert!(extra.is_empty(), "keys missing from the VI file: {extra:?}");
     }
 }
