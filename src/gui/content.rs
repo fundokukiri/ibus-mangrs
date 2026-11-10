@@ -706,14 +706,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             let s = save.clone();
             ui.unicode_channel.connect_selected_notify(move |_| s());
         }
-        // Entries save on Enter or when they lose focus.
-        for entry in [&ui.time_format, &ui.date_format] {
+        {
             let s = save.clone();
-            entry.connect_activate(move |_| s());
+            ui.time_format.connect_selected_notify(move |_| s());
+        }
+        {
             let s = save.clone();
-            let controller = gtk4::EventControllerFocus::new();
-            controller.connect_leave(move |_| s());
-            entry.add_controller(controller);
+            ui.date_format.connect_selected_notify(move |_| s());
         }
         // Text views save when focus leaves the window's text area. The
         // raw macro editor additionally rebuilds the row list from its

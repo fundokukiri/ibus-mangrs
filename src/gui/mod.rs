@@ -114,6 +114,11 @@ const BACKSPACE_TONE_MODES: &[&str] = &[
     "Unikey (lùi từng phím)",
 ];
 const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
+/// The $TIME/$DATE strftime presets, the shipped defaults first; a format
+/// the old free-text rows saved that matches none of these is appended as
+/// its own item by `select_format` instead of being rewritten.
+const TIME_FORMATS: &[&str] = &["%H:%M", "%H:%M:%S", "%Hh%M", "%I:%M %p"];
+const DATE_FORMATS: &[&str] = &["%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%Y-%m-%d", "%d/%m/%y"];
 
 /// The custom-shortcut functions, in `config::CUSTOM_HOTKEY_ACTIONS` order:
 /// (action key, gui-content key) plus the code fallback labels — the
@@ -186,8 +191,8 @@ struct Ui {
     capitalize_macro: adw::SwitchRow,
     macro_in_off_mode: adw::SwitchRow,
     macro_valid_words: adw::SwitchRow,
-    time_format: adw::EntryRow,
-    date_format: adw::EntryRow,
+    time_format: adw::ComboRow,
+    date_format: adw::ComboRow,
     /// Emoji shortcodes ("Emoji" tab): the on/off switch, the picker
     /// hotkey (the row itself lives on "Phím tắt", one row per shortcut)
     /// and the raw user table `name=glyph` lines of `emoji.toml`.
@@ -377,6 +382,31 @@ fn on_off_index<T: PartialEq>(value: &T, disabled: T, nonstart: T) -> u32 {
     }
 }
 
+/// Select `value` in a format combo: the matching preset's index, or — for
+/// a format stored by the old free-text rows — a temporary extra item
+/// appended to the end, so no stored format is rewritten on save.
+fn select_format(row: &adw::ComboRow, presets: &[&str], value: &str) {
+    let list = StringList::new(presets);
+    let index = match presets.iter().position(|p| *p == value) {
+        Some(i) => i as u32,
+        None => {
+            list.append(value);
+            list.n_items() - 1
+        }
+    };
+    row.set_model(Some(&list));
+    row.set_selected(index);
+}
+
+/// The pattern the combo currently shows: presets and appended values read
+/// back the same way, the model being the single source of truth.
+pub(crate) fn format_selected(row: &adw::ComboRow) -> String {
+    row.selected_item()
+        .and_downcast::<gtk4::StringObject>()
+        .map(|o| o.string().into())
+        .unwrap_or_default()
+}
+
 impl Ui {
     /// Push a config (plus the two text lists) into every widget. This is the
     /// only config → widget mapping: the initial build and the import both go
@@ -446,8 +476,8 @@ impl Ui {
         self.macro_in_off_mode.set_active(config.macro_in_off_mode);
         self.macro_valid_words
             .set_active(config.macro_expand_valid_words);
-        self.time_format.set_text(&config.time_format);
-        self.date_format.set_text(&config.date_format);
+        select_format(&self.time_format, TIME_FORMATS, &config.time_format);
+        select_format(&self.date_format, DATE_FORMATS, &config.date_format);
         self.emoji_enabled.set_active(config.emoji_enabled);
         *self.emoji_hotkey_value.borrow_mut() = config.emoji_hotkey.clone();
         self.emoji_hotkey_display.render(&config.emoji_hotkey);
@@ -607,8 +637,8 @@ impl Ui {
         config.capitalize_macro = self.capitalize_macro.is_active();
         config.macro_in_off_mode = self.macro_in_off_mode.is_active();
         config.macro_expand_valid_words = self.macro_valid_words.is_active();
-        config.time_format = self.time_format.text().trim().to_string();
-        config.date_format = self.date_format.text().trim().to_string();
+        config.time_format = format_selected(&self.time_format);
+        config.date_format = format_selected(&self.date_format);
         config.emoji_enabled = self.emoji_enabled.is_active();
         config.emoji_hotkey = self.emoji_hotkey_value.borrow().clone();
         config.dictionary_enabled = self.dictionary_enabled.is_active();
