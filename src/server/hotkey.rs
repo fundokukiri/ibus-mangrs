@@ -317,7 +317,7 @@ impl EngineHandler {
     }
 
     /// Re-apply the config if the file changed since the last check.
-    fn maybe_reload_config(&mut self, out: &mut Vec<Message>) {
+    pub(super) fn maybe_reload_config(&mut self, out: &mut Vec<Message>) {
         if self.last_config_check.elapsed() < Duration::from_secs(1) {
             return;
         }
