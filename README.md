@@ -196,7 +196,9 @@ ibus restart
 The install script copies the engine to `/usr/lib/ibus-mangrs/`, registers the component in
 `/usr/share/ibus/component/`, installs the `/dev/uinput` udev rule and adds your user to the
 `input` group (group membership takes effect at next login). Uninstall:
-`sudo ./scripts/uninstall.sh` — keeps your config.
+`sudo ./scripts/uninstall.sh` — keeps your config (`PURGE_CONFIG=1` removes it too).
+Online: `curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/uninstall.sh | sh`;
+`--demo` (or `MANGRS_DEMO=1`) previews the removal without deleting anything.
 
 Arch package (uses the system udev directory for the udev rule):
 
