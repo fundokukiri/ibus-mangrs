@@ -92,4 +92,33 @@ mod tests {
     fn config_defaults_to_vietnamese() {
         assert_eq!(Config::default().language, "vi");
     }
+
+    /// The parity contract: every key the Vietnamese file defines must have
+    /// an English entry, so switching languages can never strand a string.
+    #[test]
+    fn every_vi_key_has_an_en_entry() {
+        fn keys(t: &toml::Table, prefix: &str, out: &mut Vec<String>) {
+            for (k, v) in t {
+                let path = format!("{prefix}{k}");
+                if let Some(sub) = v.as_table() {
+                    keys(sub, &format!("{path}."), out);
+                } else {
+                    out.push(path);
+                }
+            }
+        }
+        let (mut vi_keys, mut en_keys) = (Vec::new(), Vec::new());
+        keys(parsed(0), "", &mut vi_keys);
+        keys(parsed(1), "", &mut en_keys);
+        vi_keys.sort();
+        en_keys.sort();
+        let missing: Vec<&String> = vi_keys
+            .iter()
+            .filter(|k| en_keys.binary_search(k).is_err())
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "keys missing from the EN file: {missing:?}"
+        );
+    }
 }
