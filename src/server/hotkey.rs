@@ -413,8 +413,11 @@ pub(super) fn hotkey_passes_key(mods: u32, key: u32) -> bool {
 
 /// The next entry's key after `current`, wrapping around — the same list
 /// order the panel radios show.
-pub(super) fn cycle_next<'a>(list: &'a [(&'a str, &'a str)], current: &str) -> Option<&'a str> {
-    let i = list.iter().position(|(k, _)| *k == current)?;
+pub(super) fn cycle_next<'a>(
+    list: &'a [(&'a str, &'a str, &'a str)],
+    current: &str,
+) -> Option<&'a str> {
+    let i = list.iter().position(|(k, ..)| *k == current)?;
     Some(list[(i + 1) % list.len()].0)
 }
 

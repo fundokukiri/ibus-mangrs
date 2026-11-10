@@ -231,10 +231,10 @@ impl Config {
                 .iter()
                 .map(|key| MenuNode::Toggle { key: key.clone() }),
         );
-        let all_keys = |entries: &[(&str, &str)]| {
+        let all_keys = |entries: &[(&str, &str, &str)]| {
             entries
                 .iter()
-                .map(|(key, _)| key.to_string())
+                .map(|(key, ..)| key.to_string())
                 .collect::<Vec<_>>()
         };
         vec![
@@ -1080,7 +1080,7 @@ mod tests {
             Some(
                 crate::ibus_prop::CHARSETS
                     .iter()
-                    .map(|(k, _)| k.to_string())
+                    .map(|(k, ..)| k.to_string())
                     .collect::<Vec<_>>()
             )
         );
