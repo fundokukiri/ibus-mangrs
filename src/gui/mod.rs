@@ -32,7 +32,7 @@ mod pages;
 mod text;
 mod widgets;
 
-use text::{set_language, t};
+use text::{is_english, set_language, t};
 
 use content::*;
 use hotkey::*;
@@ -74,48 +74,64 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-const METHODS: &[&str] = &[
-    "Telex",
-    "Telex 2",
-    "Telex W",
-    "Telex + VNI",
-    "Telex + VNI + VIQR",
-    "VNI",
-    "VNI bàn phím Pháp",
-    "VIQR",
-    "Microsoft layout",
+/// (Vietnamese, English) display labels for the combo item lists. POSITION
+/// is the index contract between the item list and refresh/read — pairs are
+/// never reordered, only rendered in the window's language via `labels`.
+const METHODS: &[(&str, &str)] = &[
+    ("Telex", "Telex"),
+    ("Telex 2", "Telex 2"),
+    ("Telex W", "Telex W"),
+    ("Telex + VNI", "Telex + VNI"),
+    ("Telex + VNI + VIQR", "Telex + VNI + VIQR"),
+    ("VNI", "VNI"),
+    ("VNI bàn phím Pháp", "VNI (French keyboard)"),
+    ("VIQR", "VIQR"),
+    ("Microsoft layout", "Microsoft layout"),
 ];
-const MODES: &[&str] = &[
-    "Không gạch chân",
-    "Gạch chân (preedit)",
-    "Surrounding text",
-    "Flow (uinput)",
-    "Turbo (uinput)",
-    "Select (uinput)",
-    "Forward Backspace",
-    "Forward Selection",
-    "OFF",
+const MODES: &[(&str, &str)] = &[
+    ("Không gạch chân", "No underline"),
+    ("Gạch chân (preedit)", "Underline (preedit)"),
+    ("Surrounding text", "Surrounding text"),
+    ("Flow (uinput)", "Flow (uinput)"),
+    ("Turbo (uinput)", "Turbo (uinput)"),
+    ("Select (uinput)", "Select (uinput)"),
+    ("Forward Backspace", "Forward Backspace"),
+    ("Forward Selection", "Forward Selection"),
+    ("OFF", "OFF"),
 ];
-const CHARSETS: &[&str] = &[
-    "Unicode",
-    "Unicode tổ hợp",
-    "TCVN3",
-    "VNI",
-    "VIQR",
-    "VISCII",
-    "VPS",
-    "Windows 1258",
-    "BKHCM",
-    "Vietware X",
-    "Vietware Full",
+const CHARSETS: &[(&str, &str)] = &[
+    ("Unicode", "Unicode"),
+    ("Unicode tổ hợp", "Unicode (combining)"),
+    ("TCVN3", "TCVN3"),
+    ("VNI", "VNI"),
+    ("VIQR", "VIQR"),
+    ("VISCII", "VISCII"),
+    ("VPS", "VPS"),
+    ("Windows 1258", "Windows 1258"),
+    ("BKHCM", "BKHCM"),
+    ("Vietware X", "Vietware X"),
+    ("Vietware Full", "Vietware Full"),
 ];
-const ON_OFF_MODES: &[&str] = &["Tắt", "Trừ đầu từ", "Mọi vị trí"];
-const BACKSPACE_TONE_MODES: &[&str] = &[
-    "Xóa dấu trước",
-    "Xóa cả dấu và chữ",
-    "Unikey (lùi từng phím)",
+const ON_OFF_MODES: &[(&str, &str)] = &[
+    ("Tắt", "Off"),
+    ("Trừ đầu từ", "Not at word start"),
+    ("Mọi vị trí", "Everywhere"),
 ];
-const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
+const BACKSPACE_TONE_MODES: &[(&str, &str)] = &[
+    ("Xóa dấu trước", "Tone first"),
+    ("Xóa cả dấu và chữ", "Whole character"),
+    ("Unikey (lùi từng phím)", "Unikey (walk back)"),
+];
+const CHANNELS: &[(&str, &str)] = &[
+    ("CommitText (an toàn)", "CommitText (safe)"),
+    ("Clipboard (Ctrl+V)", "Clipboard (Ctrl+V)"),
+];
+
+/// The combo item labels for `pairs` in the window's language.
+pub(crate) fn labels<'a>(pairs: &'a [(&'a str, &'a str)]) -> Vec<&'a str> {
+    let en = is_english();
+    pairs.iter().map(|p| if en { p.1 } else { p.0 }).collect()
+}
 /// The $TIME/$DATE strftime presets, the shipped defaults first; a format
 /// the old free-text rows saved that matches none of these is appended as
 /// its own item by `select_format` instead of being rewritten.

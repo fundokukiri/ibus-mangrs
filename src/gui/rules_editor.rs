@@ -130,7 +130,7 @@ impl Ui {
             "{}, {}, {}",
             idx + 1,
             pattern,
-            MODES[mode_index(mode) as usize]
+            labels(MODES)[mode_index(mode) as usize]
         ))]);
 
         // The drag handle starts a row move; the ghost is the row itself.
@@ -188,7 +188,10 @@ impl Ui {
         // The mode picker: a flat dropdown reading as dim row text; the
         // popup list carries the modes with the current one checked, and a
         // change saves immediately.
-        let pick = gtk4::DropDown::new(Some(StringList::new(MODES)), gtk4::Expression::NONE);
+        let pick = gtk4::DropDown::new(
+            Some(StringList::new(&labels(MODES))),
+            gtk4::Expression::NONE,
+        );
         pick.set_selected(mode_index(mode));
         pick.add_css_class("flat");
         pick.add_css_class("dim-label");
@@ -411,7 +414,7 @@ impl Ui {
                 self.rule_preview.set_subtitle(
                     &t("rules.match_result", "Khớp luật #{n}: {mode}")
                         .replace("{n}", &idx.to_string())
-                        .replace("{mode}", MODES[mode_index(mode) as usize]),
+                        .replace("{mode}", labels(MODES)[mode_index(mode) as usize]),
                 );
             }
             None => {

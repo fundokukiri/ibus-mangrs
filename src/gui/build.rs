@@ -19,17 +19,17 @@ pub(super) fn widgets() -> Rc<Ui> {
     let method = combo_row(
         &t("rows.method.title", "Kiểu gõ"),
         &t("rows.method.subtitle", "Cách gõ dấu tiếng Việt"),
-        METHODS,
+        &labels(METHODS),
     );
     let mode = combo_row(
         &t("rows.mode.title", "Chế độ gõ"),
         &t("rows.mode.subtitle", "Cách đưa chữ vào ứng dụng"),
-        MODES,
+        &labels(MODES),
     );
     let charset = combo_row(
         &t("rows.charset.title", "Bảng mã"),
         &t("rows.charset.subtitle", "Unicode và 10 bảng mã cũ"),
-        CHARSETS,
+        &labels(CHARSETS),
     );
     // Built-in shortcut rows: the keycap display carries the row title for
     // its accessible description; capture happens in the shared dialog.
@@ -104,12 +104,12 @@ pub(super) fn widgets() -> Rc<Ui> {
     let w2u = combo_row(
         &t("rows.w2u.title", "W thành ư"),
         &t("rows.w2u.subtitle", "Chọn vị trí áp dụng"),
-        ON_OFF_MODES,
+        &labels(ON_OFF_MODES),
     );
     let bracket = combo_row(
         &t("rows.bracket.title", "[ ] thành ơ ư"),
         &t("rows.bracket.subtitle", "Chọn vị trí áp dụng"),
-        ON_OFF_MODES,
+        &labels(ON_OFF_MODES),
     );
     let backspace_tone = combo_row(
         &t("rows.backspace_tone.title", "Xóa dấu bằng Backspace"),
@@ -117,7 +117,7 @@ pub(super) fn widgets() -> Rc<Ui> {
             "rows.backspace_tone.subtitle",
             "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành ha). Hoặc xóa cả dấu và chữ (hạ thành h), hoặc lùi từng phím như unikey.",
         ),
-        BACKSPACE_TONE_MODES,
+        &labels(BACKSPACE_TONE_MODES),
     );
     let em_dash = switch_row(
         &t("rows.em_dash.title", "Gạch ngang dài"),
@@ -417,7 +417,7 @@ pub(super) fn widgets() -> Rc<Ui> {
             "rows.unicode_channel.subtitle",
             "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
         ),
-        CHANNELS,
+        &labels(CHANNELS),
     );
     let clipboard_restore_switch = switch_row(
         &t("rows.clipboard_restore.title", "Tùy chỉnh hồi clipboard"),
