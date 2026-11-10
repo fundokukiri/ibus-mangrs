@@ -5,8 +5,11 @@
 
 use super::*;
 
+/// Build the whole settings window (pages, shell, wiring) and present it.
+/// Returns the window so the language rebuild and tests hold it directly —
+/// GTK's own `app.windows()` proved unreliable to depend on.
 #[allow(deprecated)]
-pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
+pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::ApplicationWindow {
     let config = Config::load();
     let macros = Macros::load();
     let dictionary = Dictionary::load();
@@ -156,6 +159,19 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     stack.set_hexpand(true);
     for ((name, title, _icon), content) in pages_refs.iter().zip(page_boxes) {
         stack.add_titled(content, Some(name), title);
+    }
+    // The page the user is viewing, kept current for the language rebuild —
+    // the new window must reopen exactly where they were. The stack's own
+    // notify covers every jump (sidebar picks, the experimental gate's
+    // landing), not just the pick handler.
+    let current_page = Rc::new(RefCell::new("typing".to_string()));
+    {
+        let current_page = current_page.clone();
+        stack.connect_visible_child_name_notify(move |stack| {
+            if let Some(name) = stack.visible_child_name() {
+                *current_page.borrow_mut() = name.to_string();
+            }
+        });
     }
 
     // --- Adwaita shell: sidebar + content -----------------------------------
@@ -714,6 +730,29 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
             let s = save.clone();
             ui.date_format.connect_selected_notify(move |_| s());
         }
+        // Picking a language saves through the funnel, then rebuilds the
+        // window in place: every text re-resolves through t() in the new
+        // language, landing on the page being viewed. The idle defers the
+        // teardown out of this signal handler; the old window comes from the
+        // row's own root — GTK's app.windows() bookkeeping is not dependable.
+        {
+            let s = save.clone();
+            let app_for_lang = app.clone();
+            let page_for_lang = current_page.clone();
+            ui.language.connect_selected_notify(move |row| {
+                s();
+                let window = row.root().and_downcast::<gtk4::Window>();
+                let page = page_for_lang.borrow().clone();
+                let app = app_for_lang.clone();
+                gtk4::glib::idle_add_local_once(move || {
+                    crate::gui::text::set_language(&Config::load().language);
+                    if let Some(old) = window {
+                        old.close();
+                    }
+                    build(&app, Some(&page));
+                });
+            });
+        }
         // Text views save when focus leaves the window's text area. The
         // raw macro editor additionally rebuilds the row list from its
         // lines (the dictionary text saves straight through the funnel).
@@ -769,6 +808,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     }
 
     window.present();
+    window
 }
 
 /// Wire every boolean row the window owns to the save funnel — one
