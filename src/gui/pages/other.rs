@@ -329,8 +329,9 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     // Install: confirmed like the destructive actions — the install goes
     // through the official gnome-extensions channel and flips a GNOME
     // setting, so a stray click must not do it. Same dialog shape as the
-    // reset. A GNOME extension manager GUI must exist first: the owner
-    // wants extensions surfaced through an app, not silent writes.
+    // reset. No manager-GUI gate: the install needs only the
+    // gnome-extensions CLI that ships with GNOME Shell, and the
+    // post-install note points at the Extensions apps when enable fails.
     {
         let ui = ui.clone();
         let overlay_toasts = toast_overlay.clone();
@@ -356,15 +357,6 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
                 let btn = btn.clone();
                 let logout_btn = logout_btn.clone();
                 dialog.connect_response(Some("apply"), move |_, _| {
-                    if !extension_app_present() {
-                        if let Some(window) = window_of(&btn) {
-                            alert(
-                                &window,
-                                "Chưa có ứng dụng quản lý extension. Cài một trong hai rồi thử lại:\n\n• GNOME Extensions:\n  sudo pacman -S --needed gnome-shell-extensions\n• Extension Manager:\n  flatpak install flathub com.mattjakeman.ExtensionManager",
-                            );
-                        }
-                        return;
-                    }
                     match install_focus_extension() {
                         Ok(msg) => {
                             ui.fire_toast(&overlay_toasts, &msg);
