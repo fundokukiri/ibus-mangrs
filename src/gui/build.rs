@@ -19,17 +19,17 @@ pub(super) fn widgets() -> Rc<Ui> {
     let method = combo_row(
         &t("rows.method.title", "Kiểu gõ"),
         &t("rows.method.subtitle", "Cách gõ dấu tiếng Việt"),
-        METHODS,
+        &labels(METHODS),
     );
     let mode = combo_row(
         &t("rows.mode.title", "Chế độ gõ"),
         &t("rows.mode.subtitle", "Cách đưa chữ vào ứng dụng"),
-        MODES,
+        &labels(MODES),
     );
     let charset = combo_row(
         &t("rows.charset.title", "Bảng mã"),
         &t("rows.charset.subtitle", "Unicode và 10 bảng mã cũ"),
-        CHARSETS,
+        &labels(CHARSETS),
     );
     // Built-in shortcut rows: the keycap display carries the row title for
     // its accessible description; capture happens in the shared dialog.
@@ -104,12 +104,12 @@ pub(super) fn widgets() -> Rc<Ui> {
     let w2u = combo_row(
         &t("rows.w2u.title", "W thành ư"),
         &t("rows.w2u.subtitle", "Chọn vị trí áp dụng"),
-        ON_OFF_MODES,
+        &labels(ON_OFF_MODES),
     );
     let bracket = combo_row(
         &t("rows.bracket.title", "[ ] thành ơ ư"),
         &t("rows.bracket.subtitle", "Chọn vị trí áp dụng"),
-        ON_OFF_MODES,
+        &labels(ON_OFF_MODES),
     );
     let backspace_tone = combo_row(
         &t("rows.backspace_tone.title", "Xóa dấu bằng Backspace"),
@@ -117,7 +117,15 @@ pub(super) fn widgets() -> Rc<Ui> {
             "rows.backspace_tone.subtitle",
             "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành ha). Hoặc xóa cả dấu và chữ (hạ thành h), hoặc lùi từng phím như unikey.",
         ),
-        BACKSPACE_TONE_MODES,
+        &labels(BACKSPACE_TONE_MODES),
+    );
+    let nav_key_while_preedit = combo_row(
+        &t("rows.nav_key_while_preedit.title", "Phím điều hướng khi còn từ"),
+        &t(
+            "rows.nav_key_while_preedit.subtitle",
+            "Khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên: nuốt để commit trước (mặc định), hoặc cho caret chạy ngay. Thử nghiệm trên Wayland.",
+        ),
+        &labels(NAV_KEY_MODES),
     );
     let em_dash = switch_row(
         &t("rows.em_dash.title", "Gạch ngang dài"),
@@ -184,20 +192,28 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Phím tắt trùng từ thật (vd “cam”) sẽ nở thay vì giữ nguyên — Backspace một phím để gõ từ thật",
         ),
     );
-    // The formats live in native EntryRows (the row carries the title, the
-    // old subtitle examples moved to the page as tooltips — EntryRow has
-    // no placeholder in this libadwaita). Markup off before the title, as
-    // in every row helper.
-    let time_format = adw::EntryRow::builder()
-        .use_markup(false)
-        .title(t("rows.time_format.title", "Định dạng giờ ($TIME)"))
-        .show_apply_button(false)
-        .build();
-    let date_format = adw::EntryRow::builder()
-        .use_markup(false)
-        .title(t("rows.date_format.title", "Định dạng ngày ($DATE)"))
-        .show_apply_button(false)
-        .build();
+    // The formats are preset dropdowns like every other combo; a format
+    // the old free-text rows saved that matches no preset is appended by
+    // `select_format` instead of being rewritten.
+    // No subtitle: the row's live hint is the example — a static "Ví dụ"
+    // line would duplicate it. The empty default keeps the row one-line
+    // unless the owner re-adds a subtitle in gui-content.toml.
+    let time_format = combo_row(
+        &t("rows.time_format.title", "Định dạng giờ ($TIME)"),
+        &t("rows.time_format.subtitle", ""),
+        TIME_FORMATS,
+    );
+    let date_format = combo_row(
+        &t("rows.date_format.title", "Định dạng ngày ($DATE)"),
+        &t("rows.date_format.subtitle", ""),
+        DATE_FORMATS,
+    );
+    // The item labels are proper names (LANGUAGES), never translated.
+    let language = combo_row(
+        &t("rows.language.title", "Ngôn ngữ"),
+        &t("rows.language.subtitle", ""),
+        LANGUAGES,
+    );
     let macros_text = text_view("");
     let emoji_enabled = switch_row(
         &t("rows.emoji_enabled.title", "Gõ tắt emoji"),
@@ -409,7 +425,7 @@ pub(super) fn widgets() -> Rc<Ui> {
             "rows.unicode_channel.subtitle",
             "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
         ),
-        CHANNELS,
+        &labels(CHANNELS),
     );
     let clipboard_restore_switch = switch_row(
         &t("rows.clipboard_restore.title", "Tùy chỉnh hồi clipboard"),
@@ -461,7 +477,30 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.smooth_per_key.title", "Hiện dấu từng bước ở Flow"),
         &t(
             "rows.smooth_per_key.subtitle",
-            "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — mỗi phím trễ ~60 ms; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi",
+            "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — trễ chỉnh ở hàng dưới; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi",
+        ),
+    );
+    let smooth_per_key_spin = spin_row(
+        &t(
+            "rows.smooth_per_key_delay.title",
+            "Trễ hiện dấu từng bước (ms)",
+        ),
+        &t(
+            "rows.smooth_per_key_delay.subtitle",
+            "0–500 ms. Mặc định: 60",
+        ),
+        0.0,
+        500.0,
+        5.0,
+    );
+    let smooth_backspace_retrack = switch_row(
+        &t(
+            "rows.smooth_backspace_retrack.title",
+            "Sửa dấu sau Backspace (Flow/Turbo)",
+        ),
+        &t(
+            "rows.smooth_backspace_retrack.subtitle",
+            "Xóa một ký tự của từ đã gõ xong rồi gõ phím dấu mới sẽ tiếp tục biến hóa từ (tùn + s → tún) thay vì rơi thành chữ thường",
         ),
     );
     let idle_commit_spin = spin_row(
@@ -570,6 +609,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Xóa dấu trước (mặc định): hạ thành ha, rồi h. Xóa cả dấu và chữ: hạ thành h, việt thành việc rồi vi — mỗi Backspace xóa đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
     );
     tip!(
+        nav_key_while_preedit,
+        "tips.nav_key_while_preedit",
+        "Nuốt phím đầu (mặc định): lần nhấn đầu chỉ commit từ, lần hai mới di chuyển caret. Hai lựa chọn kia cho caret chạy ngay lần nhấn đầu; nếu chữ bị chèn sai chỗ thì quay lại mặc định."
+    );
+    tip!(
         em_dash,
         "tips.em_dash",
         "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
@@ -667,6 +711,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         w2u,
         bracket,
         backspace_tone,
+        nav_key_while_preedit,
         em_dash,
         auto_capitalize,
         auto_capitalize_after_switch,
@@ -678,6 +723,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         macro_valid_words,
         time_format,
         date_format,
+        language,
         macros_text,
         emoji_enabled,
         emoji_hotkey_display,
@@ -696,7 +742,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         desktop_icon_loading,
         save_cb,
         suppress_save,
-        experimental_nav: RefCell::new(None),
         sidebar_select: RefCell::new(None),
         rule_preview_input,
         rule_preview,
@@ -723,6 +768,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         idle_commit_switch,
         idle_commit_spin,
         smooth_per_key_switch,
+        smooth_per_key_spin,
+        smooth_backspace_retrack,
         experimental_features,
         menu,
         menu_box,

@@ -19,10 +19,11 @@ pub(super) const PICKER_PAGE_SIZE: u32 = 9;
 
 /// The picker's entries: the display modes in panel-menu order, the entry
 /// currently in force for the target prefixed with a dot marker.
-pub(super) fn picker_entries(current: ModeConfig) -> Vec<String> {
+pub(super) fn picker_entries(current: ModeConfig, en: bool) -> Vec<String> {
     ibus_prop::MODES
         .iter()
-        .map(|(key, label)| {
+        .map(|(key, vi, en_label)| {
+            let label = if en { *en_label } else { *vi };
             if ModeConfig::from_key(key) == Some(current) {
                 format!("● {label}")
             } else {
@@ -119,7 +120,7 @@ impl EngineHandler {
             crate::config::app_rule_mode(&config.app_rules, Some(&target)).unwrap_or(config.mode);
         let cursor = ibus_prop::MODES
             .iter()
-            .position(|(key, _)| ModeConfig::from_key(key) == Some(current))
+            .position(|(key, ..)| ModeConfig::from_key(key) == Some(current))
             .unwrap_or(0);
         self.picker = Some(PickerState::new(target, cursor));
         self.emit_picker_table(out);
@@ -134,11 +135,18 @@ impl EngineHandler {
         let config = Config::load();
         let current = crate::config::app_rule_mode(&config.app_rules, Some(&state.target))
             .unwrap_or(config.mode);
-        let entries = picker_entries(current);
+        let entries = picker_entries(current, config.language == "en");
         let current_label = ibus_prop::MODES
             .iter()
-            .find(|(key, _)| ModeConfig::from_key(key) == Some(current))
-            .map(|(_, label)| label.to_string())
+            .find(|(key, ..)| ModeConfig::from_key(key) == Some(current))
+            .map(|(_, vi, en_label)| {
+                if config.language == "en" {
+                    *en_label
+                } else {
+                    *vi
+                }
+                .to_string()
+            })
             .unwrap_or_default();
         let table =
             ibus_prop::lookup_table_variant(PICKER_PAGE_SIZE, state.cursor as u32, &entries);
@@ -192,7 +200,7 @@ impl EngineHandler {
         let Some(state) = self.picker.take() else {
             return;
         };
-        let Some((key, _)) = ibus_prop::MODES.get(index) else {
+        let Some((key, ..)) = ibus_prop::MODES.get(index) else {
             return;
         };
         let Some(mode) = ModeConfig::from_key(key) else {

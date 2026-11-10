@@ -317,7 +317,11 @@ impl EngineHandler {
     }
 
     /// Re-apply the config if the file changed since the last check.
-    fn maybe_reload_config(&mut self, out: &mut Vec<Message>) {
+    /// Runs on key events and on the run loop's own passes (a GUI edit must
+    /// reach the panel without waiting for typing). The refresh is per-item
+    /// `UpdateProperty`, not a full `RegisterProperties` — GNOME applies
+    /// only the former mid-session (see prop.rs).
+    pub(super) fn maybe_reload_config(&mut self, out: &mut Vec<Message>) {
         if self.last_config_check.elapsed() < Duration::from_secs(1) {
             return;
         }
@@ -335,7 +339,7 @@ impl EngineHandler {
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
             emit(&mut engine, &actions, out);
-            register_properties(&config, out);
+            update_all_properties(&config, out);
         }
     }
 }
@@ -413,8 +417,11 @@ pub(super) fn hotkey_passes_key(mods: u32, key: u32) -> bool {
 
 /// The next entry's key after `current`, wrapping around — the same list
 /// order the panel radios show.
-pub(super) fn cycle_next<'a>(list: &'a [(&'a str, &'a str)], current: &str) -> Option<&'a str> {
-    let i = list.iter().position(|(k, _)| *k == current)?;
+pub(super) fn cycle_next<'a>(
+    list: &'a [(&'a str, &'a str, &'a str)],
+    current: &str,
+) -> Option<&'a str> {
+    let i = list.iter().position(|(k, ..)| *k == current)?;
     Some(list[(i + 1) % list.len()].0)
 }
 

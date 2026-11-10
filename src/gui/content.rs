@@ -1,12 +1,25 @@
 //! The window shell: the Adwaita navigation split view (sidebar + content),
-//! the floating restart button, page accelerators, and the wiring between
-//! every control and the save funnel. The page contents themselves still
-//! live here and move to `pages/*.rs` one commit at a time.
+//! page accelerators, and the wiring between every control and the save
+//! funnel. The page contents themselves still live here and move to
+//! `pages/*.rs` one commit at a time.
 
 use super::*;
 
+// Per-process rebuild bookkeeping. Each `build()` installs a live-reload
+// poller holding its own `Ui` — the rebuild removes the previous one or it
+// would poll forever behind the closed window. `PENDING_REBUILD` keeps at
+// most one language-rebuild idle: rapid double-picks replace the pending
+// one instead of queueing a second window.
+thread_local! {
+    static PENDING_REBUILD: RefCell<Option<gtk4::glib::SourceId>> =
+        const { RefCell::new(None) };
+}
+
+/// Build the whole settings window (pages, shell, wiring) and present it.
+/// Returns the window so the language rebuild and tests hold it directly —
+/// GTK's own `app.windows()` proved unreliable to depend on.
 #[allow(deprecated)]
-pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
+pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::ApplicationWindow {
     let config = Config::load();
     let macros = Macros::load();
     let dictionary = Dictionary::load();
@@ -16,26 +29,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
 
     // --- pages: grouped-card settings style (section header + cards) ---
 
-    // The floating restart button. It stays hidden until a change is saved:
-    // every control already writes straight to config.toml, so the only
-    // thing left for the user to do is restart IBus (a new engine binary or
-    // component XML needs it; plain settings changes apply within a second).
-    let restart_btn = gtk4::Button::new();
-    {
-        let b = gtk4::Box::new(Orientation::Horizontal, 8);
-        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
-        b.append(&gtk4::Label::new(Some(&t(
-            "misc.restart_button",
-            "Khởi động lại IBus",
-        ))));
-        restart_btn.set_child(Some(&b));
-    }
-    restart_btn.add_css_class("suggested-action");
-    restart_btn.add_css_class("pill");
-    restart_btn.set_halign(gtk4::Align::Center);
-    restart_btn.set_valign(gtk4::Align::End);
-    restart_btn.set_margin_bottom(18);
-    restart_btn.set_visible(false);
+    // There is no restart button: every settings change reaches the panel
+    // menu and the engine live (the config hot-reload on the engine's run
+    // loop re-emits per-item panel updates within a second), so a restart
+    // is never part of using this window. Only a new engine BINARY or
+    // component XML needs one — the installer performs it.
 
     // ===== Page 1: Chung — the everyday page, on its own preferences file.
     let typing_page = pages::typing::build(&ui);
@@ -56,7 +54,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     let rules_page = pages::rules::build(&ui);
 
     // ===== Page 6: Cài đặt khác — icon, extension, backup, reset.
-    let other_page = pages::other::build(&ui, &restart_btn);
+    let other_page = pages::other::build(&ui);
 
     // ===== Page 7: Thử nghiệm — every gated feature on one tab.
     let experimental_page = pages::experimental::build(&ui);
@@ -157,11 +155,23 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     for ((name, title, _icon), content) in pages_refs.iter().zip(page_boxes) {
         stack.add_titled(content, Some(name), title);
     }
+    // The page the user is viewing, kept current for the language rebuild —
+    // the new window must reopen exactly where they were. The stack's own
+    // notify covers every jump (sidebar picks, the experimental gate's
+    // landing), not just the pick handler.
+    let current_page = Rc::new(RefCell::new("typing".to_string()));
+    {
+        let current_page = current_page.clone();
+        stack.connect_visible_child_name_notify(move |stack| {
+            if let Some(name) = stack.visible_child_name() {
+                *current_page.borrow_mut() = name.to_string();
+            }
+        });
+    }
 
     // --- Adwaita shell: sidebar + content -----------------------------------
     // GNOME Settings layout: a navigation sidebar picks the page, the
     // content toolbar view holds the header (dynamic title) and the stack.
-    // The restart button floats over the content at the bottom center.
     let split_view = adw::NavigationSplitView::new();
     split_view.set_sidebar_width_fraction(0.24);
 
@@ -237,8 +247,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     };
     let groups: [&[&str]; 3] = [
         &["typing", "tone", "macros", "emoji", "data"],
-        &["rules", "panel", "hotkeys", "experimental"],
-        &["tune", "other"],
+        &["rules", "panel", "hotkeys"],
+        &["experimental", "tune", "other"],
     ];
     for (gi, group) in groups.iter().copied().enumerate() {
         if gi > 0 {
@@ -246,10 +256,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         }
         for name in group {
             let row = nav_row(label_of(name), icon_of(name), name, *name == "experimental");
-            // The experimental gate hides the whole tab through its row.
-            if *name == "experimental" {
-                *ui.experimental_nav.borrow_mut() = Some(row.clone());
-            }
             sidebar_list.append(&row);
             page_rows.push((name.to_string(), row.clone()));
         }
@@ -259,11 +265,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     about_list.append(&separator_row());
     about_list.append(&about_row);
     page_rows.push(("about".to_string(), about_row.clone()));
-    // refresh() ran before the sidebar existed: the eleven rows hid fine,
-    // but the gate's nav-row hide found nothing and the "Thử nghiệm" tab
-    // reappeared on every open. The nav row is stored now — apply the gate
-    // (pure visibility; it no longer jumps pages).
-    ui.set_experimental_visible(config.experimental_features);
+    // refresh() ran before the sidebar existed: apply the gate presentation
+    // once more now that every page row is in place (lock/defaults only —
+    // the tab never hides).
+    ui.set_experimental_sensitive(config.experimental_features);
+    if !config.experimental_features {
+        ui.show_experimental_defaults();
+    }
     // Owned copies for the 'static signal handlers (the const PAGES they
     // replaced lives only in the content file now).
     let app_name = t("app.name", "MăngRS");
@@ -385,11 +393,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         .child(&sidebar_box)
         .build();
 
-    // The restart button floats over everything at the bottom center of
-    // the page.
     let page_overlay = gtk4::Overlay::new();
     page_overlay.set_child(Some(&stack));
-    page_overlay.add_overlay(&restart_btn);
     let content_toolbar = adw::ToolbarView::new();
 
     // --- search: the sidebar entry, results over every page -----------------
@@ -659,7 +664,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     {
         let window_for_save = window.clone();
         let ui_for_save = ui.clone();
-        let restart_for_save = restart_btn.clone();
         let save = move || {
             // Programmatic widget updates (external_reload) fire the same
             // handlers; saving then would write back what we just read.
@@ -667,10 +671,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
                 return;
             }
             match ui_for_save.save_all() {
-                // Every saved change raises the restart banner: the settings
-                // are already on disk, the button is only there so a restart
-                // is one click away.
-                Ok(()) => restart_for_save.set_visible(true),
+                // The change is live: the engine's run-loop hot-reload
+                // applies it and refreshes the panel menu within a second.
+                Ok(()) => {}
                 Err(e) => alert(&window_for_save, &e.to_string()),
             }
         };
@@ -700,20 +703,70 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         }
         {
             let s = save.clone();
+            ui.nav_key_while_preedit
+                .connect_selected_notify(move |_| s());
+        }
+        {
+            let s = save.clone();
             ui.bracket.connect_selected_notify(move |_| s());
         }
         {
             let s = save.clone();
             ui.unicode_channel.connect_selected_notify(move |_| s());
         }
-        // Entries save on Enter or when they lose focus.
-        for entry in [&ui.time_format, &ui.date_format] {
+        {
             let s = save.clone();
-            entry.connect_activate(move |_| s());
+            ui.time_format.connect_selected_notify(move |_| s());
+        }
+        {
             let s = save.clone();
-            let controller = gtk4::EventControllerFocus::new();
-            controller.connect_leave(move |_| s());
-            entry.add_controller(controller);
+            ui.date_format.connect_selected_notify(move |_| s());
+        }
+        // Picking a language saves through the funnel, then rebuilds the
+        // window in place: every text re-resolves through t() in the new
+        // language, landing on the page being viewed. The idle defers the
+        // teardown out of this signal handler; the old window comes from the
+        // row's own root — GTK's app.windows() bookkeeping is not dependable.
+        // Only a pick that changes the window's language rebuilds: import,
+        // reset and external reload set the row programmatically, and their
+        // refreshes run with the funnel suppressed — a rebuild here would
+        // tear the window down mid-refresh.
+        {
+            let s = save.clone();
+            let app_for_lang = app.clone();
+            let page_for_lang = current_page.clone();
+            let built_en = crate::gui::text::is_english();
+            ui.language.connect_selected_notify(move |row| {
+                if (row.selected() == 1) != built_en {
+                    s();
+                    let window = row.root().and_downcast::<gtk4::Window>();
+                    let page = page_for_lang.borrow().clone();
+                    let app = app_for_lang.clone();
+                    let pending = gtk4::glib::idle_add_local_once(move || {
+                        // Self-clear BEFORE anything else: a fired idle's
+                        // source no longer exists in GLib, and removing one
+                        // panics (SourceId::remove unwraps) — which, inside
+                        // a signal callback, aborts the whole process. This
+                        // is exactly how the EN→VI switch killed the window.
+                        PENDING_REBUILD.with(|c| *c.borrow_mut() = None);
+                        crate::gui::text::set_language(&Config::load().language);
+                        if let Some(old) = window {
+                            old.close();
+                        }
+                        build(&app, Some(&page));
+                        // No IBus restart here: the run-loop hot-reload picks
+                        // up the saved language and refreshes the panel menu
+                        // within a second (supersedes the 03:17 decision).
+                    });
+                    PENDING_REBUILD.with(|c| {
+                        // Only a still-pending idle reaches remove(); a fired
+                        // one cleared its own slot above.
+                        if let Some(old) = c.borrow_mut().replace(pending) {
+                            old.remove();
+                        }
+                    });
+                }
+            });
         }
         // Text views save when focus leaves the window's text area. The
         // raw macro editor additionally rebuilds the row list from its
@@ -740,26 +793,24 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
         }
     }
 
-    {
-        let window = window.clone();
-        let btn = restart_btn.clone();
-        restart_btn.connect_clicked(move |_| {
-            // User-initiated only — the engine never restarts IBus itself.
-            match std::process::Command::new("ibus").arg("restart").spawn() {
-                Ok(_) => btn.set_visible(false),
-                Err(e) => alert(&window, &format!("Không khởi động lại được IBus: {e}")),
-            }
-        });
-    }
-
     // Live reload: the engine's hotkeys (and any other writer) change the
     // files under this window. Poll the mtime cheaply and re-read into the
     // widgets; without it the next user edit would save the stale values
     // over the change. The engine does the same from its key path.
+    // The poller stops once the window is closed: a surviving watcher keeps
+    // the closed window's Ui alive, and its external_reload then flips the
+    // dead window's language row — the dead window's handler fires and
+    // closes/builds windows on its own (the EN→VI report). The window is
+    // held strongly by the closure; after close GTK hides it and the poller
+    // quits on the next tick.
     {
+        let watch_window = window.clone();
         let watch_ui = ui.clone();
         let watch_mtime = Cell::new(config_mtime());
         gtk4::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+            if !watch_window.is_visible() {
+                return gtk4::glib::ControlFlow::Break;
+            }
             let m = config_mtime();
             if m != watch_mtime.get() {
                 watch_mtime.set(m);
@@ -770,6 +821,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) {
     }
 
     window.present();
+    window
 }
 
 /// Wire every boolean row the window owns to the save funnel — one
@@ -800,6 +852,7 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.echo_stale_switch);
     on_change!(ui.idle_commit_switch);
     on_change!(ui.smooth_per_key_switch);
+    on_change!(ui.smooth_backspace_retrack);
     on_change!(ui.experimental_features);
     on_change!(ui.show_toasts);
     on_change!(ui.double_space);

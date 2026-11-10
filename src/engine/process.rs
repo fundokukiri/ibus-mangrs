@@ -521,7 +521,7 @@ impl Engine {
             // deletes erase back to the common prefix on their own.
             self.per_key_park = None;
         } else {
-            let deadline = Instant::now() + Duration::from_millis(Self::ECHO_APPLY_GRACE_MS);
+            let deadline = Instant::now() + self.per_key_delay();
             match &mut self.per_key_park {
                 Some((dl, text)) => {
                     text.clear();
@@ -573,6 +573,13 @@ impl Engine {
                 matched = true;
                 break;
             }
+        }
+        if !matched && self.smooth_backspace_retrack {
+            // The pop search only deletes whole raw keys — a screen whose
+            // tone outlives its key (`tùng` -> `tùn`) never matches. The
+            // re-encoder rebuilds a live composition for it instead, so the
+            // next mark key keeps editing here too.
+            matched = self.wrapper.retrack_from_screen(&target);
         }
         if matched {
             // Tracking survives: the recomposition IS the post-delete

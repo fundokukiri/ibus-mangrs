@@ -1,5 +1,27 @@
 use super::*;
 
+#[test]
+fn restart_script_respawns_the_xim_bridge_on_wayland() {
+    // The Wayland restart must bring ibus-x11 back: nothing else respawns
+    // the bridge (the distro hook runs once per login) and XIM apps lose
+    // input until the next logout without it.
+    let script = pages::other::restart_script(Some("wayland"));
+    assert!(script.starts_with("ibus restart"));
+    assert!(
+        script.contains("pgrep -x ibus-x11"),
+        "skip the spawn when a bridge already runs: {script}"
+    );
+    assert!(
+        script.contains("nohup /usr/lib/ibus/ibus-x11"),
+        "spawn the bridge the way the distro hook does: {script}"
+    );
+    assert_eq!(
+        pages::other::restart_script(Some("x11")),
+        "ibus restart",
+        "an X11 session keeps its own bridge under the daemon's --xim"
+    );
+}
+
 /// GTK initializes once per process and only ever on the thread that did
 /// it, while libtest hands every `#[test]` its own thread — separate GTK
 /// tests flake with "Attempted to initialize GTK from two different
@@ -9,10 +31,23 @@ use super::*;
 /// cannot start.
 #[test]
 fn gtk_widget_scenarios() {
+    // Serialized against the text.rs language tests: both sides read the
+    // process-global language, and libtest runs tests on separate threads.
+    let _g = crate::gui::text::LANG_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     if gtk4::init().is_err() {
         eprintln!("gui: SKIP (no display)");
         return;
     }
+    // Sandbox the config dir for the whole scenario run: the rebuild
+    // scenario drives the REAL row handler, whose save funnel writes the
+    // config files. Concurrent unit tests keep reading the sandboxed dir —
+    // they are self-contained writers, so that stays consistent.
+    let original_config_dir = std::env::var("XDG_CONFIG_HOME").ok();
+    let sandbox = std::env::temp_dir().join(format!("mangrs-gui-test-{}", std::process::id()));
+    std::fs::create_dir_all(&sandbox).expect("sandbox dir");
+    std::env::set_var("XDG_CONFIG_HOME", &sandbox);
     refresh_round_trips_every_widget();
     shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
@@ -24,9 +59,36 @@ fn gtk_widget_scenarios() {
     emoji_editor_follows_the_switch();
     toggling_off_releases_the_editor_caret();
     every_switch_triggers_save();
-    experimental_gate_hides_and_restores_rows();
+    experimental_gate_locks_rows_and_preserves_values();
     combo_value_stays_right_after_a_pick();
     popup_marks_the_selected_item();
+    format_combos_keep_presets_and_unknowns();
+    language_row_round_trips();
+    nav_key_row_round_trips();
+    language_switch_rebuilds_the_window();
+    language_handler_rebuilds_both_ways();
+    // Restore before the sandbox dir could be cleaned under a racing test.
+    match original_config_dir {
+        Some(dir) => std::env::set_var("XDG_CONFIG_HOME", dir),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
+    let _ = std::fs::remove_dir_all(&sandbox);
+}
+
+/// The combo item lists (mode/charset/method/...) render in the window's
+/// language; positions stay the index contract either way.
+#[test]
+fn labels_follow_the_language() {
+    let _g = crate::gui::text::LANG_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    set_language("vi");
+    assert_eq!(labels(CHANNELS)[0], "CommitText (an toàn)");
+    set_language("en");
+    assert_eq!(labels(CHANNELS)[0], "CommitText (safe)");
+    assert_eq!(labels(MODES)[0], "No underline");
+    set_language("vi");
+    assert_eq!(labels(MODES)[0], "Không gạch chân");
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -463,6 +525,7 @@ fn refresh_round_trips_every_widget() {
         macro_expand_valid_words: true,
         time_format: "%H".into(),
         date_format: "%Y".into(),
+        language: "vi".into(),
         dictionary_enabled: false,
         abbreviations: false,
         cycle_mode_hotkey: "Control+Alt+v".into(),
@@ -482,12 +545,15 @@ fn refresh_round_trips_every_widget() {
         idle_commit_enabled: true,
         idle_commit_ms: 800,
         smooth_per_key: true,
+        smooth_per_key_delay_ms: 80,
+        smooth_backspace_retrack: true,
         experimental_features: true,
         show_toasts: false,
         debug_log: true,
         debug_log_text: true,
         x11_delete_without_report: true,
         preedit_for_xim: true,
+        nav_key_while_preedit: "forward".into(),
         app_rules: vec![crate::config::AppRule {
             pattern: "kate".into(),
             mode: ModeConfig::Preedit,
@@ -534,11 +600,14 @@ fn refresh_round_trips_every_widget() {
     // Surrounding text) and the round-trip below could not see it because
     // it only walks the mappers, never the labels.
     assert_eq!(
-        MODES[0], "Không gạch chân",
+        MODES[0].0, "Không gạch chân",
         "the list must lead with the first display mode"
     );
     assert!(
-        !MODES.contains(&"Tự động") && !MODES.contains(&"Gõ mặc định"),
+        !MODES
+            .iter()
+            .any(|(vi, en)| matches!(*vi, "Tự động" | "Gõ mặc định")
+                || matches!(*en, "Tự động" | "Gõ mặc định")),
         "removed modes must not linger in the list"
     );
     for m in [
@@ -668,41 +737,370 @@ fn every_switch_triggers_save() {
     );
 }
 
-/// The experimental master gate: off hides every experimental row (the
-/// engine forces the features off), and the saved switch states and
-/// values survive the round trip — reopening the gate restores them.
-fn experimental_gate_hides_and_restores_rows() {
+/// The experimental master gate lives inside the "Thử nghiệm" tab: off
+/// locks every experimental row and displays the shipped defaults, while
+/// the save funnel keeps the file's values and reopening restores them.
+/// widgets() has no page wiring, so the gate's presentation runs through
+/// the same methods its handler calls, and the file round trip runs
+/// through a real save_cb.
+fn experimental_gate_locks_rows_and_preserves_values() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("scenario save");
+        }));
+    }
+
+    // Seed the sandbox file: the gate on, distinctive saved values.
+    let saved = Config {
+        experimental_features: true,
+        extra_url_chars_enabled: true,
+        extra_url_chars: "`".into(),
+        echo_stale_enabled: true,
+        echo_stale_ms: 250,
+        smooth_per_key_delay_ms: 200,
+        ..Config::default()
+    };
+    saved.save().expect("seed config");
+    let on = Config::load();
+    ui.refresh(&on, &macros, &dictionary);
+    assert!(ui.macro_valid_words.is_sensitive());
+    assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
+    assert_eq!(ui.echo_stale_spin.value(), 250.0);
+
+    // Off (driven through the file, as the real funnel produces it): rows
+    // locked, shipped defaults on display.
+    let mut off = on.clone();
+    off.experimental_features = false;
+    off.save().expect("seed off");
+    let off = Config::load();
+    ui.refresh(&off, &macros, &dictionary);
+    assert!(!ui.macro_valid_words.is_sensitive());
+    assert!(!ui.extra_url_chars_entry.is_sensitive());
+    assert!(!ui.smooth_per_key_spin.is_sensitive());
+    assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
+    assert_eq!(ui.echo_stale_spin.value(), 150.0);
+    assert_eq!(ui.smooth_per_key_spin.value(), 60.0);
+
+    // A save with the gate off — the funnel reads the default-displaying
+    // widgets — must not wipe the file's values.
+    ui.fire_save();
+    let closed = Config::load();
+    assert!(!closed.experimental_features);
+    assert_eq!(closed.extra_url_chars, "`", "no wipe on save");
+    assert_eq!(closed.echo_stale_ms, 250);
+    assert_eq!(closed.smooth_per_key_delay_ms, 200);
+
+    // Reopen (what the real toggle does: flip the switch, then the
+    // presentation runs in the handler's order — restore first, sensitivity
+    // second, so the twin corrections see the restored switch states).
+    ui.experimental_features.set_active(true);
+    ui.restore_experimental_saved();
+    ui.set_experimental_sensitive(true);
+    assert!(ui.extra_url_chars_entry.is_sensitive());
+    assert_eq!(
+        ui.extra_url_chars_entry.text(),
+        "`",
+        "reopening restores the saved value"
+    );
+    assert_eq!(ui.echo_stale_spin.value(), 250.0);
+
+    // Close again: locked and defaults on display.
+    ui.experimental_features.set_active(false);
+    ui.set_experimental_sensitive(false);
+    ui.show_experimental_defaults();
+    assert!(!ui.macro_valid_words.is_sensitive());
+    assert_eq!(ui.smooth_per_key_spin.value(), 60.0);
+    // Hand the sandbox file to the later scenarios the way they expect it:
+    // with the gate off, read() reports the file's experimental fields, so
+    // a leftover saved value would trip their refresh asserts.
+    Config::default().save().expect("reset sandbox config");
+}
+
+/// The $TIME/$DATE combos: a preset selects its preset index, a format the
+/// old free-text rows saved comes back verbatim as its own appended item
+/// (never rewritten to a preset), and re-refreshing does not stack
+/// duplicates.
+fn format_combos_keep_presets_and_unknowns() {
     let ui = widgets();
     let macros = Macros::load();
     let dictionary = Dictionary::load();
 
-    let on = Config {
-        experimental_features: true,
-        macro_expand_valid_words: true,
-        extra_url_chars_enabled: true,
-        extra_url_chars: "`".into(),
+    let config = Config {
+        time_format: TIME_FORMATS[1].into(),
+        date_format: DATE_FORMATS[2].into(),
         ..Config::default()
     };
-    ui.refresh(&on, &macros, &dictionary);
-    assert!(ui.macro_valid_words.is_visible());
-    assert!(ui.extra_url_chars_entry.is_visible());
-    assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
+    ui.refresh(&config, &macros, &dictionary);
+    assert_eq!(ui.time_format.selected(), 1, "preset selects its index");
+    assert_eq!(ui.read().time_format, TIME_FORMATS[1]);
+    assert_eq!(ui.read().date_format, DATE_FORMATS[2]);
 
-    // Off: hidden — and the saved value is NOT wiped by the refresh.
-    let mut off = on.clone();
-    off.experimental_features = false;
-    ui.refresh(&off, &macros, &dictionary);
-    assert!(!ui.macro_valid_words.is_visible());
-    assert!(!ui.extra_url_chars_entry.is_visible());
-    assert_eq!(
-        ui.extra_url_chars_entry.text(),
-        "`",
-        "the value stays saved while hidden"
+    // The widened value view carries the pattern to the row's end, like
+    // the typing page combos — widen_value runs in the page build, so the
+    // page must exist first.
+    let page = crate::gui::pages::macros::build(&ui);
+    let win = gtk4::Window::new();
+    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
+    win.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    assert!(
+        combo_value_view(&ui.time_format).is_some_and(|v| v.hexpands()),
+        "the time pattern renders at the row end"
+    );
+    assert!(
+        combo_value_view(&ui.date_format).is_some_and(|v| v.hexpands()),
+        "the date pattern renders at the row end"
+    );
+    // The hint lives in the subtitle — the old "Ví dụ" spot under the
+    // title — not in the suffixes (that parked it mid-row).
+    assert!(
+        ui.time_format.uses_subtitle(),
+        "the subtitle space stays reserved"
+    );
+    assert!(
+        ui.time_format.subtitle().is_some_and(|s| !s.is_empty()),
+        "the subtitle carries the live preview"
+    );
+    assert!(
+        ui.date_format.subtitle().is_some_and(|s| !s.is_empty()),
+        "the date subtitle carries the live preview"
     );
 
-    // Back on: the rows and their states reappear verbatim.
-    ui.refresh(&on, &macros, &dictionary);
-    assert!(ui.macro_valid_words.is_active());
-    assert!(ui.extra_url_chars_switch.is_active());
-    assert_eq!(ui.extra_url_chars_entry.text(), "`");
+    let mut unknown = config.clone();
+    unknown.time_format = "%Hh%M-%S".into();
+    unknown.date_format = "%Y-%m".into();
+    ui.refresh(&unknown, &macros, &dictionary);
+    assert_eq!(ui.read().time_format, "%Hh%M-%S", "unknown stays saved");
+    assert_eq!(ui.read().date_format, "%Y-%m");
+    assert!(
+        ui.time_format.selected() >= TIME_FORMATS.len() as u32,
+        "the unknown sits beyond the presets"
+    );
+
+    // The appended items are temporary: a second refresh rebuilds the list
+    // from the presets, so the unknown never stacks twice.
+    let items = ui.time_format.model().map(|m| m.n_items());
+    ui.refresh(&unknown, &macros, &dictionary);
+    assert_eq!(
+        ui.time_format.model().map(|m| m.n_items()),
+        items,
+        "no duplicate items after a re-refresh"
+    );
+}
+
+/// The Language combo: the config's language selects the right item and
+/// the pick reads back as "vi"/"en".
+fn language_row_round_trips() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+
+    let config = Config {
+        language: "en".into(),
+        ..Config::default()
+    };
+    ui.refresh(&config, &macros, &dictionary);
+    assert_eq!(ui.language.selected(), 1, "English selects index 1");
+    assert_eq!(ui.read().language, "en");
+    ui.refresh(&Config::default(), &macros, &dictionary);
+    assert_eq!(
+        ui.language.selected(),
+        0,
+        "Vietnamese (default) selects index 0"
+    );
+    assert_eq!(ui.read().language, "vi");
+    // A hand-edited value behaves as Vietnamese, and the refresh round
+    // trip must not trip the debug assert (read() normalizes to "vi").
+    let config = Config {
+        language: "fr".into(),
+        ..Config::default()
+    };
+    ui.refresh(&config, &macros, &dictionary);
+    assert_eq!(ui.language.selected(), 0, "an unknown value selects vi");
+    assert_eq!(ui.read().language, "vi", "an unknown value behaves as vi");
+}
+
+/// The experimental nav-key combo: the config value selects the item and
+/// the pick reads back as the config value.
+fn nav_key_row_round_trips() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+
+    ui.refresh(
+        &Config {
+            // The nav-key row is experimental: its round trip runs with the
+            // gate on, or read() would report the file's value instead.
+            experimental_features: true,
+            nav_key_while_preedit: "forward".into(),
+            ..Config::default()
+        },
+        &macros,
+        &dictionary,
+    );
+    assert_eq!(
+        ui.nav_key_while_preedit.selected(),
+        1,
+        "forward selects index 1"
+    );
+    assert_eq!(ui.read().nav_key_while_preedit, "forward");
+    ui.refresh(&Config::default(), &macros, &dictionary);
+    assert_eq!(
+        ui.nav_key_while_preedit.selected(),
+        0,
+        "the default selects index 0"
+    );
+    assert_eq!(ui.read().nav_key_while_preedit, "swallow");
+    // A hand-edited value behaves as the default.
+    ui.refresh(
+        &Config {
+            nav_key_while_preedit: "weird".into(),
+            ..Config::default()
+        },
+        &macros,
+        &dictionary,
+    );
+    assert_eq!(
+        ui.nav_key_while_preedit.selected(),
+        0,
+        "an unknown value selects index 0"
+    );
+    assert_eq!(
+        ui.read().nav_key_while_preedit,
+        "swallow",
+        "an unknown value behaves as swallow"
+    );
+}
+
+/// The rebuild path behind the language pick: building the window again
+/// after set_language re-resolves every text in the new language and lands
+/// on the requested page. Runs LAST (global language + windows cleaned up
+/// here). The row handler itself saves the user's config, so it is never
+/// driven in tests — the owner verifies the live switch. The two
+/// Gtk-CRITICALs about windows created outside GApplication::startup are
+/// expected noise from building windows without the app having run.
+fn language_switch_rebuilds_the_window() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-lang")
+        .build();
+    let nav_tip = |w: &adw::ApplicationWindow, name: &str| {
+        descendants::<gtk4::ListBoxRow>(w.upcast_ref())
+            .into_iter()
+            .find(|r| r.widget_name() == name)
+            .expect("nav row")
+            .tooltip_text()
+            .map(|s| s.to_string())
+            .expect("tooltip")
+    };
+    let win1 = crate::gui::content::build(&app, Some("typing"));
+    assert_eq!(nav_tip(&win1, "other"), "Cài đặt khác", "vi by default");
+    let picked = |w: &adw::ApplicationWindow, name: &str| {
+        descendants::<gtk4::ListBoxRow>(w.upcast_ref())
+            .into_iter()
+            .find(|r| r.widget_name() == name)
+            .expect("nav row")
+            .is_selected()
+    };
+    assert!(picked(&win1, "typing"), "the requested page is selected");
+    // Rebuild in English: texts re-resolve, the requested page is honored.
+    set_language("en");
+    let win2 = crate::gui::content::build(&app, Some("other"));
+    assert_eq!(
+        nav_tip(&win2, "other"),
+        "Other settings",
+        "rebuild re-resolves texts"
+    );
+    assert!(
+        picked(&win2, "other"),
+        "the rebuild lands on the viewed page"
+    );
+    // Cleanup: the global language is process state, restore it.
+    win1.close();
+    win2.close();
+    set_language("vi");
+}
+
+/// The live switch through the REAL row handler, both directions — the
+/// owner's flow (config sandboxed, so the funnel's writes are safe). After
+/// each pick the old window must be closed AND exactly one new window must
+/// exist, in the picked language: the EN→VI pick once closed the window
+/// without rebuilding (owner report).
+fn language_handler_rebuilds_both_ways() {
+    let pump = || {
+        for _ in 0..60 {
+            gtk4::glib::MainContext::default().iteration(false);
+        }
+    };
+    let app_windows = || {
+        gtk4::Window::list_toplevels()
+            .into_iter()
+            .filter_map(|w| w.downcast::<adw::ApplicationWindow>().ok())
+            .collect::<Vec<_>>()
+    };
+    let nav_tip = |w: &adw::ApplicationWindow, name: &str| {
+        descendants::<gtk4::ListBoxRow>(w.upcast_ref())
+            .into_iter()
+            .find(|r| r.widget_name() == name)
+            .expect("nav row")
+            .tooltip_text()
+            .map(|s| s.to_string())
+            .expect("tooltip")
+    };
+    let language_combo = |w: &adw::ApplicationWindow| {
+        descendants::<adw::ComboRow>(w.upcast_ref())
+            .into_iter()
+            .find(|r| {
+                r.model()
+                    .and_downcast::<gtk4::StringList>()
+                    .and_then(|m| m.string(0))
+                    .map(|first| first == "Tiếng Việt")
+                    .unwrap_or(false)
+            })
+            .expect("the language combo")
+    };
+
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-lang")
+        .build();
+    let win1 = crate::gui::content::build(&app, Some("typing"));
+    assert_eq!(nav_tip(&win1, "other"), "Cài đặt khác");
+
+    // VI → EN through the real handler.
+    language_combo(&win1).set_selected(1);
+    pump();
+    #[cfg(test)]
+    eprintln!(
+        "DEBUG win1 after pick: visible={} mapped={} in_toplevels={}",
+        win1.is_visible(),
+        win1.is_mapped(),
+        gtk4::Window::list_toplevels().iter().any(|w| {
+            std::ptr::eq(
+                w.as_ptr().cast::<std::ffi::c_void>(),
+                win1.upcast_ref::<gtk4::Widget>()
+                    .as_ptr()
+                    .cast::<std::ffi::c_void>(),
+            )
+        })
+    );
+    let en = app_windows();
+    assert_eq!(en.len(), 1, "exactly one window after VI→EN: {en:?}");
+    let win2 = en.first().expect("the EN window");
+    assert_eq!(nav_tip(win2, "other"), "Other settings", "VI→EN rebuilt");
+
+    // EN → VI through the same handler.
+    language_combo(win2).set_selected(0);
+    pump();
+    let vi = app_windows();
+    assert_eq!(vi.len(), 1, "exactly one window after EN→VI: {vi:?}");
+    let win3 = vi.first().expect("the VI window");
+    assert_eq!(nav_tip(win3, "other"), "Cài đặt khác", "EN→VI rebuilt");
+
+    win3.close();
+    set_language("vi");
 }

@@ -2693,6 +2693,165 @@ fn smooth_per_key_burst_coalesces_into_one_commit() {
 }
 
 #[test]
+fn per_key_delay_follows_the_configured_value() {
+    let mut e = engine(
+        Mode::Smooth,
+        Config {
+            experimental_features: true,
+            smooth_per_key: true,
+            smooth_per_key_delay_ms: 200,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let start = Instant::now();
+    type_str(&mut e, "t");
+    let (deadline, _) = e.per_key_park.as_ref().expect("per-key batch parked");
+    let lag = deadline.duration_since(start);
+    assert!(
+        lag > Duration::from_millis(150) && lag < Duration::from_millis(250),
+        "park deadline must follow the configured 200 ms, got {lag:?}"
+    );
+}
+
+#[test]
+fn per_key_delay_clamps_out_of_range_values() {
+    // 0 is allowed by owner decision (experimental knob; the gate-off bake
+    // is what protects the shipped behavior, not the floor).
+    let e = engine(
+        Mode::Smooth,
+        Config {
+            experimental_features: true,
+            smooth_per_key: true,
+            smooth_per_key_delay_ms: 0,
+            ..Config::default()
+        },
+    );
+    assert_eq!(e.per_key_delay(), Duration::from_millis(0));
+    let e = engine(
+        Mode::Smooth,
+        Config {
+            experimental_features: true,
+            smooth_per_key: true,
+            smooth_per_key_delay_ms: 700,
+            ..Config::default()
+        },
+    );
+    assert_eq!(e.per_key_delay(), Duration::from_millis(500));
+    assert_eq!(
+        Engine::new(Method::Telex, Mode::Smooth).per_key_delay(),
+        Duration::from_millis(60),
+        "engine default stays today's behavior"
+    );
+}
+
+#[test]
+fn per_key_delay_gate_off_forces_the_builtin_60() {
+    // The knob is experimental: gate off bakes the built-in 60 ms into the
+    // engine whatever the file says (the stored value stays saved).
+    let e = engine(
+        Mode::Smooth,
+        Config {
+            smooth_per_key: true,
+            smooth_per_key_delay_ms: 200,
+            experimental_features: false,
+            ..Config::default()
+        },
+    );
+    assert_eq!(e.per_key_delay(), Duration::from_millis(60));
+}
+
+#[test]
+fn smooth_backspace_retrack_lets_a_mark_key_keep_editing() {
+    // The shipped Flow/Turbo look (per-key display on): `tungf` ␣ commits
+    // `tùng `; Backspace deletes the last screen character — the experiment
+    // re-tracks the shortened screen when the pop search cannot (a tone
+    // outliving its key), and the next tone key keeps editing the word:
+    // `tùn` + `s` lands `tún ` at word end, not the literal `tùns`.
+    let mut e = engine(
+        Mode::SuperSmooth,
+        Config {
+            experimental_features: true,
+            smooth_backspace_retrack: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, "tungf ");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(
+        actions,
+        vec![Action::CommitNow("tùng ".into())],
+        "{actions:?}"
+    );
+    // Backspace over the trailing space: the pop search has no raw keys
+    // (the word ended), the re-encoder rebuilds the composition.
+    e.backspace();
+    assert_eq!(e.tail, "tùng");
+    assert!(
+        e.wrapper.has_composition(),
+        "the word must come back live after the Backspace"
+    );
+    // Backspace over the `g`: the pop search matches now (unikey walk).
+    e.backspace();
+    assert_eq!(e.tail, "tùn");
+    // The tone key replaces the mark; the word end delivers `tún ` as
+    // screen math: the app holds `tùns`, so the rewrite erases the `ns`
+    // inline and the parked batch inserts `ún ` right after the `tù`.
+    let actions = type_str(&mut e, "s ");
+    assert_eq!(actions, vec![Action::InjectBackspaces(2)], "{actions:?}");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(
+        actions,
+        vec![Action::CommitNow("ún ".into())],
+        "{actions:?}"
+    );
+}
+
+#[test]
+fn smooth_backspace_retrack_off_keeps_the_legacy_plain_text() {
+    // The experiment off: today's behavior byte for byte — the word stays
+    // dead after the Backspace and the tone key starts a fresh plain word.
+    let mut e = engine(Mode::SuperSmooth, Config::default());
+    e.set_uinput_available(true);
+    type_str(&mut e, "tungf ");
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "tùng ");
+    e.backspace();
+    assert_eq!(e.tail, "tùng");
+    assert!(
+        !e.wrapper.has_composition(),
+        "the legacy path never re-tracks"
+    );
+    type_str(&mut e, "s ");
+    let actions = flush_per_key(&mut e);
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::CommitNow(t) if t.starts_with("tún"))),
+        "no mark editing without the experiment: {actions:?}"
+    );
+}
+
+#[test]
+fn smooth_backspace_retrack_needs_the_gate() {
+    // Like every experimental feature: gate off forces the legacy path
+    // whatever the switch says (the switch state stays saved).
+    let mut e = engine(
+        Mode::SuperSmooth,
+        Config {
+            smooth_backspace_retrack: true,
+            experimental_features: false,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, "tungf ");
+    e.backspace();
+    assert!(!e.wrapper.has_composition());
+}
+
+#[test]
 fn smooth_per_key_word_end_carries_the_terminator_in_the_batch() {
     // The word-end terminator joins the coalesced batch — a forwarded key
     // would race the pending commit on a relay.

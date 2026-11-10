@@ -316,7 +316,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let sequence = adw::ActionRow::builder()
         .use_markup(false)
         .activatable(false)
-        .subtitle(MODES.join(" → "))
+        .subtitle(labels(MODES).join(" → "))
         .build();
     // The ten mode names do not fit one line at the default width.
     sequence.set_subtitle_lines(3);

@@ -75,6 +75,8 @@ pub struct Config {
     pub time_format: String,
     /// `$DATE` expansion format (chrono strftime).
     pub date_format: String,
+    /// Settings-window language ("vi" | "en"); the engine ignores it.
+    pub language: String,
     /// Words from `dictionary.txt` are never auto-restored.
     pub dictionary_enabled: bool,
     /// Vietnamese abbreviations keep their đ: bamboo's auto_correct reverts
@@ -129,6 +131,17 @@ pub struct Config {
     /// the per-key display as the smooth look; the word-end rewrite stays
     /// one switch away and the per-key commit costs ~60 ms per key.
     pub smooth_per_key: bool,
+    /// How long the per-key display parks each keystroke's commit before
+    /// it lands (ms). Per-key pacing only: the two server-side rewrite
+    /// parks stay on the engine's built-in grace constant, so a mistuned
+    /// value here cannot reintroduce the relay ordering bug.
+    pub smooth_per_key_delay_ms: u64,
+    /// Experimental: a Backspace on a committed word in the uinput modes
+    /// re-tracks the shortened screen (the composition is rebuilt from the
+    /// re-encoded keys), so the next mark key keeps editing the word
+    /// (`tùn` + `s` -> `tún`) instead of landing as a literal letter. Off
+    /// keeps today's plain-text behavior byte for byte.
+    pub smooth_backspace_retrack: bool,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
     /// each switch and value stays saved in this file and comes back when
@@ -162,6 +175,13 @@ pub struct Config {
     /// default: an app that negotiated `XIMPreeditNothing` shows nothing
     /// while the word is being typed.
     pub preedit_for_xim: bool,
+    /// What the first navigation key does while a preedit commit is pending
+    /// on a mutter-relayed context: `swallow` consumes it (the commit lands
+    /// first, the caret moves on the next press), `forward` sends the commit
+    /// and the key in one reply (ibus-bamboo's sequence), `replay` consumes
+    /// the key and re-emits it as ForwardKeyEvent after the commit. Unknown
+    /// values behave as `swallow`. Experimental: the gate forces `swallow`.
+    pub nav_key_while_preedit: String,
     /// Per-application display mode overrides (phase 9).
     pub app_rules: Vec<AppRule>,
     /// Shortcuts the user assigned beyond the four built-in hotkeys (those
@@ -229,10 +249,10 @@ impl Config {
                 .iter()
                 .map(|key| MenuNode::Toggle { key: key.clone() }),
         );
-        let all_keys = |entries: &[(&str, &str)]| {
+        let all_keys = |entries: &[(&str, &str, &str)]| {
             entries
                 .iter()
-                .map(|(key, _)| key.to_string())
+                .map(|(key, ..)| key.to_string())
                 .collect::<Vec<_>>()
         };
         vec![
@@ -775,6 +795,7 @@ impl Default for Config {
             macro_expand_valid_words: false,
             time_format: "%H:%M".into(),
             date_format: "%d/%m/%Y".into(),
+            language: "vi".into(),
             dictionary_enabled: false,
             abbreviations: true,
             cycle_mode_hotkey: String::new(),
@@ -794,12 +815,15 @@ impl Default for Config {
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             smooth_per_key: true,
+            smooth_per_key_delay_ms: 60,
+            smooth_backspace_retrack: false,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
             debug_log_text: false,
             x11_delete_without_report: false,
             preedit_for_xim: false,
+            nav_key_while_preedit: "swallow".into(),
             app_rules: Vec::new(),
             custom_hotkeys: Vec::new(),
             quick_menu: default_quick_menu(),
@@ -1010,6 +1034,21 @@ mod tests {
     }
 
     #[test]
+    fn nav_key_while_preedit_key_round_trips() {
+        // The shipped behavior stays the default: an old config without the
+        // key keeps swallowing the first navigation key.
+        assert_eq!(Config::default().nav_key_while_preedit, "swallow");
+        let c: Config = toml::from_str("nav_key_while_preedit = \"forward\"").unwrap();
+        assert_eq!(c.nav_key_while_preedit, "forward");
+        let c = Config::from_toml("mode = \"preedit\"\n");
+        assert_eq!(c.nav_key_while_preedit, "swallow");
+        // The raw string is stored as-is; the engine normalizes unknown
+        // values to swallow (same tolerance as the GUI language value).
+        let c: Config = toml::from_str("nav_key_while_preedit = \"weird\"").unwrap();
+        assert_eq!(c.nav_key_while_preedit, "weird");
+    }
+
+    #[test]
     fn quick_menu_round_trips_and_defaults_to_the_old_menu() {
         // The default is the menu the engine shipped before the list became
         // editable, so an upgrade changes nothing on the panel.
@@ -1077,7 +1116,7 @@ mod tests {
             Some(
                 crate::ibus_prop::CHARSETS
                     .iter()
-                    .map(|(k, _)| k.to_string())
+                    .map(|(k, ..)| k.to_string())
                     .collect::<Vec<_>>()
             )
         );
@@ -1246,6 +1285,20 @@ children = ["preedit", "smooth"]
         let c: Config = toml::from_str("smooth_per_key = false").unwrap();
         assert!(!c.smooth_per_key);
         assert!(Config::default().smooth_per_key);
+    }
+
+    #[test]
+    fn smooth_per_key_delay_round_trips_and_defaults_to_60() {
+        let c: Config = toml::from_str("smooth_per_key_delay_ms = 120").unwrap();
+        assert_eq!(c.smooth_per_key_delay_ms, 120);
+        assert_eq!(Config::default().smooth_per_key_delay_ms, 60);
+    }
+
+    #[test]
+    fn smooth_backspace_retrack_round_trips_and_defaults_off() {
+        let c: Config = toml::from_str("smooth_backspace_retrack = true").unwrap();
+        assert!(c.smooth_backspace_retrack);
+        assert!(!Config::default().smooth_backspace_retrack);
     }
 
     #[test]

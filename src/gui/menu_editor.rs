@@ -27,13 +27,16 @@ fn menu_row(node: &MenuNode) -> (String, String, String, String) {
         MenuNode::Separator => (
             "sep".into(),
             String::new(),
-            "— phân cách —".into(),
+            t("menu.sep_display", "— phân cách —"),
             t("menu.kind_sep", "Gạch ngang"),
         ),
         MenuNode::Folder { label, .. } => (
             "folder".into(),
             String::new(),
-            label.clone(),
+            // A shipped default folder label renders in the window's
+            // language; a renamed folder shows its own stored text.
+            crate::ibus_prop::folder_display_label(label, crate::gui::text::is_english())
+                .to_string(),
             t("menu.kind_folder", "Thư mục"),
         ),
     }
@@ -44,7 +47,11 @@ fn menu_toggle_label(key: &str) -> String {
         return t("menu.toggle_enabled", "Bật tiếng Việt");
     }
     crate::ibus_prop::quick_toggle(key)
-        .map(|tg| tg.label.to_string())
+        .map(|tg| {
+            // The GUI editor speaks the window's language.
+            let en = crate::gui::text::is_english();
+            if en { tg.label.1 } else { tg.label.0 }.to_string()
+        })
         .unwrap_or_else(|| key.to_string())
 }
 
@@ -68,7 +75,8 @@ fn menu_action_label(key: &str) -> String {
 
 /// The display label of a radio-group entry ("vni" in charset → "VNI").
 fn menu_entry_label(group: &str, key: &str) -> String {
-    let entries: &[(&str, &str)] = match group {
+    let en = crate::gui::text::is_english();
+    let entries: &[(&str, &str, &str)] = match group {
         "charset" => crate::ibus_prop::CHARSETS,
         "method" => crate::ibus_prop::METHODS,
         "display" => crate::ibus_prop::MODES,
@@ -76,8 +84,8 @@ fn menu_entry_label(group: &str, key: &str) -> String {
     };
     entries
         .iter()
-        .find(|(k, _)| *k == key)
-        .map(|(_, label)| label.to_string())
+        .find(|(k, ..)| *k == key)
+        .map(|(_, vi, en_label)| if en { *en_label } else { *vi }.to_string())
         .unwrap_or_else(|| key.to_string())
 }
 
@@ -666,14 +674,18 @@ impl Ui {
                 _ => None,
             });
             if let Some(group) = group {
-                let entries: &[(&str, &str)] = match group.as_str() {
+                let en = crate::gui::text::is_english();
+                let entries: &[(&str, &str, &str)] = match group.as_str() {
                     "charset" => crate::ibus_prop::CHARSETS,
                     "method" => crate::ibus_prop::METHODS,
                     "display" => crate::ibus_prop::MODES,
                     _ => &[],
                 };
-                for (key, label) in entries {
-                    out.push((format!("entry:{key}"), label.to_string()));
+                for (key, vi, en_label) in entries {
+                    out.push((
+                        format!("entry:{key}"),
+                        if en { *en_label } else { *vi }.to_string(),
+                    ));
                 }
                 return out;
             }
@@ -682,8 +694,12 @@ impl Ui {
             "toggle:enabled".into(),
             t("menu.toggle_enabled", "Bật tiếng Việt"),
         ));
+        let en = crate::gui::text::is_english();
         for quick in crate::ibus_prop::QUICK_TOGGLES {
-            out.push((format!("toggle:{}", quick.key), quick.label.to_string()));
+            out.push((
+                format!("toggle:{}", quick.key),
+                if en { quick.label.1 } else { quick.label.0 }.to_string(),
+            ));
         }
         out.push((
             "radios:charset".into(),

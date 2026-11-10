@@ -77,6 +77,34 @@ pub enum Mode {
     Off,
 }
 
+/// What the first navigation key does while a preedit commit is pending on
+/// a mutter-relayed context (the experimental `nav_key_while_preedit`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NavKeyWhilePreedit {
+    /// Consume the key: the commit lands while the caret is still in place,
+    /// the next press moves the caret. The shipped behavior.
+    #[default]
+    Swallow,
+    /// Send the commit and the key in one reply (ibus-bamboo's sequence):
+    /// the caret moves on the first press.
+    Forward,
+    /// Consume the key and re-emit it as ForwardKeyEvent signals after the
+    /// commit; the ordered connection delivers the commit first.
+    Replay,
+}
+
+impl NavKeyWhilePreedit {
+    /// Tolerant parse like the GUI language value: an unknown value keeps
+    /// the shipped behavior instead of failing the whole config file.
+    pub fn from_config_value(value: &str) -> Self {
+        match value {
+            "forward" => Self::Forward,
+            "replay" => Self::Replay,
+            _ => Self::Swallow,
+        }
+    }
+}
+
 /// One thing the server must tell IBus to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -238,6 +266,9 @@ pub struct Engine {
     x11_delete_without_report: bool,
     /// Opt-in: keep Preedit for XIM clients, whose server draws the preedit.
     preedit_for_xim: bool,
+    /// Experimental: navigation-key behavior while a preedit commit is
+    /// pending (the server reads this per keystroke).
+    nav_key_while_preedit: NavKeyWhilePreedit,
     /// Uinput pacing (ms): text/commit step, Backspace gap, post-rewrite idle.
     commit_interval_ms: u64,
     backspace_interval_ms: u64,
@@ -263,6 +294,15 @@ pub struct Engine {
     /// `config.smooth_per_key`, on by default and outside the
     /// experimental gate.
     smooth_per_key: bool,
+    /// How long the per-key batch stays parked before it lands. Experimental:
+    /// apply_config bakes the built-in grace in while the gate is off, so the
+    /// shipped behavior cannot drift from the file.
+    smooth_per_key_delay_ms: u64,
+    /// Experimental: a Backspace on a committed uinput word re-tracks the
+    /// shortened screen so the next mark key keeps editing. Off keeps the
+    /// legacy plain-text behavior byte for byte; apply_config bakes the
+    /// flag with the gate.
+    smooth_backspace_retrack: bool,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -384,6 +424,7 @@ impl Engine {
             hide_underline: false,
             x11_delete_without_report: false,
             preedit_for_xim: false,
+            nav_key_while_preedit: NavKeyWhilePreedit::default(),
             delete_dropped: false,
             awaiting_delete_proof: None,
             uinput_available: false,
@@ -420,6 +461,8 @@ impl Engine {
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             smooth_per_key: false,
+            smooth_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
+            smooth_backspace_retrack: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -495,6 +538,13 @@ impl Engine {
         self.macro_expand_valid_words = experimental && config.macro_expand_valid_words;
         self.x11_delete_without_report = config.x11_delete_without_report;
         self.preedit_for_xim = config.preedit_for_xim;
+        // Experimental: the gate forces the shipped swallow back on while
+        // the chosen value stays saved for when the gate reopens.
+        self.nav_key_while_preedit = if experimental {
+            NavKeyWhilePreedit::from_config_value(&config.nav_key_while_preedit)
+        } else {
+            NavKeyWhilePreedit::Swallow
+        };
         self.time_format = config.time_format.clone();
         self.date_format = config.date_format.clone();
         // Reload the auxiliary files only when they changed on disk (see the
@@ -530,6 +580,14 @@ impl Engine {
         // Not part of the experimental set anymore: the gate must not force
         // it off or the always-visible switch would silently do nothing.
         self.smooth_per_key = config.smooth_per_key;
+        // The delay knob is experimental: gate off applies the built-in 60 ms
+        // whatever the file says; the value stays saved for when the gate reopens.
+        self.smooth_per_key_delay_ms = if experimental {
+            config.smooth_per_key_delay_ms
+        } else {
+            Self::ECHO_APPLY_GRACE_MS
+        };
+        self.smooth_backspace_retrack = experimental && config.smooth_backspace_retrack;
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
@@ -616,6 +674,11 @@ impl Engine {
         self.hide_underline
     }
 
+    /// Navigation-key behavior while a preedit commit is pending.
+    pub fn nav_key_while_preedit(&self) -> NavKeyWhilePreedit {
+        self.nav_key_while_preedit
+    }
+
     /// The text we believe is committed right before the cursor.
     pub fn tail(&self) -> &str {
         &self.tail
@@ -665,6 +728,15 @@ impl Engine {
         } else {
             Self::DEFAULT_ECHO_STALE_MS
         })
+    }
+
+    /// The per-key display's park delay: the user value clamped to a
+    /// sane ceiling. Zero is allowed by owner decision — the knob is
+    /// experimental and gate-hidden, and a too-low value can only reorder
+    /// text for the user who set it; the two server-side rewrite parks
+    /// stay on the built-in constant and are not tunable.
+    pub fn per_key_delay(&self) -> Duration {
+        Duration::from_millis(self.smooth_per_key_delay_ms.clamp(0, 500))
     }
 
     /// The client dropped the protocol delete at least once; the server
