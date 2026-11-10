@@ -597,26 +597,6 @@ impl BambooWrapper {
         Some(Self::edit_between(&old, &new))
     }
 
-    /// The configured tone rule ALONE — no unikey-pop fall-through. The
-    /// smooth retrack path uses it: the user's own Backspace already
-    /// deleted one screen character, and the rule's delta rides the per-key
-    /// coalesce — popping a raw key here would delete a second one. The
-    /// walk therefore does nothing here (its pop search already handled the
-    /// user's key), and a ToneFirst word without a mark is a plain delete.
-    pub fn backspace_rule(&mut self) -> Option<Edit> {
-        if self.raw.is_empty() {
-            return None;
-        }
-        let old = self.output();
-        match self.backspace_tone {
-            BackspaceToneConfig::ToneFirst if !self.kept_composition && has_tone_marker(&old) => {
-                self.backspace_tone_first(&old)
-            }
-            BackspaceToneConfig::WholeChar => self.backspace_whole_char(&old),
-            _ => None,
-        }
-    }
-
     /// Vietnamese IME convention (unikey): Backspace undoes the last typed
     /// KEY and the word recomposes from the remaining raw keys — removing
     /// a tone key removes the tone, removing a letter removes its letter

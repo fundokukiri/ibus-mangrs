@@ -577,20 +577,9 @@ impl Engine {
         if !matched && self.smooth_backspace_retrack {
             // The pop search only deletes whole raw keys — a screen whose
             // tone outlives its key (`tùng` -> `tùn`) never matches. The
-            // re-encoder rebuilds a live composition for it instead, and
-            // the configured tone rule applies on top (ToneFirst strips
-            // the mark, WholeChar drops a character, the walk pops a raw
-            // key) — the rule's own screen delta rides the per-key
-            // coalesce, so screen and composition land on the same text.
-            if self.wrapper.retrack_from_screen(&target) {
-                self.wrapper.backspace_rule();
-                self.tail = target;
-                let coalesce = self.per_key_coalesce(self.wrapper.output());
-                actions.extend(coalesce);
-                self.note_backspace_forwarded();
-                actions.push(Action::Forward);
-                return actions;
-            }
+            // re-encoder rebuilds a live composition for it instead, so the
+            // next mark key keeps editing here too.
+            matched = self.wrapper.retrack_from_screen(&target);
         }
         if matched {
             // Tracking survives: the recomposition IS the post-delete
