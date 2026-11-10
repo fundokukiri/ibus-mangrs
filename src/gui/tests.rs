@@ -18,6 +18,14 @@ fn gtk_widget_scenarios() {
         eprintln!("gui: SKIP (no display)");
         return;
     }
+    // Sandbox the config dir for the whole scenario run: the rebuild
+    // scenario drives the REAL row handler, whose save funnel writes the
+    // config files. Concurrent unit tests keep reading the sandboxed dir —
+    // they are self-contained writers, so that stays consistent.
+    let original_config_dir = std::env::var("XDG_CONFIG_HOME").ok();
+    let sandbox = std::env::temp_dir().join(format!("mangrs-gui-test-{}", std::process::id()));
+    std::fs::create_dir_all(&sandbox).expect("sandbox dir");
+    std::env::set_var("XDG_CONFIG_HOME", &sandbox);
     refresh_round_trips_every_widget();
     shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
@@ -35,6 +43,13 @@ fn gtk_widget_scenarios() {
     format_combos_keep_presets_and_unknowns();
     language_row_round_trips();
     language_switch_rebuilds_the_window();
+    language_handler_rebuilds_both_ways();
+    // Restore before the sandbox dir could be cleaned under a racing test.
+    match original_config_dir {
+        Some(dir) => std::env::set_var("XDG_CONFIG_HOME", dir),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
+    let _ = std::fs::remove_dir_all(&sandbox);
 }
 
 /// The combo item lists (mode/charset/method/...) render in the window's
@@ -886,5 +901,84 @@ fn language_switch_rebuilds_the_window() {
     // Cleanup: the global language is process state, restore it.
     win1.close();
     win2.close();
+    set_language("vi");
+}
+
+/// The live switch through the REAL row handler, both directions — the
+/// owner's flow (config sandboxed, so the funnel's writes are safe). After
+/// each pick the old window must be closed AND exactly one new window must
+/// exist, in the picked language: the EN→VI pick once closed the window
+/// without rebuilding (owner report).
+fn language_handler_rebuilds_both_ways() {
+    let pump = || {
+        for _ in 0..60 {
+            gtk4::glib::MainContext::default().iteration(false);
+        }
+    };
+    let app_windows = || {
+        gtk4::Window::list_toplevels()
+            .into_iter()
+            .filter_map(|w| w.downcast::<adw::ApplicationWindow>().ok())
+            .collect::<Vec<_>>()
+    };
+    let nav_tip = |w: &adw::ApplicationWindow, name: &str| {
+        descendants::<gtk4::ListBoxRow>(w.upcast_ref())
+            .into_iter()
+            .find(|r| r.widget_name() == name)
+            .expect("nav row")
+            .tooltip_text()
+            .map(|s| s.to_string())
+            .expect("tooltip")
+    };
+    let language_combo = |w: &adw::ApplicationWindow| {
+        descendants::<adw::ComboRow>(w.upcast_ref())
+            .into_iter()
+            .find(|r| {
+                r.model()
+                    .and_downcast::<gtk4::StringList>()
+                    .and_then(|m| m.string(0))
+                    .map(|first| first == "Tiếng Việt")
+                    .unwrap_or(false)
+            })
+            .expect("the language combo")
+    };
+
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-lang")
+        .build();
+    let win1 = crate::gui::content::build(&app, Some("typing"));
+    assert_eq!(nav_tip(&win1, "other"), "Cài đặt khác");
+
+    // VI → EN through the real handler.
+    language_combo(&win1).set_selected(1);
+    pump();
+    #[cfg(test)]
+    eprintln!(
+        "DEBUG win1 after pick: visible={} mapped={} in_toplevels={}",
+        win1.is_visible(),
+        win1.is_mapped(),
+        gtk4::Window::list_toplevels().iter().any(|w| {
+            std::ptr::eq(
+                w.as_ptr().cast::<std::ffi::c_void>(),
+                win1.upcast_ref::<gtk4::Widget>()
+                    .as_ptr()
+                    .cast::<std::ffi::c_void>(),
+            )
+        })
+    );
+    let en = app_windows();
+    assert_eq!(en.len(), 1, "exactly one window after VI→EN: {en:?}");
+    let win2 = en.first().expect("the EN window");
+    assert_eq!(nav_tip(win2, "other"), "Other settings", "VI→EN rebuilt");
+
+    // EN → VI through the same handler.
+    language_combo(win2).set_selected(0);
+    pump();
+    let vi = app_windows();
+    assert_eq!(vi.len(), 1, "exactly one window after EN→VI: {vi:?}");
+    let win3 = vi.first().expect("the VI window");
+    assert_eq!(nav_tip(win3, "other"), "Cài đặt khác", "EN→VI rebuilt");
+
+    win3.close();
     set_language("vi");
 }

@@ -11,7 +11,6 @@ use super::*;
 // most one language-rebuild idle: rapid double-picks replace the pending
 // one instead of queueing a second window.
 thread_local! {
-    static WATCHER: RefCell<Option<gtk4::glib::SourceId>> = const { RefCell::new(None) };
     static PENDING_REBUILD: RefCell<Option<gtk4::glib::SourceId>> =
         const { RefCell::new(None) };
 }
@@ -762,18 +761,21 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
                     let page = page_for_lang.borrow().clone();
                     let app = app_for_lang.clone();
                     let pending = gtk4::glib::idle_add_local_once(move || {
+                        // Self-clear BEFORE anything else: a fired idle's
+                        // source no longer exists in GLib, and removing one
+                        // panics (SourceId::remove unwraps) — which, inside
+                        // a signal callback, aborts the whole process. This
+                        // is exactly how the EN→VI switch killed the window.
+                        PENDING_REBUILD.with(|c| *c.borrow_mut() = None);
                         crate::gui::text::set_language(&Config::load().language);
                         if let Some(old) = window {
                             old.close();
                         }
-                        WATCHER.with(|c| {
-                            if let Some(id) = c.borrow_mut().take() {
-                                id.remove();
-                            }
-                        });
                         build(&app, Some(&page));
                     });
                     PENDING_REBUILD.with(|c| {
+                        // Only a still-pending idle reaches remove(); a fired
+                        // one cleared its own slot above.
                         if let Some(old) = c.borrow_mut().replace(pending) {
                             old.remove();
                         }
@@ -822,19 +824,27 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     // files under this window. Poll the mtime cheaply and re-read into the
     // widgets; without it the next user edit would save the stale values
     // over the change. The engine does the same from its key path.
+    // The poller stops once the window is closed: a surviving watcher keeps
+    // the closed window's Ui alive, and its external_reload then flips the
+    // dead window's language row — the dead window's handler fires and
+    // closes/builds windows on its own (the EN→VI report). The window is
+    // held strongly by the closure; after close GTK hides it and the poller
+    // quits on the next tick.
     {
+        let watch_window = window.clone();
         let watch_ui = ui.clone();
         let watch_mtime = Cell::new(config_mtime());
-        let watcher =
-            gtk4::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
-                let m = config_mtime();
-                if m != watch_mtime.get() {
-                    watch_mtime.set(m);
-                    watch_ui.external_reload();
-                }
-                gtk4::glib::ControlFlow::Continue
-            });
-        WATCHER.with(|c| *c.borrow_mut() = Some(watcher));
+        gtk4::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+            if !watch_window.is_visible() {
+                return gtk4::glib::ControlFlow::Break;
+            }
+            let m = config_mtime();
+            if m != watch_mtime.get() {
+                watch_mtime.set(m);
+                watch_ui.external_reload();
+            }
+            gtk4::glib::ControlFlow::Continue
+        });
     }
 
     window.present();
