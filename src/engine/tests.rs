@@ -2763,11 +2763,11 @@ fn per_key_delay_gate_off_forces_the_builtin_60() {
 
 #[test]
 fn smooth_backspace_retrack_lets_a_mark_key_keep_editing() {
-    // The shipped Flow/Turbo look (per-key display on): `tungf` ␣ commits
-    // `tùng `; Backspace deletes the last screen character — the experiment
-    // re-tracks the shortened screen when the pop search cannot (a tone
-    // outliving its key), and the next tone key keeps editing the word:
-    // `tùn` + `s` lands `tún ` at word end, not the literal `tùns`.
+    // The shipped Flow/Turbo look (per-key display on), ToneFirst (the
+    // shipped backspace rule): `tungf` + space commits `tùng `; the
+    // Backspace strips the mark first (`tùng` -> `tung`, the preedit rule),
+    // a second Backspace deletes the `g`, and the next tone key keeps
+    // editing: `tún` lands at word end, not the literal `tùns`.
     let mut e = engine(
         Mode::SuperSmooth,
         Config {
@@ -2785,19 +2785,20 @@ fn smooth_backspace_retrack_lets_a_mark_key_keep_editing() {
         "{actions:?}"
     );
     // Backspace over the trailing space: the pop search has no raw keys
-    // (the word ended), the re-encoder rebuilds the composition.
+    // (the word ended), the re-encoder rebuilds the composition and the
+    // tone rule strips the mark — screen `tung` (erase 2, insert `ng`).
+    let actions = e.backspace().expect("actions");
+    assert_eq!(actions, vec![Action::InjectBackspaces(3), Action::Forward]);
+    assert_eq!(flush_per_key(&mut e), vec![Action::CommitNow("ung".into())]);
+    assert_eq!(e.tail, "tung");
+    assert_eq!(e.wrapper.output(), "tung");
+    // Backspace over the `g`: the composition is alive, the pop search
+    // matches (unikey walk on raw keys).
     e.backspace();
-    assert_eq!(e.tail, "tùng");
-    assert!(
-        e.wrapper.has_composition(),
-        "the word must come back live after the Backspace"
-    );
-    // Backspace over the `g`: the pop search matches now (unikey walk).
-    e.backspace();
-    assert_eq!(e.tail, "tùn");
-    // The tone key replaces the mark; the word end delivers `tún ` as
-    // screen math: the app holds `tùns`, so the rewrite erases the `ns`
-    // inline and the parked batch inserts `ún ` right after the `tù`.
+    assert_eq!(e.tail, "tun");
+    // The tone key applies to the bare word; the word end delivers `tún `.
+    // The tone rule's landing: the coalesce erases the raw `n` inline and
+    // the parked batch inserts `ún ` — the screen lands on `tún `.
     let actions = type_str(&mut e, "s ");
     assert_eq!(actions, vec![Action::InjectBackspaces(2)], "{actions:?}");
     let actions = flush_per_key(&mut e);
@@ -2806,6 +2807,69 @@ fn smooth_backspace_retrack_lets_a_mark_key_keep_editing() {
         vec![Action::CommitNow("ún ".into())],
         "{actions:?}"
     );
+    assert_eq!(e.tail, "tún ");
+}
+
+#[test]
+fn smooth_backspace_retrack_tone_first_strips_the_mark() {
+    // The owner's trace: `chào` Backspace -> `chao` (the mark goes first,
+    // the letters stay), then `s` keeps editing -> `cháo` at word end.
+    let mut e = engine(
+        Mode::SuperSmooth,
+        Config {
+            experimental_features: true,
+            smooth_backspace_retrack: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, "chaof ");
+    assert_eq!(
+        flush_per_key(&mut e),
+        vec![Action::CommitNow("chào ".into())]
+    );
+    let actions = e.backspace().expect("actions");
+    assert_eq!(actions, vec![Action::InjectBackspaces(2), Action::Forward]);
+    assert_eq!(flush_per_key(&mut e), vec![Action::CommitNow("ao".into())]);
+    assert_eq!(e.wrapper.output(), "chao");
+    type_str(&mut e, "s");
+    assert_eq!(e.wrapper.output(), "cháo");
+    assert_eq!(flush_per_key(&mut e), vec![Action::CommitNow("áo".into())]);
+    type_str(&mut e, " ");
+    assert_eq!(e.tail, "cháo ");
+    assert_eq!(flush_per_key(&mut e), vec![Action::CommitNow(" ".into())]);
+}
+
+#[test]
+fn smooth_backspace_retrack_whole_char_drops_a_character() {
+    // WholeChar: a Backspace on a committed word deletes one screen
+    // character (`chào` -> `chà`) and the word stays editable — `s` gives
+    // `chá` at word end.
+    let mut e = engine(
+        Mode::SuperSmooth,
+        Config {
+            experimental_features: true,
+            smooth_backspace_retrack: true,
+            backspace_tone: crate::config::BackspaceToneConfig::WholeChar,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, "chaof ");
+    assert_eq!(
+        flush_per_key(&mut e),
+        vec![Action::CommitNow("chào ".into())]
+    );
+    let actions = e.backspace().expect("actions");
+    assert_eq!(actions, vec![Action::InjectBackspaces(1), Action::Forward]);
+    assert_eq!(flush_per_key(&mut e), vec![], "no insert: plain delete");
+    assert_eq!(e.wrapper.output(), "chà");
+    type_str(&mut e, "s");
+    assert_eq!(e.wrapper.output(), "chá");
+    assert_eq!(flush_per_key(&mut e), vec![Action::CommitNow("á".into())]);
+    type_str(&mut e, " ");
+    assert_eq!(e.tail, "chá ");
+    assert_eq!(flush_per_key(&mut e), vec![Action::CommitNow(" ".into())]);
 }
 
 #[test]
