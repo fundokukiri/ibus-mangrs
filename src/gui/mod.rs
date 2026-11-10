@@ -32,7 +32,7 @@ mod pages;
 mod text;
 mod widgets;
 
-use text::t;
+use text::{set_language, t};
 
 use content::*;
 use hotkey::*;
@@ -55,6 +55,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // page (menu "Mở bảng gõ tắt…"); GTK parses argv itself and rejects
     // these arguments, so read them here and hand GTK an empty argv.
     let page = std::env::args().find_map(|a| a.strip_prefix("--page=").map(str::to_string));
+    // Before any widget text resolves: t() reads the per-process language.
+    set_language(&Config::load().language);
     let app = adw::Application::builder()
         .application_id("org.freedesktop.IBus.mangrs")
         .build();

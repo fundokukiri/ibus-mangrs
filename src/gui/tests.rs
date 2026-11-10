@@ -29,6 +29,7 @@ fn gtk_widget_scenarios() {
     popup_marks_the_selected_item();
     format_combos_keep_presets_and_unknowns();
     language_row_round_trips();
+    language_switch_rebuilds_the_window();
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -805,4 +806,38 @@ fn language_row_round_trips() {
         "Vietnamese (default) selects index 0"
     );
     assert_eq!(ui.read().language, "vi");
+}
+
+/// The rebuild path behind the language pick: building the window again
+/// after set_language re-resolves every text in the new language and lands
+/// on the requested page. Runs LAST (global language + windows cleaned up
+/// here). The row handler itself saves the user's config, so it is never
+/// driven in tests — the owner verifies the live switch.
+fn language_switch_rebuilds_the_window() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-lang")
+        .build();
+    let nav_tip = |w: &adw::ApplicationWindow, name: &str| {
+        descendants::<gtk4::ListBoxRow>(w.upcast_ref())
+            .into_iter()
+            .find(|r| r.widget_name() == name)
+            .expect("nav row")
+            .tooltip_text()
+            .map(|s| s.to_string())
+            .expect("tooltip")
+    };
+    let win1 = crate::gui::content::build(&app, Some("typing"));
+    assert_eq!(nav_tip(&win1, "other"), "Cài đặt khác", "vi by default");
+    // Rebuild in English: texts re-resolve, the requested page is honored.
+    set_language("en");
+    let win2 = crate::gui::content::build(&app, Some("other"));
+    assert_eq!(
+        nav_tip(&win2, "other"),
+        "Other settings",
+        "rebuild re-resolves texts"
+    );
+    // Cleanup: the global language is process state, restore it.
+    win1.close();
+    win2.close();
+    set_language("vi");
 }
