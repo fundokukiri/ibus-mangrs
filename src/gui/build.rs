@@ -187,14 +187,17 @@ pub(super) fn widgets() -> Rc<Ui> {
     // The formats are preset dropdowns like every other combo; a format
     // the old free-text rows saved that matches no preset is appended by
     // `select_format` instead of being rewritten.
+    // No subtitle: the row's live hint is the example — a static "Ví dụ"
+    // line would duplicate it. The empty default keeps the row one-line
+    // unless the owner re-adds a subtitle in gui-content.toml.
     let time_format = combo_row(
         &t("rows.time_format.title", "Định dạng giờ ($TIME)"),
-        &t("rows.time_format.subtitle", "Ví dụ 13:45"),
+        &t("rows.time_format.subtitle", ""),
         TIME_FORMATS,
     );
     let date_format = combo_row(
         &t("rows.date_format.title", "Định dạng ngày ($DATE)"),
-        &t("rows.date_format.subtitle", "Ví dụ 10/11/2026"),
+        &t("rows.date_format.subtitle", ""),
         DATE_FORMATS,
     );
     let macros_text = text_view("");

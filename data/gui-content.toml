@@ -248,11 +248,9 @@ open_tooltip = "Mở macros.toml bằng ứng dụng mặc định"
 
 [rows.time_format]
 title = "Định dạng giờ ($TIME)"
-subtitle = "Ví dụ %H:%M"
 
 [rows.date_format]
 title = "Định dạng ngày ($DATE)"
-subtitle = "Ví dụ %d/%m/%Y"
 
 [rows.macro_enabled]
 title = "Bật gõ tắt"
