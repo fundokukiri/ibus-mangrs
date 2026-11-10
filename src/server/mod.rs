@@ -85,10 +85,6 @@ fn lock_engine(engine: &SharedEngine) -> std::sync::MutexGuard<'_, Engine> {
 pub struct Server {
     conn: Connection,
     engine: SharedEngine,
-    /// Shared with the message callback: the config hot-reload also runs on
-    /// the run loop's own passes, so a GUI edit reaches the panel menu
-    /// without waiting for a key event.
-    handler: std::rc::Rc<std::cell::RefCell<EngineHandler>>,
 }
 
 impl Server {
@@ -109,7 +105,7 @@ impl Server {
         // an object path: libdbus answers any method call on an unregistered
         // path with UnknownMethod before the filter returns, so the reply must
         // be sent and the message claimed (return `true`) inside the filter.
-        let handler = std::rc::Rc::new(std::cell::RefCell::new(EngineHandler {
+        let mut handler = EngineHandler {
             engine: Arc::clone(&engine),
             last_config_check: Instant::now(),
             last_config_mtime: None,
@@ -118,28 +114,23 @@ impl Server {
             picker: None,
             emoji_picker: None,
             focus_ext: None,
-        }));
-        handler.borrow_mut().last_config_mtime = Config::path()
+        };
+        handler.last_config_mtime = Config::path()
             .and_then(|p| std::fs::metadata(&p).ok())
             .and_then(|m| m.modified().ok());
         let initial = Config::load();
-        handler.borrow_mut().refresh_hotkey_cache(&initial);
-        let handler_for_cb = std::rc::Rc::clone(&handler);
+        handler.refresh_hotkey_cache(&initial);
         conn.replace_message_callback(Some(Box::new(move |conn, msg| {
             if msg.msg_type() != MessageType::MethodCall {
                 return false;
             }
-            match handler_for_cb.borrow_mut().handle(conn, &msg) {
+            match handler.handle(conn, &msg) {
                 Some(()) => true,
                 None => false,
             }
         })));
 
-        Ok(Self {
-            conn,
-            engine,
-            handler,
-        })
+        Ok(Self { conn, engine })
     }
 
     /// Run the main loop until the bus goes away.
@@ -165,15 +156,6 @@ impl Server {
                 e.add_injected(injected);
                 out
             };
-            for msg in out {
-                send(&self.conn, msg);
-            }
-            // Config hot-reload between messages, not only on key events:
-            // a language pick (or any GUI edit) reaches the panel menu
-            // within a second, without typing or a focus change. The
-            // handler's own 1s gate keeps this to one stat call per pass.
-            let mut out = Vec::new();
-            self.handler.borrow_mut().maybe_reload_config(&mut out);
             for msg in out {
                 send(&self.conn, msg);
             }

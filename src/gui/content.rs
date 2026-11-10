@@ -772,6 +772,15 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
                             old.close();
                         }
                         build(&app, Some(&page));
+                        // The pick restarts IBus: the engine re-reads the
+                        // saved config, so the panel menu and every engine
+                        // setting apply at once (owner decision — simpler
+                        // than chasing live reloads). The window survives:
+                        // it was spawned outside IBus's cgroup. Tests skip
+                        // this — an IBus restart cannot run headless.
+                        if !cfg!(test) {
+                            let _ = std::process::Command::new("ibus").arg("restart").spawn();
+                        }
                     });
                     PENDING_REBUILD.with(|c| {
                         // Only a still-pending idle reaches remove(); a fired
