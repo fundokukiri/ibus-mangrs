@@ -43,6 +43,12 @@ pub(crate) fn set_language(lang: &str) {
     LANG.store(u8::from(lang == "en"), Ordering::Relaxed);
 }
 
+/// Whether the process language is English — the display-label helpers
+/// (combo item lists, engine table consumers in the GUI) read this.
+pub(crate) fn is_english() -> bool {
+    LANG.load(Ordering::Relaxed) == 1
+}
+
 #[cfg(test)]
 fn parsed(lang: usize) -> &'static toml::Table {
     if lang == 1 {
@@ -51,6 +57,13 @@ fn parsed(lang: usize) -> &'static toml::Table {
         table()
     }
 }
+
+/// Test-only: serializes every test that touches the global language.
+/// LANG is process state; libtest runs tests on separate threads, and an
+/// untranslated flip mid-run would flake both the text tests and the GTK
+/// scenarios asserting translated literals.
+#[cfg(test)]
+pub(crate) static LANG_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The text for `key` ("section.entry.sub") or `default` when the content
 /// file does not define it.
@@ -78,6 +91,7 @@ mod tests {
 
     #[test]
     fn t_respects_the_language_and_falls_back_to_vi() {
+        let _g = LANG_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         set_language("en");
         assert_eq!(t("pages.other", ""), "Other settings");
         set_language("vi");
@@ -97,6 +111,7 @@ mod tests {
     /// an English entry, so switching languages can never strand a string.
     #[test]
     fn every_vi_key_has_an_en_entry() {
+        let _g = LANG_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         fn keys(t: &toml::Table, prefix: &str, out: &mut Vec<String>) {
             for (k, v) in t {
                 let path = format!("{prefix}{k}");

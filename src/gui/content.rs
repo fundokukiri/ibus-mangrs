@@ -5,6 +5,17 @@
 
 use super::*;
 
+// Per-process rebuild bookkeeping. Each `build()` installs a live-reload
+// poller holding its own `Ui` — the rebuild removes the previous one or it
+// would poll forever behind the closed window. `PENDING_REBUILD` keeps at
+// most one language-rebuild idle: rapid double-picks replace the pending
+// one instead of queueing a second window.
+thread_local! {
+    static WATCHER: RefCell<Option<gtk4::glib::SourceId>> = const { RefCell::new(None) };
+    static PENDING_REBUILD: RefCell<Option<gtk4::glib::SourceId>> =
+        const { RefCell::new(None) };
+}
+
 /// Build the whole settings window (pages, shell, wiring) and present it.
 /// Returns the window so the language rebuild and tests hold it directly —
 /// GTK's own `app.windows()` proved unreliable to depend on.
@@ -735,22 +746,39 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         // language, landing on the page being viewed. The idle defers the
         // teardown out of this signal handler; the old window comes from the
         // row's own root — GTK's app.windows() bookkeeping is not dependable.
+        // Only a pick that changes the window's language rebuilds: import,
+        // reset and external reload set the row programmatically, and their
+        // refreshes run with the funnel suppressed — a rebuild here would
+        // tear the window down mid-refresh.
         {
             let s = save.clone();
             let app_for_lang = app.clone();
             let page_for_lang = current_page.clone();
+            let built_en = crate::gui::text::is_english();
             ui.language.connect_selected_notify(move |row| {
-                s();
-                let window = row.root().and_downcast::<gtk4::Window>();
-                let page = page_for_lang.borrow().clone();
-                let app = app_for_lang.clone();
-                gtk4::glib::idle_add_local_once(move || {
-                    crate::gui::text::set_language(&Config::load().language);
-                    if let Some(old) = window {
-                        old.close();
-                    }
-                    build(&app, Some(&page));
-                });
+                if (row.selected() == 1) != built_en {
+                    s();
+                    let window = row.root().and_downcast::<gtk4::Window>();
+                    let page = page_for_lang.borrow().clone();
+                    let app = app_for_lang.clone();
+                    let pending = gtk4::glib::idle_add_local_once(move || {
+                        crate::gui::text::set_language(&Config::load().language);
+                        if let Some(old) = window {
+                            old.close();
+                        }
+                        WATCHER.with(|c| {
+                            if let Some(id) = c.borrow_mut().take() {
+                                id.remove();
+                            }
+                        });
+                        build(&app, Some(&page));
+                    });
+                    PENDING_REBUILD.with(|c| {
+                        if let Some(old) = c.borrow_mut().replace(pending) {
+                            old.remove();
+                        }
+                    });
+                }
             });
         }
         // Text views save when focus leaves the window's text area. The
@@ -797,14 +825,16 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     {
         let watch_ui = ui.clone();
         let watch_mtime = Cell::new(config_mtime());
-        gtk4::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
-            let m = config_mtime();
-            if m != watch_mtime.get() {
-                watch_mtime.set(m);
-                watch_ui.external_reload();
-            }
-            gtk4::glib::ControlFlow::Continue
-        });
+        let watcher =
+            gtk4::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+                let m = config_mtime();
+                if m != watch_mtime.get() {
+                    watch_mtime.set(m);
+                    watch_ui.external_reload();
+                }
+                gtk4::glib::ControlFlow::Continue
+            });
+        WATCHER.with(|c| *c.borrow_mut() = Some(watcher));
     }
 
     window.present();
