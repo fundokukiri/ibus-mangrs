@@ -168,30 +168,12 @@ pub(crate) fn build(ui: &Rc<Ui>, restart_btn: &gtk4::Button) -> adw::ToastOverla
     backup.add(&import_row);
     page.add(&backup);
 
-    // Advanced: the debug-log switch and the destructive reset share one
-    // group, so the page holds four groups instead of five fragments.
+    // Advanced: the debug-log switches and the destructive reset share one
+    // group, so the page holds four groups instead of five fragments. The
+    // experimental gate moved into the "Thử nghiệm" tab it controls.
     let advanced = adw::PreferencesGroup::builder()
         .title(t("groups.other.advanced.title", "Nâng cao"))
         .build();
-    advanced.add(&ui.experimental_features);
-    // The gate toggles visibility itself (config save goes through
-    // wire_switch_saves): off hides every experimental row across the
-    // pages, on brings them back with their saved states. The jump to this
-    // page lives HERE, not in set_experimental_visible — that one runs on
-    // every refresh, where a jump would yank the user off their page on
-    // every save (the external-reload watcher fires it too).
-    {
-        let ui = Rc::clone(ui);
-        let switch = ui.experimental_features.clone();
-        switch.connect_active_notify(move |sw| {
-            ui.set_experimental_visible(sw.is_active());
-            if !sw.is_active() {
-                if let Some(select) = ui.sidebar_select.borrow().as_ref() {
-                    select("other");
-                }
-            }
-        });
-    }
     advanced.add(&ui.debug_log);
     advanced.add(&ui.debug_log_text);
     let reset_row = action_row(

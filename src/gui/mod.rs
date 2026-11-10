@@ -275,13 +275,8 @@ struct Ui {
     /// change handlers a user edit does, and saving them would write the
     /// half-updated state back over the change being picked up.
     suppress_save: Cell<bool>,
-    /// The sidebar row of the "Thử nghiệm" tab: the experimental gate shows
-    /// and hides the whole tab through it. `None` until the content shell
-    /// builds the sidebar — headless tests never get there.
-    experimental_nav: RefCell<Option<gtk4::ListBoxRow>>,
     /// Programmatic page jump: select_row drives the same row_selected
-    /// handler the clicks use. The gate lands the user on "Cài đặt khác"
-    /// when it closes the tab they were standing on. `None` headless.
+    /// handler the clicks use. `None` headless.
     sidebar_select: RefCell<Option<PageJump>>,
     /// "Thử luật" input, its verdict row and the verdict's status icon.
     rule_preview_input: adw::EntryRow,
@@ -347,6 +342,16 @@ type SharedSave = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
 /// lives in `content` where the sidebar rows do; the gate uses it to land
 /// the user somewhere sane after closing the tab they stood on.
 type PageJump = Rc<dyn Fn(&str)>;
+
+/// The combo-row index for a `nav_key_while_preedit` value — shared by
+/// refresh, the gate's defaults display and its restore.
+fn nav_key_selected(v: &str) -> u32 {
+    match v {
+        "forward" => 1,
+        "replay" => 2,
+        _ => 0,
+    }
+}
 
 fn method_index(m: MethodConfig) -> u32 {
     match m {
@@ -515,11 +520,7 @@ impl Ui {
                 BackspaceToneConfig::UnikeyWalk => 2,
             });
         self.nav_key_while_preedit
-            .set_selected(match config.nav_key_while_preedit.as_str() {
-                "forward" => 1,
-                "replay" => 2,
-                _ => 0,
-            });
+            .set_selected(nav_key_selected(&config.nav_key_while_preedit));
         self.em_dash.set_active(config.em_dash);
         self.auto_capitalize.set_active(config.auto_capitalize);
         self.auto_capitalize_after_switch
@@ -592,10 +593,14 @@ impl Ui {
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
-        // The master gate: off hides every experimental row (its feature is
-        // also forced off in the engine); back on, they reappear with their
-        // saved switch states and values.
-        self.set_experimental_visible(config.experimental_features);
+        // The master gate: off locks every experimental row and displays
+        // the shipped defaults — config.toml keeps the user's values (the
+        // save funnel skips the experimental fields) and the engine bakes
+        // the defaults in, so what is on screen is what typing does.
+        self.set_experimental_sensitive(config.experimental_features);
+        if !config.experimental_features {
+            self.show_experimental_defaults();
+        }
         let menu = config.menu.clone().unwrap_or_else(|| config.default_menu());
         *self.menu.borrow_mut() = normalize_menu(&menu);
         self.fill_menu_list();
@@ -637,6 +642,11 @@ impl Ui {
         // Start from the file so options this window does not show are not
         // overwritten.
         let mut config = Config::load();
+        // The gate is off: the experimental widgets display the shipped
+        // defaults, and the user's saved values must survive any save — the
+        // file's own values win over the widgets for those fields.
+        let gate_on = self.experimental_features.is_active();
+        let saved_experimental = config.clone();
         config.enabled = self.enabled.is_active();
         config.method = match self.method.selected() {
             0 => MethodConfig::Telex,
@@ -752,6 +762,22 @@ impl Ui {
                 action: action.clone(),
             })
             .collect();
+        if !gate_on {
+            config.extra_url_chars_enabled = saved_experimental.extra_url_chars_enabled;
+            config.extra_url_chars = saved_experimental.extra_url_chars;
+            config.auto_capitalize_after_enabled = saved_experimental.auto_capitalize_after_enabled;
+            config.auto_capitalize_after = saved_experimental.auto_capitalize_after;
+            config.macro_expand_valid_words = saved_experimental.macro_expand_valid_words;
+            config.clipboard_restore_delay_enabled =
+                saved_experimental.clipboard_restore_delay_enabled;
+            config.clipboard_restore_delay_ms = saved_experimental.clipboard_restore_delay_ms;
+            config.echo_stale_enabled = saved_experimental.echo_stale_enabled;
+            config.echo_stale_ms = saved_experimental.echo_stale_ms;
+            config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
+            config.idle_commit_ms = saved_experimental.idle_commit_ms;
+            config.nav_key_while_preedit = saved_experimental.nav_key_while_preedit;
+            config.smooth_per_key_delay_ms = saved_experimental.smooth_per_key_delay_ms;
+        }
         config
     }
 
@@ -795,16 +821,12 @@ impl Ui {
             .collect()
     }
 
-    /// Show or hide every experimental row across the pages — the master
-    /// "Tính năng thử nghiệm" switch ("Cài đặt khác"). Hiding is display
-    /// only: the saved switch states and values stay in config.toml and
-    /// come back verbatim when the gate reopens; the engine forces the
-    /// features off while the gate is closed.
-    fn set_experimental_visible(&self, on: bool) {
-        // The rows live on the "Thử nghiệm" tab: the gate hides the tab
-        // itself (its sidebar row) and the rows inside it. States stay saved
-        // either way; closing the tab under the user lands on "Cài đặt
-        // khác", the page hosting the gate switch.
+    /// Lock or unlock every experimental row for the master gate — the tab
+    /// itself always stays visible now. Locking is display only: the saved
+    /// switch states and values stay in config.toml and come back verbatim
+    /// when the gate reopens; the engine forces the features off while the
+    /// gate is closed.
+    pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         let rows: [&gtk4::Widget; 13] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_switch.upcast_ref(),
@@ -821,15 +843,87 @@ impl Ui {
             self.nav_key_while_preedit.upcast_ref(),
         ];
         for row in rows {
-            row.set_visible(on);
+            row.set_sensitive(on);
         }
-        if let Some(nav) = self.experimental_nav.borrow().as_ref() {
-            nav.set_visible(on);
+        if on {
+            // The entry/spin twins follow their own switch again — a twin
+            // stays locked while its switch is off, always inside the gate.
+            let gate = self.experimental_features.is_active();
+            self.clipboard_restore_spin
+                .set_sensitive(gate && self.clipboard_restore_switch.is_active());
+            self.echo_stale_spin
+                .set_sensitive(gate && self.echo_stale_switch.is_active());
+            self.idle_commit_spin
+                .set_sensitive(gate && self.idle_commit_switch.is_active());
+            self.smooth_per_key_spin
+                .set_sensitive(gate && self.smooth_per_key_switch.is_active());
+            self.extra_url_chars_entry
+                .set_sensitive(gate && self.extra_url_chars_switch.is_active());
+            self.auto_capitalize_after_entry
+                .set_sensitive(gate && self.auto_capitalize_after_switch.is_active());
         }
-        // Pure visibility: this runs on every refresh (external reload
-        // included), where a page jump would yank the user off whatever
-        // they are doing on every save. The live-toggle jump lives on the
-        // gate switch's own handler in other.rs.
+    }
+
+    /// Display the shipped defaults on the experimental rows while the gate
+    /// is off — what the user sees is what typing does (the engine bakes the
+    /// defaults in too). The swap runs under suppress_save: these are display
+    /// values, and config.toml keeps the user's saved ones (read() reverts
+    /// the experimental fields to the file while the gate is off).
+    pub(crate) fn show_experimental_defaults(&self) {
+        let d = crate::config::Config::default();
+        self.suppress_save.set(true);
+        self.macro_valid_words
+            .set_active(d.macro_expand_valid_words);
+        self.extra_url_chars_switch
+            .set_active(d.extra_url_chars_enabled);
+        self.extra_url_chars_entry.set_text(&d.extra_url_chars);
+        self.auto_capitalize_after_switch
+            .set_active(d.auto_capitalize_after_enabled);
+        self.auto_capitalize_after_entry
+            .set_text(&d.auto_capitalize_after);
+        self.clipboard_restore_switch
+            .set_active(d.clipboard_restore_delay_enabled);
+        self.clipboard_restore_spin
+            .set_value(d.clipboard_restore_delay_ms as f64);
+        self.echo_stale_switch.set_active(d.echo_stale_enabled);
+        self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
+        self.idle_commit_switch.set_active(d.idle_commit_enabled);
+        self.idle_commit_spin.set_value(d.idle_commit_ms as f64);
+        self.smooth_per_key_spin
+            .set_value(d.smooth_per_key_delay_ms as f64);
+        self.nav_key_while_preedit
+            .set_selected(nav_key_selected(&d.nav_key_while_preedit));
+        self.suppress_save.set(false);
+    }
+
+    /// Put the user's saved values back on the experimental rows when the
+    /// gate reopens — from the file, which read() never let the displayed
+    /// defaults overwrite. Same suppress_save discipline as the swap out.
+    pub(crate) fn restore_experimental_saved(&self) {
+        let c = crate::config::Config::load();
+        self.suppress_save.set(true);
+        self.macro_valid_words
+            .set_active(c.macro_expand_valid_words);
+        self.extra_url_chars_switch
+            .set_active(c.extra_url_chars_enabled);
+        self.extra_url_chars_entry.set_text(&c.extra_url_chars);
+        self.auto_capitalize_after_switch
+            .set_active(c.auto_capitalize_after_enabled);
+        self.auto_capitalize_after_entry
+            .set_text(&c.auto_capitalize_after);
+        self.clipboard_restore_switch
+            .set_active(c.clipboard_restore_delay_enabled);
+        self.clipboard_restore_spin
+            .set_value(c.clipboard_restore_delay_ms as f64);
+        self.echo_stale_switch.set_active(c.echo_stale_enabled);
+        self.echo_stale_spin.set_value(c.echo_stale_ms as f64);
+        self.idle_commit_switch.set_active(c.idle_commit_enabled);
+        self.idle_commit_spin.set_value(c.idle_commit_ms as f64);
+        self.smooth_per_key_spin
+            .set_value(c.smooth_per_key_delay_ms as f64);
+        self.nav_key_while_preedit
+            .set_selected(nav_key_selected(&c.nav_key_while_preedit));
+        self.suppress_save.set(false);
     }
 
     /// True while the "Thông báo nhanh" switch is on — the single gate

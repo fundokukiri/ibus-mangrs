@@ -1,12 +1,41 @@
 //! Page "Thử nghiệm": every feature behind the experimental master gate on
-//! one tab. The rows themselves come from `build`; the gate ("Cài đặt khác")
-//! shows and hides the whole tab, and the "Thử nghiệm" badge sits on the
-//! primary row of each feature — the switch — never on its entry/spin twin.
+//! one tab. The gate switch itself leads this tab: off locks every row and
+//! displays the shipped defaults (config.toml keeps the user's values, the
+//! engine bakes the defaults in) — the tab never hides. The "Thử nghiệm"
+//! badge sits on the primary row of each feature — the switch — never on
+//! its entry/spin twin.
 
 use super::*;
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
+
+    // The gate leads its own tab: turning it off locks the rows below and
+    // shows their defaults instead of hiding anything (config save goes
+    // through wire_switch_saves).
+    let gate = adw::PreferencesGroup::builder()
+        .title(t("groups.experimental.gate.title", "Bật thử nghiệm"))
+        .build();
+    gate.add(&ui.experimental_features);
+    {
+        let ui = Rc::clone(ui);
+        let switch = ui.experimental_features.clone();
+        switch.connect_active_notify(move |sw| {
+            // Instant presentation: the watcher round-trips the config
+            // anyway, but the user must not stare at a stale tab for a
+            // second. No page jump — the tab never hides. Restore runs
+            // before the sensitivity pass so the twin corrections see the
+            // restored switch states, not the displayed defaults.
+            if sw.is_active() {
+                ui.restore_experimental_saved();
+                ui.set_experimental_sensitive(true);
+            } else {
+                ui.set_experimental_sensitive(false);
+                ui.show_experimental_defaults();
+            }
+        });
+    }
+    page.add(&gate);
 
     let typing = adw::PreferencesGroup::builder()
         .title(t("groups.experimental.typing.title", "Dấu &amp; gõ tắt"))
@@ -102,9 +131,12 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             ui.smooth_per_key_spin.upcast_ref::<gtk4::Widget>(),
         ),
     ] {
+        let ui = Rc::clone(ui);
         let value = value.clone();
         switch.connect_active_notify(move |sw| {
-            value.set_sensitive(sw.is_active());
+            // The master gate locks the whole tab: a switch flip must not
+            // unlock its twin while the gate is off.
+            value.set_sensitive(sw.is_active() && ui.experimental_features.is_active());
         });
     }
     for entry in [&ui.extra_url_chars_entry, &ui.auto_capitalize_after_entry] {

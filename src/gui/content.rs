@@ -292,8 +292,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     };
     let groups: [&[&str]; 3] = [
         &["typing", "tone", "macros", "emoji", "data"],
-        &["rules", "panel", "hotkeys", "experimental"],
-        &["tune", "other"],
+        &["rules", "panel", "hotkeys"],
+        &["experimental", "tune", "other"],
     ];
     for (gi, group) in groups.iter().copied().enumerate() {
         if gi > 0 {
@@ -301,10 +301,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         }
         for name in group {
             let row = nav_row(label_of(name), icon_of(name), name, *name == "experimental");
-            // The experimental gate hides the whole tab through its row.
-            if *name == "experimental" {
-                *ui.experimental_nav.borrow_mut() = Some(row.clone());
-            }
             sidebar_list.append(&row);
             page_rows.push((name.to_string(), row.clone()));
         }
@@ -314,11 +310,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     about_list.append(&separator_row());
     about_list.append(&about_row);
     page_rows.push(("about".to_string(), about_row.clone()));
-    // refresh() ran before the sidebar existed: the eleven rows hid fine,
-    // but the gate's nav-row hide found nothing and the "Thử nghiệm" tab
-    // reappeared on every open. The nav row is stored now — apply the gate
-    // (pure visibility; it no longer jumps pages).
-    ui.set_experimental_visible(config.experimental_features);
+    // refresh() ran before the sidebar existed: apply the gate presentation
+    // once more now that every page row is in place (lock/defaults only —
+    // the tab never hides).
+    ui.set_experimental_sensitive(config.experimental_features);
+    if !config.experimental_features {
+        ui.show_experimental_defaults();
+    }
     // Owned copies for the 'static signal handlers (the const PAGES they
     // replaced lives only in the content file now).
     let app_name = t("app.name", "MăngRS");
