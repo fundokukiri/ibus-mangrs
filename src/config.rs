@@ -75,6 +75,8 @@ pub struct Config {
     pub time_format: String,
     /// `$DATE` expansion format (chrono strftime).
     pub date_format: String,
+    /// Settings-window language ("vi" | "en"); the engine ignores it.
+    pub language: String,
     /// Words from `dictionary.txt` are never auto-restored.
     pub dictionary_enabled: bool,
     /// Vietnamese abbreviations keep their đ: bamboo's auto_correct reverts
@@ -775,6 +777,7 @@ impl Default for Config {
             macro_expand_valid_words: false,
             time_format: "%H:%M".into(),
             date_format: "%d/%m/%Y".into(),
+            language: "vi".into(),
             dictionary_enabled: false,
             abbreviations: true,
             cycle_mode_hotkey: String::new(),

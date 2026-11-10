@@ -464,6 +464,7 @@ fn refresh_round_trips_every_widget() {
         macro_expand_valid_words: true,
         time_format: "%H".into(),
         date_format: "%Y".into(),
+        language: "vi".into(),
         dictionary_enabled: false,
         abbreviations: false,
         cycle_mode_hotkey: "Control+Alt+v".into(),
