@@ -200,6 +200,12 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.date_format.subtitle", ""),
         DATE_FORMATS,
     );
+    // The item labels are proper names (LANGUAGES), never translated.
+    let language = combo_row(
+        &t("rows.language.title", "Ngôn ngữ"),
+        &t("rows.language.subtitle", ""),
+        LANGUAGES,
+    );
     let macros_text = text_view("");
     let emoji_enabled = switch_row(
         &t("rows.emoji_enabled.title", "Gõ tắt emoji"),
@@ -680,6 +686,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         macro_valid_words,
         time_format,
         date_format,
+        language,
         macros_text,
         emoji_enabled,
         emoji_hotkey_display,

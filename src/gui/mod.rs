@@ -119,6 +119,9 @@ const CHANNELS: &[&str] = &["CommitText (an toàn)", "Clipboard (Ctrl+V)"];
 /// its own item by `select_format` instead of being rewritten.
 const TIME_FORMATS: &[&str] = &["%H:%M", "%H:%M:%S", "%Hh%M", "%I:%M %p"];
 const DATE_FORMATS: &[&str] = &["%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%Y-%m-%d", "%d/%m/%y"];
+/// The interface languages, in combo order. The labels are proper names —
+/// they stay the same in every language.
+const LANGUAGES: &[&str] = &["Tiếng Việt", "English"];
 
 /// The custom-shortcut functions, in `config::CUSTOM_HOTKEY_ACTIONS` order:
 /// (action key, gui-content key) plus the code fallback labels — the
@@ -193,6 +196,8 @@ struct Ui {
     macro_valid_words: adw::SwitchRow,
     time_format: adw::ComboRow,
     date_format: adw::ComboRow,
+    /// The interface language; picking it rebuilds the window (content.rs).
+    language: adw::ComboRow,
     /// Emoji shortcodes ("Emoji" tab): the on/off switch, the picker
     /// hotkey (the row itself lives on "Phím tắt", one row per shortcut)
     /// and the raw user table `name=glyph` lines of `emoji.toml`.
@@ -478,6 +483,8 @@ impl Ui {
             .set_active(config.macro_expand_valid_words);
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
         select_format(&self.date_format, DATE_FORMATS, &config.date_format);
+        self.language
+            .set_selected(u32::from(config.language == "en"));
         self.emoji_enabled.set_active(config.emoji_enabled);
         *self.emoji_hotkey_value.borrow_mut() = config.emoji_hotkey.clone();
         self.emoji_hotkey_display.render(&config.emoji_hotkey);
@@ -639,6 +646,12 @@ impl Ui {
         config.macro_expand_valid_words = self.macro_valid_words.is_active();
         config.time_format = format_selected(&self.time_format);
         config.date_format = format_selected(&self.date_format);
+        config.language = if self.language.selected() == 1 {
+            "en"
+        } else {
+            "vi"
+        }
+        .into();
         config.emoji_enabled = self.emoji_enabled.is_active();
         config.emoji_hotkey = self.emoji_hotkey_value.borrow().clone();
         config.dictionary_enabled = self.dictionary_enabled.is_active();

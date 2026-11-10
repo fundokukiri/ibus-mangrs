@@ -250,6 +250,9 @@ title = "Time format ($TIME)"
 [rows.date_format]
 title = "Date format ($DATE)"
 
+[rows.language]
+title = "Language"
+
 [rows.macro_enabled]
 title = "Enable shorthand"
 subtitle = "Keys expand into phrases at word end"
