@@ -259,8 +259,9 @@ pub struct Engine {
     idle_commit_ms: u64,
     /// The smooth modes show the composed word progressively: every
     /// composition-changing key erases the committed tail and commits the
-    /// new one through the injected transport. Experimental mirror of
-    /// `config.smooth_per_key` (gated by the master switch).
+    /// new one through the injected transport. Mirror of
+    /// `config.smooth_per_key`, on by default and outside the
+    /// experimental gate.
     smooth_per_key: bool,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
@@ -526,7 +527,9 @@ impl Engine {
         self.echo_stale_ms = config.echo_stale_ms;
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;
         self.idle_commit_ms = config.idle_commit_ms;
-        self.smooth_per_key = experimental && config.smooth_per_key;
+        // Not part of the experimental set anymore: the gate must not force
+        // it off or the always-visible switch would silently do nothing.
+        self.smooth_per_key = config.smooth_per_key;
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;

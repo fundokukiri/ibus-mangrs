@@ -70,8 +70,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     settings.add(&ui.macro_enabled);
     settings.add(&ui.capitalize_macro);
     settings.add(&ui.macro_in_off_mode);
-    settings.add(&ui.macro_valid_words);
-    decorate_experimental(&ui.macro_valid_words);
+    // macro_valid_words moved to the dedicated "Thử nghiệm" tab.
     // The old subtitle examples ("Ví dụ %H:%M") live on as the row
     // tooltip: EntryRow has no placeholder in this libadwaita.
     ui.time_format

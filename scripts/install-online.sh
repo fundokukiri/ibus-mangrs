@@ -4,11 +4,21 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
 #
-# Installs everything the build needs on Debian/Ubuntu (apt), Arch (pacman) and
-# Fedora (dnf): build toolchain, IBus, GTK4, DBus headers, Rust (via rustup).
-# Needs curl and sudo (or run as root). Re-run to upgrade.
+# Installs everything the build needs on Debian/Ubuntu (apt), Arch (pacman),
+# Fedora (dnf) and openSUSE (zypper): build toolchain, IBus, GTK4, DBus
+# headers, Rust (via rustup). Nothing is installed when it is already there —
+# re-run to upgrade — and the build-only packages this run installed are
+# removed again after a successful install (KEEP_BUILD_DEPS=1 keeps them;
+# runtime libraries always stay). On GNOME the MăngRS input source is added
+# to the session automatically. Needs curl (or wget) and sudo (or run as root).
 
 set -eu
+
+# Non-empty keeps the build-only packages after a successful install
+# (default: they are removed again — only what THIS run installed).
+KEEP_BUILD_DEPS=${KEEP_BUILD_DEPS:-}
+INSTALLED=""
+RUSTUP_INSTALLED=""
 
 REPO=fundokukiri/ibus-mangrs
 REF=master
@@ -29,6 +39,7 @@ case "${ID:-}" in
     debian|ubuntu|linuxmint|pop|elementary|kali|zorin) DISTRO=debian ;;
     arch|manjaro|endeavouros|garuda|artix) DISTRO=arch ;;
     fedora|rhel|centos|almalinux|rocky|ol) DISTRO=fedora ;;
+    opensuse-leap|opensuse-tumbleweed|suse|sled|sles) DISTRO=suse ;;
 esac
 
 if [ -z "$DISTRO" ]; then
@@ -36,6 +47,7 @@ if [ -z "$DISTRO" ]; then
         *" debian "*|*" ubuntu "*) DISTRO=debian ;;
         *" arch "*) DISTRO=arch ;;
         *" rhel "*|*" fedora "*) DISTRO=fedora ;;
+        *" suse "*|*" opensuse "*) DISTRO=suse ;;
     esac
 fi
 
@@ -44,10 +56,18 @@ if [ -z "$DISTRO" ]; then
     if command -v apt-get >/dev/null; then DISTRO=debian
     elif command -v pacman >/dev/null; then DISTRO=arch
     elif command -v dnf >/dev/null; then DISTRO=fedora
+    elif command -v zypper >/dev/null; then DISTRO=suse
     fi
 fi
 [ -n "$DISTRO" ] || die "unsupported distro '${ID:-unknown}': install Rust, IBus, GTK4 and build tools yourself, then re-run"
 echo ">> distro family: $DISTRO"
+
+# Fedora Silverblue/ostree variants layer packages into a new deployment:
+# plain dnf install does not work there. Point at the manual path instead of
+# half-installing.
+if [ "$DISTRO" = fedora ] && command -v rpm-ostree >/dev/null; then
+    die "Fedora Silverblue (rpm-ostree) detected: install the dependencies with 'rpm-ostree install gcc pkgconf-pkg-config ibus dbus-devel gtk4-devel libadwaita-devel' (reboot), then build from source — see README, 'Install from a local checkout'"
+fi
 
 # ---- root / sudo ----
 if [ "$(id -u)" -eq 0 ]; then
@@ -63,7 +83,7 @@ pkg_installed() {
     case "$DISTRO" in
         debian) dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed" ;;
         arch) pacman -Qi "$1" >/dev/null 2>&1 ;;
-        fedora) rpm -q "$1" >/dev/null 2>&1 ;;
+        fedora|suse) rpm -q "$1" >/dev/null 2>&1 ;;
     esac
 }
 
@@ -92,23 +112,33 @@ ensure_pkgs() {
         fedora)
             $SUDO dnf install -y -q $missing || die "failed to install packages (dnf)"
             ;;
+        suse)
+            $SUDO zypper --non-interactive install $missing \
+                || die "failed to install packages (zypper)"
+            ;;
         *) die "unsupported distro '$DISTRO'" ;;
     esac
+    INSTALLED="$INSTALLED $missing"
 }
 
 # GTK4 dev pulls the cairo/pango/glib/gdk-pixbuf/graphene headers in on every
 # distro; DBus is needed by the `dbus` crate, not by GTK.
 case "$DISTRO" in
     debian)
-        DEPS="build-essential pkg-config git tar gzip curl ibus desktop-file-utils
+        # gcc is the linker (no C is compiled); libc6-dev ships the crt objects.
+        DEPS="gcc libc6-dev pkg-config tar gzip curl ibus desktop-file-utils
             libdbus-1-dev libgtk-4-dev libadwaita-1-dev"
         ;;
     arch)
-        DEPS="gcc make pkgconf git tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils"
+        DEPS="gcc pkgconf tar gzip curl ibus dbus gtk4 libadwaita desktop-file-utils"
         ;;
     fedora)
-        DEPS="gcc make pkgconf-pkg-config git tar gzip curl ibus dbus-devel
+        DEPS="gcc pkgconf-pkg-config tar gzip curl ibus dbus-devel
             gtk4-devel libadwaita-devel desktop-file-utils"
+        ;;
+    suse)
+        DEPS="gcc pkg-config tar gzip curl ibus dbus-1-devel gtk4-devel
+            libadwaita-devel desktop-file-utils"
         ;;
 esac
 
@@ -118,6 +148,7 @@ ensure_pkgs $DEPS
 # ---- ensure rustup/cargo ----
 if ! command -v cargo >/dev/null; then
     echo ">> installing Rust (rustup)..."
+    RUSTUP_INSTALLED=1
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
         || die "rustup install failed"
 fi
@@ -152,6 +183,87 @@ case "$adw_ver" in
 esac
 echo ">> GTK $gtk_ver, $(cargo --version)"
 
+# ---- cleanup: drop the build-only packages THIS run installed ----
+# The binary still links the runtime libraries (GTK4, libadwaita, dbus, ibus),
+# so only the toolchain/header packages recorded by ensure_pkgs go. Packages
+# that were already on the machine are never touched, and the runtime libs are
+# explicitly re-marked as user-installed first so the package manager's
+# autoremove cannot strip them from under an unpackaged binary.
+cleanup_build_deps() {
+    if [ -n "$KEEP_BUILD_DEPS" ]; then
+        echo ">> KEEP_BUILD_DEPS set: build dependencies stay installed"
+        return 0
+    fi
+    [ -n "$INSTALLED" ] || { echo ">> nothing was installed by this run"; return 0; }
+    case "$DISTRO" in
+        arch)   REMOVE_PKGS="gcc pkgconf desktop-file-utils" ;;
+        debian) REMOVE_PKGS="gcc libc6-dev pkg-config libdbus-1-dev libgtk-4-dev libadwaita-1-dev desktop-file-utils" ;;
+        fedora) REMOVE_PKGS="gcc pkgconf-pkg-config dbus-devel gtk4-devel libadwaita-devel desktop-file-utils" ;;
+        suse)   REMOVE_PKGS="gcc pkg-config dbus-1-devel gtk4-devel libadwaita-devel desktop-file-utils" ;;
+    esac
+    victims=""
+    # shellcheck disable=SC2086
+    for p in $REMOVE_PKGS; do
+        case " $INSTALLED " in
+            *" $p "*) victims="$victims $p" ;;
+        esac
+    done
+    if [ -z "$victims" ]; then
+        echo ">> build dependencies were already present; nothing to clean"
+        return 0
+    fi
+    echo ">> removing build dependencies installed by this run:$victims"
+    case "$DISTRO" in
+        arch)
+            $SUDO pacman -Rs --noconfirm $victims \
+                || echo ">> (pacman cleanup failed; packages kept)" ;;
+        debian)
+            $SUDO apt-get install -y -qq libgtk-4-1 libadwaita-1-0 libdbus-1-3 >/dev/null 2>&1 || true
+            $SUDO env DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq $victims || true
+            $SUDO env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq || true
+            ;;
+        fedora)
+            $SUDO dnf install -y -q gtk4 libadwaita dbus-libs >/dev/null 2>&1 || true
+            $SUDO dnf remove -y -q $victims || true
+            $SUDO dnf autoremove -y -q || true
+            ;;
+        suse)
+            $SUDO zypper --non-interactive remove $victims || true
+            ;;
+    esac
+}
+
+# ---- enable the input source (GNOME) ----
+# The one-liner promises a working keyboard when it returns: put MăngRS first
+# in the GNOME input sources instead of asking for the Settings dance. Other
+# desktops keep the printed manual step.
+enable_gnome_input_source() {
+    command -v gsettings >/dev/null || return 0
+    current=$(gsettings get org.gnome.desktop.input-sources sources 2>/dev/null) || return 0
+    case "$current" in
+        *"ibus-mangrs"*)
+            echo ">> GNOME input sources already contain MăngRS"
+            return 0
+            ;;
+    esac
+    # "@a(ss) [('xkb', 'us')]" -> "('xkb', 'us')" (the type annotation and the
+    # brackets do not survive a plain string append; strip in this exact order
+    # or the bracket hides behind the padding space)
+    list=${current#*@a\(ss\)}
+    list=${list# }
+    list=${list#[}
+    list=${list%]}
+    list=${list% }
+    if [ -z "$(printf '%s' "$list" | tr -d ' ')" ]; then
+        new="[('ibus', 'ibus-mangrs')]"
+    else
+        new="[('ibus', 'ibus-mangrs'), $list]"
+    fi
+    if gsettings set org.gnome.desktop.input-sources sources "$new" 2>/dev/null; then
+        echo ">> MăngRS put first in GNOME input sources"
+    fi
+}
+
 # ---- download, build, install ----
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -167,9 +279,17 @@ echo ">> installing (needs sudo)..."
 # shellcheck disable=SC2086
 $SUDO ./scripts/install.sh
 
+cleanup_build_deps
+
+enable_gnome_input_source
+
 ibus-daemon -r --replace 2>/dev/null || ibus restart 2>/dev/null || true
 
 echo
 echo "done. enable the input source:"
-echo "  Settings -> Keyboard -> Input Sources -> + -> Vietnamese -> MăngRS"
+echo "  GNOME: done automatically above — switch with Super+Space if needed"
+echo "  other desktops: Settings -> Keyboard -> Input Sources -> + -> Vietnamese -> MăngRS"
 echo "  (log out and back in once if you were just added to the input group)"
+if [ -n "$RUSTUP_INSTALLED" ]; then
+    echo "  (Rust was installed via rustup and stays; remove with 'rustup self uninstall' if unwanted)"
+fi

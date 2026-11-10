@@ -91,11 +91,11 @@ pub const MODES: &[(&str, &str)] = &[
     ("nonpreedit", "Không gạch chân"),
     ("preedit", "Gạch chân (preedit)"),
     ("surrounding", "Surrounding text"),
-    ("smooth", "Smooth (uinput)"),
-    ("supersmooth", "Super Smooth (uinput)"),
+    ("smooth", "Flow (uinput)"),
+    ("supersmooth", "Turbo (uinput)"),
     ("select", "Select (uinput)"),
-    ("forwardkeyevent", "ForwardKeyEvent (Backspace)"),
-    ("forwardselect", "ForwardKeyEvent II (Shift+Left)"),
+    ("forwardkeyevent", "Forward Backspace"),
+    ("forwardselect", "Forward Selection"),
     ("off", "OFF"),
 ];
 

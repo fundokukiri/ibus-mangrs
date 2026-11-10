@@ -125,9 +125,9 @@ pub struct Config {
     /// key that changes the composition erases the committed tail and
     /// commits the new one through the injected transport (`ee` shows
     /// `ê` immediately, marks are editable mid-word) instead of holding
-    /// the raw keys until the word ends. Off by default: word-end
-    /// rewrite is the smooth contract (lotus ships the same), and the
-    /// per-key commit adds ~60 ms of display lag per key.
+    /// the raw keys until the word ends. On by default: the owner ships
+    /// the per-key display as the smooth look; the word-end rewrite stays
+    /// one switch away and the per-key commit costs ~60 ms per key.
     pub smooth_per_key: bool,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
@@ -729,35 +729,6 @@ pub fn recent_clients() -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Built-in rules for clients known to drop `DeleteSurroundingText`.
-fn default_app_rules() -> Vec<AppRule> {
-    let preedit = [
-        "chrome",
-        "chromium",
-        "brave",
-        "msedge",
-        "vivaldi",
-        "electron",
-        "code",
-        "slack",
-        "discord",
-        "kgx",
-        "gnome-console",
-    ];
-    let surrounding = ["sublime_text"];
-    preedit
-        .into_iter()
-        .map(|pattern| AppRule {
-            pattern: pattern.into(),
-            mode: ModeConfig::Preedit,
-        })
-        .chain(surrounding.into_iter().map(|pattern| AppRule {
-            pattern: pattern.into(),
-            mode: ModeConfig::Surrounding,
-        }))
-        .collect()
-}
-
 /// Keys of the quick toggles the panel popup shows by default — the menu the
 /// engine shipped before the list became user-editable.
 fn default_quick_menu() -> Vec<String> {
@@ -822,14 +793,14 @@ impl Default for Config {
             echo_stale_ms: 150,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            smooth_per_key: false,
+            smooth_per_key: true,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
             debug_log_text: false,
             x11_delete_without_report: false,
             preedit_for_xim: false,
-            app_rules: default_app_rules(),
+            app_rules: Vec::new(),
             custom_hotkeys: Vec::new(),
             quick_menu: default_quick_menu(),
             menu_modes: default_menu_modes(),
@@ -1238,8 +1209,8 @@ children = ["preedit", "smooth"]
         let c: Config = toml::from_str("mode = \"preedit\"").unwrap();
         assert_eq!(c.mode, ModeConfig::Preedit);
         assert!(c.enabled, "missing keys take defaults");
-        // Missing app_rules fall back to the built-in safety net.
-        assert!(c.app_rules.iter().any(|r| r.pattern == "chrome"));
+        // Missing app_rules stay empty — nothing ships pre-added.
+        assert!(c.app_rules.is_empty());
     }
 
     #[test]
@@ -1271,10 +1242,10 @@ children = ["preedit", "smooth"]
     }
 
     #[test]
-    fn smooth_per_key_round_trips_and_defaults_off() {
-        let c: Config = toml::from_str("smooth_per_key = true").unwrap();
-        assert!(c.smooth_per_key);
-        assert!(!Config::default().smooth_per_key);
+    fn smooth_per_key_round_trips_and_defaults_on() {
+        let c: Config = toml::from_str("smooth_per_key = false").unwrap();
+        assert!(!c.smooth_per_key);
+        assert!(Config::default().smooth_per_key);
     }
 
     #[test]
@@ -1316,8 +1287,20 @@ children = ["preedit", "smooth"]
 
     #[test]
     fn picker_choice_updates_the_winning_rule() {
-        let mut c = Config::default();
-        // The net covers chrome with Preedit; a pick for a chrome target
+        let mut c = Config {
+            app_rules: vec![
+                AppRule {
+                    pattern: "chrome".into(),
+                    mode: ModeConfig::Preedit,
+                },
+                AppRule {
+                    pattern: "chromium".into(),
+                    mode: ModeConfig::Preedit,
+                },
+            ],
+            ..Config::default()
+        };
+        // chrome is covered by an existing rule; a pick for a chrome target
         // must flip THAT rule in place.
         assert_eq!(
             crate::config::app_rule_mode(&c.app_rules, Some("wayland:chrome")),
