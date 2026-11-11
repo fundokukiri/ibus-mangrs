@@ -160,21 +160,15 @@ pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
     row.add_suffix(&switch);
     row.add_suffix(&divider);
     row.add_suffix(value);
-    // Merged rows only: the control group hugs the text block instead of
-    // floating at the row's right edge — the suffix box expands so its
-    // start-packed children land right after the fixed-width title, and
-    // the slack moves to the row's end.
-    if let (Some(suffixes), _) = find_suffixes_and_switch(row.upcast_ref()) {
-        suffixes.set_hexpand(true);
-    }
     (row, switch)
 }
 
-/// One width for every merged-row value control: the rows must read as a
-/// balanced column, not some boxes short and some long. In pixels, not
-/// width_chars — the spin's built-in arrow stack makes a 12-char spin
-/// wider than a 12-char entry, which would skew the divider column.
-const VALUE_WIDTH_PX: i32 = 120;
+/// One long width for every merged-row value control: the boxes must
+/// stretch across the space next to the short descriptions and read as a
+/// balanced column. In pixels, not width_chars — the spin's built-in arrow
+/// stack makes a width_chars-sized spin wider than the same-sized entry,
+/// which would skew the divider column.
+const VALUE_WIDTH_PX: i32 = 240;
 
 /// The fixed width of every decorated row's text block: with one shared
 /// title width the switch/divider/value controls all start at the same x
