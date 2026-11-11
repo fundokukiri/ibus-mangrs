@@ -1,10 +1,15 @@
+<p align="center">
+  <img src="../data/logo.png" alt="Logo MăngRS" width="360">
+</p>
+
 # MăngRS
 
-**Tiếng Việt** | [English](README.md)
+**Tiếng Việt** | [English](../README.md)
 
 Bộ gõ tiếng Việt cho **IBus**, viết bằng **Rust** trên nền
-[`bamboo-core`](https://crates.io/crates/bamboo-core). 9 kiểu gõ, 9 chế độ gõ, cửa sổ cài đặt
-GTK4, gõ tắt, bảng chọn emoji ngay tại con trỏ và luật riêng cho từng ứng dụng.
+[`bamboo-core`](https://crates.io/crates/bamboo-core). 9 kiểu gõ, 11 bảng mã, 9 chế độ gõ,
+cửa sổ cài đặt GTK4, gõ tắt, bảng chọn emoji ngay tại con trỏ và luật riêng cho từng
+ứng dụng.
 
 > Phát triển và thử nghiệm trên **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland; X11 đã chạy
 > thử). Chỉ cần IBus ≥ 1.5 và GTK4 + libadwaita — nơi nào IBus chạy được thì bộ gõ này chạy
@@ -13,8 +18,8 @@ GTK4, gõ tắt, bảng chọn emoji ngay tại con trỏ và luật riêng cho 
 ## Tính năng
 
 - **9 kiểu gõ sẵn** — Telex (`tieengs` → `tiếng`), Telex 2, Telex W, Telex + VNI,
-  Telex + VNI + VIQR, VNI (`tie6ng1`), VNI cho bàn phím AZERTY, VIQR và kiểu Microsoft
-  (`ti3ng8` → `tiếng`) — kèm **11 bảng mã** xuất ra (Unicode, VNI, VIQR, TCVN3, ...).
+  Telex + VNI + VIQR, VNI (`tie6ng1`), VNI bàn phím Pháp, VIQR và bố cục Microsoft
+  (`ti3ng8` → `tiếng`) — kèm **11 bảng mã** xuất ra (Unicode, VNI, VIQR, TCVN3, VISCII, ...).
 - **9 chế độ gõ** (bảng dưới), đặt riêng cho từng ứng dụng qua **Luật theo app**.
 - **Tùy chọn gõ linh hoạt**: dấu kiểu mới `hòa` hay kiểu cũ `hoà`, gõ dấu tự do
   (`hoangf` → `hoàng`), tự sửa âm tiết sai, tự buông từ tiếng nước ngoài, tự nhả tay khi gõ
@@ -22,34 +27,42 @@ GTK4, gõ tắt, bảng chọn emoji ngay tại con trỏ và luật riêng cho 
 - **Ba kiểu Backspace xoá dấu**: xoá dấu trước (`hạ` → `ha`), xoá nguyên ký tự màn hình
   (`việt` → `việ`), hay kiểu Unikey lùi từng phím (`hạ` → `hã` → `hà` → ...).
 - **Chữ hiện dần từng phím ở chế độ Flow/Turbo** (bật sẵn): gõ `ee` thấy ngay `ê` thay vì đợi
-  hết từ; click chuột hay đổi cửa sổ cũng không mất chữ đang gõ dở (`ddc` vẫn ra `đc`).
+  hết từ. Click chuột hay đổi cửa sổ cũng không mất chữ đang gõ dở — preedit vào văn bản
+  đúng như đang hiện, kể cả chỗ sửa tắt như `ddc` → `đc`.
 - **Gõ tắt** có `$TIME` / `$DATE` và viết hoa thông minh; **từ điển cá nhân** chứa những từ
   không bao giờ bị tự sửa.
 - **Emoji**: gõ `:tên:` ra emoji (mặc định tắt), hoặc bấm phím tắt mở bảng chọn ngay tại con
   trỏ — 1.940 emoji tìm được bằng cả tiếng Việt lẫn tiếng Anh; thêm bộ riêng dạng
   `tên = "ký tự"` trong `emoji.toml`.
-- **Menu trên panel sửa được** (thư mục, chức năng, nhóm chọn, đường phân cách) và 14 phím
-  tắt tự gán, cộng 4 phím tắt có sẵn.
-- **Cửa sổ cài đặt GTK4 + libadwaita** (11 trang): sửa gì cũng áp dụng sau khoảng 1 giây, và
-  toàn bộ thiết lập sao lưu ra một tệp JSON duy nhất.
+- **Menu trên panel sửa được** (thư mục, chức năng, nhóm chọn, đường phân cách) và 14 chức
+  năng gán phím tắt được, cộng 4 khe phím tắt có sẵn (mặc định chưa gán phím nào).
+- **Cửa sổ cài đặt GTK4 + libadwaita** (12 trang, tiếng Việt hoặc tiếng Anh — hàng ở
+  _Cài đặt khác_ đổi ngôn ngữ): sửa gì cũng áp dụng sau khoảng 1 giây, và toàn bộ thiết lập
+  sao lưu ra một tệp JSON duy nhất.
 
 ## Các chế độ gõ
 
-| Chế độ             | Cách hoạt động                                                  | Hợp với                                       |
-| ------------------ | ---------------------------------------------------------------- | --------------------------------------------- |
-| Preedit (mặc định) | chữ hiện ngay tại con trỏ có gạch chân, hết từ thì vào văn bản   | dùng ở đâu cũng ổn                            |
-| Non-preedit        | phím nào vào ngay phím đó, có dấu thì xoá đuôi viết lại          | Firefox, app GTK                              |
-| Surrounding text   | như Non-preedit, thêm bước đối chiếu với chữ app báo về          | Sublime Text                                  |
-| Flow (uinput)      | gửi phím thô khi gõ, hết từ dùng Backspace thật xoá đuôi         | terminal, app khó tính (X11)                  |
-| Turbo (uinput)     | như Flow nhưng bỏ bước kiểm tra an toàn                          | gõ nhanh (X11)                                |
-| Select (uinput)    | Shift+← bôi đen đuôi, Delete xoá, từ vào văn bản                 | app xử lý Backspace lỗi (X11)                 |
-| Forward Backspace  | xoá đuôi bằng phím Backspace gửi qua IBus                        | Chrome, Electron, GNOME Console, Sublime Text |
-| Forward Selection  | bôi đen đuôi bằng Shift+← rồi đè chữ mới lên                     | app X11/XIM (JetBrains)                       |
-| TẮT                | tắt tiếng Việt, gõ tắt vẫn chạy                                  | gõ lẫn Việt – Anh                             |
+| Chế độ (nhãn)      | Giá trị config    | Cách hoạt động                                                  | Hợp với                                |
+| ------------------ | ----------------- | ---------------------------------------------------------------- | --------------------------------------- |
+| Gạch chân (preedit)| `preedit`         | chữ hiện ngay tại con trỏ có gạch chân, hết từ thì vào văn bản   | dùng ở đâu cũng ổn                      |
+| Không gạch chân    | `nonpreedit`      | phím nào vào ngay phím đó, có dấu thì xoá đuôi viết lại          | Firefox, app GTK                        |
+| Surrounding text   | `surrounding`     | như Không gạch chân, thêm bước đối chiếu với chữ app báo về      | Sublime Text                            |
+| Flow (uinput)      | `smooth`          | gửi phím thô khi gõ, hết từ dùng Backspace thật xoá đuôi         | terminal, app khó tính                  |
+| Turbo (uinput)     | `supersmooth`     | như Flow nhưng bỏ bước kiểm tra an toàn                          | gõ nhanh                                |
+| Select (uinput)    | `select`          | Shift+← bôi đen đuôi, Delete xoá, từ vào văn bản                 | app xử lý Backspace lỗi                 |
+| Forward Backspace  | `forwardkeyevent` | xoá đuôi bằng sự kiện phím Backspace gửi qua IBus                | Chrome, Electron và app tương tự        |
+| Forward Selection  | `forwardselect`   | bôi đen đuôi bằng Shift+← gửi qua IBus, chữ mới đè lên vùng chọn | app X11/XIM (JetBrains)                 |
+| OFF                | `off`             | tắt xử lý tiếng Việt, gõ tắt và tự viết hoa vẫn chạy             | gõ lẫn Việt – Anh                       |
 
-Đổi chế độ ở menu bộ gõ, cửa sổ cài đặt, phím tắt, hoặc theo từng app qua **Luật theo app**.
-Ba chế độ uinput cần `/dev/uinput`; nơi giả lập phím không với tới được app thì chúng tự rơi
-về Preedit (trên GNOME Wayland là vậy) — nên chúng chủ yếu dành cho phiên X11.
+Nhãn là tên hiện trong menu bộ gõ và cửa sổ cài đặt; giá trị config là thứ `config.toml` và
+Luật theo app nhận.
+
+Đổi chế độ ở menu bộ gõ, hàng _Chế độ gõ_ trong cửa sổ cài đặt, phím tắt, hoặc theo từng app
+qua **Luật theo app**. Ba chế độ uinput nhấn phím thật qua `/dev/uinput`: cần quyền ghi thiết
+bị này, không có thì tự rơi về preedit (Select còn cần app báo surrounding-text). Chúng chạy
+trên cả X11 lẫn GNOME Wayland. Hai chế độ Forward không cần `/dev/uinput` cũng không cần báo
+cáo surrounding-text — phần xoá hay vùng chọn đi qua sự kiện phím gửi tiếp. Config hay luật
+còn giữ giá trị `auto` hoặc `defaulttyping` (đã bỏ) tự chuyển sang `preedit` và `off`.
 
 ## Yêu cầu
 
@@ -59,9 +72,9 @@ về Preedit (trên GNOME Wayland là vậy) — nên chúng chủ yếu dành c
 | Debian / Ubuntu| `ibus` `libgtk-4-dev` `libadwaita-1-dev` `libdbus-1-dev` + build-essential |
 | Fedora         | `ibus` `gtk4-devel` `libadwaita-devel` `dbus-devel` + `gcc` `make` |
 
-Trình cài nhận diện distro (apt / pacman / dnf), thiếu gói gì cài nấy, Rust cài qua rustup.
-Cần GTK 4.10+ và libadwaita 1.5+ (Ubuntu 22.04 chỉ có GTK 4.6). Chỉ Arch được thử kỹ. IBus
-phải là bộ quản lý input của hệ thống (GNOME mặc định đã vậy).
+Trình cài nhận diện distro (apt / pacman / dnf / zypper), thiếu gói gì cài nấy, Rust cài qua
+rustup. Cần GTK 4.10+ và libadwaita 1.5+ (Ubuntu 22.04 chỉ có GTK 4.6). Chỉ Arch được thử
+kỹ. IBus phải là bộ quản lý input của hệ thống (GNOME mặc định đã vậy).
 
 ## Cài đặt
 
@@ -79,6 +92,15 @@ wget -qO- https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scrip
 ```
 
 (Đẩy script từ mạng vào `sh` là chạy code người khác — không yên tâm thì đọc script trước.)
+
+Muốn gỡ sạch:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/uninstall.sh | sh
+```
+
+Thêm `PURGE_CONFIG=1` phía trước lệnh để xoá luôn `~/.config/ibus-mangrs`; chạy thường giữ
+nguyên cấu hình của bạn. `--demo` cho xem quá trình gỡ mà không xoá gì.
 
 ### Từ mã nguồn
 
@@ -134,28 +156,36 @@ Kiểm tra: `ls -l /dev/uinput` phải hiện `crw-rw---- root input`.
 1. `ibus restart` (sau khi cài hoặc nâng cấp binary).
 2. **Settings → Keyboard → Input Sources → +** → *Vietnamese* → **MăngRS**
    (hoặc `ibus engine ibus-mangrs`).
-3. `Super+Space` đổi bộ gõ; bánh răng cạnh tên bộ gõ mở cửa sổ cài đặt.
+3. `Super+Space` đổi giữa các nguồn nhập (phím riêng của GNOME); bánh răng cạnh tên bộ gõ
+   mở cửa sổ cài đặt.
 
 ## Cách dùng
 
 | Việc cần làm          | Cách làm                                                                                   |
 | --------------------- | ------------------------------------------------------------------------------------------- |
-| Bật/tắt tiếng Việt    | menu bộ gõ → *Bật tiếng Việt*, hoặc `Super+Space`                                           |
-| Mở cài đặt            | menu bộ gõ → *Cài đặt…*, hoặc `ibus-engine-mangrs -gui`                                     |
-| Đổi kiểu gõ           | menu → *Input Method* (9 kiểu), hoặc GUI                                                    |
-| Đổi bảng mã           | menu → *Charset* (11 bảng mã), hoặc GUI                                                     |
-| Đổi chế độ gõ         | menu → *Display*, GUI (đủ 9 chế độ), hoặc phím tắt đổi nhanh                                |
-| Gõ emoji              | gõ `:tên:` (bật trong trang *Emoji*), hoặc phím tắt mở bảng chọn tại con trỏ                |
-| Gán phím tắt          | GUI trang *Phím tắt* (bấm vào hàng, nhấn tổ hợp)                                            |
-| Gõ tiếng Anh / code   | cứ gõ bình thường — từ không phải tiếng Việt tự buông qua, URL/email/đường dẫn giữ nguyên   |
-| Chế độ theo app       | GUI trang *Luật theo app* (bên dưới)                                                        |
+| Bật/tắt tiếng Việt    | menu bộ gõ → *Bật tiếng Việt*, hoặc phím tắt gán được (mặc định chưa gán)                    |
+| Mở cài đặt            | menu bộ gõ → *Cấu hình*, hoặc `ibus-engine-mangrs -gui`                                      |
+| Đổi kiểu gõ           | menu → *Kiểu gõ* (9 kiểu), hoặc GUI                                                          |
+| Đổi bảng mã           | menu → *Bảng mã* (11 bảng mã), hoặc GUI                                                      |
+| Đổi chế độ gõ         | menu → *Chế độ gõ*, GUI (đủ 9 chế độ), hoặc phím tắt đổi nhanh                               |
+| Gõ emoji              | gõ `:tên:` (bật trong trang *Emoji*), hoặc phím tắt mở bảng chọn tại con trỏ                 |
+| Chọn luật theo app    | phím tắt luật theo app mở bảng chọn ngay tại con trỏ: app đang dùng và chế độ của nó         |
+| Gán phím tắt          | GUI trang *Phím tắt* (bấm vào hàng, nhấn tổ hợp)                                             |
+| Gõ tiếng Anh / code   | cứ gõ bình thường — từ không phải tiếng Việt tự buông qua, URL/email/đường dẫn giữ nguyên    |
+| Chế độ theo app       | GUI trang *Luật theo app* (bên dưới)                                                         |
+
+Cả bốn khe phím tắt có sẵn (bật/tắt tiếng Việt, đổi chế độ gõ, chọn luật theo app, bảng
+emoji) mặc định chưa gán phím — đặt trên trang *Phím tắt*. `Super+Space` là phím đổi nguồn
+nhập của GNOME, không phải phím tắt của MăngRS.
 
 ## Luật theo app
 
 Một luật ép một chế độ gõ cho một ứng dụng và đè lên chế độ chung; luật nào khớp trước ăn
-trước nên xếp luật cụ thể lên trên luật chung. Làm trong GUI trang *Luật theo app* (chọn app,
-chọn chế độ, bấm *Thêm luật*), hoặc sửa tay trong `~/.config/ibus-mangrs/config.toml` (sửa là
-áp dụng sau khoảng 1 giây):
+trước nên xếp luật cụ thể lên trên luật chung. Tên app khớp theo chuỗi con không phân biệt
+hoa/thường (`term` ăn cả `xterm`); pattern đặc biệt `none` nhắm những app không bao giờ báo
+tên. Làm trong GUI trang *Luật theo app* (chọn app, chọn chế độ), qua phím tắt bảng chọn
+luật, hoặc sửa tay trong `~/.config/ibus-mangrs/config.toml` (sửa là áp dụng sau khoảng
+1 giây):
 
 ```toml
 [[app_rules]]
@@ -167,14 +197,18 @@ pattern = "sublime_text"
 mode = "surrounding"
 ```
 
-Giá trị `mode`: `auto`, `preedit` (mặc định), `nonpreedit`, `surrounding`, `smooth`,
-`supersmooth`, `select` (ba chế độ này cần `/dev/uinput`, dành cho X11), `forwardkeyevent`,
-`forwardselect`, `off`. Tên app khớp theo chuỗi con không phân biệt hoa/thường (`term` ăn cả
-`xterm`). Bộ gõ mang sẵn luật cho Chrome, Chromium, Brave, Edge, Vivaldi, các app Electron
-(VS Code, Slack, Discord) và GNOME Console → `preedit`, Sublime Text → `surrounding` — mấy app
-này bỏ qua tín hiệu xoá chữ, không có luật thì gõ dấu sẽ bị lặp chữ. Chrome và Firefox trên
-GNOME Wayland chỉ hiện với IBus như một relay vô danh: muốn đặt luật cho chúng phải cài kèm
-GNOME Shell extension (`data/gnome-shell-extension/README.md`) rồi đăng xuất đăng nhập lại.
+Giá trị `mode`: `preedit` (mặc định), `nonpreedit`, `surrounding`, `smooth`, `supersmooth`,
+`select` (ba chế độ này nhấn phím thật qua `/dev/uinput`), `forwardkeyevent`,
+`forwardselect`, `off`.
+
+Bộ gõ không mang luật nào sẵn. Engine có sẵn cơ chế bảo vệ cho các client hay nuốt thao tác
+xoá (Chrome, Chromium, Edge, Brave, Vivaldi và các app Electron như VS Code, Slack, Discord):
+nếu một chế độ có xoá-ghi-lại đang bật ở đó, engine gõ bằng preedit thay vì để chữ bị lặp.
+Muốn app đó dùng chế độ khác, tự thêm luật.
+
+Chrome và Firefox trên GNOME Wayland chỉ hiện với IBus như một relay vô danh: muốn đặt luật
+cho chúng phải cài kèm GNOME Shell extension (`data/gnome-shell-extension/README.md`) rồi
+đăng xuất đăng nhập lại.
 
 ## Các tệp cấu hình
 
@@ -197,7 +231,7 @@ GNOME Shell extension (`data/gnome-shell-extension/README.md`) rồi đăng xu�
 
 ## Bản quyền
 
-- [**MăngRS**](https://github.com/fundokukiri/ibus-mangrs) — giấy phép [GPL-3.0](LICENSE).
+- [**MăngRS**](https://github.com/fundokukiri/ibus-mangrs) — giấy phép [GPL-3.0](../LICENSE).
 - [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Bản quyền (C) 2018 Luong Thanh Lam, giấy phép [GPL-3.0](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file).
 - [**bamboo-core (Rust):**](https://github.com/bamboo-vi/bamboo-core) thư viện thuật toán gõ tiếng Việt viết bằng Rust, giấy phép [MIT](https://github.com/bamboo-vi/bamboo-core?tab=MIT-1-ov-file).
 - [**bamboo-core (Go):**](https://github.com/BambooEngine/bamboo-core) Bản quyền (C) 2018 Luong Thanh Lam, giấy phép [MIT](https://github.com/BambooEngine/bamboo-core?tab=MIT-1-ov-file).
