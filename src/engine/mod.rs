@@ -313,6 +313,11 @@ pub struct Engine {
     /// the current region erases, so the committed word behind the caret
     /// stays editable. Empty until a region boundary crosses it.
     last_landed: String,
+    /// Select-only v2 state: the current word was rebuilt from the screen,
+    /// so the screen holds the composed word and the composition-driven
+    /// paths may run. Select's own mid-word screen shows the raw keys,
+    /// which stay on the forced-UnikeyWalk pass-through.
+    select_retracked: bool,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -483,6 +488,7 @@ impl Engine {
             flow_backspace_retrack: false,
             flow_backspace_composition: false,
             last_landed: String::new(),
+            select_retracked: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -1374,6 +1380,19 @@ impl Engine {
                 }
                 return Some(self.backspace_per_key());
             }
+            if mode == Mode::Select
+                && self.flow_backspace_composition
+                && !(self.url_word || self.emoji_word)
+                && (self.select_retracked
+                    || (!self.wrapper.has_composition() && !self.tail.is_empty()))
+            {
+                // v2 for Select: the word sits committed (or already
+                // rebuilt) — the flow erases the last screen character and
+                // rebuilds, then the tracked word deletes with the user's
+                // tone mode. Mid-word Select (the raw keys on screen) never
+                // enters: its screen keeps showing raw keys until word end.
+                return Some(self.backspace_uinput_composition(mode));
+            }
             self.wrapper.backspace();
             if !self.wrapper.has_composition() {
                 self.release_word_mode();
@@ -1524,6 +1543,7 @@ impl Engine {
         };
         self.tail.clear();
         self.repair_delete = None;
+        self.select_retracked = false;
         self.release_word_mode();
         self.url_word = false;
         self.emoji_word = false;
