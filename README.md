@@ -44,17 +44,17 @@ rules.
 
 ## Display modes
 
-| Display mode (label) | Config value    | How it works                                                     | Best for                                |
-| -------------------- | --------------- | ---------------------------------------------------------------- | --------------------------------------- |
-| Underline (preedit)  | `preedit`       | word shows inline with underline, commits at word end            | widest compatibility                    |
-| No underline         | `nonpreedit`    | every key commits, the tail is rewritten on marks                | Firefox, GTK apps                       |
-| Surrounding text     | `surrounding`   | non-preedit, verified against the app's own text report          | Sublime Text                            |
-| Flow (uinput)        | `smooth`        | raw keys forwarded; real Backspaces erase the tail at word end   | terminals, quirky apps                  |
-| Turbo (uinput)       | `supersmooth`   | Flow without the safety check before rewriting                   | fast typing                             |
-| Select (uinput)      | `select`        | Shift+← selects the tail, Delete erases it, word commits         | apps where Backspaces misbehave         |
-| Forward Backspace    | `forwardkeyevent` | the tail is deleted with Backspace events forwarded via IBus   | Chrome, Electron and similar clients    |
-| Forward Selection    | `forwardselect` | the tail is selected with Shift+← and replaced by the commit     | X11/XIM apps (JetBrains)                |
-| OFF                  | `off`           | Vietnamese off, macros and auto-capitalize still work            | mixed Vietnamese/English                |
+| Display mode (label) | Config value    | How it works                                                     
+| -------------------- | --------------- | ---------------------------------------------------------------- | 
+| Underline (preedit)  | `preedit`       | word shows inline with underline, commits at word end            | 
+| No underline         | `nonpreedit`    | every key commits, the tail is rewritten on marks                | 
+| Surrounding text     | `surrounding`   | non-preedit, verified against the app's own text report          | 
+| Flow (uinput)        | `smooth`        | raw keys forwarded; real Backspaces erase the tail at word end   | 
+| Turbo (uinput)       | `supersmooth`   | Flow without the safety check before rewriting                   | 
+| Select (uinput)      | `select`        | Shift+← selects the tail, Delete erases it, word commits         | 
+| Forward Backspace    | `forwardkeyevent` | the tail is deleted with Backspace events forwarded via IBus   | 
+| Forward Selection    | `forwardselect` | the tail is selected with Shift+← and replaced by the commit     | 
+| OFF                  | `off`           | Vietnamese off, macros and auto-capitalize still work            | 
 
 The labels are the ones the engine's menu and settings window show; the config value is what
 `config.toml` and App Rules accept.
