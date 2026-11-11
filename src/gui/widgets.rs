@@ -76,31 +76,6 @@ pub(super) fn decorate_experimental<W>(row: &W)
 where
     W: IsA<gtk4::Widget> + IsA<adw::PreferencesRow>,
 {
-    fn find(w: &gtk4::Widget) -> (Option<gtk4::Box>, Option<gtk4::Switch>) {
-        let mut box_out = None;
-        let mut switch_out = None;
-        fn walk(w: &gtk4::Widget, box_out: &mut Option<gtk4::Box>, sw: &mut Option<gtk4::Switch>) {
-            if box_out.is_none() {
-                if let Some(b) = w.downcast_ref::<gtk4::Box>() {
-                    if b.css_classes().iter().any(|c| c.as_str() == "suffixes") {
-                        *box_out = Some(b.clone());
-                    }
-                }
-            }
-            if sw.is_none() {
-                if let Some(s) = w.downcast_ref::<gtk4::Switch>() {
-                    *sw = Some(s.clone());
-                }
-            }
-            let mut child = w.first_child();
-            while let Some(c) = child {
-                walk(&c, box_out, sw);
-                child = c.next_sibling();
-            }
-        }
-        walk(w, &mut box_out, &mut switch_out);
-        (box_out, switch_out)
-    }
     let badge_text = t("misc.experimental_badge", "Thử nghiệm");
     let badge = gtk4::Label::new(Some(&badge_text));
     badge.add_css_class("caption");
@@ -108,7 +83,7 @@ where
     badge.set_xalign(0.0);
     uniform_title_width(row);
     let subtitle_box = row_subtitle(row).and_then(|l| l.parent().and_downcast::<gtk4::Box>());
-    let (suffixes, switch) = find(row.upcast_ref());
+    let (suffixes, switch) = find_suffixes_and_switch(row.upcast_ref());
     match subtitle_box {
         Some(b) => b.append(&badge),
         // No subtitle to sit under: keep the badge inside the control area.
@@ -185,6 +160,13 @@ pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
     row.add_suffix(&switch);
     row.add_suffix(&divider);
     row.add_suffix(value);
+    // Merged rows only: the control group hugs the text block instead of
+    // floating at the row's right edge — the suffix box expands so its
+    // start-packed children land right after the fixed-width title, and
+    // the slack moves to the row's end.
+    if let (Some(suffixes), _) = find_suffixes_and_switch(row.upcast_ref()) {
+        suffixes.set_hexpand(true);
+    }
     (row, switch)
 }
 
@@ -208,6 +190,34 @@ where
     if let Some(box_) = row_subtitle(row).and_then(|l| l.parent().and_downcast::<gtk4::Box>()) {
         box_.set_size_request(TITLE_WIDTH_PX, -1);
     }
+}
+
+/// The internal suffixes box and switch of an Adw row, through the same
+/// private-child walk the badge used to take.
+fn find_suffixes_and_switch(w: &gtk4::Widget) -> (Option<gtk4::Box>, Option<gtk4::Switch>) {
+    fn walk(w: &gtk4::Widget, box_out: &mut Option<gtk4::Box>, sw: &mut Option<gtk4::Switch>) {
+        if box_out.is_none() {
+            if let Some(b) = w.downcast_ref::<gtk4::Box>() {
+                if b.css_classes().iter().any(|c| c.as_str() == "suffixes") {
+                    *box_out = Some(b.clone());
+                }
+            }
+        }
+        if sw.is_none() {
+            if let Some(s) = w.downcast_ref::<gtk4::Switch>() {
+                *sw = Some(s.clone());
+            }
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            walk(&c, box_out, sw);
+            child = c.next_sibling();
+        }
+    }
+    let mut box_out = None;
+    let mut switch_out = None;
+    walk(w, &mut box_out, &mut switch_out);
+    (box_out, switch_out)
 }
 
 /// The value half of a merged row: a bare SpinButton without SpinRow's
