@@ -66,10 +66,6 @@ impl Engine {
             self.url_word = self.bypass_url
                 && self.last_char.is_some_and(|p| {
                     URL_CONTEXT_CHARS.contains(&p)
-                        // Bare `-` starts the bypass only with the
-                        // experimental switch on, and a `--` pair is the
-                        // em-dash start, never a bypass.
-                        || (self.bypass_hyphen && p == '-' && c != '-')
                         || (!self.extra_url_chars.is_empty() && self.extra_url_chars.contains(&p))
                 });
             if self.url_word {

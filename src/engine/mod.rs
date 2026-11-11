@@ -326,11 +326,6 @@ pub struct Engine {
     url_word: bool,
     /// Keep words raw after URL/email/path characters (`bypass_url`).
     bypass_url: bool,
-    /// Keep words raw after a bare `-` (`bypass_hyphen`, experimental):
-    /// hyphenated domains with no URL context before them stay raw. A `--`
-    /// pair never starts the bypass, so the em dash survives; gate-baked
-    /// with the other experiments.
-    bypass_hyphen: bool,
     /// The filtered `extra_url_chars` — empty unless the switch is on
     /// (see `apply_config` for the filter).
     extra_url_chars: Vec<char>,
@@ -452,7 +447,6 @@ impl Engine {
             word_mode: None,
             url_word: false,
             bypass_url: true,
-            bypass_hyphen: false,
             extra_url_chars: Vec::new(),
             extra_capitalize_after: Vec::new(),
             emoji_enabled: false,
@@ -591,9 +585,6 @@ impl Engine {
         self.echo_stale_ms = config.echo_stale_ms;
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;
         self.idle_commit_ms = config.idle_commit_ms;
-        // Experimental: bare `-` starts a URL-style bypass so hyphenated
-        // domains stay raw; the gate forces the shipped behavior back on.
-        self.bypass_hyphen = experimental && config.bypass_hyphen;
         // Not part of the experimental set anymore: the gate must not force
         // it off or the always-visible switch would silently do nothing.
         self.smooth_per_key = config.smooth_per_key;
