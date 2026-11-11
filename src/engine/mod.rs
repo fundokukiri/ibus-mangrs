@@ -30,6 +30,7 @@ use crate::macros::{Dictionary, Macros};
 
 mod helpers;
 mod process;
+use process::CandidateEnd;
 mod surrounding;
 
 #[cfg(test)]
@@ -343,12 +344,13 @@ pub struct Engine {
     /// on (same filter shape as `extra_url_chars`, without the `-` ban: a
     /// hyphen trigger is legitimate here).
     extra_capitalize_after: Vec<char>,
-    /// Emoji shortcodes on: a word glued directly after `:` stays raw and a
-    /// closing `:` rewrites `:name:` to the emoji (see `process_char_emoji`).
+    /// Emoji shortcodes on: a word after `:` composes like any word and a
+    /// closing `:` rewrites `:name:` to the emoji (see `emoji_close_rewrite`).
     emoji_enabled: bool,
     /// The word being typed is an emoji shortcode candidate (`:name:`). The
-    /// state starts at the first key after the opening `:` and ends at the
-    /// closing one — or at any other terminator, which leaves the text raw.
+    /// word composes like any word; the flag only matters at its end — the
+    /// closing ':' looks the raw keys up and rewrites the shown text to the
+    /// emoji, any other end (or erasing the word) just drops the flag.
     emoji_word: bool,
     /// The user's emoji table, reloaded by mtime like the macros.
     emojis: UserEmoji,
@@ -522,8 +524,20 @@ impl Engine {
             let raw = self.wrapper.raw().to_string();
             let valid = self.wrapper.is_valid();
             let valid_prefix = self.wrapper.is_valid_prefix();
-            let mut finished =
-                self.on_finish(Mode::Preedit, pending.clone(), raw, valid, valid_prefix);
+            // A shortcode candidate word never word-macro-expands here.
+            let candidate = if self.emoji_word {
+                CandidateEnd::Word
+            } else {
+                CandidateEnd::None
+            };
+            let mut finished = self.on_finish(
+                Mode::Preedit,
+                pending.clone(),
+                raw,
+                valid,
+                valid_prefix,
+                candidate,
+            );
             finished.retain(|a| !matches!(a, Action::Forward));
             actions.extend(finished);
             self.wrapper.reset();
@@ -1405,10 +1419,13 @@ impl Engine {
             if !self.wrapper.has_composition() {
                 self.release_word_mode();
                 // Nothing composed: the application deletes one of its own
-                // characters — the raw forwarders (URL/emoji bypass) track
-                // the screen in `tail`, so it has to shrink with the text.
+                // characters — the raw forwarders (URL bypass) track the
+                // screen in `tail`, so it has to shrink with the text.
                 self.tail = replace_tail(&self.tail, 1, "");
                 self.note_backspace_forwarded();
+                // Erasing the whole candidate word drops the shortcode flag
+                // — the next word is no longer a `:name:` lookup.
+                self.emoji_word = false;
             }
             return None;
         }
@@ -1426,6 +1443,8 @@ impl Engine {
         };
         if !self.wrapper.has_composition() {
             self.release_word_mode();
+            // Erasing the whole candidate word drops the shortcode flag.
+            self.emoji_word = false;
         }
         match mode {
             Mode::Preedit => {
@@ -1523,8 +1542,20 @@ impl Engine {
             let raw = self.wrapper.raw().to_string();
             let valid = self.wrapper.is_valid();
             let valid_prefix = self.wrapper.is_valid_prefix();
-            let mut finished =
-                self.on_finish(Mode::Preedit, pending.clone(), raw, valid, valid_prefix);
+            // A shortcode candidate word never word-macro-expands here.
+            let candidate = if self.emoji_word {
+                CandidateEnd::Word
+            } else {
+                CandidateEnd::None
+            };
+            let mut finished = self.on_finish(
+                Mode::Preedit,
+                pending.clone(),
+                raw,
+                valid,
+                valid_prefix,
+                candidate,
+            );
             finished.retain(|a| !matches!(a, Action::Forward));
             actions.extend(finished);
         }
@@ -1652,12 +1683,18 @@ impl Engine {
             let raw = self.wrapper.raw().to_string();
             let valid = self.wrapper.is_valid();
             let valid_prefix = self.wrapper.is_valid_prefix();
+            let candidate = if self.emoji_word {
+                CandidateEnd::Word
+            } else {
+                CandidateEnd::None
+            };
             let mut finished = self.on_finish(
                 Mode::Preedit,
                 pending.clone(),
                 raw.clone(),
                 valid,
                 valid_prefix,
+                candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));
             self.wrapper.reset();

@@ -3,6 +3,16 @@
 
 use super::*;
 
+/// How a word end relates to a shortcode candidate word: `None` is a normal
+/// word; `Word` is a candidate ending on another terminator (it never
+/// word-macro-expands); `Close` is the closing ':' of `:name:` (it also
+/// restores the raw keys when the lookup matched nothing).
+pub(super) enum CandidateEnd {
+    None,
+    Word,
+    Close,
+}
+
 impl Engine {
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
@@ -31,25 +41,21 @@ impl Engine {
                 reentry_delete = Some(Action::DeleteBefore(need));
             }
         }
-        // Emoji shortcode candidate: a word glued directly after ':' types
-        // raw (the URL bypass shape) and the closing ':' rewrites it. Runs
-        // even with Vietnamese processing off — shortcodes are not marks,
-        // they are replacements, like macros in Off mode.
+        // Emoji shortcode candidate: the word typed directly after ':'
+        // composes like any word — the closing ':' looks the raw keys up
+        // (macros first, then the emoji table) and rewrites the shown text
+        // to the emoji; any other word end leaves the composed word, so
+        // Vietnamese typing after ':' works. Runs even with Vietnamese
+        // processing off — shortcodes are not marks, they are replacements
+        // (see `process_char_off`).
         if !self.emoji_word
             && self.emoji_enabled
             && !self.wrapper.has_composition()
+            && !self.url_word
             && self.last_char == Some(':')
+            && !crate::bamboo_wrapper::is_word_terminator(c)
         {
             self.emoji_word = true;
-            // The opening ':' is already committed text; tracking it makes
-            // the rewrite delete exactly what the application holds, even
-            // after backspaces ate part of the shortcode. The span starts
-            // before it: erasing the whole shortcode releases the bypass.
-            self.raw_word_start = self.tail.chars().count();
-            self.tail.push(':');
-        }
-        if self.emoji_word {
-            return self.process_char_emoji(c);
         }
 
         if !self.wrapper.is_enabled() || self.effective_mode() == Mode::Off {
@@ -100,6 +106,7 @@ impl Engine {
             if crate::bamboo_wrapper::is_word_terminator(c) && !keep {
                 self.url_word = false;
                 self.url_span = false;
+                self.emoji_word = false;
                 self.tail.clear();
             } else {
                 self.tail.push(c);
@@ -204,10 +211,39 @@ impl Engine {
                 valid,
                 valid_prefix,
             } => {
+                if self.emoji_word && c == ':' {
+                    // The closing ':' of a shortcode: try the rewrite while
+                    // the flag is still up (`uinput_rewrite` keys its
+                    // per-key branch on it). No URL evidence is recorded —
+                    // a shortcode context is not prose.
+                    let close = self.emoji_close_rewrite(mode, &word, &raw);
+                    self.emoji_word = false;
+                    if let Some(actions) = close {
+                        return actions;
+                    }
+                    // Miss: the shortcode stays as typed — the raw keys, not
+                    // the composed word, and no word-macro expansion.
+                    actions.extend(self.on_finish(
+                        mode,
+                        word,
+                        raw,
+                        valid,
+                        valid_prefix,
+                        CandidateEnd::Close,
+                    ));
+                    self.note_char(c);
+                    return actions;
+                }
+                let candidate = if self.emoji_word {
+                    CandidateEnd::Word
+                } else {
+                    CandidateEnd::None
+                };
+                self.emoji_word = false;
                 // The word just ended on this terminator: record URL
                 // evidence (`://` scheme, `www.`) before the state is cleared.
                 self.note_url_pending(&raw, c);
-                actions.extend(self.on_finish(mode, word, raw, valid, valid_prefix));
+                actions.extend(self.on_finish(mode, word, raw, valid, valid_prefix, candidate));
                 // The terminator itself reaches the application last.
                 self.note_char(c);
                 actions
@@ -219,73 +255,55 @@ impl Engine {
         }
     }
 
-    /// The emoji shortcode word: every key is forwarded raw and tracked in
-    /// `tail`, so the application shows exactly what the user types. The
-    /// closing ':' looks the name up — macros first, then the emoji tables —
-    /// and rewrites `:name:` through the same delete+commit machinery as the
-    /// macro expansion. Any other terminator, or a name that matches
-    /// nothing, ends the state and leaves the text as typed. Nothing about
-    /// the typed text is logged (engine rule).
-    fn process_char_emoji(&mut self, c: char) -> Vec<Action> {
+    /// The closing ':' of a shortcode candidate: look the raw name up —
+    /// macros first, then the emoji tables — and rewrite the shown
+    /// `:<shown>` text through the same delete+commit machinery as the
+    /// macro expansion. `shown` is the text between the colons as the
+    /// application holds it (the composed word in the inline modes, the raw
+    /// keys in the uinput and Off paths); `raw` is what the user typed, and
+    /// what the lookup uses. `None` = no match (or no delete transport):
+    /// the caller leaves the text as typed and lets the ':' close it.
+    /// Nothing about the typed text is logged (engine rule).
+    fn emoji_close_rewrite(&mut self, mode: Mode, shown: &str, raw: &str) -> Option<Vec<Action>> {
+        let name = raw.to_lowercase();
+        // A user macro keyed ":name:" wins over the emoji table, the
+        // same precedence macros have over every other replacement.
+        let replacement = self
+            .macros
+            .expand(
+                &format!(":{name}:"),
+                false,
+                &self.time_format,
+                &self.date_format,
+            )
+            .or_else(|| self.emojis.lookup(&name).map(str::to_string))?;
+        debug_log::log("emoji shortcode: matched");
+        if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
+            // None: the closing ':' is part of the shortcode and must
+            // not reach the application.
+            return Some(self.uinput_rewrite(mode, &format!(":{shown}"), &replacement, None));
+        }
+        if !(self.deletes_allowed() || forwards_delete(mode)) {
+            // No delete transport: the rewrite would duplicate the
+            // replacement over the composed text — keep the text as typed.
+            return None;
+        }
         let mut actions = Vec::new();
-        if self.preedit_visible {
-            self.preedit_visible = false;
-            actions.push(Action::HidePreedit);
-        }
-        if c == ':' {
-            // `tail` holds ":name" — the closing ':' below is not in the
-            // application yet, so the rewrite replaces exactly the shown text.
-            let typed = std::mem::take(&mut self.tail);
-            self.emoji_word = false;
-            let name = typed.strip_prefix(':').unwrap_or("").to_lowercase();
-            // A user macro keyed ":name:" wins over the emoji table, the
-            // same precedence macros have over every other replacement.
-            let replacement = self
-                .macros
-                .expand(
-                    &format!(":{name}:"),
-                    false,
-                    &self.time_format,
-                    &self.date_format,
-                )
-                .or_else(|| self.emojis.lookup(&name).map(str::to_string));
-            let Some(replacement) = replacement else {
-                self.note_char(c);
-                actions.push(Action::Forward);
-                return actions;
-            };
-            debug_log::log("emoji shortcode: matched");
-            let mode = self.effective_mode();
-            if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
-                // None: the closing ':' is part of the shortcode and must
-                // not reach the application.
-                return self.uinput_rewrite(mode, &typed, &replacement, None);
-            }
-            if self.deletes_allowed() || forwards_delete(mode) {
-                actions.push(self.delete_action(
-                    mode,
-                    typed.chars().count() as u32,
-                    replacement.chars().count(),
-                ));
-                actions.push(Action::Commit(replacement));
-            } else {
-                // No delete transport: the rewrite would duplicate the
-                // replacement over the raw text, so the shortcode stays
-                // literal — the ':' still reaches the application.
-                actions.push(Action::Forward);
-            }
-            self.note_char(c);
-            return actions;
-        }
-        if crate::bamboo_wrapper::is_word_terminator(c) {
-            self.emoji_word = false;
-            self.tail.clear();
+        if mode == Mode::Preedit {
+            // The candidate word is still live preedit: hide it and erase
+            // only the committed leading ':'.
+            actions.extend(self.hide_if_visible());
+            actions.push(self.delete_action(mode, 1, replacement.chars().count()));
         } else {
-            self.tail.push(c);
+            actions.push(self.delete_action(
+                mode,
+                (1 + shown.chars().count()) as u32,
+                replacement.chars().count(),
+            ));
         }
-        self.note_char(c);
-        actions.push(Action::Forward);
-        actions
+        actions.push(Action::Commit(replacement));
+        self.note_char(':');
+        Some(actions)
     }
 
     /// Clamp a delete count to what the client's last surrounding-text report
@@ -358,9 +376,26 @@ impl Engine {
     fn process_char_off(&mut self, c: char) -> Vec<Action> {
         match self.wrapper.process_char(c) {
             Outcome::Finish { raw, valid, .. } => {
+                if self.emoji_word && c == ':' {
+                    // The closing ':' of a shortcode in Off mode: the name
+                    // is the tracked tail (everything is raw here).
+                    let shown = std::mem::take(&mut self.tail);
+                    let mode = self.effective_mode();
+                    let close = self.emoji_close_rewrite(mode, &shown, &raw);
+                    self.emoji_word = false;
+                    if let Some(actions) = close {
+                        return actions;
+                    }
+                    // Miss: fall through — the raw text stays and the ':'
+                    // closes the shortcode as typed.
+                }
+                let candidate = self.emoji_word;
+                self.emoji_word = false;
                 // Expansion rewrites committed text; without a delete
                 // transport the commit would duplicate the raw keys.
-                if self.macro_enabled
+                // A shortcode candidate word never word-macro-expands.
+                if !candidate
+                    && self.macro_enabled
                     && self.macro_in_off_mode
                     && !raw.is_empty()
                     && self.deletes_allowed()
@@ -476,7 +511,11 @@ impl Engine {
                 self.tail.clear();
             }
         }
-        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
+        // A shortcode candidate word keeps the plain raw-forward display:
+        // the closing-':' rewrite erases by the raw keys, which only matches
+        // the screen when the per-key composed deltas never landed.
+        let per_key =
+            self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) && !self.emoji_word;
         match self.wrapper.process_char(c) {
             Outcome::PassThrough => {
                 // The key produced no composition change (an inapplicable
@@ -641,6 +680,21 @@ impl Engine {
         c: char,
     ) -> Vec<Action> {
         let _ = valid;
+        let candidate = self.emoji_word;
+        if candidate && c == ':' {
+            // The closing ':' of a shortcode: try the rewrite while the flag
+            // is still up (`uinput_rewrite` keys its per-key branch on it).
+            let close = self.emoji_close_rewrite(mode, &raw, &raw);
+            self.emoji_word = false;
+            if let Some(actions) = close {
+                return actions;
+            }
+            // Miss: the shortcode stays as typed — no rewrite, no word-macro
+            // expansion, and no URL evidence (a shortcode is not prose).
+            self.note_char(c);
+            return vec![Action::Forward];
+        }
+        self.emoji_word = false;
         // The word just ended on this terminator: record URL evidence
         // (`://` scheme, `www.`) before the state is cleared.
         self.note_url_pending(&raw, c);
@@ -649,15 +703,18 @@ impl Engine {
         self.release_word_mode();
         // Per-key display: `tail` is the text the application holds (the
         // progressively committed word) — the word-end rewrites below erase
-        // by it, so it must survive.
-        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
+        // by it, so it must survive. A candidate word keeps the plain
+        // raw-forward display (see `process_char_uinput`).
+        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) && !candidate;
         if !per_key {
             self.tail.clear();
         }
         self.note_char(c);
 
         // Macros win, as in every mode: the expansion replaces the raw keys.
-        if !raw.is_empty() {
+        // A shortcode candidate word never word-macro-expands — the ':name:'
+        // key is the emoji path's own lookup.
+        if !raw.is_empty() && !candidate {
             if let Some(exp) = self.expand_macro(&raw, valid) {
                 return self.uinput_rewrite(mode, &raw, &exp, Some(c));
             }
@@ -732,7 +789,10 @@ impl Engine {
         // batch — the diff against what the app certainly holds becomes
         // extra Backspaces and the pending commit's text is replaced. The
         // terminator joins the batch too (a forwarded key would race it).
-        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) {
+        // A shortcode candidate keeps the plain raw-forward display: its
+        // rewrite erases by the raw keys, which only matches the screen
+        // when the per-key composed deltas never landed.
+        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) && !self.emoji_word {
             let want = match terminator {
                 Some(c) => format!("{text}{c}"),
                 None => text.to_string(),
@@ -779,7 +839,10 @@ impl Engine {
     }
 
     /// Word end: macros and auto-restore replace the committed word, preedit
-    /// commits the word it still holds, and everything moves on.
+    /// commits the word it still holds, and everything moves on. A shortcode
+    /// candidate word never word-macro-expands — the ':name:' key is the
+    /// emoji path's own lookup — and a missed close puts the raw keys back
+    /// instead of the composed word.
     pub(super) fn on_finish(
         &mut self,
         mode: Mode,
@@ -787,14 +850,17 @@ impl Engine {
         raw: String,
         valid: bool,
         valid_prefix: bool,
+        candidate: CandidateEnd,
     ) -> Vec<Action> {
         let mut actions = self.hide_if_visible();
         let inline = mode != Mode::Preedit;
+        let skip_macro = !matches!(candidate, CandidateEnd::None);
+        let force_raw = matches!(candidate, CandidateEnd::Close) && word != raw;
 
         // Macros win over auto-restore. Inline expansion rewrites committed
         // text; without a delete transport the commit would duplicate the
         // raw keys the application already holds.
-        if !raw.is_empty() {
+        if !raw.is_empty() && !skip_macro {
             let expansion = if inline && !self.deletes_allowed() && !forwards_delete(mode) {
                 None
             } else {
@@ -827,7 +893,9 @@ impl Engine {
         // Auto Non-VN restore: the composed word is not a Vietnamese syllable
         // and differs from the raw keys -> put the raw keys back (see
         // `should_auto_restore`; the prefix verdict keeps `đuo` composed).
-        if self.should_auto_restore(&word, &raw, valid_prefix)
+        // `force_raw` (a shortcode close that matched nothing) restores the
+        // raw keys regardless of validity.
+        if (force_raw || self.should_auto_restore(&word, &raw, valid_prefix))
             // Inline restore rewrites committed text; without a delete
             // transport the raw keys are already on screen, so there is
             // nothing to restore.
@@ -853,7 +921,8 @@ impl Engine {
         }
 
         if mode == Mode::Preedit && !word.is_empty() {
-            actions.push(Action::Commit(encode(self.charset, &word)));
+            let text = if force_raw { &raw } else { &word };
+            actions.push(Action::Commit(encode(self.charset, text)));
         }
         self.tail.clear();
         self.release_word_mode();
