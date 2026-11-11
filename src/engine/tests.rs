@@ -4371,3 +4371,82 @@ fn select_backspace_switch_off_keeps_legacy() {
         "the legacy path never re-tracks"
     );
 }
+
+#[test]
+fn select_retracked_mark_applies_through_the_batch() {
+    // After the rebuild, the tracked Select word edits like per-key
+    // Flow: the mark key's diff applies through the batch (`tung` + `s`
+    // lands `túng ` on the screen), not as a forwarded literal.
+    let mut e = engine(
+        Mode::Select,
+        Config {
+            experimental_features: true,
+            flow_backspace_composition: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
+    type_str(&mut e, "tungf ");
+    e.backspace();
+    e.backspace();
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "tung");
+    type_str(&mut e, "s");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(e.tail, "túng", "{actions:?}");
+}
+
+#[test]
+fn select_retracked_stray_key_lands_through_the_batch() {
+    // A key that turns the word into an invalid composition (bamboo
+    // auto-restores it to the re-encoded raw) still lands through the
+    // batch: the screen follows the wrapper, never the raw key event.
+    let mut e = engine(
+        Mode::Select,
+        Config {
+            experimental_features: true,
+            flow_backspace_composition: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
+    type_str(&mut e, "tungf ");
+    e.backspace();
+    type_str(&mut e, "a");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(e.tail, "tufnga", "{actions:?}");
+}
+
+#[test]
+fn select_retracked_word_end_commits_cleanly() {
+    // The word end of a rebuilt Select word goes through the batch: the
+    // terminator joins it and the screen holds the word plus both
+    // spaces (the original one and the typed one).
+    let mut e = engine(
+        Mode::Select,
+        Config {
+            experimental_features: true,
+            flow_backspace_composition: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
+    type_str(&mut e, "tungf ");
+    e.backspace();
+    e.backspace();
+    flush_per_key(&mut e);
+    type_str(&mut e, "s");
+    flush_per_key(&mut e);
+    type_str(&mut e, " ");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(e.tail, "túng ", "{actions:?}");
+}
