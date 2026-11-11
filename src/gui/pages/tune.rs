@@ -1,5 +1,5 @@
 //! Page "Tinh chỉnh": the technical knobs most users never touch — the
-//! uinput pacing (Smooth / Super Smooth / Select only), the delivery
+//! uinput pacing (Flow / Turbo / Select only), the delivery
 //! channel and the X11/XIM workarounds. The rows themselves come from
 //! `build`; this page groups them, keeps subtitles to two lines and prints
 //! the real defaults from `Config::default()` in the pacing subtitles.
@@ -30,7 +30,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
     // uinput pacing plus the per-key display switch: everything only the
-    // smooth modes use. The "Mặc định: N" numbers come from the config's
+    // uinput modes use. The "Mặc định: N" numbers come from the config's
     // own defaults, so the text never drifts from what a fresh config
     // actually does.
     let defaults = crate::config::Config::default();
@@ -38,7 +38,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .title(t("groups.tune.pacing.title", "Cấu hình uinput"))
         .description(t(
             "groups.tune.pacing.description",
-            "Chỉ áp dụng cho Smooth, Super Smooth và Select.",
+            "Chỉ áp dụng cho Flow, Turbo và Select.",
         ))
         .build();
     pacing.add(&ui.commit_interval);
@@ -46,7 +46,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     pacing.add(&ui.post_delay);
     // The per-key display switch lives with the pacing knobs: it shapes the
     // same uinput word rendering, and it is no longer gated as experimental.
-    pacing.add(&ui.smooth_per_key_switch);
+    pacing.add(&ui.flow_per_key_switch);
     for (row, subtitle) in [
         (
             &ui.commit_interval,

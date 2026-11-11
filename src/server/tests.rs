@@ -622,7 +622,7 @@ fn failed_press_delete_falls_back_to_backspace() {
 fn paste_failure_falls_back_to_commit() {
     // Without a clipboard tool the Paste transport fails; the word must
     // still reach the application (CommitText fallback).
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_uinput_available(true);
     let mut out = Vec::new();
@@ -641,10 +641,10 @@ fn paste_failure_falls_back_to_commit() {
 
 #[test]
 fn paste_fallback_after_injected_backspaces_is_deferred() {
-    // The smooth rewrite erases the raw keys with injected Backspaces,
+    // The flow rewrite erases the raw keys with injected Backspaces,
     // then the paste fails. The fallback commit must not overtake the
     // echoes, or the app deletes the freshly committed word.
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_uinput_available(true);
     let mut out = Vec::new();

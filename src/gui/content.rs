@@ -851,8 +851,8 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.clipboard_restore_switch);
     on_change!(ui.echo_stale_switch);
     on_change!(ui.idle_commit_switch);
-    on_change!(ui.smooth_per_key_switch);
-    on_change!(ui.smooth_backspace_retrack);
+    on_change!(ui.flow_per_key_switch);
+    on_change!(ui.flow_backspace_retrack);
     on_change!(ui.experimental_features);
     on_change!(ui.show_toasts);
     on_change!(ui.double_space);

@@ -123,25 +123,25 @@ pub struct Config {
     /// is the behavior users know.
     pub idle_commit_enabled: bool,
     pub idle_commit_ms: u64,
-    /// Show the composed word progressively in the smooth modes: every
+    /// Show the composed word progressively in the Flow/Turbo modes: every
     /// key that changes the composition erases the committed tail and
     /// commits the new one through the injected transport (`ee` shows
     /// `ê` immediately, marks are editable mid-word) instead of holding
     /// the raw keys until the word ends. On by default: the owner ships
-    /// the per-key display as the smooth look; the word-end rewrite stays
-    /// one switch away and the per-key commit costs ~60 ms per key.
-    pub smooth_per_key: bool,
+    /// the per-key display as the standard look; the word-end rewrite
+    /// stays one switch away and the per-key commit costs ~60 ms per key.
+    pub flow_per_key: bool,
     /// How long the per-key display parks each keystroke's commit before
     /// it lands (ms). Per-key pacing only: the two server-side rewrite
     /// parks stay on the engine's built-in grace constant, so a mistuned
     /// value here cannot reintroduce the relay ordering bug.
-    pub smooth_per_key_delay_ms: u64,
+    pub flow_per_key_delay_ms: u64,
     /// Experimental: a Backspace on a committed word in the uinput modes
     /// re-tracks the shortened screen (the composition is rebuilt from the
     /// re-encoded keys), so the next mark key keeps editing the word
     /// (`tùn` + `s` -> `tún`) instead of landing as a literal letter. Off
     /// keeps today's plain-text behavior byte for byte.
-    pub smooth_backspace_retrack: bool,
+    pub flow_backspace_retrack: bool,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
     /// each switch and value stays saved in this file and comes back when
@@ -482,12 +482,13 @@ pub enum ModeConfig {
     /// verifies the text before the cursor against what it believes it
     /// committed and repairs drift (dropped deletes, manual edits).
     Surrounding,
-    /// Smooth (uinput): raw keys are forwarded while typing; at word end the
+    /// Flow (uinput): raw keys are forwarded while typing; at word end the
     /// latin tail is erased with real Backspace keys and the Vietnamese word
     /// is committed. Falls back to Preedit where injection is impossible.
-    Smooth,
-    /// Smooth without the pre-rewrite verification (minimum latency).
-    SuperSmooth,
+    Flow,
+    /// Turbo (uinput): Flow without the pre-rewrite verification (minimum
+    /// latency).
+    Turbo,
     /// Select (uinput): Shift+Left selects the typed tail, Delete erases it,
     /// then the Vietnamese word is committed. Needs a surrounding-text report.
     Select,
@@ -591,8 +592,8 @@ impl From<ModeConfig> for Mode {
             ModeConfig::NonPreedit => Mode::NonPreedit,
             ModeConfig::Preedit => Mode::Preedit,
             ModeConfig::Surrounding => Mode::Surrounding,
-            ModeConfig::Smooth => Mode::Smooth,
-            ModeConfig::SuperSmooth => Mode::SuperSmooth,
+            ModeConfig::Flow => Mode::Flow,
+            ModeConfig::Turbo => Mode::Turbo,
             ModeConfig::Select => Mode::Select,
             ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
             ModeConfig::ForwardSelect => Mode::ForwardSelect,
@@ -607,8 +608,8 @@ impl From<Mode> for ModeConfig {
             Mode::NonPreedit => ModeConfig::NonPreedit,
             Mode::Preedit => ModeConfig::Preedit,
             Mode::Surrounding => ModeConfig::Surrounding,
-            Mode::Smooth => ModeConfig::Smooth,
-            Mode::SuperSmooth => ModeConfig::SuperSmooth,
+            Mode::Flow => ModeConfig::Flow,
+            Mode::Turbo => ModeConfig::Turbo,
             Mode::Select => ModeConfig::Select,
             Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
             Mode::ForwardSelect => ModeConfig::ForwardSelect,
@@ -697,8 +698,8 @@ impl ModeConfig {
             ModeConfig::NonPreedit => "nonpreedit",
             ModeConfig::Preedit => "preedit",
             ModeConfig::Surrounding => "surrounding",
-            ModeConfig::Smooth => "smooth",
-            ModeConfig::SuperSmooth => "supersmooth",
+            ModeConfig::Flow => "flow",
+            ModeConfig::Turbo => "turbo",
             ModeConfig::Select => "select",
             ModeConfig::ForwardKeyEvent => "forwardkeyevent",
             ModeConfig::ForwardSelect => "forwardselect",
@@ -711,8 +712,8 @@ impl ModeConfig {
             "nonpreedit" | "non-preedit" => ModeConfig::NonPreedit,
             "preedit" => ModeConfig::Preedit,
             "surrounding" => ModeConfig::Surrounding,
-            "smooth" => ModeConfig::Smooth,
-            "supersmooth" | "super-smooth" | "super_smooth" => ModeConfig::SuperSmooth,
+            "flow" => ModeConfig::Flow,
+            "turbo" => ModeConfig::Turbo,
             "select" => ModeConfig::Select,
             "forwardkeyevent" | "forwardkey" | "forward-key-event" | "forward_key_event" => {
                 ModeConfig::ForwardKeyEvent
@@ -814,9 +815,9 @@ impl Default for Config {
             echo_stale_ms: 150,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            smooth_per_key: true,
-            smooth_per_key_delay_ms: 60,
-            smooth_backspace_retrack: false,
+            flow_per_key: true,
+            flow_per_key_delay_ms: 60,
+            flow_backspace_retrack: false,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
@@ -1083,14 +1084,10 @@ mod tests {
                 "off".to_string(),
             ]
         );
-        let c: Config = toml::from_str("menu_modes = [\"smooth\", \"off\", \"preedit\"]").unwrap();
+        let c: Config = toml::from_str("menu_modes = [\"flow\", \"off\", \"preedit\"]").unwrap();
         assert_eq!(
             c.menu_modes,
-            vec![
-                "smooth".to_string(),
-                "off".to_string(),
-                "preedit".to_string()
-            ]
+            vec!["flow".to_string(), "off".to_string(), "preedit".to_string()]
         );
         let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
         assert_eq!(c.menu_modes.len(), 4);
@@ -1131,7 +1128,7 @@ children = [ { type = "toggle", key = "em_dash" }, { type = "separator" } ]
 [[menu]]
 type = "radios"
 group = "display"
-children = ["preedit", "smooth"]
+children = ["preedit", "flow"]
 "#;
         let c: Config = toml::from_str(toml_text).unwrap();
         let menu = c.menu.expect("menu key present");
@@ -1149,7 +1146,7 @@ children = ["preedit", "smooth"]
                 },
                 MenuNode::Radios {
                     group: "display".into(),
-                    children: vec!["preedit".into(), "smooth".into()],
+                    children: vec!["preedit".into(), "flow".into()],
                 },
             ]
         );
@@ -1281,24 +1278,35 @@ children = ["preedit", "smooth"]
     }
 
     #[test]
-    fn smooth_per_key_round_trips_and_defaults_on() {
-        let c: Config = toml::from_str("smooth_per_key = false").unwrap();
-        assert!(!c.smooth_per_key);
-        assert!(Config::default().smooth_per_key);
+    fn flow_per_key_round_trips_and_defaults_on() {
+        let c: Config = toml::from_str("flow_per_key = false").unwrap();
+        assert!(!c.flow_per_key);
+        assert!(Config::default().flow_per_key);
     }
 
     #[test]
-    fn smooth_per_key_delay_round_trips_and_defaults_to_60() {
-        let c: Config = toml::from_str("smooth_per_key_delay_ms = 120").unwrap();
-        assert_eq!(c.smooth_per_key_delay_ms, 120);
-        assert_eq!(Config::default().smooth_per_key_delay_ms, 60);
+    fn flow_per_key_delay_round_trips_and_defaults_to_60() {
+        let c: Config = toml::from_str("flow_per_key_delay_ms = 120").unwrap();
+        assert_eq!(c.flow_per_key_delay_ms, 120);
+        assert_eq!(Config::default().flow_per_key_delay_ms, 60);
     }
 
     #[test]
-    fn smooth_backspace_retrack_round_trips_and_defaults_off() {
-        let c: Config = toml::from_str("smooth_backspace_retrack = true").unwrap();
-        assert!(c.smooth_backspace_retrack);
-        assert!(!Config::default().smooth_backspace_retrack);
+    fn flow_backspace_retrack_round_trips_and_defaults_off() {
+        let c: Config = toml::from_str("flow_backspace_retrack = true").unwrap();
+        assert!(c.flow_backspace_retrack);
+        assert!(!Config::default().flow_backspace_retrack);
+    }
+
+    /// The old mode names are gone for good: an old file resets the mode to
+    /// the default instead of failing to load — the fresh-start contract.
+    #[test]
+    fn old_mode_value_falls_back_to_default() {
+        // Assembled at runtime so no rename sweep rewrites the old literal.
+        let old = format!("smo{}oth", "o");
+        let c = Config::from_toml(&format!("mode = \"{old}\"\nauto_restore = false\n"));
+        assert_eq!(c.mode, ModeConfig::Preedit);
+        assert!(!c.auto_restore);
     }
 
     #[test]
@@ -1366,13 +1374,13 @@ children = ["preedit", "smooth"]
         );
         // Substring overlap: "chromium" matches the "chromium" rule first —
         // the pick must update the winning one, not the "chrome" prefix rule.
-        c.set_rule_mode_for_target("chromium", ModeConfig::Smooth);
+        c.set_rule_mode_for_target("chromium", ModeConfig::Flow);
         let chromium = c
             .app_rules
             .iter()
             .find(|r| r.pattern == "chromium")
             .expect("net rule");
-        assert_eq!(chromium.mode, ModeConfig::Smooth);
+        assert_eq!(chromium.mode, ModeConfig::Flow);
         let chrome = c
             .app_rules
             .iter()

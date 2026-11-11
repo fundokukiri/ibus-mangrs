@@ -269,15 +269,15 @@ subtitle = "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành h
 title = "Phím điều hướng khi còn từ"
 subtitle = "Khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên: nuốt để commit trước (mặc định), hoặc cho caret chạy ngay. Thử nghiệm trên Wayland."
 
-[rows.smooth_per_key]
+[rows.flow_per_key]
 title = "Hiện dấu từng bước ở Flow"
 subtitle = "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — trễ chỉnh ở hàng dưới; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi"
 
-[rows.smooth_per_key_delay]
+[rows.flow_per_key_delay]
 title = "Trễ hiện dấu từng bước (ms)"
 subtitle = "Số ms một phím chờ trước khi đổ vào văn bản: thấp hơn thì dấu hiện sớm hơn, cao hơn thì gõ mượt hơn. 0–500 ms, giá trị quá thấp có thể làm lệch thứ tự chữ trên Wayland. Mặc định: 60. Thử nghiệm."
 
-[rows.smooth_backspace_retrack]
+[rows.flow_backspace_retrack]
 title = "Sửa dấu sau Backspace (Flow/Turbo)"
 subtitle = "Xóa một ký tự của từ đã gõ xong rồi gõ phím dấu mới sẽ tiếp tục biến hóa từ (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước bật. Thử nghiệm."
 
@@ -451,7 +451,7 @@ kind_entry = "Mục chọn"
 
 [groups.tune.pacing]
 title = "Cấu hình uinput"
-description = "Chỉ áp dụng cho Smooth, Super Smooth và Select."
+description = "Chỉ áp dụng cho Flow, Turbo và Select."
 
 [groups.tune.channel]
 title = "Kênh gửi chữ"

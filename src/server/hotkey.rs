@@ -254,9 +254,9 @@ impl EngineHandler {
         config.mode = match config.mode {
             ModeConfig::NonPreedit => ModeConfig::Preedit,
             ModeConfig::Preedit => ModeConfig::Surrounding,
-            ModeConfig::Surrounding => ModeConfig::Smooth,
-            ModeConfig::Smooth => ModeConfig::SuperSmooth,
-            ModeConfig::SuperSmooth => ModeConfig::Select,
+            ModeConfig::Surrounding => ModeConfig::Flow,
+            ModeConfig::Flow => ModeConfig::Turbo,
+            ModeConfig::Turbo => ModeConfig::Select,
             ModeConfig::Select => ModeConfig::ForwardKeyEvent,
             ModeConfig::ForwardKeyEvent => ModeConfig::ForwardSelect,
             ModeConfig::ForwardSelect => ModeConfig::Off,

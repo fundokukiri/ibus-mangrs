@@ -7,7 +7,7 @@
 //! When that is detected, the server falls back to injecting real Backspace
 //! key events through a virtual keyboard, which every toolkit honours.
 //!
-//! The uinput display modes (Smooth, Select) use the same device for more:
+//! The uinput display modes (Flow, Select) use the same device for more:
 //! paced key presses, Shift+Left selection and Ctrl+V. Vietnamese glyphs have
 //! no keycodes, so text is injected per ASCII character only — everything
 //! else travels over IBus (CommitText or the clipboard, see `paste.rs`).

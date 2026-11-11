@@ -1,5 +1,5 @@
-//! The main key path: `process_char`, the Off path, the uinput (smooth)
-//! paths, and the word-end macro/auto-restore/rewrite machinery.
+//! The main key path: `process_char`, the Off path, the uinput
+//! (Flow/Turbo/Select) paths, and the word-end macro/auto-restore/rewrite machinery.
 
 use super::*;
 
@@ -93,12 +93,12 @@ impl Engine {
 
         // The uinput modes: the raw key goes straight to the application and
         // bamboo keeps composing internally; nothing is committed until the
-        // word ends (see `process_char_smooth`). Per-key display features
+        // word ends (see `process_char_uinput`). Per-key display features
         // (em-dash, double space) stay off here — these modes are for
         // terminals and games, where rewriting before the word ends cannot
         // work anyway.
-        if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
-            return self.process_char_smooth(mode, c);
+        if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
+            return self.process_char_uinput(mode, c);
         }
 
         // `--` -> `—`: the first `-` was already forwarded by the terminator
@@ -235,10 +235,10 @@ impl Engine {
             };
             debug_log::log("emoji shortcode: matched");
             let mode = self.effective_mode();
-            if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+            if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
                 // None: the closing ':' is part of the shortcode and must
                 // not reach the application.
-                return self.smooth_rewrite(mode, &typed, &replacement, None);
+                return self.uinput_rewrite(mode, &typed, &replacement, None);
             }
             if self.deletes_allowed() || forwards_delete(mode) {
                 actions.push(self.delete_action(
@@ -435,11 +435,11 @@ impl Engine {
         !dict_hit && !self.wrapper.undo_in_word()
     }
 
-    /// The uinput modes (Smooth / SuperSmooth / Select): the application
+    /// The uinput modes (Flow / Turbo / Select): the application
     /// keeps the raw keystroke; bamboo transforms internally. The rewrite
     /// happens once, at word end — unless the per-key display is on, where
     /// every composition-changing key applies immediately.
-    fn process_char_smooth(&mut self, mode: Mode, c: char) -> Vec<Action> {
+    fn process_char_uinput(&mut self, mode: Mode, c: char) -> Vec<Action> {
         // Auto-capitalize: the application keeps the raw key, so the capital
         // can only appear in the word-end rewrite. Decide at the first key —
         // the per-key `note_char` below clears `capitalize_next` as soon as
@@ -451,11 +451,11 @@ impl Engine {
             // so the coalesce diffs and erases stay INSIDE the word and can
             // never touch what came before it. A batch still in flight
             // spans the boundary: keep coalescing onto it.
-            if self.smooth_per_key && self.per_key_park.is_none() {
+            if self.flow_per_key && self.per_key_park.is_none() {
                 self.tail.clear();
             }
         }
-        let per_key = self.smooth_per_key && matches!(mode, Mode::Smooth | Mode::SuperSmooth);
+        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
         match self.wrapper.process_char(c) {
             Outcome::PassThrough => {
                 // The key produced no composition change (an inapplicable
@@ -492,7 +492,7 @@ impl Engine {
             }
             Outcome::Finish {
                 word, raw, valid, ..
-            } => self.on_finish_smooth(mode, word, raw, valid, c),
+            } => self.on_finish_uinput(mode, word, raw, valid, c),
         }
     }
 
@@ -543,7 +543,7 @@ impl Engine {
         actions
     }
 
-    /// The smooth modes' Backspace under the per-key display. The screen
+    /// The uinput modes' Backspace under the per-key display. The screen
     /// holds the committed word, so the user's real Backspace — the one key
     /// that never needs injecting — deletes the last character through the
     /// pass-through path: on a mutter relay the injected Backspaces lost
@@ -579,7 +579,7 @@ impl Engine {
                 break;
             }
         }
-        if !matched && self.smooth_backspace_retrack {
+        if !matched && self.flow_backspace_retrack {
             // The pop search only deletes whole raw keys — a screen whose
             // tone outlives its key (`tùng` -> `tùn`) never matches. The
             // re-encoder rebuilds a live composition for it instead, so the
@@ -611,7 +611,7 @@ impl Engine {
     /// deliver the Vietnamese word. When the word equals the raw keys
     /// (English text, auto-restored words) nothing is touched — the keys
     /// already sit in the application.
-    fn on_finish_smooth(
+    fn on_finish_uinput(
         &mut self,
         mode: Mode,
         word: String,
@@ -626,7 +626,7 @@ impl Engine {
         // Per-key display: `tail` is the text the application holds (the
         // progressively committed word) — the word-end rewrites below erase
         // by it, so it must survive.
-        let per_key = self.smooth_per_key && matches!(mode, Mode::Smooth | Mode::SuperSmooth);
+        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
         if !per_key {
             self.tail.clear();
         }
@@ -635,7 +635,7 @@ impl Engine {
         // Macros win, as in every mode: the expansion replaces the raw keys.
         if !raw.is_empty() {
             if let Some(exp) = self.expand_macro(&raw, valid) {
-                return self.smooth_rewrite(mode, &raw, &exp, Some(c));
+                return self.uinput_rewrite(mode, &raw, &exp, Some(c));
             }
         }
 
@@ -645,7 +645,7 @@ impl Engine {
             // terminator still joins the in-flight batch — a forwarded key
             // would race the pending commit.
             if per_key {
-                return self.smooth_rewrite(mode, &raw, &word, Some(c));
+                return self.uinput_rewrite(mode, &raw, &word, Some(c));
             }
             return vec![Action::Forward];
         }
@@ -672,20 +672,20 @@ impl Engine {
             if text == raw && !per_key {
                 return vec![Action::Forward];
             }
-            return self.smooth_rewrite(mode, &raw, &text, Some(c));
+            return self.uinput_rewrite(mode, &raw, &text, Some(c));
         }
 
-        // Smooth (unlike Super Smooth) defers to app autofill: the app
+        // Flow (unlike Turbo) defers to app autofill: the app
         // appended suggestion text after the caret, and a rewrite would eat
-        // it. Super Smooth rewrites regardless — minimum latency, the owner
+        // it. Turbo rewrites regardless — minimum latency, the owner
         // accepted the risk. Per-key rewrites are backward-only (the
         // suggestion sits after the caret), so the hold-back is moot.
-        if mode == Mode::Smooth && self.suggestions && !per_key {
+        if mode == Mode::Flow && self.suggestions && !per_key {
             self.wrapper.reset();
             return vec![Action::Forward];
         }
 
-        self.smooth_rewrite(mode, &raw, &word, Some(c))
+        self.uinput_rewrite(mode, &raw, &word, Some(c))
     }
 
     /// The shared word-end rewrite: erase `raw` with real keys, deliver
@@ -697,7 +697,7 @@ impl Engine {
     /// terminator's own injected-key echo never returned through the
     /// relay's ibus path at all, so a key-event terminator is unusable
     /// there).
-    fn smooth_rewrite(
+    fn uinput_rewrite(
         &mut self,
         mode: Mode,
         raw: &str,
@@ -708,7 +708,7 @@ impl Engine {
         // batch — the diff against what the app certainly holds becomes
         // extra Backspaces and the pending commit's text is replaced. The
         // terminator joins the batch too (a forwarded key would race it).
-        if self.smooth_per_key && matches!(mode, Mode::Smooth | Mode::SuperSmooth) {
+        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) {
             let want = match terminator {
                 Some(c) => format!("{text}{c}"),
                 None => text.to_string(),

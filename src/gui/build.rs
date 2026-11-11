@@ -473,33 +473,30 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Dừng tay quá lâu trên một từ có gạch chân thì từ đó được chấp nhận luôn, như bấm dấu cách",
         ),
     );
-    let smooth_per_key_switch = switch_row(
-        &t("rows.smooth_per_key.title", "Hiện dấu từng bước ở Flow"),
+    let flow_per_key_switch = switch_row(
+        &t("rows.flow_per_key.title", "Hiện dấu từng bước ở Flow"),
         &t(
-            "rows.smooth_per_key.subtitle",
+            "rows.flow_per_key.subtitle",
             "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — trễ chỉnh ở hàng dưới; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi",
         ),
     );
-    let smooth_per_key_spin = spin_row(
+    let flow_per_key_spin = spin_row(
         &t(
-            "rows.smooth_per_key_delay.title",
+            "rows.flow_per_key_delay.title",
             "Trễ hiện dấu từng bước (ms)",
         ),
-        &t(
-            "rows.smooth_per_key_delay.subtitle",
-            "0–500 ms. Mặc định: 60",
-        ),
+        &t("rows.flow_per_key_delay.subtitle", "0–500 ms. Mặc định: 60"),
         0.0,
         500.0,
         5.0,
     );
-    let smooth_backspace_retrack = switch_row(
+    let flow_backspace_retrack = switch_row(
         &t(
-            "rows.smooth_backspace_retrack.title",
+            "rows.flow_backspace_retrack.title",
             "Sửa dấu sau Backspace (Flow/Turbo)",
         ),
         &t(
-            "rows.smooth_backspace_retrack.subtitle",
+            "rows.flow_backspace_retrack.subtitle",
             "Xóa một ký tự của từ đã gõ xong rồi gõ phím dấu mới sẽ tiếp tục biến hóa từ (tùn + s → tún) thay vì rơi thành chữ thường",
         ),
     );
@@ -767,9 +764,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         echo_stale_spin,
         idle_commit_switch,
         idle_commit_spin,
-        smooth_per_key_switch,
-        smooth_per_key_spin,
-        smooth_backspace_retrack,
+        flow_per_key_switch,
+        flow_per_key_spin,
+        flow_backspace_retrack,
         experimental_features,
         menu,
         menu_box,

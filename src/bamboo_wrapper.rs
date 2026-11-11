@@ -888,7 +888,7 @@ impl BambooWrapper {
 
     /// Rebuild a LIVE composition from screen text: replay the keys the
     /// re-encoder derives and verify the composition reproduces the screen.
-    /// The smooth Backspace experiment uses it to re-track a committed
+    /// The Flow Backspace experiment uses it to re-track a committed
     /// word's shortened screen, so the next mark key keeps editing the
     /// word. `false` for the presets the re-encoder does not cover
     /// (MsLayout, VniFrench) and any screen it cannot reproduce — the

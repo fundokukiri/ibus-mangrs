@@ -550,7 +550,7 @@ fn lost_echoes_flush_in_the_main_loop_tick() {
     // main-loop tick must flush the deferred commit after the stale
     // window — previously it sat until the next keystroke, leaving the
     // erased word as raw latin for as long as the user paused.
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_uinput_available(true);
     e.defer_commit(2, "tiếng".into());
@@ -2487,8 +2487,8 @@ fn off_mode_backspace_belongs_to_the_app() {
 }
 
 #[test]
-fn smooth_falls_back_to_preedit_without_uinput() {
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+fn flow_falls_back_to_preedit_without_uinput() {
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_uinput_available(false);
     e.set_capabilities(CAP_PREEDIT_TEXT);
     let actions = type_str(&mut e, "vieetj");
@@ -2501,15 +2501,15 @@ fn smooth_falls_back_to_preedit_without_uinput() {
 }
 
 #[test]
-fn smooth_runs_on_the_relay() {
+fn flow_runs_on_the_relay() {
     // The 31/10 belief ("injection never reaches a relayed app") was
     // refuted by the 08/11 re-measurement: injection, echoes, deletes and
     // commits all land on a mutter relay — what raced was the ordering,
     // fixed by the parked commit and the batch-carried terminator. A
     // relayed context now types through the uinput modes like a direct
     // one.
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
-    e.smooth_per_key = false;
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.flow_per_key = false;
     e.set_uinput_available(true);
     // A mutter-owned IBus context (type_str would replace None).
     e.set_client(Some("gnome-shell:gnome-shell".into()));
@@ -2519,7 +2519,7 @@ fn smooth_runs_on_the_relay() {
         actions
             .iter()
             .any(|a| matches!(a, Action::InjectBackspaces(6))),
-        "the relay must run the smooth rewrite: {actions:?}"
+        "the relay must run the flow rewrite: {actions:?}"
     );
     assert!(
         actions
@@ -2536,15 +2536,15 @@ fn smooth_runs_on_the_relay() {
 }
 
 #[test]
-fn smooth_word_end_carries_the_terminator_in_the_commit() {
+fn flow_word_end_carries_the_terminator_in_the_commit() {
     // The terminator travels inside the parked commit so it is applied
     // strictly after the deletes; a forwarded key raced ahead of the
     // Backspaces on the relay, the erase ate it and one raw letter
     // survived ("ttiếng"), and the terminator's own injected-key echo
     // never returned through the relay's ibus path at all. No key may be
     // forwarded past the rewrite.
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
-    e.smooth_per_key = false;
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.flow_per_key = false;
     e.set_uinput_available(true);
     let actions = type_str(&mut e, "vieetj.");
     let inject = actions
@@ -2569,7 +2569,7 @@ fn parked_commit_flushes_only_past_its_deadline() {
     // Backspaces a beat behind the commit channel, and a commit emitted
     // with the last echo overtook the final deletes ("titiến"). The
     // server parks it; the main-loop tick delivers it past the deadline.
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.park_commit(
         "tiếng".into(),
         Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS),
@@ -2601,20 +2601,20 @@ fn parked_commit_flushes_only_past_its_deadline() {
 fn parked_commit_flushes_when_forced() {
     // A focus change must not strand the parked commit: delivering late
     // beats never (the same rule as the echo deferral).
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.park_commit("việt".into(), Duration::from_secs(60));
     assert_eq!(e.flush_deferred(), vec!["việt".to_string()]);
     assert!(!e.has_deferred());
 }
 
-// --- smooth per-key display ---
+// --- flow per-key display ---
 
 fn per_key_engine(mode: Mode) -> Engine {
     let mut e = engine(
         mode,
         Config {
             experimental_features: true,
-            smooth_per_key: true,
+            flow_per_key: true,
             ..Config::default()
         },
     );
@@ -2632,12 +2632,12 @@ fn flush_per_key(e: &mut Engine) -> Vec<Action> {
 }
 
 #[test]
-fn smooth_per_key_commits_across_flush_boundaries() {
+fn flow_per_key_commits_across_flush_boundaries() {
     // With the switch on, the keys coalesce into one in-flight batch; the
     // main loop delivers it past the grace deadline. After a flush, the
     // next mark key erases the landed text and re-parks: the screen shows
     // `ê` the moment the second `e` lands (once the batch flushes).
-    let mut e = per_key_engine(Mode::Smooth);
+    let mut e = per_key_engine(Mode::Flow);
     let actions = type_str(&mut e, "tie");
     assert!(
         !actions
@@ -2665,11 +2665,11 @@ fn smooth_per_key_commits_across_flush_boundaries() {
 }
 
 #[test]
-fn smooth_per_key_burst_coalesces_into_one_commit() {
+fn flow_per_key_burst_coalesces_into_one_commit() {
     // Fast typing (no flush between keys) coalesces: nothing lands
     // mid-burst, no deletes are needed (the app holds nothing of ours),
     // and the whole word arrives as ONE commit when the burst pauses.
-    let mut e = per_key_engine(Mode::Smooth);
+    let mut e = per_key_engine(Mode::Flow);
     let actions = type_str(&mut e, "tieeng");
     assert!(
         !actions
@@ -2701,11 +2701,11 @@ fn smooth_per_key_burst_coalesces_into_one_commit() {
 #[test]
 fn per_key_delay_follows_the_configured_value() {
     let mut e = engine(
-        Mode::Smooth,
+        Mode::Flow,
         Config {
             experimental_features: true,
-            smooth_per_key: true,
-            smooth_per_key_delay_ms: 200,
+            flow_per_key: true,
+            flow_per_key_delay_ms: 200,
             ..Config::default()
         },
     );
@@ -2725,27 +2725,27 @@ fn per_key_delay_clamps_out_of_range_values() {
     // 0 is allowed by owner decision (experimental knob; the gate-off bake
     // is what protects the shipped behavior, not the floor).
     let e = engine(
-        Mode::Smooth,
+        Mode::Flow,
         Config {
             experimental_features: true,
-            smooth_per_key: true,
-            smooth_per_key_delay_ms: 0,
+            flow_per_key: true,
+            flow_per_key_delay_ms: 0,
             ..Config::default()
         },
     );
     assert_eq!(e.per_key_delay(), Duration::from_millis(0));
     let e = engine(
-        Mode::Smooth,
+        Mode::Flow,
         Config {
             experimental_features: true,
-            smooth_per_key: true,
-            smooth_per_key_delay_ms: 700,
+            flow_per_key: true,
+            flow_per_key_delay_ms: 700,
             ..Config::default()
         },
     );
     assert_eq!(e.per_key_delay(), Duration::from_millis(500));
     assert_eq!(
-        Engine::new(Method::Telex, Mode::Smooth).per_key_delay(),
+        Engine::new(Method::Telex, Mode::Flow).per_key_delay(),
         Duration::from_millis(60),
         "engine default stays today's behavior"
     );
@@ -2756,10 +2756,10 @@ fn per_key_delay_gate_off_forces_the_builtin_60() {
     // The knob is experimental: gate off bakes the built-in 60 ms into the
     // engine whatever the file says (the stored value stays saved).
     let e = engine(
-        Mode::Smooth,
+        Mode::Flow,
         Config {
-            smooth_per_key: true,
-            smooth_per_key_delay_ms: 200,
+            flow_per_key: true,
+            flow_per_key_delay_ms: 200,
             experimental_features: false,
             ..Config::default()
         },
@@ -2768,17 +2768,17 @@ fn per_key_delay_gate_off_forces_the_builtin_60() {
 }
 
 #[test]
-fn smooth_backspace_retrack_lets_a_mark_key_keep_editing() {
+fn flow_backspace_retrack_lets_a_mark_key_keep_editing() {
     // The shipped Flow/Turbo look (per-key display on): `tungf` ␣ commits
     // `tùng `; Backspace deletes the last screen character — the experiment
     // re-tracks the shortened screen when the pop search cannot (a tone
     // outliving its key), and the next tone key keeps editing the word:
     // `tùn` + `s` lands `tún ` at word end, not the literal `tùns`.
     let mut e = engine(
-        Mode::SuperSmooth,
+        Mode::Turbo,
         Config {
             experimental_features: true,
-            smooth_backspace_retrack: true,
+            flow_backspace_retrack: true,
             ..Config::default()
         },
     );
@@ -2815,10 +2815,10 @@ fn smooth_backspace_retrack_lets_a_mark_key_keep_editing() {
 }
 
 #[test]
-fn smooth_backspace_retrack_off_keeps_the_legacy_plain_text() {
+fn flow_backspace_retrack_off_keeps_the_legacy_plain_text() {
     // The experiment off: today's behavior byte for byte — the word stays
     // dead after the Backspace and the tone key starts a fresh plain word.
-    let mut e = engine(Mode::SuperSmooth, Config::default());
+    let mut e = engine(Mode::Turbo, Config::default());
     e.set_uinput_available(true);
     type_str(&mut e, "tungf ");
     flush_per_key(&mut e);
@@ -2840,13 +2840,13 @@ fn smooth_backspace_retrack_off_keeps_the_legacy_plain_text() {
 }
 
 #[test]
-fn smooth_backspace_retrack_needs_the_gate() {
+fn flow_backspace_retrack_needs_the_gate() {
     // Like every experimental feature: gate off forces the legacy path
     // whatever the switch says (the switch state stays saved).
     let mut e = engine(
-        Mode::SuperSmooth,
+        Mode::Turbo,
         Config {
-            smooth_backspace_retrack: true,
+            flow_backspace_retrack: true,
             experimental_features: false,
             ..Config::default()
         },
@@ -2858,10 +2858,10 @@ fn smooth_backspace_retrack_needs_the_gate() {
 }
 
 #[test]
-fn smooth_per_key_word_end_carries_the_terminator_in_the_batch() {
+fn flow_per_key_word_end_carries_the_terminator_in_the_batch() {
     // The word-end terminator joins the coalesced batch — a forwarded key
     // would race the pending commit on a relay.
-    let mut e = per_key_engine(Mode::Smooth);
+    let mut e = per_key_engine(Mode::Flow);
     let actions = type_str(&mut e, "tieengs ");
     assert!(
         !actions.iter().any(|a| matches!(a, Action::Forward)),
@@ -2879,12 +2879,12 @@ fn smooth_per_key_word_end_carries_the_terminator_in_the_batch() {
 }
 
 #[test]
-fn smooth_per_key_backspace_forwards_and_keeps_tracking() {
+fn flow_per_key_backspace_forwards_and_keeps_tracking() {
     // After a flush the word has landed; the user's real Backspace deletes
     // its last character through the pass-through path — zero injections,
     // the transport that loses echo presses on a relay is gone entirely.
     // The reverse-map pops the mark key so the word stays tracked.
-    let mut e = per_key_engine(Mode::Smooth);
+    let mut e = per_key_engine(Mode::Flow);
     type_str(&mut e, "tie");
     flush_per_key(&mut e); // "tie" lands
     let actions = type_str(&mut e, "e"); // the mark: erase the landed `e`
@@ -2912,10 +2912,10 @@ fn smooth_per_key_backspace_forwards_and_keeps_tracking() {
 }
 
 #[test]
-fn smooth_per_key_macro_rewrites_the_landed_tail() {
+fn flow_per_key_macro_rewrites_the_landed_tail() {
     // The word-end macro erases what the app actually holds (the landed
     // tail after a flush) and parks the expansion with the terminator.
-    let mut e = per_key_engine(Mode::Smooth);
+    let mut e = per_key_engine(Mode::Flow);
     e.macros
         .set_entries([("zz".to_string(), "CLIP".to_string())].into_iter());
     type_str(&mut e, "zz");
@@ -2930,13 +2930,13 @@ fn smooth_per_key_macro_rewrites_the_landed_tail() {
 }
 
 #[test]
-fn smooth_per_key_word_end_never_erases_previous_words() {
+fn flow_per_key_word_end_never_erases_previous_words() {
     // Regression (owner report): typing the second word's mark erased the
     // FIRST word — the word-end coalesce diffed the bare word against the
     // whole-screen tail and erased everything before it ("tôi cảm" ->
     // "cảm "). The tail is the word's region only: the diff and the erase
     // stay inside the word, and the previous words are never touched.
-    let mut e = per_key_engine(Mode::Smooth);
+    let mut e = per_key_engine(Mode::Flow);
     let mut all = Vec::new();
     all.extend(type_str(&mut e, "tôi "));
     all.extend(flush_per_key(&mut e)); // "tôi " lands
@@ -2966,10 +2966,10 @@ fn smooth_per_key_word_end_never_erases_previous_words() {
 }
 
 #[test]
-fn smooth_per_key_legacy_charset_rewrites_the_tail() {
+fn flow_per_key_legacy_charset_rewrites_the_tail() {
     // Legacy encodings change the character count: the per-key batch
     // carries the whole re-encoded tail, diffed against what landed.
-    let mut e = per_key_engine(Mode::Smooth);
+    let mut e = per_key_engine(Mode::Flow);
     e.set_charset(Charset::Vni);
     type_str(&mut e, "vie");
     flush_per_key(&mut e); // the encoded "vie" lands
@@ -2982,11 +2982,11 @@ fn smooth_per_key_legacy_charset_rewrites_the_tail() {
 }
 
 #[test]
-fn smooth_per_key_backspace_lands_the_batch_before_deleting() {
+fn flow_per_key_backspace_lands_the_batch_before_deleting() {
     // Backspace within the grace window: the pending batch must land first
     // (the pass-through key deletes a character of the FINAL screen), then
     // the real Backspace deletes its last character.
-    let mut e = per_key_engine(Mode::Smooth);
+    let mut e = per_key_engine(Mode::Flow);
     type_str(&mut e, "vie");
     assert!(e.per_key_park.is_some());
     let actions = e.backspace().expect("backspace");
@@ -3000,11 +3000,11 @@ fn smooth_per_key_backspace_lands_the_batch_before_deleting() {
 }
 
 #[test]
-fn smooth_per_key_backspace_keeps_tracking_across_mark_keys() {
+fn flow_per_key_backspace_keeps_tracking_across_mark_keys() {
     // `việt` = raw `vieejt`. The Backspace deletes the screen's `t`; the
     // reverse-map pops raw keys until the recomposition matches, so the
     // retype restores the word and a further delete stays tracked too.
-    let mut e = per_key_engine(Mode::Smooth);
+    let mut e = per_key_engine(Mode::Flow);
     type_str(&mut e, "vieejt");
     flush_per_key(&mut e);
     assert_eq!(e.tail, "việt");
@@ -3028,12 +3028,12 @@ fn smooth_per_key_backspace_keeps_tracking_across_mark_keys() {
 }
 
 #[test]
-fn smooth_per_key_backspace_releases_words_it_cannot_remap() {
+fn flow_per_key_backspace_releases_words_it_cannot_remap() {
     // A word with no raw keys (the surrounding-text repair rebuilds the
     // composition from text) has no prefix to reverse-map: the word is
     // released. The real Backspace still deletes the last character —
     // zero injections — and the next key starts a fresh word.
-    let mut e = per_key_engine(Mode::Smooth);
+    let mut e = per_key_engine(Mode::Flow);
     type_str(&mut e, "tie");
     flush_per_key(&mut e);
     e.wrapper.rebuild("tiê");
@@ -3049,13 +3049,13 @@ fn smooth_per_key_backspace_releases_words_it_cannot_remap() {
 }
 
 #[test]
-fn smooth_per_key_applies_without_the_experimental_gate() {
+fn flow_per_key_applies_without_the_experimental_gate() {
     // The switch graduated from the experimental set: it shapes the typing
     // even with the master gate closed.
     let mut e = engine(
-        Mode::Smooth,
+        Mode::Flow,
         Config {
-            smooth_per_key: true,
+            flow_per_key: true,
             ..Config::default()
         },
     );
@@ -3147,11 +3147,11 @@ fn url_bypass_releases_when_backspace_erases_the_word() {
 }
 
 #[test]
-fn url_bypass_releases_after_backspace_in_smooth() {
+fn url_bypass_releases_after_backspace_in_flow() {
     // The per-key tail spans whole words ("x:" survives erasing "abc"), so
     // the release cannot key on an empty tail — the bypass span is measured
     // from its arm point. The next key must compose, not forward raw.
-    let mut e = engine(Mode::Smooth, Config::default());
+    let mut e = engine(Mode::Flow, Config::default());
     let _ = type_replay_backspaces(&mut e, "x:abc\u{8}\u{8}\u{8}");
     let actions = e.process_char('v');
     assert!(!actions.contains(&Action::Forward), "{actions:?}");
@@ -3229,11 +3229,11 @@ fn macro_still_expands_nonvietnamese_keys_in_off_mode() {
 }
 
 #[test]
-fn smooth_forwards_raw_keys_and_rewrites_at_word_end() {
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+fn flow_forwards_raw_keys_and_rewrites_at_word_end() {
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
     // The word-end rewrite contract: pin the non-per-key display, which the
     // per-key default replaced.
-    e.smooth_per_key = false;
+    e.flow_per_key = false;
     e.set_uinput_available(true);
     let actions = type_str(&mut e, "vieetj ");
     // Mid-word: nothing but forwards — the app shows the raw keys.
@@ -3262,8 +3262,8 @@ fn smooth_forwards_raw_keys_and_rewrites_at_word_end() {
 }
 
 #[test]
-fn smooth_leaves_english_words_alone() {
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+fn flow_leaves_english_words_alone() {
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_uinput_available(true);
     let actions = type_str(&mut e, "hello ");
     assert!(
@@ -3275,13 +3275,13 @@ fn smooth_leaves_english_words_alone() {
 }
 
 #[test]
-fn smooth_modes_auto_capitalize_at_sentence_start() {
-    for mode in [Mode::Smooth, Mode::SuperSmooth, Mode::Select] {
+fn flow_modes_auto_capitalize_at_sentence_start() {
+    for mode in [Mode::Flow, Mode::Turbo, Mode::Select] {
         let mut e = engine(
             mode,
             Config {
                 auto_capitalize: true,
-                smooth_per_key: false,
+                flow_per_key: false,
                 ..Config::default()
             },
         );
@@ -3308,9 +3308,9 @@ fn smooth_modes_auto_capitalize_at_sentence_start() {
 }
 
 #[test]
-fn smooth_backspace_forwards_and_pops_the_raw_key() {
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
-    e.smooth_per_key = false;
+fn flow_backspace_forwards_and_pops_the_raw_key() {
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.flow_per_key = false;
     e.set_uinput_available(true);
     type_str(&mut e, "vieetj");
     assert!(e.backspace().is_none(), "the app deletes its own key");
@@ -3348,9 +3348,9 @@ fn select_uses_selection_then_delete() {
 }
 
 #[test]
-fn super_smooth_rewrites_even_with_app_suggestions() {
-    let mut e = Engine::new(Method::Telex, Mode::SuperSmooth);
-    e.smooth_per_key = false;
+fn super_uinput_rewrites_even_with_app_suggestions() {
+    let mut e = Engine::new(Method::Telex, Mode::Turbo);
+    e.flow_per_key = false;
     e.set_uinput_available(true);
     // Prime the client first: set_client clears the suggestion flag and
     // type_str sets the client when it is None.
@@ -3366,8 +3366,8 @@ fn super_smooth_rewrites_even_with_app_suggestions() {
 }
 
 #[test]
-fn smooth_holds_back_when_the_app_autofills() {
-    let mut e = Engine::new(Method::Telex, Mode::Smooth);
+fn flow_holds_back_when_the_app_autofills() {
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_uinput_available(true);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_suggestions(true);
@@ -3689,12 +3689,12 @@ fn emoji_shortcode_rewrites_in_the_three_core_modes() {
 }
 
 #[test]
-fn emoji_rewrite_in_smooth_injects_backspaces_without_the_closing_colon() {
+fn emoji_rewrite_in_flow_injects_backspaces_without_the_closing_colon() {
     let mut e = with_emoji(
-        Mode::Smooth,
+        Mode::Flow,
         Config {
             emoji_enabled: true,
-            smooth_per_key: false,
+            flow_per_key: false,
             ..Config::default()
         },
     );
@@ -3703,7 +3703,7 @@ fn emoji_rewrite_in_smooth_injects_backspaces_without_the_closing_colon() {
     let actions = e.process_char(':');
     assert!(
         actions.contains(&Action::InjectBackspaces(6)),
-        "the smooth rewrite erases ':smile': {actions:?}"
+        "the flow rewrite erases ':smile': {actions:?}"
     );
     assert!(
         actions.contains(&Action::Commit("😄".into())),
@@ -3834,7 +3834,7 @@ fn tone_engine(method: MethodConfig, mode: Mode, tone: BackspaceToneConfig) -> E
         mode: mode.into(),
         method,
         backspace_tone: tone,
-        smooth_per_key: false,
+        flow_per_key: false,
         ..Config::default()
     });
     e.set_client(Some("gtk4-im:test".into()));
@@ -4016,7 +4016,7 @@ fn uinput_modes_keep_the_unikey_undo_under_tone_skip() {
     // key per Backspace, whatever the dropdown says.
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::Smooth,
+        Mode::Flow,
         BackspaceToneConfig::WholeChar,
     );
     e.set_uinput_available(true);
@@ -4026,18 +4026,18 @@ fn uinput_modes_keep_the_unikey_undo_under_tone_skip() {
 
 #[test]
 fn per_key_backspace_ignores_the_tone_skip() {
-    // smooth_per_key keeps the reverse-map pass-through regardless of the
+    // flow_per_key keeps the reverse-map pass-through regardless of the
     // dropdown: the real Backspace deletes the screen's last character.
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::Smooth,
+        Mode::Flow,
         BackspaceToneConfig::WholeChar,
     );
     e.set_uinput_available(true);
     e.apply_config(&Config {
-        mode: Mode::Smooth.into(),
+        mode: Mode::Flow.into(),
         experimental_features: true,
-        smooth_per_key: true,
+        flow_per_key: true,
         backspace_tone: BackspaceToneConfig::WholeChar,
         ..Config::default()
     });
@@ -4101,13 +4101,13 @@ fn dd_undo_keeps_the_composition_at_word_end() {
 }
 
 #[test]
-fn dd_undo_rewrites_smooth_at_word_end() {
-    // Smooth shows the raw keys while typing; the word end rewrites them to
+fn dd_undo_rewrites_flowat_word_end() {
+    // Flow shows the raw keys while typing; the word end rewrites them to
     // the composition `dd` — the undone đ must not keep `ddd` on screen.
     let mut e = engine(
-        Mode::Smooth,
+        Mode::Flow,
         Config {
-            smooth_per_key: false,
+            flow_per_key: false,
             ..Config::default()
         },
     );

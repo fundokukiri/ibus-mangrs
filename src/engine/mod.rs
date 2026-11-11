@@ -57,9 +57,9 @@ pub enum Mode {
     Surrounding,
     /// Raw keys are forwarded while typing; the latin tail is erased with
     /// real Backspaces at word end and the Vietnamese word is committed.
-    Smooth,
-    /// Smooth without the pre-rewrite verification.
-    SuperSmooth,
+    Flow,
+    /// Flow without the pre-rewrite verification.
+    Turbo,
     /// Shift+Left selects the typed tail, Delete erases it, then the word is
     /// committed. Needs a surrounding-text report.
     Select,
@@ -288,21 +288,21 @@ pub struct Engine {
     /// Commit a paused preedit word after `idle_commit_ms` of no keys.
     idle_commit_enabled: bool,
     idle_commit_ms: u64,
-    /// The smooth modes show the composed word progressively: every
+    /// The uinput modes show the composed word progressively: every
     /// composition-changing key erases the committed tail and commits the
     /// new one through the injected transport. Mirror of
-    /// `config.smooth_per_key`, on by default and outside the
+    /// `config.flow_per_key`, on by default and outside the
     /// experimental gate.
-    smooth_per_key: bool,
+    flow_per_key: bool,
     /// How long the per-key batch stays parked before it lands. Experimental:
     /// apply_config bakes the built-in grace in while the gate is off, so the
     /// shipped behavior cannot drift from the file.
-    smooth_per_key_delay_ms: u64,
+    flow_per_key_delay_ms: u64,
     /// Experimental: a Backspace on a committed uinput word re-tracks the
     /// shortened screen so the next mark key keeps editing. Off keeps the
     /// legacy plain-text behavior byte for byte; apply_config bakes the
     /// flag with the gate.
-    smooth_backspace_retrack: bool,
+    flow_backspace_retrack: bool,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -468,9 +468,9 @@ impl Engine {
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            smooth_per_key: false,
-            smooth_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
-            smooth_backspace_retrack: false,
+            flow_per_key: false,
+            flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
+            flow_backspace_retrack: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -587,15 +587,15 @@ impl Engine {
         self.idle_commit_ms = config.idle_commit_ms;
         // Not part of the experimental set anymore: the gate must not force
         // it off or the always-visible switch would silently do nothing.
-        self.smooth_per_key = config.smooth_per_key;
+        self.flow_per_key = config.flow_per_key;
         // The delay knob is experimental: gate off applies the built-in 60 ms
         // whatever the file says; the value stays saved for when the gate reopens.
-        self.smooth_per_key_delay_ms = if experimental {
-            config.smooth_per_key_delay_ms
+        self.flow_per_key_delay_ms = if experimental {
+            config.flow_per_key_delay_ms
         } else {
             Self::ECHO_APPLY_GRACE_MS
         };
-        self.smooth_backspace_retrack = experimental && config.smooth_backspace_retrack;
+        self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
@@ -745,7 +745,7 @@ impl Engine {
     /// text for the user who set it; the two server-side rewrite parks
     /// stay on the built-in constant and are not tunable.
     pub fn per_key_delay(&self) -> Duration {
-        Duration::from_millis(self.smooth_per_key_delay_ms.clamp(0, 500))
+        Duration::from_millis(self.flow_per_key_delay_ms.clamp(0, 500))
     }
 
     /// The client dropped the protocol delete at least once; the server
@@ -1230,7 +1230,7 @@ impl Engine {
         // these modes. Without the virtual device, or Select without a
         // surrounding-text report (it sizes the selection from it),
         // preedit still stands in.
-        if matches!(requested, Mode::Smooth | Mode::SuperSmooth | Mode::Select)
+        if matches!(requested, Mode::Flow | Mode::Turbo | Mode::Select)
             && (!self.uinput_available || (requested == Mode::Select && self.surrounding.is_none()))
         {
             return Mode::Preedit;
@@ -1336,7 +1336,7 @@ impl Engine {
         // modes show the raw keys, and a skipped tone would desync the
         // screen from the wrapper. They keep the unikey undo.
         self.wrapper.set_backspace_tone(
-            if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+            if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
                 BackspaceToneConfig::UnikeyWalk
             } else {
                 self.backspace_tone
@@ -1346,11 +1346,11 @@ impl Engine {
         // Backspace is forwarded so it deletes the raw key shown there, and
         // bamboo follows so the composition stays aligned (unikey
         // convention: Backspace undoes the last raw key).
-        if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+        if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
             // Per-key display: the app holds the composed word, so the
             // Backspace passes through with a reverse-mapped raw buffer —
             // the user's real key, the one transport the relay never drops.
-            if self.smooth_per_key && !matches!(mode, Mode::Select) {
+            if self.flow_per_key && !matches!(mode, Mode::Select) {
                 return Some(self.backspace_per_key());
             }
             self.wrapper.backspace();
@@ -1392,7 +1392,7 @@ impl Engine {
             }
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
-            Mode::Smooth | Mode::SuperSmooth | Mode::Select => None,
+            Mode::Flow | Mode::Turbo | Mode::Select => None,
             Mode::NonPreedit | Mode::Surrounding | Mode::ForwardKeyEvent | Mode::ForwardSelect => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
