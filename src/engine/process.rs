@@ -43,7 +43,9 @@ impl Engine {
             self.emoji_word = true;
             // The opening ':' is already committed text; tracking it makes
             // the rewrite delete exactly what the application holds, even
-            // after backspaces ate part of the shortcode.
+            // after backspaces ate part of the shortcode. The span starts
+            // before it: erasing the whole shortcode releases the bypass.
+            self.raw_word_start = self.tail.chars().count();
             self.tail.push(':');
         }
         if self.emoji_word {
@@ -66,6 +68,9 @@ impl Engine {
                     URL_CONTEXT_CHARS.contains(&p)
                         || (!self.extra_url_chars.is_empty() && self.extra_url_chars.contains(&p))
                 });
+            if self.url_word {
+                self.raw_word_start = self.tail.chars().count();
+            }
         }
         if self.url_word {
             let mut actions = Vec::new();

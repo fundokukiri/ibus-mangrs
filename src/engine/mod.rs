@@ -343,6 +343,13 @@ pub struct Engine {
     /// The user's emoji table, reloaded by mtime like the macros.
     emojis: UserEmoji,
     emoji_mtime: Option<SystemTime>,
+    /// Tail char count when the current raw-forward word armed — the
+    /// `url_word`/`emoji_word` span is everything pushed after it. A
+    /// Backspace that erases the span releases the bypass (terminators were
+    /// the only release before, so deleting a mis-typed word after `:` left
+    /// typing raw until space/enter). The per-key tail spans whole words
+    /// (`x:abc`), so an empty tail is not the signal — the arm point is.
+    raw_word_start: usize,
     /// The app appended suggestion text after the caret mid-word (Chrome's
     /// inline autocomplete). Its rewrite delete is dropped and repairs crash
     /// mutter, so show the following words as preedit — no delete needed.
@@ -444,6 +451,7 @@ impl Engine {
             extra_capitalize_after: Vec::new(),
             emoji_enabled: false,
             emoji_word: false,
+            raw_word_start: 0,
             emojis: UserEmoji::load(),
             emoji_mtime: None,
             suggestions: false,
@@ -615,6 +623,7 @@ impl Engine {
         self.emoji_enabled = config.emoji_enabled;
         self.emoji_word = false;
         self.url_word = false;
+        self.raw_word_start = 0;
         let emoji_time = file_time(UserEmoji::path().as_deref());
         if emoji_time != self.emoji_mtime {
             self.emojis = UserEmoji::load();
@@ -1291,6 +1300,15 @@ impl Engine {
     fn note_backspace_forwarded(&mut self) {
         self.last_char = self.tail.chars().last();
         self.capitalize_next = false;
+        // A Backspace that erased the whole raw-forward span kills the
+        // bypass: terminators were the only release, so deleting a word
+        // typed after `:` left every following letter raw until space/enter.
+        // A partial delete keeps it — the word is still on screen.
+        if (self.url_word || self.emoji_word) && self.tail.chars().count() <= self.raw_word_start {
+            self.url_word = false;
+            self.emoji_word = false;
+            self.raw_word_start = 0;
+        }
     }
 
     /// Backspace over the composition. Returns `None` when there is nothing
@@ -1488,6 +1506,7 @@ impl Engine {
         self.release_word_mode();
         self.url_word = false;
         self.emoji_word = false;
+        self.raw_word_start = 0;
         self.idle_committed = None;
         actions
     }
