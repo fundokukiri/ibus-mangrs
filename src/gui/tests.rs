@@ -544,9 +544,9 @@ fn refresh_round_trips_every_widget() {
         echo_stale_ms: 250,
         idle_commit_enabled: true,
         idle_commit_ms: 800,
-        smooth_per_key: true,
-        smooth_per_key_delay_ms: 80,
-        smooth_backspace_retrack: true,
+        flow_per_key: true,
+        flow_per_key_delay_ms: 80,
+        flow_backspace_retrack: true,
         experimental_features: true,
         show_toasts: false,
         debug_log: true,
@@ -588,7 +588,7 @@ fn refresh_round_trips_every_widget() {
             },
             MenuNode::Radios {
                 group: "display".into(),
-                children: vec!["preedit".into(), "smooth".into()],
+                children: vec!["preedit".into(), "flow".into()],
             },
         ]),
     };
@@ -614,8 +614,8 @@ fn refresh_round_trips_every_widget() {
         ModeConfig::NonPreedit,
         ModeConfig::Preedit,
         ModeConfig::Surrounding,
-        ModeConfig::Smooth,
-        ModeConfig::SuperSmooth,
+        ModeConfig::Flow,
+        ModeConfig::Turbo,
         ModeConfig::Select,
         ModeConfig::ForwardKeyEvent,
         ModeConfig::ForwardSelect,
@@ -761,7 +761,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
         extra_url_chars: "`".into(),
         echo_stale_enabled: true,
         echo_stale_ms: 250,
-        smooth_per_key_delay_ms: 200,
+        flow_per_key_delay_ms: 200,
         ..Config::default()
     };
     saved.save().expect("seed config");
@@ -780,10 +780,10 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.refresh(&off, &macros, &dictionary);
     assert!(!ui.macro_valid_words.is_sensitive());
     assert!(!ui.extra_url_chars_entry.is_sensitive());
-    assert!(!ui.smooth_per_key_spin.is_sensitive());
+    assert!(!ui.flow_per_key_spin.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
-    assert_eq!(ui.smooth_per_key_spin.value(), 60.0);
+    assert_eq!(ui.flow_per_key_spin.value(), 60.0);
 
     // A save with the gate off — the funnel reads the default-displaying
     // widgets — must not wipe the file's values.
@@ -792,7 +792,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(!closed.experimental_features);
     assert_eq!(closed.extra_url_chars, "`", "no wipe on save");
     assert_eq!(closed.echo_stale_ms, 250);
-    assert_eq!(closed.smooth_per_key_delay_ms, 200);
+    assert_eq!(closed.flow_per_key_delay_ms, 200);
 
     // Reopen (what the real toggle does: flip the switch, then the
     // presentation runs in the handler's order — restore first, sensitivity
@@ -813,7 +813,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.set_experimental_sensitive(false);
     ui.show_experimental_defaults();
     assert!(!ui.macro_valid_words.is_sensitive());
-    assert_eq!(ui.smooth_per_key_spin.value(), 60.0);
+    assert_eq!(ui.flow_per_key_spin.value(), 60.0);
     // Hand the sandbox file to the later scenarios the way they expect it:
     // with the gate off, read() reports the file's experimental fields, so
     // a leftover saved value would trip their refresh asserts.

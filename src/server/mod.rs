@@ -967,18 +967,18 @@ fn emit_with(
             // uinput modes' word-end rewrite: real Backspaces, paced.
             Action::InjectBackspaces(n) => {
                 if (t.backspaces)(*n, bs_gap) {
-                    debug_log::log(&format!("smooth rewrite: inject backspaces n={n}"));
+                    debug_log::log(&format!("flow rewrite: inject backspaces n={n}"));
                     injected_since_commit += *n;
                     injected_total += *n;
                 } else if engine.surrounding_data_ok() {
                     // Device lost mid-session: protocol delete as fallback.
-                    debug_log::log(&format!("smooth rewrite inject FAILED → protocol -{n}"));
+                    debug_log::log(&format!("flow rewrite inject FAILED → protocol -{n}"));
                     let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*n as i32)).append1(*n);
                     out.push(m);
                 } else {
                     debug_log::log(&format!(
-                        "smooth rewrite inject FAILED and no report: deletion dropped n={n}"
+                        "flow rewrite inject FAILED and no report: deletion dropped n={n}"
                     ));
                 }
             }

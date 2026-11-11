@@ -316,9 +316,9 @@ struct Ui {
     echo_stale_spin: adw::SpinRow,
     idle_commit_switch: adw::SwitchRow,
     idle_commit_spin: adw::SpinRow,
-    smooth_per_key_switch: adw::SwitchRow,
-    smooth_per_key_spin: adw::SpinRow,
-    smooth_backspace_retrack: adw::SwitchRow,
+    flow_per_key_switch: adw::SwitchRow,
+    flow_per_key_spin: adw::SpinRow,
+    flow_backspace_retrack: adw::SwitchRow,
     experimental_features: adw::SwitchRow,
     show_toasts: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
@@ -373,8 +373,8 @@ fn mode_index(m: ModeConfig) -> u32 {
         ModeConfig::NonPreedit => 0,
         ModeConfig::Preedit => 1,
         ModeConfig::Surrounding => 2,
-        ModeConfig::Smooth => 3,
-        ModeConfig::SuperSmooth => 4,
+        ModeConfig::Flow => 3,
+        ModeConfig::Turbo => 4,
         ModeConfig::Select => 5,
         ModeConfig::ForwardKeyEvent => 6,
         ModeConfig::ForwardSelect => 7,
@@ -389,8 +389,8 @@ fn mode_at(i: u32) -> ModeConfig {
         0 => ModeConfig::NonPreedit,
         1 => ModeConfig::Preedit,
         2 => ModeConfig::Surrounding,
-        3 => ModeConfig::Smooth,
-        4 => ModeConfig::SuperSmooth,
+        3 => ModeConfig::Flow,
+        4 => ModeConfig::Turbo,
         5 => ModeConfig::Select,
         6 => ModeConfig::ForwardKeyEvent,
         7 => ModeConfig::ForwardSelect,
@@ -584,15 +584,14 @@ impl Ui {
             .set_sensitive(config.idle_commit_enabled);
         self.idle_commit_spin
             .set_value(config.idle_commit_ms as f64);
-        self.smooth_per_key_switch.set_active(config.smooth_per_key);
+        self.flow_per_key_switch.set_active(config.flow_per_key);
         // Same shape as the other switch+spin pairs: the stored value stays
         // visible and locked while the switch is off.
-        self.smooth_per_key_spin
-            .set_sensitive(config.smooth_per_key);
-        self.smooth_per_key_spin
-            .set_value(config.smooth_per_key_delay_ms as f64);
-        self.smooth_backspace_retrack
-            .set_active(config.smooth_backspace_retrack);
+        self.flow_per_key_spin.set_sensitive(config.flow_per_key);
+        self.flow_per_key_spin
+            .set_value(config.flow_per_key_delay_ms as f64);
+        self.flow_backspace_retrack
+            .set_active(config.flow_backspace_retrack);
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
@@ -745,9 +744,9 @@ impl Ui {
         config.echo_stale_ms = self.echo_stale_spin.value() as u64;
         config.idle_commit_enabled = self.idle_commit_switch.is_active();
         config.idle_commit_ms = self.idle_commit_spin.value() as u64;
-        config.smooth_per_key = self.smooth_per_key_switch.is_active();
-        config.smooth_per_key_delay_ms = self.smooth_per_key_spin.value() as u64;
-        config.smooth_backspace_retrack = self.smooth_backspace_retrack.is_active();
+        config.flow_per_key = self.flow_per_key_switch.is_active();
+        config.flow_per_key_delay_ms = self.flow_per_key_spin.value() as u64;
+        config.flow_backspace_retrack = self.flow_backspace_retrack.is_active();
         config.experimental_features = self.experimental_features.is_active();
         config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
@@ -780,8 +779,8 @@ impl Ui {
             config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
             config.idle_commit_ms = saved_experimental.idle_commit_ms;
             config.nav_key_while_preedit = saved_experimental.nav_key_while_preedit;
-            config.smooth_per_key_delay_ms = saved_experimental.smooth_per_key_delay_ms;
-            config.smooth_backspace_retrack = saved_experimental.smooth_backspace_retrack;
+            config.flow_per_key_delay_ms = saved_experimental.flow_per_key_delay_ms;
+            config.flow_backspace_retrack = saved_experimental.flow_backspace_retrack;
         }
         config
     }
@@ -844,8 +843,8 @@ impl Ui {
             self.echo_stale_spin.upcast_ref(),
             self.idle_commit_switch.upcast_ref(),
             self.idle_commit_spin.upcast_ref(),
-            self.smooth_per_key_spin.upcast_ref(),
-            self.smooth_backspace_retrack.upcast_ref(),
+            self.flow_per_key_spin.upcast_ref(),
+            self.flow_backspace_retrack.upcast_ref(),
             self.nav_key_while_preedit.upcast_ref(),
         ];
         for row in rows {
@@ -861,8 +860,8 @@ impl Ui {
                 .set_sensitive(gate && self.echo_stale_switch.is_active());
             self.idle_commit_spin
                 .set_sensitive(gate && self.idle_commit_switch.is_active());
-            self.smooth_per_key_spin
-                .set_sensitive(gate && self.smooth_per_key_switch.is_active());
+            self.flow_per_key_spin
+                .set_sensitive(gate && self.flow_per_key_switch.is_active());
             self.extra_url_chars_entry
                 .set_sensitive(gate && self.extra_url_chars_switch.is_active());
             self.auto_capitalize_after_entry
@@ -895,10 +894,10 @@ impl Ui {
         self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
         self.idle_commit_switch.set_active(d.idle_commit_enabled);
         self.idle_commit_spin.set_value(d.idle_commit_ms as f64);
-        self.smooth_per_key_spin
-            .set_value(d.smooth_per_key_delay_ms as f64);
-        self.smooth_backspace_retrack
-            .set_active(d.smooth_backspace_retrack);
+        self.flow_per_key_spin
+            .set_value(d.flow_per_key_delay_ms as f64);
+        self.flow_backspace_retrack
+            .set_active(d.flow_backspace_retrack);
         self.nav_key_while_preedit
             .set_selected(nav_key_selected(&d.nav_key_while_preedit));
         self.suppress_save.set(false);
@@ -927,10 +926,10 @@ impl Ui {
         self.echo_stale_spin.set_value(c.echo_stale_ms as f64);
         self.idle_commit_switch.set_active(c.idle_commit_enabled);
         self.idle_commit_spin.set_value(c.idle_commit_ms as f64);
-        self.smooth_per_key_spin
-            .set_value(c.smooth_per_key_delay_ms as f64);
-        self.smooth_backspace_retrack
-            .set_active(c.smooth_backspace_retrack);
+        self.flow_per_key_spin
+            .set_value(c.flow_per_key_delay_ms as f64);
+        self.flow_backspace_retrack
+            .set_active(c.flow_backspace_retrack);
         self.nav_key_while_preedit
             .set_selected(nav_key_selected(&c.nav_key_while_preedit));
         self.suppress_save.set(false);

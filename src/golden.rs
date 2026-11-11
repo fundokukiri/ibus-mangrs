@@ -1079,8 +1079,8 @@ mod matrix {
             Mode::Preedit,
             Mode::Surrounding,
             Mode::Off,
-            Mode::Smooth,
-            Mode::SuperSmooth,
+            Mode::Flow,
+            Mode::Turbo,
             Mode::Select,
         ];
         let fault_sets: Vec<Faults> = vec![

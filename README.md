@@ -49,8 +49,8 @@ rules.
 | Underline (preedit)  | `preedit`       | word shows inline with underline, commits at word end            | 
 | No underline         | `nonpreedit`    | every key commits, the tail is rewritten on marks                | 
 | Surrounding text     | `surrounding`   | non-preedit, verified against the app's own text report          | 
-| Flow (uinput)        | `smooth`        | raw keys forwarded; real Backspaces erase the tail at word end   | 
-| Turbo (uinput)       | `supersmooth`   | Flow without the safety check before rewriting                   | 
+| Flow (uinput)        | `flow`          | raw keys forwarded; real Backspaces erase the tail at word end   | 
+| Turbo (uinput)       | `turbo`         | Flow without the safety check before rewriting                   |
 | Select (uinput)      | `select`        | Shift+← selects the tail, Delete erases it, word commits         | 
 | Forward Backspace    | `forwardkeyevent` | the tail is deleted with Backspace events forwarded via IBus   | 
 | Forward Selection    | `forwardselect` | the tail is selected with Shift+← and replaced by the commit     | 
@@ -201,7 +201,7 @@ pattern = "sublime_text"
 mode = "surrounding"
 ```
 
-Mode values: `preedit` (default), `nonpreedit`, `surrounding`, `smooth`, `supersmooth`,
+Mode values: `preedit` (default), `nonpreedit`, `surrounding`, `flow`, `turbo`,
 `select` (these three press real keys through `/dev/uinput`), `forwardkeyevent`,
 `forwardselect`, `off`.
 
