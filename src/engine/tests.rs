@@ -138,7 +138,13 @@ fn type_replay_backspaces(e: &mut Engine, script: &str) -> (String, bool) {
             }
         }
         if forwarded {
-            buf.push(step);
+            // A forwarded Backspace deletes the application's last char —
+            // a ForwardBackspaces action carried its own count above.
+            if step == '\u{8}' {
+                buf.pop();
+            } else {
+                buf.push(step);
+            }
         }
         e.set_surrounding(buf.iter().collect(), buf.len() as u32);
     }
@@ -3125,6 +3131,43 @@ fn url_bypass_releases_at_the_next_space() {
     // ("nhieeuf" → "nhiều" — huyền from the f).
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
     assert_eq!(type_replay(&mut e, "x.tieeng nhieeuf "), "x.tieeng nhiều ");
+}
+
+#[test]
+fn url_bypass_releases_when_backspace_erases_the_word() {
+    // `:abc` types raw (bypass_url defaults on); erasing it with Backspace
+    // must release the bypass — space/enter used to be the only way out
+    // (`x:abc\b\b\bvieetj ` stayed `x:vieetj `).
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(mode, Config::default());
+        let (out, oor) = type_replay_backspaces(&mut e, "x:abc\u{8}\u{8}\u{8}vieetj ");
+        assert!(!oor, "{mode:?}");
+        assert_eq!(out, "x:việt ", "{mode:?}");
+    }
+}
+
+#[test]
+fn url_bypass_releases_after_backspace_in_smooth() {
+    // The per-key tail spans whole words ("x:" survives erasing "abc"), so
+    // the release cannot key on an empty tail — the bypass span is measured
+    // from its arm point. The next key must compose, not forward raw.
+    let mut e = engine(Mode::Smooth, Config::default());
+    let _ = type_replay_backspaces(&mut e, "x:abc\u{8}\u{8}\u{8}");
+    let actions = e.process_char('v');
+    assert!(!actions.contains(&Action::Forward), "{actions:?}");
+    assert_eq!(e.wrapper.raw(), "v");
+}
+
+#[test]
+fn url_bypass_survives_a_backspace_inside_the_word() {
+    // Deleting part of the raw word keeps the bypass: the rest is still on
+    // screen and the next keys stay raw (`x:ab\b c ` → `x:ac `).
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(mode, Config::default());
+        let (out, oor) = type_replay_backspaces(&mut e, "x:ab\u{8}c ");
+        assert!(!oor, "{mode:?}");
+        assert_eq!(out, "x:ac ", "{mode:?}");
+    }
 }
 
 #[test]
