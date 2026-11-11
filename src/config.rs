@@ -30,8 +30,10 @@ pub struct Config {
     pub backspace_tone: BackspaceToneConfig,
     /// Restore English (non-Vietnamese) words to the raw keystrokes typed.
     pub auto_restore: bool,
-    /// Keep words raw when they directly follow a URL/email/path character
-    /// (`/ : @ . _ ~ = # & % ?`) — no Vietnamese marks, no macros.
+    /// Keep raw typing inside a real URL (`://` scheme or `www.` — the
+    /// whole address until a sentence boundary) and for a word directly
+    /// after `/ @ . _` (email, path, snake_case) — no Vietnamese marks, no
+    /// macros. Prose punctuation (`: = # ? & % ~`) does not block marks.
     pub bypass_url: bool,
     /// Extra characters that start a bypass word when typed directly before
     /// it, on top of the built-in set. `-` is rejected (it stays out of the

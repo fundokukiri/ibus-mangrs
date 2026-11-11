@@ -158,7 +158,7 @@ subtitle = "Keep đ in abbreviations: ddc → đc, ddk → đk, ddt → đt"
 
 [rows.bypass_url]
 title = "No tones after URLs"
-subtitle = "A word typed right after / : @ . _ ~ = # & % ? stays raw"
+subtitle = "Real URLs (https://, www.) stay raw across the span; words after @ . _ / stay raw"
 
 [rows.w2u]
 title = "W to ư"
@@ -578,7 +578,7 @@ free = "Allows the tone to sit anywhere in the word instead of always on the nea
 auto_correct = "Syllables missing from the Vietnamese syllable table return the exact keys typed."
 auto_restore = "Foreign words (english, hello) return to the raw key string once typed instead of staying."
 abbrev = "Keeps đ intact in abbreviations: ddc, ddk, ddt are not turned into đ."
-bypass_url = "Words right after a URL/email/path get no tones, so links stay intact while chatting."
+bypass_url = "Real links (https://, www.) type raw across the whole address, including the ?x=1&#tag part; a word right after @ . _ / also stays raw (email, path, snake_case). Prose punctuation : = # ? & % ~ no longer blocks tones."
 w2u = "Typing w gives ư: w = ư, wa = ưa… handy on keyboards without a ư key."
 bracket = "Typing [ and ] gives ơ and ư depending on the position in the word."
 em_dash = "Two hyphens in a row (--) become an em dash (—)."
@@ -604,7 +604,7 @@ extension_logout = "Log out so the new extension is loaded (GNOME keeps the old 
 reset_defaults = "Overwrites config.toml with the defaults (including the panel menu, per-app rules, shortcuts). Shorthand and the dictionary are untouched."
 experimental_features = "The master switch of the Experimental tab: off locks every row below and typing behaves with the defaults; adjusted values stay saved for when it returns."
 macro_valid_words = "The Shorthand feature: a shortcut colliding with a real Vietnamese word (e.g. \"cam\") does not expand, so normal typing is never blocked. On, shorthand wins — to type the real word, Backspace once and retype that key."
-extra_url_chars = "The No-tone-after-URL feature (by default it applies to / : @ . _ ~ = # & % ?): this row adds custom characters to that set. Flip the left switch and list the characters in the right box (e.g. ` ' !); '-' is rejected so -- stays an em dash."
+extra_url_chars = "The No-tone-after-URL feature (by default it applies to / @ . _): this row adds custom characters to that set. Flip the left switch and list the characters in the right box (e.g. ` ' !); '-' is rejected so -- stays an em dash."
 auto_capitalize_after = "The Auto-capitalize feature (after . ! ? and Enter): this row adds custom characters to that set. Flip the left switch and list the characters in the right box (e.g. : ”); no letters, digits or spaces."
 clipboard_restore = "The clipboard-restore feature: pasting marked text over the Clipboard channel overwrites the clipboard for a moment — the right number is how long before the old clipboard comes back. Only effective when the send channel is Clipboard.Only effective when the send channel is Clipboard. 100–5000 ms, default 600."
 echo_stale = "The commit-flush guard on Wayland: the engine waits for the virtual Backspace keys (echoes) to return before the committed text lands in the app. The right number is the wait limit — past it the text flushes anyway instead of hanging.past it the text flushes anyway instead of hanging. 50–1000 ms, too low risks losing text, too high delays it. Default 150 ms."

@@ -681,7 +681,7 @@ fn row_texts_render_as_plain_text() {
     }
     assert_eq!(
         ui.bypass_url.subtitle().as_deref(),
-        Some("Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên")
+        Some("URL thật (https://, www.) giữ nguyên cả vùng; từ sau @ . _ / giữ nguyên")
     );
 }
 
