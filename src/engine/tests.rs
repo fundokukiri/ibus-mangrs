@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::{MethodConfig, ModeConfig};
+use crate::config::{CharsetConfig, MethodConfig, ModeConfig};
 
 /// Feed keystrokes like a real client: it reports capabilities and a
 /// SetSurroundingText update after every visible change.
@@ -4449,4 +4449,170 @@ fn select_retracked_word_end_commits_cleanly() {
     type_str(&mut e, " ");
     let actions = flush_per_key(&mut e);
     assert_eq!(e.tail, "túng ", "{actions:?}");
+}
+
+#[test]
+fn retrack_skips_raw_forwarder_spans() {
+    // With v2 on, a Backspace inside a raw-forwarder span (the URL
+    // bypass) stays on the pass-through path: the span is text the
+    // engine never composed, and rebuilding it would let mark keys edit
+    // a plain domain. Each Backspace erases one screen character and the
+    // span releases as it always has.
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            experimental_features: true,
+            flow_backspace_composition: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let _ = type_replay_backspaces(&mut e, "x:abc\u{8}\u{8}\u{8}");
+    // Each Backspace erased exactly one screen character of the span, the
+    // wrapper never held it, and the span release left nothing composed.
+    assert_eq!(e.tail, "x:");
+    assert_eq!(e.wrapper.raw(), "");
+    // The screen still ends in a context character: the next word is raw
+    // again — the bypass contract every mode shares, not a rebuild.
+    let actions = e.process_char('v');
+    assert!(
+        actions.contains(&Action::Forward),
+        "text after a context character stays raw: {actions:?}"
+    );
+    assert_eq!(e.wrapper.raw(), "");
+}
+
+#[test]
+fn backspace_composition_exhaustion_falls_back_to_passthrough() {
+    // ToneFirst drops the tone first, then the letters go one by one
+    // through the batch; when the word is spent the engine holds nothing
+    // composed and plain text follows.
+    let mut e = composition_engine(Mode::Flow, BackspaceToneConfig::ToneFirst);
+    type_str(&mut e, "tungf");
+    flush_per_key(&mut e);
+    for expected in ["tung", "tun", "tu", "t"] {
+        e.backspace();
+        flush_per_key(&mut e);
+        assert_eq!(e.tail, expected);
+    }
+    e.backspace();
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "");
+    assert!(!e.wrapper.has_composition());
+    type_str(&mut e, "abc");
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "abc");
+}
+
+#[test]
+fn backspace_composition_legacy_charset_screen_math() {
+    // The VNI input method types the mark, the VNI charset renders it:
+    // the screen holds the re-encoded word whose character count differs
+    // from the composition, and the tone-first Backspace erases the mark
+    // through the batch with the counts still correct.
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            experimental_features: true,
+            flow_backspace_composition: true,
+            method: MethodConfig::Vni,
+            charset: CharsetConfig::Vni,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, "tu2ng");
+    flush_per_key(&mut e);
+    // The legacy encoding changes the character shape on screen.
+    assert_eq!(e.tail, "tuøng");
+    e.backspace();
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "tung");
+}
+
+#[test]
+fn select_retracked_word_does_not_leak_into_the_next_word() {
+    // The rebuilt state is word-scoped: the next word's mid-word
+    // Backspace is the legacy pass-through, and a Backspace on the NEW
+    // committed word rebuilds that one independently.
+    let mut e = engine(
+        Mode::Select,
+        Config {
+            experimental_features: true,
+            flow_backspace_composition: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
+    type_str(&mut e, "tungf ");
+    e.backspace();
+    e.backspace();
+    flush_per_key(&mut e);
+    type_str(&mut e, " ");
+    flush_per_key(&mut e);
+    // The fresh word starts untracked: its mid-word Backspace is legacy.
+    type_str(&mut e, "v");
+    assert_eq!(
+        e.backspace(),
+        None,
+        "the fresh word must not inherit the flag"
+    );
+    type_str(&mut e, "ieetj ");
+    e.backspace();
+    assert!(
+        e.wrapper.has_composition(),
+        "the new word's committed Backspace rebuilds it independently"
+    );
+}
+
+#[test]
+fn select_retracked_clears_on_drop_pending_word() {
+    // Reset/FocusOut clears the flag with the tail: the next Backspace
+    // falls back to the legacy path (nothing composed, nothing tracked).
+    let mut e = engine(
+        Mode::Select,
+        Config {
+            experimental_features: true,
+            flow_backspace_composition: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
+    type_str(&mut e, "tungf ");
+    e.backspace();
+    assert!(e.wrapper.has_composition());
+    e.drop_pending_word(true);
+    assert_eq!(e.backspace(), None, "the reset must leave no tracked state");
+}
+
+#[test]
+fn retrack_unsupported_method_keeps_legacy() {
+    // MsLayout: the re-encoder returns None — the v2 flow releases the
+    // word exactly like today (the application deletes the character).
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            experimental_features: true,
+            flow_backspace_composition: true,
+            method: MethodConfig::Microsoft,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, "ti3ng8 ");
+    flush_per_key(&mut e);
+    let tail_before = e.tail.clone();
+    let actions = e.backspace().expect("the committed word is tracked");
+    assert!(
+        actions.contains(&Action::Forward),
+        "the user's real Backspace erases the character: {actions:?}"
+    );
+    assert!(!e.wrapper.has_composition());
+    assert_eq!(e.tail, replace_tail(&tail_before, 1, ""));
 }
