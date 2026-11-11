@@ -42,12 +42,6 @@ pub struct Config {
     /// built-in set alone. The string itself stays saved in the file and
     /// reapplies when the switch returns.
     pub extra_url_chars_enabled: bool,
-    /// Keep words raw when they directly follow a bare `-` — hyphenated
-    /// domains with no URL context before them (`vi-mangrs.com`). Never
-    /// fires on a `--` pair, so the em dash survives. Experimental: the
-    /// master gate forces the shipped behavior off while the switch stays
-    /// saved.
-    pub bypass_hyphen: bool,
     /// When a plain `w` turns into `ư` (`disabled` / `nonstart` / `everywhere`).
     pub w2u: W2uConfig,
     /// When `[` `]` `{` `}` type `ơ` `ư` (`disabled` / `nonstart` / `everywhere`).
@@ -786,7 +780,6 @@ impl Default for Config {
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
             bypass_url: true,
-            bypass_hyphen: false,
             extra_url_chars: String::new(),
             extra_url_chars_enabled: false,
             w2u: W2uConfig::Disabled,
@@ -1306,13 +1299,6 @@ children = ["preedit", "smooth"]
         let c: Config = toml::from_str("smooth_backspace_retrack = true").unwrap();
         assert!(c.smooth_backspace_retrack);
         assert!(!Config::default().smooth_backspace_retrack);
-    }
-
-    #[test]
-    fn bypass_hyphen_round_trips_and_defaults_off() {
-        let c: Config = toml::from_str("bypass_hyphen = true").unwrap();
-        assert!(c.bypass_hyphen);
-        assert!(!Config::default().bypass_hyphen);
     }
 
     #[test]

@@ -506,7 +506,6 @@ fn refresh_round_trips_every_widget() {
         auto_correct: false,
         auto_restore: false,
         bypass_url: false,
-        bypass_hyphen: true,
         // The switch off must NOT wipe the stored value: refresh shows it
         // (locked) and read returns it — the value reapplies when the
         // switch comes back on. Pinned by the read() round-trip below.

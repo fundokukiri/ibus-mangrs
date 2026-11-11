@@ -281,10 +281,6 @@ subtitle = "Số ms một phím chờ trước khi đổ vào văn bản: thấp
 title = "Sửa dấu sau Backspace (Flow/Turbo)"
 subtitle = "Xóa một ký tự của từ đã gõ xong rồi gõ phím dấu mới sẽ tiếp tục biến hóa từ (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước bật. Thử nghiệm."
 
-[rows.bypass_hyphen]
-title = "Không dấu sau gạch ngang"
-subtitle = "Từ gõ ngay sau gạch ngang (-) giữ nguyên như sau URL: vi-mangrs.com không bị thành vi-máng.com. Hai gạch liên tiếp (--) vẫn thành gạch dài. Thử nghiệm."
-
 [rows.macro_enabled]
 title = "Bật gõ tắt"
 subtitle = "Khóa mở rộng thành cụm khi hết từ"

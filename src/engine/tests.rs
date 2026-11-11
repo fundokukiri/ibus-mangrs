@@ -3204,57 +3204,6 @@ fn url_bypass_keeps_the_em_dash_outside_urls() {
 }
 
 #[test]
-fn hyphen_bypass_is_experimental() {
-    // Bare hyphenated domain: by default the part after '-' composes
-    // ("mangrs" -> "máng"); the experimental hyphen bypass keeps it raw —
-    // and a `--` pair is still an em dash, never a bypass start.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
-        let mut e = engine(mode, Config::default());
-        assert_eq!(
-            type_replay(&mut e, "vi-mangrs.com "),
-            "vi-máng.com ",
-            "{mode:?}"
-        );
-        let mut e = engine(
-            mode,
-            Config {
-                experimental_features: true,
-                bypass_hyphen: true,
-                ..Config::default()
-            },
-        );
-        assert_eq!(
-            type_replay(&mut e, "vi-mangrs.com "),
-            "vi-mangrs.com ",
-            "{mode:?}"
-        );
-        let mut e = engine(
-            mode,
-            Config {
-                em_dash: true,
-                experimental_features: true,
-                bypass_hyphen: true,
-                ..Config::default()
-            },
-        );
-        assert_eq!(type_replay(&mut e, "a--b "), "a—b ", "{mode:?}");
-    }
-}
-
-#[test]
-fn hyphen_bypass_needs_the_gate() {
-    // The switch on but the master gate closed: the shipped behavior.
-    let mut e = engine(
-        Mode::NonPreedit,
-        Config {
-            bypass_hyphen: true,
-            ..Config::default()
-        },
-    );
-    assert_eq!(type_replay(&mut e, "vi-mangrs.com "), "vi-máng.com ");
-}
-
-#[test]
 fn macro_does_not_expand_valid_vietnamese_words() {
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
     e.macros

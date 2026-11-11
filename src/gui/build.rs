@@ -503,13 +503,6 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Xóa một ký tự của từ đã gõ xong rồi gõ phím dấu mới sẽ tiếp tục biến hóa từ (tùn + s → tún) thay vì rơi thành chữ thường",
         ),
     );
-    let bypass_hyphen = switch_row(
-        &t("rows.bypass_hyphen.title", "Không dấu sau gạch ngang"),
-        &t(
-            "rows.bypass_hyphen.subtitle",
-            "Từ gõ ngay sau gạch ngang (-) giữ nguyên như sau URL: vi-mangrs.com không bị thành vi-máng.com. Hai gạch liên tiếp (--) vẫn thành gạch dài. Thử nghiệm",
-        ),
-    );
     let idle_commit_spin = spin_row(
         &t(
             "rows.idle_commit_spin.title",
@@ -777,7 +770,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         smooth_per_key_switch,
         smooth_per_key_spin,
         smooth_backspace_retrack,
-        bypass_hyphen,
         experimental_features,
         menu,
         menu_box,
