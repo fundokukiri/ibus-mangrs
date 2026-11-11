@@ -156,6 +156,44 @@ pub(super) fn action_row(title: &str, subtitle: &str) -> adw::ActionRow {
     row
 }
 
+/// A merged feature row: the feature's title and subtitle on the left, its
+/// on/off switch as the first suffix and the value control as the second —
+/// one row per feature instead of a switch row plus a separate value row
+/// below it. Returns the switch for the save/twin-lock wiring; the row
+/// itself goes into the gate's lock list (locking the row greys both
+/// suffixes, since sensitivity cascades).
+pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
+    title: &str,
+    subtitle: &str,
+    value: &W,
+) -> (adw::ActionRow, gtk4::Switch) {
+    let row = action_row(title, subtitle);
+    let switch = gtk4::Switch::new();
+    switch.set_valign(gtk4::Align::Center);
+    value.set_valign(gtk4::Align::Center);
+    row.add_suffix(&switch);
+    row.add_suffix(value);
+    (row, switch)
+}
+
+/// The value half of a merged row: a bare SpinButton without SpinRow's
+/// title — the merged row's title carries the meaning. Same adjustment
+/// shape as `spin_row`.
+pub(super) fn spin_button(min: f64, max: f64, step: f64) -> gtk4::SpinButton {
+    let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
+    let spin = gtk4::SpinButton::new(Some(&adjustment), step, 0);
+    spin.set_width_chars(9);
+    spin
+}
+
+/// The text half of a merged row: a plain entry sized for a short
+/// character list (`: " ').
+pub(super) fn chars_entry() -> gtk4::Entry {
+    let entry = gtk4::Entry::new();
+    entry.set_width_chars(10);
+    entry
+}
+
 pub(super) fn text_view(content: &str) -> TextView {
     let view = TextView::builder()
         .hexpand(true)

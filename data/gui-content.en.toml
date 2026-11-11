@@ -181,48 +181,28 @@ title = "Double Space becomes a period"
 subtitle = "Two spaces become a period"
 
 [rows.macro_valid_words]
-title = "Shorthand expands on real words too"
+title = "Shorthand: expands on real words too"
 subtitle = "A shortcut colliding with a real word (e.g. \"cam\") expands instead of staying — Backspace once to type the word"
 
 [rows.extra_url_chars]
 title = "Extra no-tone characters"
-subtitle = "A word right after any character below keeps its raw keys too"
-
-[rows.extra_url_chars_entry]
-title = "Custom characters"
-subtitle = "Example: ` ' ! — no -, letters, digits or spaces"
+subtitle = "Left switch toggles it; the right box lists custom characters — a word right after any of them keeps its raw keys too. No -, letters, digits or spaces"
 
 [rows.auto_capitalize_after]
 title = "Capitalize after extra characters"
-subtitle = "Same set . ! ? + Enter: the word right after the characters below is capitalized too"
-
-[rows.auto_capitalize_after_entry]
-title = "Trigger characters"
-subtitle = "Example : ” — no letters, digits or spaces"
+subtitle = "Same set . ! ? + Enter: left switch toggles it; the right box lists the extra characters — the word right after them is capitalized too. No letters, digits or spaces"
 
 [rows.clipboard_restore]
-title = "Clipboard restore timing"
-subtitle = "Change how long the old clipboard waits to come back after a paste — only effective when the channel is Clipboard"
-
-[rows.clipboard_restore_spin]
-title = "Restore clipboard after (ms)"
-subtitle = "100–5000 ms. Default: 600"
+title = "Restore clipboard after a paste (ms)"
+subtitle = "Left switch toggles it; the right number is how long the old clipboard waits to come back after a paste — only effective when the channel is Clipboard. 100–5000 ms. Default: 600"
 
 [rows.echo_stale]
-title = "Flush commits on stale echo"
-subtitle = "How long to wait before giving up on the virtual Backspace returning and flushing the text instead — raise it when a mark flashes then reverts, lower it when text appears late"
-
-[rows.echo_stale_spin]
-title = "Flush after (ms)"
-subtitle = "50–1000 ms. Default: 150. Too low risks losing text, too high delays it"
+title = "Flush commits on stale echo (ms)"
+subtitle = "Left switch toggles it; the right number is how long the virtual Backspace may take to return before the text is flushed — raise it when a mark flashes then reverts, lower it when text appears late. 50–1000 ms. Default: 150"
 
 [rows.idle_commit]
-title = "Commit the word when typing pauses"
-subtitle = "Pausing long enough on an underlined word commits it, as if Space was pressed"
-
-[rows.idle_commit_spin]
-title = "Pause before commit (ms)"
-subtitle = "300–2000 ms. Default: 700"
+title = "Commit the word when typing pauses (ms)"
+subtitle = "Left switch toggles it; the right number is the pause that commits an underlined word, as if Space was pressed. 300–2000 ms. Default: 700"
 
 [rows.experimental_features]
 title = "Experimental features"
@@ -272,7 +252,7 @@ title = "Per-key marks in Flow"
 subtitle = "Flow/Turbo show the accented letter as you type (ee → ê) instead of holding the raw keys until word end — the delay is the row below; very fast typing merges the steps, the text appears when you pause; Select is unchanged"
 
 [rows.flow_per_key_delay]
-title = "Per-key display delay (ms)"
+title = "Per-key marks in Flow: delay (ms)"
 subtitle = "How many ms a key waits before it lands in the text: lower shows marks sooner, higher types smoother. 0–500 ms, a too-low value can reorder text on Wayland. Default: 60. Experimental."
 
 [rows.flow_backspace_retrack]
@@ -622,3 +602,13 @@ desktop_icon = "Show or hide the “MăngRS Settings” entry in GNOME's app gri
 focus_extension = "The extension tells the engine the focused window's name, so per-app rules work with native Wayland apps (Chrome, Firefox…)."
 extension_logout = "Log out so the new extension is loaded (GNOME keeps the old module in memory)."
 reset_defaults = "Overwrites config.toml with the defaults (including the panel menu, per-app rules, shortcuts). Shorthand and the dictionary are untouched."
+experimental_features = "The master switch of the Experimental tab: off locks every row below and typing behaves with the defaults; adjusted values stay saved for when it returns."
+macro_valid_words = "The Shorthand feature: a shortcut colliding with a real Vietnamese word (e.g. \"cam\") does not expand, so normal typing is never blocked. On, shorthand wins — to type the real word, Backspace once and retype that key."
+extra_url_chars = "The No-tone-after-URL feature (by default it applies to / : @ . _ ~ = # & % ?): this row adds custom characters to that set. Flip the left switch and list the characters in the right box; '-' is rejected so -- stays an em dash."
+auto_capitalize_after = "The Auto-capitalize feature (after . ! ? and Enter): this row adds custom characters to that set. Flip the left switch and list the characters in the right box; no letters, digits or spaces."
+clipboard_restore = "The clipboard-restore feature: pasting marked text over the Clipboard channel overwrites the clipboard for a moment — the right number is how long before the old clipboard comes back. Only effective when the send channel is Clipboard."
+echo_stale = "The commit-flush guard on Wayland: the engine waits for the virtual Backspace keys (echoes) to return before the committed text lands in the app. The right number is the wait limit — past it the text flushes anyway instead of hanging. Default 150 ms."
+idle_commit = "The commit-on-pause feature: pausing long enough on an underlined word commits it, as if Space was pressed. The right number is the pause threshold."
+flow_per_key_delay = "The per-key marks feature in Flow (its switch lives on the Tuning tab): the right number is the delay before marked text lands in the document — lower shows marks sooner, higher types smoother. 0–500 ms, default 60."
+flow_backspace_retrack = "The mark-editing-after-Backspace feature in Flow/Turbo: erase one character of a finished word and type a mark key — the word keeps transforming (tùn + s → tún) instead of falling back to plain letters. Needs per-key marks on."
+nav_key_while_preedit = "The nav-key-while-a-word-is-typed feature: with a word still underlined, the first arrow key swallows to commit first (default, press twice to move) or moves the caret right away. If text lands in the wrong place, go back to Swallow."
