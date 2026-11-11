@@ -177,6 +177,9 @@ pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
     switch.set_valign(gtk4::Align::Center);
     value.set_valign(gtk4::Align::Center);
     row.add_suffix(&switch);
+    // A clear gap separates the two halves — the switch must not touch the
+    // value control it stands next to.
+    value.set_margin_start(12);
     row.add_suffix(value);
     (row, switch)
 }
