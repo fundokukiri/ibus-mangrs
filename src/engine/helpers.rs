@@ -39,3 +39,18 @@ pub(super) fn replace_tail(tail: &str, delete: usize, insert: &str) -> String {
     s.push_str(insert);
     s
 }
+
+/// The word region of a screen: everything before the trailing word
+/// terminators (`chào ` → `chào`). The composition rebuild covers the
+/// word only — the terminators stay on the screen and every batch want
+/// carries them (the engine's `tracked_suffix`).
+pub(super) fn tracked_word_from_screen(screen: &str) -> String {
+    screen
+        .chars()
+        .rev()
+        .skip_while(|c| crate::bamboo_wrapper::is_word_terminator(*c))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
+}

@@ -2857,6 +2857,194 @@ fn flow_backspace_retrack_needs_the_gate() {
     assert!(!e.wrapper.has_composition());
 }
 
+// --- the composition-driven Backspace (v2 experiment) ---
+
+fn composition_engine(mode: Mode, backspace_tone: BackspaceToneConfig) -> Engine {
+    let mut e = engine(
+        mode,
+        Config {
+            experimental_features: true,
+            flow_backspace_composition: true,
+            backspace_tone,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    e
+}
+
+#[test]
+fn backspace_composition_tonefirst_deletes_the_mark() {
+    // v2, ToneFirst (the shipped default): a Backspace on the composing
+    // word drops the tone through the composition — `tùng` -> `tung` —
+    // and the screen follows through the batch, so a mark key re-applies
+    // (`f` -> `tùng`, `s` -> `túng`) and the word end lands as screen math.
+    let mut e = composition_engine(Mode::Flow, BackspaceToneConfig::ToneFirst);
+    type_str(&mut e, "tungf");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(
+        actions,
+        vec![Action::CommitNow("tùng".into())],
+        "{actions:?}"
+    );
+    assert_eq!(e.tail, "tùng");
+    let actions = e.backspace().expect("the word is tracked");
+    assert_eq!(actions, vec![Action::InjectBackspaces(3)], "{actions:?}");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(
+        actions,
+        vec![Action::CommitNow("ung".into())],
+        "{actions:?}"
+    );
+    assert_eq!(e.tail, "tung");
+    // The mark comes back through the same batch transport.
+    type_str(&mut e, "f");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(e.tail, "tùng", "{actions:?}");
+    type_str(&mut e, " ");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(e.tail, "tùng ", "{actions:?}");
+}
+
+#[test]
+fn backspace_composition_wholechar_deletes_the_marked_character() {
+    // v2, WholeChar: the screen loses exactly one character per Backspace
+    // (`tùng` -> `tùn` -> `tù` -> `t`), and the last one erases through
+    // the batch — the composition is spent either way.
+    let mut e = composition_engine(Mode::Flow, BackspaceToneConfig::WholeChar);
+    type_str(&mut e, "tungf");
+    flush_per_key(&mut e);
+    let actions = e.backspace().expect("the word is tracked");
+    assert_eq!(actions, vec![Action::InjectBackspaces(1)], "{actions:?}");
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "tùn");
+    let actions = e.backspace().expect("still tracked");
+    assert_eq!(actions, vec![Action::InjectBackspaces(1)], "{actions:?}");
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "tù");
+    e.backspace();
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "t");
+    // The composition is spent: the last Backspace erases through the
+    // batch and the engine holds nothing composed.
+    let actions = e.backspace().expect("tracked until the word dies");
+    assert_eq!(actions, vec![Action::InjectBackspaces(1)], "{actions:?}");
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "");
+    assert!(!e.wrapper.has_composition());
+}
+
+#[test]
+fn backspace_composition_unikeywalk_through_the_composition() {
+    // v2, UnikeyWalk: Backspace undoes the last raw key — the tone key
+    // first (`tùng` -> `tung`), then the letters (`tun`).
+    let mut e = composition_engine(Mode::Flow, BackspaceToneConfig::UnikeyWalk);
+    type_str(&mut e, "tungf");
+    flush_per_key(&mut e);
+    let actions = e.backspace().expect("the word is tracked");
+    assert_eq!(actions, vec![Action::InjectBackspaces(3)], "{actions:?}");
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "tung");
+    e.backspace();
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "tun");
+}
+
+#[test]
+fn backspace_after_littered_mark_key_restores_the_word() {
+    // The owner's trace: `chào` committed (the screen keeps the trailing
+    // space), `f` lands as a literal — a fresh region `f`, the committed
+    // `chào ` moves to `last_landed` — Backspace erases it and the
+    // previous region comes back live WITH its mark; the next mark key
+    // edits it (`s` -> `cháo `), never `chàos`.
+    let mut e = composition_engine(Mode::Flow, BackspaceToneConfig::ToneFirst);
+    type_str(&mut e, "chaof ");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(
+        actions,
+        vec![Action::CommitNow("chào ".into())],
+        "{actions:?}"
+    );
+    type_str(&mut e, "f");
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "f");
+    let actions = e.backspace().expect("tracked state after commit");
+    assert_eq!(
+        actions,
+        vec![Action::InjectBackspaces(1)],
+        "the stray `f` is erased through the batch: {actions:?}"
+    );
+    assert_eq!(e.tail, "chào ");
+    assert!(
+        e.wrapper.has_composition(),
+        "the mark must come back live after the Backspace"
+    );
+    type_str(&mut e, "s");
+    let actions = flush_per_key(&mut e);
+    assert_eq!(e.tail, "cháo ", "{actions:?}");
+    type_str(&mut e, " ");
+    flush_per_key(&mut e);
+    assert_eq!(e.tail, "cháo  ");
+}
+
+#[test]
+fn backspace_composition_lands_the_batch_first() {
+    // A Backspace over an in-flight batch lands it first: the tone delete
+    // then works on the screen the batch just painted, and the ordering
+    // rules (deletes never overtake the commit) stay intact.
+    let mut e = composition_engine(Mode::Flow, BackspaceToneConfig::ToneFirst);
+    type_str(&mut e, "tungf");
+    let actions = e.backspace().expect("the word is tracked");
+    assert_eq!(
+        actions,
+        vec![
+            Action::CommitNow("tùng".into()),
+            Action::InjectBackspaces(3)
+        ],
+        "{actions:?}"
+    );
+}
+
+#[test]
+fn backspace_composition_independent_of_the_v1_switch() {
+    // v2 owns its path: the v1 retrack switch off changes nothing.
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            experimental_features: true,
+            flow_backspace_composition: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, "tungf");
+    flush_per_key(&mut e);
+    e.backspace();
+    flush_per_key(&mut e);
+    // ToneFirst (the shipped default) drops the tone, letters stay.
+    assert_eq!(e.tail, "tung");
+    assert!(e.wrapper.has_composition());
+}
+
+#[test]
+fn backspace_composition_needs_the_gate() {
+    // Like every experimental feature: gate off forces the legacy path
+    // whatever the new switch says (the switch state stays saved).
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            flow_backspace_composition: true,
+            experimental_features: false,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, "tungf ");
+    flush_per_key(&mut e);
+    e.backspace();
+    assert!(!e.wrapper.has_composition());
+}
+
 #[test]
 fn flow_per_key_word_end_carries_the_terminator_in_the_batch() {
     // The word-end terminator joins the coalesced batch — a forwarded key
