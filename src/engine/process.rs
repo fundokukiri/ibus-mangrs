@@ -58,30 +58,47 @@ impl Engine {
 
         let mode = self.key_mode();
 
-        // URL/email/path bypass: the word typed directly after one of the
-        // context characters stays raw — no marks, no macros, no
-        // auto-capitalize. The context character is the previous word's
-        // terminator, which `note_char` already recorded.
+        // URL/email/path bypass, two ways in: a real URL (`://` completed by
+        // this `/`, or the word `www` ending at the previous `.`) opens a
+        // span that keeps the whole address raw until a sentence boundary;
+        // a word directly after `/ @ . _` (or the user's extra chars) stays
+        // raw for that word only. The evidence comes from the word that just
+        // ended (`note_url_pending`); `last_char` is its terminator.
         if !self.url_word && !self.wrapper.has_composition() {
-            self.url_word = self.bypass_url
-                && self.last_char.is_some_and(|p| {
-                    URL_CONTEXT_CHARS.contains(&p)
-                        || (!self.extra_url_chars.is_empty() && self.extra_url_chars.contains(&p))
-                });
-            if self.url_word {
+            let scheme_arm =
+                c == '/' && self.scheme_pending && matches!(self.last_char, Some(':') | Some('/'));
+            let www_arm = self.www_pending && !crate::bamboo_wrapper::is_word_terminator(c);
+            let per_word = self.last_char.is_some_and(|p| {
+                URL_CONTEXT_CHARS.contains(&p)
+                    || (!self.extra_url_chars.is_empty() && self.extra_url_chars.contains(&p))
+            });
+            if self.bypass_url && (scheme_arm || www_arm || per_word) {
+                self.url_word = true;
+                self.url_span = scheme_arm || www_arm;
                 self.raw_word_start = self.tail.chars().count();
             }
         }
+        // The URL evidence is only good for the key right after it.
+        self.scheme_pending = false;
+        self.www_pending = false;
         if self.url_word {
             let mut actions = Vec::new();
             if self.preedit_visible {
                 self.preedit_visible = false;
                 actions.push(Action::HidePreedit);
             }
-            // `-`/`+` stay inside the URL: the next segment still belongs to
-            // the address, so it must not be composed as a Vietnamese word.
-            if crate::bamboo_wrapper::is_word_terminator(c) && !matches!(c, '-' | '+') {
+            // Span mode: the URL-internal separators belong to the address
+            // and keep it raw (`?x=1&y=2#top`, hyphens). Per-word mode: only
+            // `-`/`+` stay inside (`--` must still become an em dash in
+            // normal text).
+            let keep = if self.url_span {
+                URL_SPAN_KEEP.contains(&c)
+            } else {
+                matches!(c, '-' | '+')
+            };
+            if crate::bamboo_wrapper::is_word_terminator(c) && !keep {
                 self.url_word = false;
+                self.url_span = false;
                 self.tail.clear();
             } else {
                 self.tail.push(c);
@@ -186,6 +203,9 @@ impl Engine {
                 valid,
                 valid_prefix,
             } => {
+                // The word just ended on this terminator: record URL
+                // evidence (`://` scheme, `www.`) before the state is cleared.
+                self.note_url_pending(&raw, c);
                 actions.extend(self.on_finish(mode, word, raw, valid, valid_prefix));
                 // The terminator itself reaches the application last.
                 self.note_char(c);
@@ -620,6 +640,9 @@ impl Engine {
         c: char,
     ) -> Vec<Action> {
         let _ = valid;
+        // The word just ended on this terminator: record URL evidence
+        // (`://` scheme, `www.`) before the state is cleared.
+        self.note_url_pending(&raw, c);
         // Taken before `note_char` below updates the flag for the next word.
         let cap = std::mem::take(&mut self.cap_word);
         self.release_word_mode();

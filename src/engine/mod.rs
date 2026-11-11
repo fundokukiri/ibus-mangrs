@@ -324,6 +324,16 @@ pub struct Engine {
     /// The word being typed follows a URL/email/path character: keep it raw
     /// until the next terminator (URL/email/path bypass).
     url_word: bool,
+    /// The bypass was opened by real URL evidence (`://` or `www.`) — the
+    /// whole address stays raw until a sentence boundary (see
+    /// `URL_SPAN_KEEP`). False is the per-word bypass after `/ @ . _`.
+    url_span: bool,
+    /// The word that just ended was scheme-like and its terminator was `:`:
+    /// the next `/` completes `://` and opens the URL span.
+    scheme_pending: bool,
+    /// The word that just ended was `www` and its terminator was `.`: the
+    /// next word character opens the URL span.
+    www_pending: bool,
     /// Keep words raw after URL/email/path characters (`bypass_url`).
     bypass_url: bool,
     /// The filtered `extra_url_chars` — empty unless the switch is on
@@ -376,13 +386,31 @@ const FALLBACK_NO_DELETE_SURROUNDING: &[&str] = &[
     "chrome", "chromium", "electron", "code", "brave", "msedge", "vivaldi", "slack", "discord",
 ];
 
-/// A word typed directly after one of these characters is part of a URL,
-/// email address, file path or code (`example.com`, `a@site`, `/etc/hosts`,
-/// `get_user_id`) and must stay raw. `-` is deliberately excluded from
-/// starting a bypass: it would break the `--` → em-dash feature. Once a
-/// bypass is running, `-` and `+` keep it alive so `vi-mangrs.com` is not
-/// composed as Vietnamese after the hyphen.
-const URL_CONTEXT_CHARS: &[char] = &['/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?'];
+/// A word typed directly after one of these characters stays raw for that
+/// word — email domain, file path, snake_case, domain segments (`a@site`,
+/// `/etc/hosts`, `get_user_id`, `example.com`). Chars that appear in normal
+/// prose before a word (`: = # ? & % ~`) were removed: they blocked marks
+/// on words like `mục tiêu:phát`. `-` is deliberately excluded from
+/// starting a bypass: it would break the `--` → em-dash feature. A real
+/// URL (`https://…`, `www.…`) opens a span instead — see `URL_SPAN_KEEP`.
+const URL_CONTEXT_CHARS: &[char] = &['/', '@', '.', '_'];
+
+/// While a URL span is open (armed by a `://` scheme or `www.`), these word
+/// terminators belong to the address and keep it raw; any other terminator
+/// (space, Enter, `, ; ! " '` …) ends the span and typing composes again.
+const URL_SPAN_KEEP: &[char] = &[
+    '/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?', '-', '+',
+];
+
+/// RFC 3986 scheme shape: an ASCII letter, then letters, digits, `+`, `-`
+/// or `.`. Every scheme passes so custom app links (`spotify://`,
+/// `zoommtg://`) open the span too; in prose a colon is followed by a
+/// space, not by `//`.
+fn is_scheme_like(s: &str) -> bool {
+    let mut chars = s.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
 
 impl Engine {
     /// How long injected-key echoes may be missing before they count as
@@ -446,6 +474,9 @@ impl Engine {
             per_key_park: None,
             word_mode: None,
             url_word: false,
+            url_span: false,
+            scheme_pending: false,
+            www_pending: false,
             bypass_url: true,
             extra_url_chars: Vec::new(),
             extra_capitalize_after: Vec::new(),
@@ -623,6 +654,9 @@ impl Engine {
         self.emoji_enabled = config.emoji_enabled;
         self.emoji_word = false;
         self.url_word = false;
+        self.url_span = false;
+        self.scheme_pending = false;
+        self.www_pending = false;
         self.raw_word_start = 0;
         let emoji_time = file_time(UserEmoji::path().as_deref());
         if emoji_time != self.emoji_mtime {
@@ -1129,6 +1163,22 @@ impl Engine {
         }
     }
 
+    /// Remember URL evidence from the word that just ended: a scheme-like
+    /// word closed by `:` (the next `/` completes `://`) or the literal
+    /// `www` closed by `.` opens a raw URL span on the next key (see the
+    /// arming block in `process_char`). Both word-end paths feed it; any
+    /// other terminator discards the evidence.
+    fn note_url_pending(&mut self, raw: &str, c: char) {
+        match c {
+            ':' if is_scheme_like(raw) => self.scheme_pending = true,
+            '.' if raw.eq_ignore_ascii_case("www") => self.www_pending = true,
+            _ => {
+                self.scheme_pending = false;
+                self.www_pending = false;
+            }
+        }
+    }
+
     /// The focused application's name from the focus extension or the X
     /// active window. Rule matching only — see the field docs.
     pub fn set_app_name(&mut self, name: Option<String>) {
@@ -1300,12 +1350,16 @@ impl Engine {
     fn note_backspace_forwarded(&mut self) {
         self.last_char = self.tail.chars().last();
         self.capitalize_next = false;
+        // The deleted character invalidates pending URL evidence too.
+        self.scheme_pending = false;
+        self.www_pending = false;
         // A Backspace that erased the whole raw-forward span kills the
         // bypass: terminators were the only release, so deleting a word
         // typed after `:` left every following letter raw until space/enter.
         // A partial delete keeps it — the word is still on screen.
         if (self.url_word || self.emoji_word) && self.tail.chars().count() <= self.raw_word_start {
             self.url_word = false;
+            self.url_span = false;
             self.emoji_word = false;
             self.raw_word_start = 0;
         }
@@ -1505,6 +1559,9 @@ impl Engine {
         self.repair_delete = None;
         self.release_word_mode();
         self.url_word = false;
+        self.url_span = false;
+        self.scheme_pending = false;
+        self.www_pending = false;
         self.emoji_word = false;
         self.raw_word_start = 0;
         self.idle_committed = None;

@@ -3135,24 +3135,24 @@ fn url_bypass_releases_at_the_next_space() {
 
 #[test]
 fn url_bypass_releases_when_backspace_erases_the_word() {
-    // `:abc` types raw (bypass_url defaults on); erasing it with Backspace
-    // must release the bypass — space/enter used to be the only way out
-    // (`x:abc\b\b\bvieetj ` stayed `x:vieetj `).
+    // `www.abc` types raw inside the URL span; erasing the bypassed word
+    // with Backspace must release it — space/enter used to be the only way
+    // out (deleting a mis-typed address left every following letter raw).
     for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(mode, Config::default());
-        let (out, oor) = type_replay_backspaces(&mut e, "x:abc\u{8}\u{8}\u{8}vieetj ");
+        let (out, oor) = type_replay_backspaces(&mut e, "www.abc\u{8}\u{8}\u{8}vieetj ");
         assert!(!oor, "{mode:?}");
-        assert_eq!(out, "x:việt ", "{mode:?}");
+        assert_eq!(out, "www.việt ", "{mode:?}");
     }
 }
 
 #[test]
 fn url_bypass_releases_after_backspace_in_flow() {
-    // The per-key tail spans whole words ("x:" survives erasing "abc"), so
-    // the release cannot key on an empty tail — the bypass span is measured
-    // from its arm point. The next key must compose, not forward raw.
+    // The per-key tail spans whole words, so the release cannot key on an
+    // empty tail — the bypass span is measured from its arm point. The next
+    // key must compose, not forward raw.
     let mut e = engine(Mode::Flow, Config::default());
-    let _ = type_replay_backspaces(&mut e, "x:abc\u{8}\u{8}\u{8}");
+    let _ = type_replay_backspaces(&mut e, "https://abc\u{8}\u{8}\u{8}\u{8}\u{8}");
     let actions = e.process_char('v');
     assert!(!actions.contains(&Action::Forward), "{actions:?}");
     assert_eq!(e.wrapper.raw(), "v");
@@ -3160,13 +3160,13 @@ fn url_bypass_releases_after_backspace_in_flow() {
 
 #[test]
 fn url_bypass_survives_a_backspace_inside_the_word() {
-    // Deleting part of the raw word keeps the bypass: the rest is still on
-    // screen and the next keys stay raw (`x:ab\b c ` → `x:ac `).
+    // Deleting part of the address keeps the span: the rest is still on
+    // screen and the next keys stay raw (`https://ab\b c ` → `https://ac `).
     for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(mode, Config::default());
-        let (out, oor) = type_replay_backspaces(&mut e, "x:ab\u{8}c ");
+        let (out, oor) = type_replay_backspaces(&mut e, "https://ab\u{8}c ");
         assert!(!oor, "{mode:?}");
-        assert_eq!(out, "x:ac ", "{mode:?}");
+        assert_eq!(out, "https://ac ", "{mode:?}");
     }
 }
 
@@ -3201,6 +3201,93 @@ fn url_bypass_keeps_the_em_dash_outside_urls() {
         },
     );
     assert_eq!(type_replay(&mut e, "a--b "), "a—b ");
+}
+
+#[test]
+fn prose_punctuation_no_longer_starts_the_bypass() {
+    // `: = # ?` are normal prose punctuation: words glued straight onto
+    // them must compose again (the old per-char set blocked every one).
+    assert_eq!(
+        typed(Mode::NonPreedit, "mucj tieeu:phats trieenr "),
+        "mục tiêu:phát triển "
+    );
+    assert_eq!(typed(Mode::NonPreedit, "x=coongj "), "x=cộng ");
+    assert_eq!(typed(Mode::NonPreedit, "#Bangwf "), "#Bằng ");
+    assert_eq!(typed(Mode::NonPreedit, "?tungf "), "?tùng ");
+}
+
+#[test]
+fn url_span_holds_query_and_fragment_raw() {
+    // The scheme span keeps the whole address raw — query and fragment
+    // included — and the next word after a space types Vietnamese again.
+    assert_eq!(
+        typed(
+            Mode::NonPreedit,
+            "https://vi-mangrs.com/x?taikhoanf=1&y=2#top nhieeuf "
+        ),
+        "https://vi-mangrs.com/x?taikhoanf=1&y=2#top nhiều "
+    );
+}
+
+#[test]
+fn url_span_releases_at_sentence_punctuation() {
+    // Sentence punctuation ends the span; the URL-internal separators
+    // (`. / : @ _ ~ = # & % ? - +`) do not.
+    assert_eq!(
+        typed(Mode::NonPreedit, "https://x.com, nhieeuf "),
+        "https://x.com, nhiều "
+    );
+}
+
+#[test]
+fn www_opens_the_url_span() {
+    // A scheme-less address still holds the query raw through the `www.`
+    // evidence.
+    assert_eq!(
+        typed(Mode::NonPreedit, "www.vi-mangrs.com/x?taikhoanf=1 nhieeuf "),
+        "www.vi-mangrs.com/x?taikhoanf=1 nhiều "
+    );
+}
+
+#[test]
+fn uppercase_scheme_opens_the_url_span() {
+    assert_eq!(
+        typed(Mode::NonPreedit, "HTTPS://x.com?taikhoanf=1 nhieeuf "),
+        "HTTPS://x.com?taikhoanf=1 nhiều "
+    );
+}
+
+#[test]
+fn digits_before_the_scheme_do_not_open_the_span() {
+    // A scheme starts with a letter: `12:34/…` is a time, not a URL — the
+    // word after `?` must compose (the old set blocked it via `?`).
+    assert_eq!(
+        typed(Mode::NonPreedit, "12:34/x?tieengs "),
+        "12:34/x?tiếng "
+    );
+}
+
+#[test]
+fn url_span_in_flow_holds_the_query_raw() {
+    // The span forwards raw in the uinput modes too: no rewrite batch for
+    // the address, and the word after the span composes.
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.flow_per_key = false;
+    e.set_uinput_available(true);
+    let url_actions = type_str(&mut e, "https://x.com?taikhoanf=1 ");
+    assert!(
+        !url_actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(_) | Action::InjectBackspaces(_))),
+        "{url_actions:?}"
+    );
+    let word_actions = type_str(&mut e, "nhieeuf ");
+    assert!(
+        word_actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "nhiều ")),
+        "{word_actions:?}"
+    );
 }
 
 #[test]
@@ -3783,10 +3870,12 @@ fn user_emoji_table_overrides_the_embedded_one() {
 }
 
 #[test]
-fn emoji_disabled_keeps_the_url_bypass_behavior() {
-    // Config::default() has emoji_enabled = false: ':smile:' types literally.
+fn emoji_disabled_types_after_a_colon_normally() {
+    // Config::default() has emoji_enabled = false and `:` no longer blocks
+    // marks: a word after ':' composes; shortcodes only rewrite with the
+    // feature on.
     let mut e = with_emoji(Mode::NonPreedit, Config::default());
-    assert_eq!(type_replay(&mut e, ":smile:"), ":smile:");
+    assert_eq!(type_replay(&mut e, ":tieeng:"), ":tiêng:");
 }
 
 #[test]
