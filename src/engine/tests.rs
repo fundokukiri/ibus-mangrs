@@ -3929,12 +3929,10 @@ fn emoji_candidate_composes_in_flow() {
 }
 
 #[test]
-fn emoji_candidate_erases_the_raw_keys_in_per_key_modes() {
-    // flow_per_key ON (the default): the candidate suppresses the per-key
-    // coalescing while typing, so its word-end rewrite must stay on the raw
-    // erase path even though the flag already dropped — the live desktop
-    // showed `phatsphát` when the rewrite took the coalesce branch with a
-    // tail that was never coalesced.
+fn emoji_candidate_composes_live_in_per_key_modes() {
+    // flow_per_key ON (the default): the candidate word joins the per-key
+    // display — the marks appear while typing (`:tungf` shows `:tùng`
+    // before any space) and the word end only appends the terminator.
     for mode in [Mode::Flow, Mode::Turbo] {
         let mut e = with_emoji(
             mode,
@@ -3944,18 +3942,76 @@ fn emoji_candidate_erases_the_raw_keys_in_per_key_modes() {
             },
         );
         e.set_uinput_available(true);
-        let actions = type_str(&mut e, "x:phats ");
+        type_str(&mut e, "x:tungf");
+        assert_eq!(e.tail, "tùng", "{mode:?}: the word must show live");
+        let actions = type_str(&mut e, " ");
+        assert_eq!(e.tail, "tùng ", "{mode:?}");
         assert!(
-            actions
+            !actions
                 .iter()
-                .any(|a| matches!(a, Action::InjectBackspaces(5))),
-            "{mode:?}: the raw keys must be erased: {actions:?}"
+                .any(|a| matches!(a, Action::InjectBackspaces(_))),
+            "{mode:?}: no erase is needed at the word end: {actions:?}"
         );
+        let flushed = flush_per_key(&mut e);
+        assert!(
+            flushed.iter().any(|a| matches!(
+                a,
+                Action::Commit(t) | Action::CommitNow(t) if t == "tùng "
+            )),
+            "{mode:?}: {flushed:?}"
+        );
+    }
+}
+
+#[test]
+fn emoji_close_rewrites_with_the_colon_in_per_key_modes() {
+    // flow_per_key ON: the committed ':' sits one char before the
+    // candidate's region — the close lands the in-flight batch and erases
+    // both, or the emoji would keep the leading colon (`:😀`).
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let mut e = with_emoji(
+            mode,
+            Config {
+                emoji_enabled: true,
+                ..Config::default()
+            },
+        );
+        e.set_uinput_available(true);
+        e.emojis
+            .set_entries([("cuoi".to_string(), "😀".to_string())].into_iter());
+        let actions = type_str(&mut e, ":cuoi:");
         assert!(
             actions
                 .iter()
-                .any(|a| matches!(a, Action::Commit(t) if t == "phát ")),
+                .any(|a| matches!(a, Action::Commit(t) if t == "😀")),
             "{mode:?}: {actions:?}"
+        );
+        assert_eq!(e.tail, "😀", "{mode:?}");
+    }
+}
+
+#[test]
+fn emoji_miss_restores_the_raw_keys_in_per_key_modes() {
+    // flow_per_key ON: a name that matches nothing types back out of the
+    // composed display through the batch (`:tungf:` stays literal).
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let mut e = with_emoji(
+            mode,
+            Config {
+                emoji_enabled: true,
+                ..Config::default()
+            },
+        );
+        e.set_uinput_available(true);
+        type_str(&mut e, ":tungf:");
+        assert_eq!(e.tail, "tungf:", "{mode:?}");
+        let flushed = flush_per_key(&mut e);
+        assert!(
+            flushed.iter().any(|a| matches!(
+                a,
+                Action::Commit(t) | Action::CommitNow(t) if t == "tungf:"
+            )),
+            "{mode:?}: {flushed:?}"
         );
     }
 }
