@@ -17,6 +17,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .title(t("groups.experimental.gate.title", "Bật thử nghiệm"))
         .build();
     gate.add(&ui.experimental_features);
+    // The gate is not an experimental feature (no badge), but its text
+    // block joins the shared width so the whole tab reads as one column.
+    uniform_title_width(&ui.experimental_features);
     {
         let ui = Rc::clone(ui);
         let switch = ui.experimental_features.clone();

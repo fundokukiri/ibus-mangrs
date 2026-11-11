@@ -106,6 +106,7 @@ where
     badge.add_css_class("caption");
     badge.add_css_class("warning");
     badge.set_xalign(0.0);
+    uniform_title_width(row);
     let subtitle_box = row_subtitle(row).and_then(|l| l.parent().and_downcast::<gtk4::Box>());
     let (suffixes, switch) = find(row.upcast_ref());
     match subtitle_box {
@@ -188,8 +189,26 @@ pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
 }
 
 /// One width for every merged-row value control: the rows must read as a
-/// balanced column, not some boxes short and some long.
-const VALUE_WIDTH_CHARS: i32 = 12;
+/// balanced column, not some boxes short and some long. In pixels, not
+/// width_chars — the spin's built-in arrow stack makes a 12-char spin
+/// wider than a 12-char entry, which would skew the divider column.
+const VALUE_WIDTH_PX: i32 = 120;
+
+/// The fixed width of every decorated row's text block: with one shared
+/// title width the switch/divider/value controls all start at the same x
+/// across the tab.
+const TITLE_WIDTH_PX: i32 = 340;
+
+/// Pin the row's internal title box (subtitle's parent) to the shared text
+/// width — the divider column lines up across all rows of the tab.
+pub(crate) fn uniform_title_width<W>(row: &W)
+where
+    W: IsA<gtk4::Widget> + IsA<adw::PreferencesRow>,
+{
+    if let Some(box_) = row_subtitle(row).and_then(|l| l.parent().and_downcast::<gtk4::Box>()) {
+        box_.set_size_request(TITLE_WIDTH_PX, -1);
+    }
+}
 
 /// The value half of a merged row: a bare SpinButton without SpinRow's
 /// title — the merged row's title carries the meaning. Same adjustment
@@ -197,7 +216,7 @@ const VALUE_WIDTH_CHARS: i32 = 12;
 pub(super) fn spin_button(min: f64, max: f64, step: f64) -> gtk4::SpinButton {
     let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
     let spin = gtk4::SpinButton::new(Some(&adjustment), step, 0);
-    spin.set_width_chars(VALUE_WIDTH_CHARS);
+    spin.set_size_request(VALUE_WIDTH_PX, -1);
     spin
 }
 
@@ -205,7 +224,7 @@ pub(super) fn spin_button(min: f64, max: f64, step: f64) -> gtk4::SpinButton {
 /// width (a short character list, `: " ').
 pub(super) fn chars_entry() -> gtk4::Entry {
     let entry = gtk4::Entry::new();
-    entry.set_width_chars(VALUE_WIDTH_CHARS);
+    entry.set_size_request(VALUE_WIDTH_PX, -1);
     entry
 }
 

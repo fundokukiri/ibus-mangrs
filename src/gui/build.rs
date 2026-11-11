@@ -94,7 +94,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.extra_url_chars.title", "Thêm ký tự giữ nguyên dấu"),
         &t(
             "rows.extra_url_chars.subtitle",
-            "Bật/tắt bên trái; ô bên phải liệt kê ký tự riêng — từ đứng ngay sau ký tự đó cũng giữ nguyên phím thô. Không nhận -, chữ, số, khoảng trắng",
+            "Ký tự riêng liệt kê ở ô bên phải",
         ),
         &extra_url_chars_entry,
     );
@@ -117,10 +117,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         &labels(BACKSPACE_TONE_MODES),
     );
     let nav_key_while_preedit = combo_row(
-        &t("rows.nav_key_while_preedit.title", "Phím điều hướng khi còn từ"),
+        &t(
+            "rows.nav_key_while_preedit.title",
+            "Phím điều hướng khi còn từ",
+        ),
         &t(
             "rows.nav_key_while_preedit.subtitle",
-            "Khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên: nuốt để commit trước (mặc định), hoặc cho caret chạy ngay. Thử nghiệm trên Wayland.",
+            "Phím mũi tên đầu tiên khi còn từ gõ dở",
         ),
         &labels(NAV_KEY_MODES),
     );
@@ -144,7 +147,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
         &t(
             "rows.auto_capitalize_after.subtitle",
-            "Cùng bộ . ! ? + Enter: bật/tắt bên trái; ô bên phải liệt kê ký tự thêm — từ ngay sau ký tự đó cũng viết hoa. Không nhận chữ, số, khoảng trắng",
+            "Ký tự thêm liệt kê ở ô bên phải",
         ),
         &auto_capitalize_after_entry,
     );
@@ -177,10 +180,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let macro_valid_words = switch_row(
-        &t("rows.macro_valid_words.title", "Gõ tắt: nở cả trên từ hợp lệ"),
+        &t(
+            "rows.macro_valid_words.title",
+            "Gõ tắt: nở cả trên từ hợp lệ",
+        ),
         &t(
             "rows.macro_valid_words.subtitle",
-            "Phím tắt trùng từ thật (vd “cam”) sẽ nở thay vì giữ nguyên — Backspace một phím để gõ từ thật",
+            "Phím tắt trùng từ thật vẫn nở",
         ),
     );
     // The formats are preset dropdowns like every other combo; a format
@@ -427,7 +433,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
         &t(
             "rows.clipboard_restore.subtitle",
-            "Bật/tắt bên trái; số ms bên phải là khoảng chờ trả lại clipboard cũ sau khi dán — chỉ tác dụng khi kênh là Clipboard. 100–5000 ms. Mặc định: 600",
+            "Trễ trả lại clipboard cũ sau khi dán",
         ),
         &clipboard_restore_spin,
     );
@@ -437,7 +443,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.echo_stale.title", "Xả commit khi echo lạc (ms)"),
         &t(
             "rows.echo_stale.subtitle",
-            "Bật/tắt bên trái; số ms bên phải là thời gian chờ phím Backspace ảo quay về trước khi xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ. 50–1000 ms. Mặc định: 150",
+            "Thời hạn chờ echo trước khi xả chữ",
         ),
         &echo_stale_spin,
     );
@@ -447,7 +453,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.idle_commit.title", "Chấp nhận từ khi nghỉ gõ (ms)"),
         &t(
             "rows.idle_commit.subtitle",
-            "Bật/tắt bên trái; số ms bên phải là thời gian nghỉ tay để từ đang gạch chân được chấp nhận luôn, như bấm dấu cách. 300–2000 ms. Mặc định: 700",
+            "Nghỉ tay lâu thì từ được chấp nhận",
         ),
         &idle_commit_spin,
     );
@@ -463,7 +469,10 @@ pub(super) fn widgets() -> Rc<Ui> {
             "rows.flow_per_key_delay.title",
             "Hiện dấu từng bước Flow: trễ (ms)",
         ),
-        &t("rows.flow_per_key_delay.subtitle", "0–500 ms. Mặc định: 60"),
+        &t(
+            "rows.flow_per_key_delay.subtitle",
+            "Trễ đổ chữ có dấu vào văn bản",
+        ),
         0.0,
         500.0,
         5.0,
@@ -475,14 +484,14 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
         &t(
             "rows.flow_backspace_retrack.subtitle",
-            "Xóa một ký tự của từ đã gõ xong rồi gõ phím dấu mới sẽ tiếp tục biến hóa từ (tùn + s → tún) thay vì rơi thành chữ thường",
+            "Xoá một ký tự rồi gõ dấu — từ vẫn biến hoá",
         ),
     );
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
             "rows.experimental_features.subtitle",
-            "Hiện các tính năng đang thử nghiệm trên các trang. Tắt sẽ ẩn và tắt hết chúng; giá trị đã chỉnh vẫn được giữ để dùng lại khi bật",
+            "Bật để hiện và chạy các tính năng dưới",
         ),
     );
 
