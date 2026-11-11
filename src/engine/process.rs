@@ -638,7 +638,7 @@ impl Engine {
     /// mode's post-commit behavior) and the screen behind it is rebuilt
     /// so the word stays editable; a screen the re-encoder cannot
     /// reproduce falls back to today's release, byte for byte.
-    pub(super) fn backspace_uinput_composition(&mut self, _mode: Mode) -> Vec<Action> {
+    pub(super) fn backspace_uinput_composition(&mut self, mode: Mode) -> Vec<Action> {
         let mut actions = Vec::new();
         // The delete must work on the FINAL screen: land the in-flight
         // batch first, or the key deletes a character the batch was still
@@ -677,12 +677,18 @@ impl Engine {
             .wrapper
             .retrack_from_screen(&tracked_word_from_screen(&self.tail))
         {
+            // Select needs the flag to route its next Backspace here: its
+            // screen now holds the composed word, unlike its raw mid-word.
+            if mode == Mode::Select {
+                self.select_retracked = true;
+            }
             self.note_backspace_forwarded();
             return actions;
         }
         // Nothing reproduces: today's release, byte for byte.
         self.wrapper.reset();
         self.release_word_mode();
+        self.select_retracked = false;
         self.idle_committed = None;
         self.note_backspace_forwarded();
         actions
@@ -844,7 +850,13 @@ impl Engine {
         if self.post_delay_ms > 0 {
             actions.push(Action::PostDelay(self.post_delay_ms));
         }
-        self.tail = text.to_string();
+        // The terminator lands on the screen inside the commit, so the
+        // tracked screen carries it too — the Backspace pass-through and
+        // the v2 rebuild both count it.
+        self.tail = match terminator {
+            Some(c) => format!("{text}{c}"),
+            None => text.to_string(),
+        };
         // The application's last character is the terminator, not the
         // word's — the per-key features read it from there.
         self.note_char(terminator.unwrap_or_else(|| text.chars().last().unwrap_or(' ')));
