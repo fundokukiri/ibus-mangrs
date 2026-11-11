@@ -31,6 +31,11 @@ rules.
   lands instead of holding raw keys until the word ends. A click or a focus change never
   loses the half-typed word — the preedit commits what it shows, including a shorthand fix
   like `ddc` → `đc`.
+- **Experimental mark editing in the uinput modes**: the "Thử nghiệm" tab carries two
+  switches — "Sửa dấu sau Backspace" re-tracks a finished word so a mark key keeps editing
+  it, and "Xoá dấu qua composition" makes the Backspace delete with the chosen tone-delete
+  mode and keeps a word's mark when you erase a stray key (`chào` + `f` + Backspace →
+  `chào`, then `s` → `cháo`). Both default off.
 - **Macros** with `$TIME` / `$DATE` expansion and smart capitalization; a **custom
   dictionary** of words that are never auto-restored.
 - **Emoji**: typing `:name:` rewrites to the emoji (off by default), or an assignable hotkey
