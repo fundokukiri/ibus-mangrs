@@ -142,6 +142,13 @@ pub struct Config {
     /// (`tùn` + `s` -> `tún`) instead of landing as a literal letter. Off
     /// keeps today's plain-text behavior byte for byte.
     pub flow_backspace_retrack: bool,
+    /// Experimental (v2, independent of the switch above): the uinput
+    /// Backspace goes through the composition with the user's "Backspace
+    /// xóa dấu" setting (tone first / whole character / unikey walk) and
+    /// the screen follows through the per-key batch; erasing a stray mark
+    /// key brings the word back live with its mark. Off keeps the v1
+    /// behavior byte for byte.
+    pub flow_backspace_composition: bool,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
     /// each switch and value stays saved in this file and comes back when
@@ -818,6 +825,7 @@ impl Default for Config {
             flow_per_key: true,
             flow_per_key_delay_ms: 60,
             flow_backspace_retrack: false,
+            flow_backspace_composition: false,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
@@ -1296,6 +1304,13 @@ children = ["preedit", "flow"]
         let c: Config = toml::from_str("flow_backspace_retrack = true").unwrap();
         assert!(c.flow_backspace_retrack);
         assert!(!Config::default().flow_backspace_retrack);
+    }
+
+    #[test]
+    fn flow_backspace_composition_round_trips_and_defaults_off() {
+        let c: Config = toml::from_str("flow_backspace_composition = true").unwrap();
+        assert!(c.flow_backspace_composition);
+        assert!(!Config::default().flow_backspace_composition);
     }
 
     /// The old mode names are gone for good: an old file resets the mode to

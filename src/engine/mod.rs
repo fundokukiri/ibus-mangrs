@@ -303,6 +303,16 @@ pub struct Engine {
     /// legacy plain-text behavior byte for byte; apply_config bakes the
     /// flag with the gate.
     flow_backspace_retrack: bool,
+    /// Experimental (v2, independent of the flag above): the uinput
+    /// Backspace goes through the composition with the user's tone mode
+    /// and the screen follows the per-key batch. Off keeps the v1 path
+    /// byte for byte; apply_config bakes the flag with the gate.
+    flow_backspace_composition: bool,
+    /// The per-key region that landed before the current one (`chào ` when
+    /// `f` opens the next region). The v2 Backspace rebuilds from it when
+    /// the current region erases, so the committed word behind the caret
+    /// stays editable. Empty until a region boundary crosses it.
+    last_landed: String,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -471,6 +481,8 @@ impl Engine {
             flow_per_key: false,
             flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
             flow_backspace_retrack: false,
+            flow_backspace_composition: false,
+            last_landed: String::new(),
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -596,6 +608,7 @@ impl Engine {
             Self::ECHO_APPLY_GRACE_MS
         };
         self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
+        self.flow_backspace_composition = experimental && config.flow_backspace_composition;
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
@@ -1351,6 +1364,14 @@ impl Engine {
             // Backspace passes through with a reverse-mapped raw buffer —
             // the user's real key, the one transport the relay never drops.
             if self.flow_per_key && !matches!(mode, Mode::Select) {
+                // v2 (the experimental composition switch): the Backspace
+                // goes through the composition with the user's tone mode.
+                // Raw-forwarder spans stay on the pass-through path — their
+                // screen is text the engine never composed, so rebuilding
+                // it would let mark keys edit a plain domain.
+                if self.flow_backspace_composition && !(self.url_word || self.emoji_word) {
+                    return Some(self.backspace_uinput_composition(mode));
+                }
                 return Some(self.backspace_per_key());
             }
             self.wrapper.backspace();

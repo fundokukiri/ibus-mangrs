@@ -56,6 +56,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     tuning.add(&ui.idle_commit_row);
     tuning.add(&ui.flow_per_key_spin);
     tuning.add(&ui.flow_backspace_retrack);
+    tuning.add(&ui.flow_backspace_composition);
     tuning.add(&ui.nav_key_while_preedit);
     page.add(&tuning);
 
@@ -74,6 +75,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // experimental row and carries the badge itself.
     decorate_experimental(&ui.flow_per_key_spin);
     decorate_experimental(&ui.flow_backspace_retrack);
+    decorate_experimental(&ui.flow_backspace_composition);
     // The switches themselves glow the same warning amber as the badge and
     // the tab label: one look, one meaning.
     for switch in [

@@ -51,6 +51,7 @@ fn gtk_widget_scenarios() {
     refresh_round_trips_every_widget();
     shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
+    probe_save_and_reload_timing();
     row_texts_render_as_plain_text();
     rules_add_group_merges_the_focus_chip();
     rule_rows_and_preview_track_the_engine_match();
@@ -547,6 +548,7 @@ fn refresh_round_trips_every_widget() {
         flow_per_key: true,
         flow_per_key_delay_ms: 80,
         flow_backspace_retrack: true,
+        flow_backspace_composition: true,
         experimental_features: true,
         show_toasts: false,
         debug_log: true,
@@ -663,6 +665,46 @@ fn external_reload_refreshes_without_saving() {
     ui.external_reload();
     assert_eq!(calls.get(), 1, "external_reload must not save");
     assert!(!ui.suppress_save.get(), "the flag must be cleared after");
+}
+
+/// TEMPORARY diagnostic probe for the reported GUI toggle lag: times the
+/// save funnel and the mtime-poller reload on realistic widget trees.
+/// Prints per-op numbers with `--nocapture`; remove after reading them.
+fn probe_save_and_reload_timing() {
+    let ui = widgets();
+    // Warmup: the first pass pays one-time costs (CSS, signal setup).
+    let _ = ui.save_all();
+    ui.external_reload();
+    let runs = 100;
+    let t0 = std::time::Instant::now();
+    for _ in 0..runs {
+        ui.save_all().unwrap();
+    }
+    let save_all = t0.elapsed();
+    let t0 = std::time::Instant::now();
+    for _ in 0..runs {
+        let _ = ui.read();
+    }
+    let read = t0.elapsed();
+    let config = ui.read();
+    let t0 = std::time::Instant::now();
+    for _ in 0..runs {
+        config.save().unwrap();
+    }
+    let config_save = t0.elapsed();
+    let t0 = std::time::Instant::now();
+    for _ in 0..runs {
+        ui.external_reload();
+    }
+    let reload = t0.elapsed();
+    println!(
+        "probe: save_all {:>8.3} ms/op | read {:>8.3} ms/op | config.save {:>8.3} ms/op | external_reload {:>8.3} ms/op  ({} runs)",
+        save_all.as_secs_f64() * 1000.0 / runs as f64,
+        read.as_secs_f64() * 1000.0 / runs as f64,
+        config_save.as_secs_f64() * 1000.0 / runs as f64,
+        reload.as_secs_f64() * 1000.0 / runs as f64,
+        runs,
+    );
 }
 
 /// Adw rows parse Pango markup in title/subtitle by default; the URL
