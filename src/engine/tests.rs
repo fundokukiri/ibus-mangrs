@@ -3929,6 +3929,38 @@ fn emoji_candidate_composes_in_flow() {
 }
 
 #[test]
+fn emoji_candidate_erases_the_raw_keys_in_per_key_modes() {
+    // flow_per_key ON (the default): the candidate suppresses the per-key
+    // coalescing while typing, so its word-end rewrite must stay on the raw
+    // erase path even though the flag already dropped — the live desktop
+    // showed `phatsphát` when the rewrite took the coalesce branch with a
+    // tail that was never coalesced.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let mut e = with_emoji(
+            mode,
+            Config {
+                emoji_enabled: true,
+                ..Config::default()
+            },
+        );
+        e.set_uinput_available(true);
+        let actions = type_str(&mut e, "x:phats ");
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::InjectBackspaces(5))),
+            "{mode:?}: the raw keys must be erased: {actions:?}"
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::Commit(t) if t == "phát ")),
+            "{mode:?}: {actions:?}"
+        );
+    }
+}
+
+#[test]
 fn backspaces_inside_the_shortcode_keep_the_rewrite_in_range() {
     let mut e = with_emoji(
         Mode::NonPreedit,
