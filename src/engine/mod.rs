@@ -1330,14 +1330,6 @@ impl Engine {
         }
     }
 
-    /// The screen holds the composed word and key diffs apply through the
-    /// batch: per-key Flow/Turbo from word start, Select only after a
-    /// Backspace rebuild — its own mid-word screen shows the raw keys.
-    fn screen_tracked(&self, mode: Mode) -> bool {
-        (self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo))
-            || (mode == Mode::Select && self.select_retracked)
-    }
-
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
@@ -1374,27 +1366,32 @@ impl Engine {
         // bamboo follows so the composition stays aligned (unikey
         // convention: Backspace undoes the last raw key).
         if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
-            // v2 (the experimental composition switch): the Backspace goes
-            // through the composition with the user's tone mode. Select
-            // also qualifies when its committed word awaits a rebuild; its
-            // mid-word screen (the raw keys) never does. Raw-forwarder
-            // spans stay on the pass-through path — their screen is text
-            // the engine never composed, so rebuilding it would let mark
-            // keys edit a plain domain.
-            let v2_eligible = self.flow_backspace_composition
-                && !(self.url_word || self.emoji_word)
-                && (self.screen_tracked(mode)
-                    || (mode == Mode::Select
-                        && !self.wrapper.has_composition()
-                        && !self.tail.is_empty()));
-            if v2_eligible {
-                return Some(self.backspace_uinput_composition(mode));
-            }
             // Per-key display: the app holds the composed word, so the
             // Backspace passes through with a reverse-mapped raw buffer —
             // the user's real key, the one transport the relay never drops.
             if self.flow_per_key && !matches!(mode, Mode::Select) {
+                // v2 (the experimental composition switch): the Backspace
+                // goes through the composition with the user's tone mode.
+                // Raw-forwarder spans stay on the pass-through path — their
+                // screen is text the engine never composed, so rebuilding
+                // it would let mark keys edit a plain domain.
+                if self.flow_backspace_composition && !(self.url_word || self.emoji_word) {
+                    return Some(self.backspace_uinput_composition(mode));
+                }
                 return Some(self.backspace_per_key());
+            }
+            if mode == Mode::Select
+                && self.flow_backspace_composition
+                && !(self.url_word || self.emoji_word)
+                && (self.select_retracked
+                    || (!self.wrapper.has_composition() && !self.tail.is_empty()))
+            {
+                // v2 for Select: the word sits committed (or already
+                // rebuilt) — the flow erases the last screen character and
+                // rebuilds, then the tracked word deletes with the user's
+                // tone mode. Mid-word Select (the raw keys on screen) never
+                // enters: its screen keeps showing raw keys until word end.
+                return Some(self.backspace_uinput_composition(mode));
             }
             self.wrapper.backspace();
             if !self.wrapper.has_composition() {
