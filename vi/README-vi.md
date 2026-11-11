@@ -42,17 +42,17 @@ cửa sổ cài đặt GTK4, gõ tắt, bảng chọn emoji ngay tại con trỏ
 
 ## Các chế độ gõ
 
-| Chế độ (nhãn)      | Giá trị config    | Cách hoạt động                                                  | Hợp với                                |
-| ------------------ | ----------------- | ---------------------------------------------------------------- | --------------------------------------- |
-| Gạch chân (preedit)| `preedit`         | chữ hiện ngay tại con trỏ có gạch chân, hết từ thì vào văn bản   | dùng ở đâu cũng ổn                      |
-| Không gạch chân    | `nonpreedit`      | phím nào vào ngay phím đó, có dấu thì xoá đuôi viết lại          | Firefox, app GTK                        |
-| Surrounding text   | `surrounding`     | như Không gạch chân, thêm bước đối chiếu với chữ app báo về      | Sublime Text                            |
-| Flow (uinput)      | `smooth`          | gửi phím thô khi gõ, hết từ dùng Backspace thật xoá đuôi         | terminal, app khó tính                  |
-| Turbo (uinput)     | `supersmooth`     | như Flow nhưng bỏ bước kiểm tra an toàn                          | gõ nhanh                                |
-| Select (uinput)    | `select`          | Shift+← bôi đen đuôi, Delete xoá, từ vào văn bản                 | app xử lý Backspace lỗi                 |
-| Forward Backspace  | `forwardkeyevent` | xoá đuôi bằng sự kiện phím Backspace gửi qua IBus                | Chrome, Electron và app tương tự        |
-| Forward Selection  | `forwardselect`   | bôi đen đuôi bằng Shift+← gửi qua IBus, chữ mới đè lên vùng chọn | app X11/XIM (JetBrains)                 |
-| OFF                | `off`             | tắt xử lý tiếng Việt, gõ tắt và tự viết hoa vẫn chạy             | gõ lẫn Việt – Anh                       |
+| Chế độ (nhãn)      | Giá trị config    | Cách hoạt động                                                  |
+| ------------------ | ----------------- | ---------------------------------------------------------------- | 
+| Gạch chân (preedit)| `preedit`         | chữ hiện ngay tại con trỏ có gạch chân, hết từ thì vào văn bản   | 
+| Không gạch chân    | `nonpreedit`      | phím nào vào ngay phím đó, có dấu thì xoá đuôi viết lại          | 
+| Surrounding text   | `surrounding`     | như Không gạch chân, thêm bước đối chiếu với chữ app báo về      | 
+| Flow (uinput)      | `smooth`          | gửi phím thô khi gõ, hết từ dùng Backspace thật xoá đuôi         | 
+| Turbo (uinput)     | `supersmooth`     | như Flow nhưng bỏ bước kiểm tra an toàn                          | 
+| Select (uinput)    | `select`          | Shift+← bôi đen đuôi, Delete xoá, từ vào văn bản                 | 
+| Forward Backspace  | `forwardkeyevent` | xoá đuôi bằng sự kiện phím Backspace gửi qua IBus                | 
+| Forward Selection  | `forwardselect`   | bôi đen đuôi bằng Shift+← gửi qua IBus, chữ mới đè lên vùng chọn | 
+| OFF                | `off`             | tắt xử lý tiếng Việt, gõ tắt và tự viết hoa vẫn chạy             | 
 
 Nhãn là tên hiện trong menu bộ gõ và cửa sổ cài đặt; giá trị config là thứ `config.toml` và
 Luật theo app nhận.
