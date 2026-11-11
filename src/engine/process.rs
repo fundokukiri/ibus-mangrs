@@ -280,8 +280,9 @@ impl Engine {
         debug_log::log("emoji shortcode: matched");
         if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
             // None: the closing ':' is part of the shortcode and must
-            // not reach the application.
-            return Some(self.uinput_rewrite(mode, &format!(":{shown}"), &replacement, None));
+            // not reach the application. The candidate keeps the plain
+            // raw-forward display, so the erase goes by the raw keys.
+            return Some(self.uinput_rewrite(mode, &format!(":{shown}"), &replacement, None, true));
         }
         if !(self.deletes_allowed() || forwards_delete(mode)) {
             // No delete transport: the rewrite would duplicate the
@@ -681,20 +682,19 @@ impl Engine {
     ) -> Vec<Action> {
         let _ = valid;
         let candidate = self.emoji_word;
+        self.emoji_word = false;
         if candidate && c == ':' {
-            // The closing ':' of a shortcode: try the rewrite while the flag
-            // is still up (`uinput_rewrite` keys its per-key branch on it).
-            let close = self.emoji_close_rewrite(mode, &raw, &raw);
-            self.emoji_word = false;
-            if let Some(actions) = close {
+            // The closing ':' of a shortcode: the rewrite erases by the raw
+            // keys (the candidate display), and no URL evidence is recorded
+            // — a shortcode context is not prose.
+            if let Some(actions) = self.emoji_close_rewrite(mode, &raw, &raw) {
                 return actions;
             }
             // Miss: the shortcode stays as typed — no rewrite, no word-macro
-            // expansion, and no URL evidence (a shortcode is not prose).
+            // expansion.
             self.note_char(c);
             return vec![Action::Forward];
         }
-        self.emoji_word = false;
         // The word just ended on this terminator: record URL evidence
         // (`://` scheme, `www.`) before the state is cleared.
         self.note_url_pending(&raw, c);
@@ -716,7 +716,7 @@ impl Engine {
         // key is the emoji path's own lookup.
         if !raw.is_empty() && !candidate {
             if let Some(exp) = self.expand_macro(&raw, valid) {
-                return self.uinput_rewrite(mode, &raw, &exp, Some(c));
+                return self.uinput_rewrite(mode, &raw, &exp, Some(c), false);
             }
         }
 
@@ -726,7 +726,7 @@ impl Engine {
             // terminator still joins the in-flight batch — a forwarded key
             // would race the pending commit.
             if per_key {
-                return self.uinput_rewrite(mode, &raw, &word, Some(c));
+                return self.uinput_rewrite(mode, &raw, &word, Some(c), candidate);
             }
             return vec![Action::Forward];
         }
@@ -753,7 +753,7 @@ impl Engine {
             if text == raw && !per_key {
                 return vec![Action::Forward];
             }
-            return self.uinput_rewrite(mode, &raw, &text, Some(c));
+            return self.uinput_rewrite(mode, &raw, &text, Some(c), candidate);
         }
 
         // Flow (unlike Turbo) defers to app autofill: the app
@@ -766,7 +766,7 @@ impl Engine {
             return vec![Action::Forward];
         }
 
-        self.uinput_rewrite(mode, &raw, &word, Some(c))
+        self.uinput_rewrite(mode, &raw, &word, Some(c), candidate)
     }
 
     /// The shared word-end rewrite: erase `raw` with real keys, deliver
@@ -777,22 +777,23 @@ impl Engine {
     /// Backspaces, the erase ate it and one raw letter survived — and the
     /// terminator's own injected-key echo never returned through the
     /// relay's ibus path at all, so a key-event terminator is unusable
-    /// there).
+    /// there). `plain_erase` forces the raw-key erase path instead of the
+    /// per-key coalesce — a shortcode candidate keeps the plain
+    /// raw-forward display, so its per-key tail was never maintained and
+    /// the coalesce diff would compute garbage.
     fn uinput_rewrite(
         &mut self,
         mode: Mode,
         raw: &str,
         text: &str,
         terminator: Option<char>,
+        plain_erase: bool,
     ) -> Vec<Action> {
         // Per-key display: the whole rewrite coalesces into the in-flight
         // batch — the diff against what the app certainly holds becomes
         // extra Backspaces and the pending commit's text is replaced. The
         // terminator joins the batch too (a forwarded key would race it).
-        // A shortcode candidate keeps the plain raw-forward display: its
-        // rewrite erases by the raw keys, which only matches the screen
-        // when the per-key composed deltas never landed.
-        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) && !self.emoji_word {
+        if !plain_erase && self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) {
             let want = match terminator {
                 Some(c) => format!("{text}{c}"),
                 None => text.to_string(),
