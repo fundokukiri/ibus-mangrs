@@ -88,19 +88,16 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
         ),
     );
-    let extra_url_chars_switch = switch_row(
+    let extra_url_chars_entry = chars_entry();
+    extra_url_chars_entry.set_sensitive(false);
+    let (extra_url_chars_row, extra_url_chars_switch) = switch_value_row(
         &t("rows.extra_url_chars.title", "Thêm ký tự giữ nguyên dấu"),
         &t(
             "rows.extra_url_chars.subtitle",
-            "Từ đứng ngay sau ký tự bên dưới cũng giữ nguyên phím thô",
+            "Bật/tắt bên trái; ô bên phải liệt kê ký tự riêng — từ đứng ngay sau ký tự đó cũng giữ nguyên phím thô. Không nhận -, chữ, số, khoảng trắng",
         ),
+        &extra_url_chars_entry,
     );
-    let extra_url_chars_entry = adw::EntryRow::builder()
-        .use_markup(false)
-        .title(t("rows.extra_url_chars_entry.title", "Ký tự riêng"))
-        .show_apply_button(false)
-        .build();
-    extra_url_chars_entry.set_sensitive(false);
     let w2u = combo_row(
         &t("rows.w2u.title", "W thành ư"),
         &t("rows.w2u.subtitle", "Chọn vị trí áp dụng"),
@@ -138,25 +135,19 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.auto_capitalize.title", "Tự viết hoa"),
         &t("rows.auto_capitalize.subtitle", "Sau . ! ? và Enter"),
     );
-    let auto_capitalize_after_switch = switch_row(
+    let auto_capitalize_after_entry = chars_entry();
+    auto_capitalize_after_entry.set_sensitive(false);
+    let (auto_capitalize_after_row, auto_capitalize_after_switch) = switch_value_row(
         &t(
             "rows.auto_capitalize_after.title",
             "Viết hoa sau ký tự thêm",
         ),
         &t(
             "rows.auto_capitalize_after.subtitle",
-            "Cùng bộ . ! ? + Enter: từ ngay sau ký tự bên dưới cũng viết hoa",
+            "Cùng bộ . ! ? + Enter: bật/tắt bên trái; ô bên phải liệt kê ký tự thêm — từ ngay sau ký tự đó cũng viết hoa. Không nhận chữ, số, khoảng trắng",
         ),
+        &auto_capitalize_after_entry,
     );
-    let auto_capitalize_after_entry = adw::EntryRow::builder()
-        .use_markup(false)
-        .title(t(
-            "rows.auto_capitalize_after_entry.title",
-            "Ký tự kích hoạt",
-        ))
-        .show_apply_button(false)
-        .build();
-    auto_capitalize_after_entry.set_sensitive(false);
     let double_space = switch_row(
         &t(
             "rows.double_space.title",
@@ -186,7 +177,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let macro_valid_words = switch_row(
-        &t("rows.macro_valid_words.title", "Gõ tắt nở cả trên từ hợp lệ"),
+        &t("rows.macro_valid_words.title", "Gõ tắt: nở cả trên từ hợp lệ"),
         &t(
             "rows.macro_valid_words.subtitle",
             "Phím tắt trùng từ thật (vd “cam”) sẽ nở thay vì giữ nguyên — Backspace một phím để gõ từ thật",
@@ -427,51 +418,38 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
         &labels(CHANNELS),
     );
-    let clipboard_restore_switch = switch_row(
-        &t("rows.clipboard_restore.title", "Tùy chỉnh hồi clipboard"),
+    let clipboard_restore_spin = spin_button(100.0, 5000.0, 50.0);
+    clipboard_restore_spin.set_sensitive(false);
+    let (clipboard_restore_row, clipboard_restore_switch) = switch_value_row(
+        &t(
+            "rows.clipboard_restore.title",
+            "Hồi clipboard sau khi dán (ms)",
+        ),
         &t(
             "rows.clipboard_restore.subtitle",
-            "Đổi khoảng chờ trả lại clipboard cũ sau khi dán — chỉ tác dụng khi kênh là Clipboard",
+            "Bật/tắt bên trái; số ms bên phải là khoảng chờ trả lại clipboard cũ sau khi dán — chỉ tác dụng khi kênh là Clipboard. 100–5000 ms. Mặc định: 600",
         ),
+        &clipboard_restore_spin,
     );
-    let clipboard_restore_spin = spin_row(
-        &t(
-            "rows.clipboard_restore_spin.title",
-            "Hồi clipboard sau (ms)",
-        ),
-        &t(
-            "rows.clipboard_restore_spin.subtitle",
-            "100–5000 ms. Mặc định: 600",
-        ),
-        100.0,
-        5000.0,
-        50.0,
-    );
-    clipboard_restore_spin.set_sensitive(false);
-    let echo_stale_switch = switch_row(
-        &t("rows.echo_stale.title", "Xả commit khi echo lạc"),
+    let echo_stale_spin = spin_button(50.0, 1000.0, 10.0);
+    echo_stale_spin.set_sensitive(false);
+    let (echo_stale_row, echo_stale_switch) = switch_value_row(
+        &t("rows.echo_stale.title", "Xả commit khi echo lạc (ms)"),
         &t(
             "rows.echo_stale.subtitle",
-            "Chờ bao lâu thì bỏ đợi phím Backspace ảo quay về mà xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ",
+            "Bật/tắt bên trái; số ms bên phải là thời gian chờ phím Backspace ảo quay về trước khi xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ. 50–1000 ms. Mặc định: 150",
         ),
+        &echo_stale_spin,
     );
-    let echo_stale_spin = spin_row(
-        &t("rows.echo_stale_spin.title", "Xả sau (ms)"),
-        &t(
-            "rows.echo_stale_spin.subtitle",
-            "50–1000 ms. Mặc định: 150. Quá thấp dễ mất chữ, quá cao làm chữ hiện trễ",
-        ),
-        50.0,
-        1000.0,
-        10.0,
-    );
-    echo_stale_spin.set_sensitive(false);
-    let idle_commit_switch = switch_row(
-        &t("rows.idle_commit.title", "Chấp nhận từ khi nghỉ gõ"),
+    let idle_commit_spin = spin_button(300.0, 2000.0, 50.0);
+    idle_commit_spin.set_sensitive(false);
+    let (idle_commit_row, idle_commit_switch) = switch_value_row(
+        &t("rows.idle_commit.title", "Chấp nhận từ khi nghỉ gõ (ms)"),
         &t(
             "rows.idle_commit.subtitle",
-            "Dừng tay quá lâu trên một từ có gạch chân thì từ đó được chấp nhận luôn, như bấm dấu cách",
+            "Bật/tắt bên trái; số ms bên phải là thời gian nghỉ tay để từ đang gạch chân được chấp nhận luôn, như bấm dấu cách. 300–2000 ms. Mặc định: 700",
         ),
+        &idle_commit_spin,
     );
     let flow_per_key_switch = switch_row(
         &t("rows.flow_per_key.title", "Hiện dấu từng bước ở Flow"),
@@ -483,7 +461,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     let flow_per_key_spin = spin_row(
         &t(
             "rows.flow_per_key_delay.title",
-            "Trễ hiện dấu từng bước (ms)",
+            "Hiện dấu từng bước Flow: trễ (ms)",
         ),
         &t("rows.flow_per_key_delay.subtitle", "0–500 ms. Mặc định: 60"),
         0.0,
@@ -500,20 +478,6 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Xóa một ký tự của từ đã gõ xong rồi gõ phím dấu mới sẽ tiếp tục biến hóa từ (tùn + s → tún) thay vì rơi thành chữ thường",
         ),
     );
-    let idle_commit_spin = spin_row(
-        &t(
-            "rows.idle_commit_spin.title",
-            "Nghỉ bao lâu thì chấp nhận (ms)",
-        ),
-        &t(
-            "rows.idle_commit_spin.subtitle",
-            "300–2000 ms. Mặc định: 700",
-        ),
-        300.0,
-        2000.0,
-        50.0,
-    );
-    idle_commit_spin.set_sensitive(false);
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
@@ -685,6 +649,57 @@ pub(super) fn widgets() -> Rc<Ui> {
         "tips.unicode_channel",
         "Cách gửi từ có ký tự đặc biệt: CommitText là an toàn; Clipboard dùng Ctrl+V, tạm đè clipboard."
     );
+    // Every "Thử nghiệm" row: the tooltip names the feature it belongs to.
+    tip!(
+        experimental_features,
+        "tips.experimental_features",
+        "Công tắc chính của tab Thử nghiệm: tắt thì mọi hàng dưới bị khóa và bộ gõ chạy theo mặc định; giá trị đã chỉnh vẫn được lưu để dùng lại khi bật lại."
+    );
+    tip!(
+        macro_valid_words,
+        "tips.macro_valid_words",
+        "Tính năng Gõ tắt: phím tắt trùng một từ tiếng Việt thật (vd “cam”) không nở để không cản gõ từ thường. Bật thì gõ tắt vẫn thắng — muốn gõ từ thật, Backspace một phím rồi gõ lại phím đó."
+    );
+    tip!(
+        extra_url_chars_row,
+        "tips.extra_url_chars",
+        "Tính năng Không dấu sau URL (mặc định áp dụng cho / : @ . _ ~ = # & % ?): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; dấu - bị loại để giữ -- thành gạch dài."
+    );
+    tip!(
+        auto_capitalize_after_row,
+        "tips.auto_capitalize_after",
+        "Tính năng Tự viết hoa (sau . ! ? và Enter): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; không nhận chữ, số, khoảng trắng."
+    );
+    tip!(
+        clipboard_restore_row,
+        "tips.clipboard_restore",
+        "Tính năng khôi phục clipboard: khi dán chữ có dấu ở kênh Clipboard, clipboard bị đè tạm — số ms bên phải là thời gian chờ trước khi clipboard cũ được trả lại. Chỉ tác dụng khi kênh gửi từ là Clipboard."
+    );
+    tip!(
+        echo_stale_row,
+        "tips.echo_stale",
+        "Bảo vệ xả commit trên Wayland: chờ các phím Backspace ảo (echo) quay về trước khi đổ chữ đã commit vào app. Số ms bên phải là thời hạn chờ — quá hạn thì xả luôn để chữ không treo. Mặc định 150 ms."
+    );
+    tip!(
+        idle_commit_row,
+        "tips.idle_commit",
+        "Tính năng Chấp nhận từ khi nghỉ gõ: dừng tay quá lâu trên một từ đang gạch chân thì từ đó được commit luôn, như bấm dấu cách. Số ms bên phải là ngưỡng nghỉ tay."
+    );
+    tip!(
+        flow_per_key_spin,
+        "tips.flow_per_key_delay",
+        "Tính năng Hiện dấu từng bước ở Flow (công tắc nằm ở tab Tinh chỉnh): số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 60."
+    );
+    tip!(
+        flow_backspace_retrack,
+        "tips.flow_backspace_retrack",
+        "Tính năng Sửa dấu sau Backspace ở Flow/Turbo: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước đang bật."
+    );
+    tip!(
+        nav_key_while_preedit,
+        "tips.nav_key_while_preedit",
+        "Tính năng Phím điều hướng khi còn từ: khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên sẽ nuốt để commit trước (mặc định, nhấn hai lần mới chạy) hoặc cho caret chạy ngay lần đầu. Nếu chữ bị chèn sai chỗ thì quay lại Nuốt."
+    );
 
     Rc::new(Ui {
         enabled,
@@ -703,6 +718,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         auto_restore,
         abbrev,
         bypass_url,
+        extra_url_chars_row,
         extra_url_chars_switch,
         extra_url_chars_entry,
         w2u,
@@ -711,6 +727,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         nav_key_while_preedit,
         em_dash,
         auto_capitalize,
+        auto_capitalize_after_row,
         auto_capitalize_after_switch,
         auto_capitalize_after_entry,
         double_space,
@@ -758,10 +775,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         backspace_interval,
         post_delay,
         unicode_channel,
+        clipboard_restore_row,
         clipboard_restore_switch,
         clipboard_restore_spin,
+        echo_stale_row,
         echo_stale_switch,
         echo_stale_spin,
+        idle_commit_row,
         idle_commit_switch,
         idle_commit_spin,
         flow_per_key_switch,

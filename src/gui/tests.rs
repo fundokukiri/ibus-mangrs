@@ -694,7 +694,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 27] = [
+    let rows: [&adw::SwitchRow; 22] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -702,13 +702,8 @@ fn every_switch_triggers_save() {
         &ui.auto_restore,
         &ui.abbrev,
         &ui.bypass_url,
-        &ui.extra_url_chars_switch,
         &ui.em_dash,
         &ui.auto_capitalize,
-        &ui.auto_capitalize_after_switch,
-        &ui.clipboard_restore_switch,
-        &ui.echo_stale_switch,
-        &ui.idle_commit_switch,
         &ui.experimental_features,
         &ui.show_toasts,
         &ui.double_space,
@@ -726,6 +721,20 @@ fn every_switch_triggers_save() {
     for row in rows {
         let before = saves.get();
         row.set_active(!row.is_active());
+        assert!(saves.get() > before, "a switch toggled without saving");
+    }
+    // The merged "Thử nghiệm" rows carry bare GtkSwitch suffixes — same
+    // wiring, different widget type.
+    let switches: [&gtk4::Switch; 5] = [
+        &ui.extra_url_chars_switch,
+        &ui.auto_capitalize_after_switch,
+        &ui.clipboard_restore_switch,
+        &ui.echo_stale_switch,
+        &ui.idle_commit_switch,
+    ];
+    for switch in switches {
+        let before = saves.get();
+        switch.set_active(!switch.is_active());
         assert!(saves.get() > before, "a switch toggled without saving");
     }
     // The reported bug end to end: the toggled state survives read(), so
@@ -768,6 +777,8 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     let on = Config::load();
     ui.refresh(&on, &macros, &dictionary);
     assert!(ui.macro_valid_words.is_sensitive());
+    // The merged row locks as one unit with the gate.
+    assert!(ui.extra_url_chars_row.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
     assert_eq!(ui.echo_stale_spin.value(), 250.0);
 
@@ -779,6 +790,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     let off = Config::load();
     ui.refresh(&off, &macros, &dictionary);
     assert!(!ui.macro_valid_words.is_sensitive());
+    assert!(!ui.extra_url_chars_row.is_sensitive());
     assert!(!ui.extra_url_chars_entry.is_sensitive());
     assert!(!ui.flow_per_key_spin.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
@@ -800,6 +812,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.experimental_features.set_active(true);
     ui.restore_experimental_saved();
     ui.set_experimental_sensitive(true);
+    assert!(ui.extra_url_chars_row.is_sensitive());
     assert!(ui.extra_url_chars_entry.is_sensitive());
     assert_eq!(
         ui.extra_url_chars_entry.text(),

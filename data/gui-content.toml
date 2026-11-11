@@ -183,48 +183,28 @@ title = "Nhấn “Space” hai lần thành dấu chấm"
 subtitle = "Hai dấu cách thành dấu chấm"
 
 [rows.macro_valid_words]
-title = "Gõ tắt nở cả trên từ hợp lệ"
+title = "Gõ tắt: nở cả trên từ hợp lệ"
 subtitle = "Phím tắt trùng từ thật (vd “cam”) sẽ nở thay vì giữ nguyên — Backspace một phím để gõ từ thật"
 
 [rows.extra_url_chars]
 title = "Thêm ký tự giữ nguyên dấu"
-subtitle = "Từ đứng ngay sau ký tự bên dưới cũng giữ nguyên phím thô"
-
-[rows.extra_url_chars_entry]
-title = "Ký tự riêng"
-subtitle = "Ví dụ: ` ' ! — không nhận -, chữ, số, khoảng trắng"
+subtitle = "Bật/tắt bên trái; ô bên phải liệt kê ký tự riêng — từ đứng ngay sau ký tự đó cũng giữ nguyên phím thô. Không nhận -, chữ, số, khoảng trắng"
 
 [rows.auto_capitalize_after]
 title = "Viết hoa sau ký tự thêm"
-subtitle = "Cùng bộ . ! ? + Enter: từ ngay sau ký tự bên dưới cũng viết hoa"
-
-[rows.auto_capitalize_after_entry]
-title = "Ký tự kích hoạt"
-subtitle = "Ví dụ : ” — không nhận chữ, số, khoảng trắng"
+subtitle = "Cùng bộ . ! ? + Enter: bật/tắt bên trái; ô bên phải liệt kê ký tự thêm — từ ngay sau ký tự đó cũng viết hoa. Không nhận chữ, số, khoảng trắng"
 
 [rows.clipboard_restore]
-title = "Tùy chỉnh hồi clipboard"
-subtitle = "Đổi khoảng chờ trả lại clipboard cũ sau khi dán — chỉ tác dụng khi kênh là Clipboard"
-
-[rows.clipboard_restore_spin]
-title = "Hồi clipboard sau (ms)"
-subtitle = "100–5000 ms. Mặc định: 600"
+title = "Hồi clipboard sau khi dán (ms)"
+subtitle = "Bật/tắt bên trái; số ms bên phải là khoảng chờ trả lại clipboard cũ sau khi dán — chỉ tác dụng khi kênh là Clipboard. 100–5000 ms. Mặc định: 600"
 
 [rows.echo_stale]
-title = "Xả commit khi echo lạc"
-subtitle = "Chờ bao lâu thì bỏ đợi phím Backspace ảo quay về mà xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ"
-
-[rows.echo_stale_spin]
-title = "Xả sau (ms)"
-subtitle = "50–1000 ms. Mặc định: 150. Quá thấp dễ mất chữ, quá cao làm chữ hiện trễ"
+title = "Xả commit khi echo lạc (ms)"
+subtitle = "Bật/tắt bên trái; số ms bên phải là thời gian chờ phím Backspace ảo quay về trước khi xả chữ — tăng khi dấu nhấp nháy rồi trả lại, giảm khi chữ hiện trễ. 50–1000 ms. Mặc định: 150"
 
 [rows.idle_commit]
-title = "Chấp nhận từ khi nghỉ gõ"
-subtitle = "Dừng tay quá lâu trên một từ có gạch chân thì từ đó được chấp nhận luôn, như bấm dấu cách"
-
-[rows.idle_commit_spin]
-title = "Nghỉ bao lâu thì chấp nhận (ms)"
-subtitle = "300–2000 ms. Mặc định: 700"
+title = "Chấp nhận từ khi nghỉ gõ (ms)"
+subtitle = "Bật/tắt bên trái; số ms bên phải là thời gian nghỉ tay để từ đang gạch chân được chấp nhận luôn, như bấm dấu cách. 300–2000 ms. Mặc định: 700"
 
 [rows.experimental_features]
 title = "Tính năng thử nghiệm"
@@ -274,7 +254,7 @@ title = "Hiện dấu từng bước ở Flow"
 subtitle = "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — trễ chỉnh ở hàng dưới; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi"
 
 [rows.flow_per_key_delay]
-title = "Trễ hiện dấu từng bước (ms)"
+title = "Hiện dấu từng bước Flow: trễ (ms)"
 subtitle = "Số ms một phím chờ trước khi đổ vào văn bản: thấp hơn thì dấu hiện sớm hơn, cao hơn thì gõ mượt hơn. 0–500 ms, giá trị quá thấp có thể làm lệch thứ tự chữ trên Wayland. Mặc định: 60. Thử nghiệm."
 
 [rows.flow_backspace_retrack]
@@ -625,3 +605,13 @@ desktop_icon = "Ẩn hay hiện dòng “MăngRS Cấu hình” trong lưới �
 focus_extension = "Extension báo cho engine tên cửa sổ đang focus, để luật theo app chạy được với app Wayland thuần (Chrome, Firefox…)."
 extension_logout = "Đăng xuất để extension mới được tải (GNOME giữ module cũ trong bộ nhớ)."
 reset_defaults = "Ghi đè config.toml bằng giá trị mặc định (kể cả menu panel, luật theo app, phím tắt). Gõ tắt và từ điển không bị đụng đến."
+experimental_features = "Công tắc chính của tab Thử nghiệm: tắt thì mọi hàng dưới bị khóa và bộ gõ chạy theo mặc định; giá trị đã chỉnh vẫn được lưu để dùng lại khi bật lại."
+macro_valid_words = "Tính năng Gõ tắt: phím tắt trùng một từ tiếng Việt thật (vd “cam”) không nở để không cản gõ từ thường. Bật thì gõ tắt vẫn thắng — muốn gõ từ thật, Backspace một phím rồi gõ lại phím đó."
+extra_url_chars = "Tính năng Không dấu sau URL (mặc định áp dụng cho / : @ . _ ~ = # & % ?): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; dấu - bị loại để giữ -- thành gạch dài."
+auto_capitalize_after = "Tính năng Tự viết hoa (sau . ! ? và Enter): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; không nhận chữ, số, khoảng trắng."
+clipboard_restore = "Tính năng khôi phục clipboard: khi dán chữ có dấu ở kênh Clipboard, clipboard bị đè tạm — số ms bên phải là thời gian chờ trước khi clipboard cũ được trả lại. Chỉ tác dụng khi kênh gửi từ là Clipboard."
+echo_stale = "Bảo vệ xả commit trên Wayland: chờ các phím Backspace ảo (echo) quay về trước khi đổ chữ đã commit vào app. Số ms bên phải là thời hạn chờ — quá hạn thì xả luôn để chữ không treo. Mặc định 150 ms."
+idle_commit = "Tính năng Chấp nhận từ khi nghỉ gõ: dừng tay quá lâu trên một từ đang gạch chân thì từ đó được commit luôn, như bấm dấu cách. Số ms bên phải là ngưỡng nghỉ tay."
+flow_per_key_delay = "Tính năng Hiện dấu từng bước ở Flow (công tắc nằm ở tab Tinh chỉnh): số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 60."
+flow_backspace_retrack = "Tính năng Sửa dấu sau Backspace ở Flow/Turbo: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước đang bật."
+nav_key_while_preedit = "Tính năng Phím điều hướng khi còn từ: khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên sẽ nuốt để commit trước (mặc định, nhấn hai lần mới chạy) hoặc cho caret chạy ngay lần đầu. Nếu chữ bị chèn sai chỗ thì quay lại Nuốt."
