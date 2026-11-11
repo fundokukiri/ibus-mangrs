@@ -65,15 +65,13 @@ pub(super) fn switch_row(title: &str, subtitle: &str) -> adw::SwitchRow {
     row
 }
 
-/// The experimental row carries a small "Thử nghiệm" badge left of the
-/// row's own control. Adw rows append their control (switch, spin, entry)
-/// as the first suffix, so the badge is prepended to the (internal)
-/// suffixes box; the control also gets a spoken name mentioning the trial
-/// status. The internal boxes are reached through the tree — the same
-/// private-child walk as `row_subtitle` — because Adwaita exposes no
-/// insert-before-suffix API. Works for every row type: they all render a
-/// suffixes box. On a switch+entry/spin pair only the SWITCH carries the
-/// badge: one marker per feature, on the row that turns it on.
+/// The experimental row carries a small "Thử nghiệm" badge UNDER its
+/// subtitle — the description's own line, out of the control area — and the
+/// switch (its own or the merged row's) gets a spoken name mentioning the
+/// trial status. The subtitle label's parent is the row's internal vertical
+/// title box, reached through the same private-child walk as `row_subtitle`;
+/// a row without a subtitle falls back to the internal suffixes box. Works
+/// for every row type: they all render a title box.
 pub(super) fn decorate_experimental<W>(row: &W)
 where
     W: IsA<gtk4::Widget> + IsA<adw::PreferencesRow>,
@@ -107,11 +105,18 @@ where
     let badge = gtk4::Label::new(Some(&badge_text));
     badge.add_css_class("caption");
     badge.add_css_class("warning");
-    badge.set_valign(gtk4::Align::Center);
+    badge.set_xalign(0.0);
+    let subtitle_box = row_subtitle(row).and_then(|l| l.parent().and_downcast::<gtk4::Box>());
     let (suffixes, switch) = find(row.upcast_ref());
-    if let Some(suffixes) = suffixes {
-        // First suffix = left of the row's own control.
-        suffixes.prepend(&badge);
+    match subtitle_box {
+        Some(b) => b.append(&badge),
+        // No subtitle to sit under: keep the badge inside the control area.
+        None => {
+            if let Some(suffixes) = suffixes {
+                suffixes.prepend(&badge);
+                badge.set_valign(gtk4::Align::Center);
+            }
+        }
     }
     let spoken = format!("{}, {}", row.title(), badge_text);
     match switch {
@@ -176,21 +181,25 @@ pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
     (row, switch)
 }
 
+/// One width for every merged-row value control: the rows must read as a
+/// balanced column, not some boxes short and some long.
+const VALUE_WIDTH_CHARS: i32 = 12;
+
 /// The value half of a merged row: a bare SpinButton without SpinRow's
 /// title — the merged row's title carries the meaning. Same adjustment
 /// shape as `spin_row`.
 pub(super) fn spin_button(min: f64, max: f64, step: f64) -> gtk4::SpinButton {
     let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
     let spin = gtk4::SpinButton::new(Some(&adjustment), step, 0);
-    spin.set_width_chars(9);
+    spin.set_width_chars(VALUE_WIDTH_CHARS);
     spin
 }
 
-/// The text half of a merged row: a plain entry sized for a short
-/// character list (`: " ').
+/// The text half of a merged row: a plain entry sized to the shared value
+/// width (a short character list, `: " ').
 pub(super) fn chars_entry() -> gtk4::Entry {
     let entry = gtk4::Entry::new();
-    entry.set_width_chars(10);
+    entry.set_width_chars(VALUE_WIDTH_CHARS);
     entry
 }
 
