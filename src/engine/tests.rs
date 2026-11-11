@@ -3099,30 +3099,13 @@ fn select_stays_select_with_a_text_report() {
 // --- URL/email/path bypass (spell-check round, phase 2-3) ---
 
 #[test]
-fn url_context_keeps_words_raw() {
-    // "tieeng" right after "." and "/" would normally become "tiêng".
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-    assert_eq!(
-        type_replay(&mut e, "x.example.tieeng "),
-        "x.example.tieeng "
-    );
-}
-
-#[test]
-fn email_context_keeps_words_raw() {
-    // "hieeu" after "@" would normally become "hiều".
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-    assert_eq!(type_replay(&mut e, "a@hieeu "), "a@hieeu ");
-}
-
-#[test]
 fn url_bypass_can_be_disabled() {
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
     e.apply_config(&Config {
         bypass_url: false,
         ..Config::default()
     });
-    assert_eq!(type_replay(&mut e, "x.example.tieeng "), "x.example.tiêng ");
+    assert_eq!(type_replay(&mut e, "https://x.tieeng "), "https://x.tiêng ");
 }
 
 #[test]
@@ -3130,7 +3113,10 @@ fn url_bypass_releases_at_the_next_space() {
     // The word after the URL ends must type Vietnamese again
     // ("nhieeuf" → "nhiều" — huyền from the f).
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
-    assert_eq!(type_replay(&mut e, "x.tieeng nhieeuf "), "x.tieeng nhiều ");
+    assert_eq!(
+        type_replay(&mut e, "https://x.tieeng nhieeuf "),
+        "https://x.tieeng nhiều "
+    );
 }
 
 #[test]
@@ -3205,8 +3191,8 @@ fn url_bypass_keeps_the_em_dash_outside_urls() {
 
 #[test]
 fn prose_punctuation_no_longer_starts_the_bypass() {
-    // `: = # ?` are normal prose punctuation: words glued straight onto
-    // them must compose again (the old per-char set blocked every one).
+    // No character starts a bypass any more: words glued straight onto
+    // prose punctuation must compose again (the owner's exact cases).
     assert_eq!(
         typed(Mode::NonPreedit, "mucj tieeu:phats trieenr "),
         "mục tiêu:phát triển "
@@ -3214,6 +3200,10 @@ fn prose_punctuation_no_longer_starts_the_bypass() {
     assert_eq!(typed(Mode::NonPreedit, "x=coongj "), "x=cộng ");
     assert_eq!(typed(Mode::NonPreedit, "#Bangwf "), "#Bằng ");
     assert_eq!(typed(Mode::NonPreedit, "?tungf "), "?tùng ");
+    assert_eq!(typed(Mode::NonPreedit, "_tungf "), "_tùng ");
+    assert_eq!(typed(Mode::NonPreedit, "@tungf "), "@tùng ");
+    assert_eq!(typed(Mode::NonPreedit, ".tungf "), ".tùng ");
+    assert_eq!(typed(Mode::NonPreedit, "/tungf "), "/tùng ");
 }
 
 #[test]

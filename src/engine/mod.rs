@@ -386,18 +386,12 @@ const FALLBACK_NO_DELETE_SURROUNDING: &[&str] = &[
     "chrome", "chromium", "electron", "code", "brave", "msedge", "vivaldi", "slack", "discord",
 ];
 
-/// A word typed directly after one of these characters stays raw for that
-/// word — email domain, file path, snake_case, domain segments (`a@site`,
-/// `/etc/hosts`, `get_user_id`, `example.com`). Chars that appear in normal
-/// prose before a word (`: = # ? & % ~`) were removed: they blocked marks
-/// on words like `mục tiêu:phát`. `-` is deliberately excluded from
-/// starting a bypass: it would break the `--` → em-dash feature. A real
-/// URL (`https://…`, `www.…`) opens a span instead — see `URL_SPAN_KEEP`.
-const URL_CONTEXT_CHARS: &[char] = &['/', '@', '.', '_'];
-
 /// While a URL span is open (armed by a `://` scheme or `www.`), these word
 /// terminators belong to the address and keep it raw; any other terminator
 /// (space, Enter, `, ; ! " '` …) ends the span and typing composes again.
+/// Only real URL evidence opens the span — no built-in character starts a
+/// bypass by itself, so punctuation in prose never blocks marks. The
+/// user's own `extra_url_chars` list is the only per-word trigger.
 const URL_SPAN_KEEP: &[char] = &[
     '/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?', '-', '+',
 ];

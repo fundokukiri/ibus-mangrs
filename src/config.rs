@@ -31,13 +31,15 @@ pub struct Config {
     /// Restore English (non-Vietnamese) words to the raw keystrokes typed.
     pub auto_restore: bool,
     /// Keep raw typing inside a real URL (`://` scheme or `www.` — the
-    /// whole address until a sentence boundary) and for a word directly
-    /// after `/ @ . _` (email, path, snake_case) — no Vietnamese marks, no
-    /// macros. Prose punctuation (`: = # ? & % ~`) does not block marks.
+    /// whole address until a sentence boundary) — no Vietnamese marks, no
+    /// macros. No built-in character starts a bypass: prose punctuation
+    /// never blocks marks; the optional `extra_url_chars` list adds
+    /// per-word triggers.
     pub bypass_url: bool,
     /// Extra characters that start a bypass word when typed directly before
-    /// it, on top of the built-in set. `-` is rejected (it stays out of the
-    /// start set so `--` can become an em dash), so are letters, digits and
+    /// it — the only per-word triggers; a real URL (`://`, `www.`) opens
+    /// the span regardless. `-` is rejected (it stays out of the start set
+    /// so `--` can become an em dash), so are letters, digits and
     /// whitespace.
     pub extra_url_chars: String,
     /// Whether `extra_url_chars` applies at all — the switch off means the
