@@ -487,16 +487,6 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Xoá một ký tự rồi gõ dấu — từ vẫn biến hoá",
         ),
     );
-    let flow_backspace_composition = switch_row(
-        &t(
-            "rows.flow_backspace_composition.title",
-            "Xoá dấu qua composition (Flow/Turbo/Select)",
-        ),
-        &t(
-            "rows.flow_backspace_composition.subtitle",
-            "Backspace đi qua composition theo đúng chế độ xoá dấu đã chọn; xoá chữ thừa vẫn giữ được dấu của từ",
-        ),
-    );
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
@@ -715,11 +705,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Tính năng Sửa dấu sau Backspace ở Flow/Turbo: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước đang bật."
     );
     tip!(
-        flow_backspace_composition,
-        "tips.flow_backspace_composition",
-        "Tính năng Xoá dấu qua composition: Backspace trên từ còn biến hoá sẽ xoá theo đúng chế độ xoá dấu bằng Backspace đã chọn (xoá dấu trước / cả ký tự / kiểu Unikey), xoá chữ thừa sau từ đã xong vẫn giữ dấu của từ (chào + f + Backspace → chào, gõ s → cháo). Chỉ tác dụng khi Hiện dấu từng bước đang bật."
-    );
-    tip!(
         nav_key_while_preedit,
         "tips.nav_key_while_preedit",
         "Tính năng Phím điều hướng khi còn từ: khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên sẽ nuốt để commit trước (mặc định, nhấn hai lần mới chạy) hoặc cho caret chạy ngay lần đầu. Nếu chữ bị chèn sai chỗ thì quay lại Nuốt."
@@ -811,7 +796,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         flow_per_key_switch,
         flow_per_key_spin,
         flow_backspace_retrack,
-        flow_backspace_composition,
         experimental_features,
         menu,
         menu_box,

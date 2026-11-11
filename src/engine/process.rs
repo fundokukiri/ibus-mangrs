@@ -450,11 +450,9 @@ impl Engine {
             // own commit or the batch's) — this word's region starts empty,
             // so the coalesce diffs and erases stay INSIDE the word and can
             // never touch what came before it. A batch still in flight
-            // spans the boundary: keep coalescing onto it. The landed
-            // region stays recoverable in `last_landed`: the v2 Backspace
-            // rebuilds from it when the current region erases.
+            // spans the boundary: keep coalescing onto it.
             if self.flow_per_key && self.per_key_park.is_none() {
-                self.last_landed = std::mem::take(&mut self.tail);
+                self.tail.clear();
             }
         }
         let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
@@ -481,19 +479,14 @@ impl Engine {
                 // display the composed delta applies immediately through
                 // the injected transport.
                 if per_key {
-                    // The delta is relative to the OLD output, whose screen
-                    // shape is the word region of `tail` — a rebuilt word's
-                    // trailing terminators sit after it, so the replace must
-                    // not run over them and the suffix rides back on the want.
-                    let word_region = tracked_word_from_screen(&self.tail);
-                    let word_screen = if self.charset == Charset::Unicode {
-                        replace_tail(&word_region, edit.delete_chars, &edit.insert)
+                    let want = if self.charset == Charset::Unicode {
+                        replace_tail(&self.tail, edit.delete_chars, &edit.insert)
                     } else {
                         // Legacy encodings change the character count: the
                         // screen must hold the whole re-encoded tail.
                         encode(self.charset, &self.wrapper.output())
                     };
-                    return self.per_key_coalesce(self.composition_screen_from(word_screen));
+                    return self.per_key_coalesce(want);
                 }
                 vec![Action::Forward]
             }
@@ -614,92 +607,6 @@ impl Engine {
         actions
     }
 
-    /// The screen text after the tracked word: trailing word terminators
-    /// the rebuild skipped (`chào ` keeps its space). Every batch `want`
-    /// must carry them or the coalesce diff eats them, and the coalesce
-    /// diff itself keeps working because `want` and `tail` both end in the
-    /// same suffix. Empty while the word composes right up to the caret.
-    fn tracked_suffix(&self) -> String {
-        self.tail
-            .chars()
-            .rev()
-            .take_while(|c| crate::bamboo_wrapper::is_word_terminator(*c))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect()
-    }
-
-    /// v2 (the experimental composition switch): the Backspace goes
-    /// through the composition with the user's tone mode — same semantics
-    /// the inline modes give a composing word — and the screen follows
-    /// through the batch, swallowing the key. On a committed word the
-    /// user's real Backspace erases the last screen character (every
-    /// mode's post-commit behavior) and the screen behind it is rebuilt
-    /// so the word stays editable; a screen the re-encoder cannot
-    /// reproduce falls back to today's release, byte for byte.
-    pub(super) fn backspace_uinput_composition(&mut self, _mode: Mode) -> Vec<Action> {
-        let mut actions = Vec::new();
-        // The delete must work on the FINAL screen: land the in-flight
-        // batch first, or the key deletes a character the batch was still
-        // going to add.
-        if let Some((_, text)) = self.per_key_park.take() {
-            actions.push(Action::CommitNow(text));
-        }
-        let was_alive = self.wrapper.has_composition();
-        if was_alive {
-            self.wrapper.set_backspace_tone(self.backspace_tone);
-            let _ = self.wrapper.backspace();
-        }
-        if self.wrapper.has_composition() {
-            actions.extend(self.per_key_coalesce(self.composition_screen()));
-            return actions;
-        }
-        // The composition is dead: either it already was (the word sits
-        // committed and the user's real Backspace erases the last screen
-        // character) or this Backspace erased the word's last key and the
-        // batch above carries the deletion to the screen.
-        if was_alive {
-            actions.extend(self.per_key_coalesce(self.composition_screen()));
-            self.release_word_mode();
-        } else {
-            actions.push(Action::Forward);
-            self.tail = replace_tail(&self.tail, 1, "");
-        }
-        // The screen before the erased character may still hold a word the
-        // re-encoder can rebuild — the previous landed region when the
-        // current one emptied (`chào f` BS -> `chào `). Restore it so the
-        // next mark key keeps editing instead of littering.
-        if self.tail.is_empty() && !self.last_landed.is_empty() {
-            self.tail = std::mem::take(&mut self.last_landed);
-        }
-        if self
-            .wrapper
-            .retrack_from_screen(&tracked_word_from_screen(&self.tail))
-        {
-            self.note_backspace_forwarded();
-            return actions;
-        }
-        // Nothing reproduces: today's release, byte for byte.
-        self.wrapper.reset();
-        self.release_word_mode();
-        self.idle_committed = None;
-        self.note_backspace_forwarded();
-        actions
-    }
-
-    /// What the screen must hold for the composition's current output,
-    /// carrying the trailing terminators the rebuild skipped.
-    fn composition_screen(&self) -> String {
-        self.composition_screen_from(encode(self.charset, &self.wrapper.output()))
-    }
-
-    fn composition_screen_from(&self, word_screen: String) -> String {
-        let mut want = word_screen;
-        want.push_str(&self.tracked_suffix());
-        want
-    }
-
     /// Word end in a uinput mode: erase the latin tail with real keys and
     /// deliver the Vietnamese word. When the word equals the raw keys
     /// (English text, auto-restored words) nothing is touched — the keys
@@ -802,13 +709,9 @@ impl Engine {
         // extra Backspaces and the pending commit's text is replaced. The
         // terminator joins the batch too (a forwarded key would race it).
         if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) {
-            // The suffix (a rebuilt word's trailing terminators) sits on
-            // the screen between the word and the caret; the terminator
-            // the user just typed lands after it.
-            let suffix = self.tracked_suffix();
             let want = match terminator {
-                Some(c) => format!("{text}{suffix}{c}"),
-                None => format!("{text}{suffix}"),
+                Some(c) => format!("{text}{c}"),
+                None => text.to_string(),
             };
             return self.per_key_coalesce(want);
         }
