@@ -45,6 +45,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     typing.add(&ui.extra_url_chars_entry);
     typing.add(&ui.auto_capitalize_after_switch);
     typing.add(&ui.auto_capitalize_after_entry);
+    typing.add(&ui.bypass_hyphen);
     page.add(&typing);
 
     let tuning = adw::PreferencesGroup::builder()
@@ -77,6 +78,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // experimental row and carries the badge itself.
     decorate_experimental(&ui.smooth_per_key_spin);
     decorate_experimental(&ui.smooth_backspace_retrack);
+    decorate_experimental(&ui.bypass_hyphen);
     // The switches themselves glow the same warning amber as the badge and
     // the tab label: one look, one meaning.
     for switch in [
@@ -86,6 +88,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         &ui.clipboard_restore_switch,
         &ui.echo_stale_switch,
         &ui.idle_commit_switch,
+        &ui.bypass_hyphen,
     ] {
         switch.add_css_class("experimental");
     }
