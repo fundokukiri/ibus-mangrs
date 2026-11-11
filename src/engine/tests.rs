@@ -3869,6 +3869,66 @@ fn emoji_disabled_types_after_a_colon_normally() {
 }
 
 #[test]
+fn emoji_candidate_composes_vietnamese_and_releases_on_backspace() {
+    // emoji on (the owner's config): a word after ':' composes like any
+    // word, and erasing it with Backspace releases the candidate — the old
+    // raw-forward candidate kept `x:abc` + 3 Backspace + `vieetj` raw.
+    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+        let mut e = with_emoji(
+            mode,
+            Config {
+                emoji_enabled: true,
+                ..Config::default()
+            },
+        );
+        assert_eq!(
+            type_replay(&mut e, "mucj tieeu:phats trieenr "),
+            "mục tiêu:phát triển ",
+            "{mode:?}"
+        );
+        let (out, oor) = type_replay_backspaces(&mut e, "x:abc\u{8}\u{8}\u{8}vieetj ");
+        assert!(!oor, "{mode:?}");
+        assert_eq!(out, "x:việt ", "{mode:?}");
+    }
+}
+
+#[test]
+fn emoji_miss_keeps_the_shortcode_as_typed() {
+    // A name that matches nothing stays literal — the raw keys, not the
+    // composed word (`tungf` composes to `tùng` while typing).
+    let mut e = with_emoji(
+        Mode::NonPreedit,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    assert_eq!(type_replay(&mut e, ":tungf:"), ":tungf:");
+}
+
+#[test]
+fn emoji_candidate_composes_in_flow() {
+    // The candidate keeps the plain raw-forward display in the uinput modes
+    // (per-key coalescing off for it) and the word-end rewrite composes it.
+    let mut e = with_emoji(
+        Mode::Flow,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    e.flow_per_key = false;
+    e.set_uinput_available(true);
+    let actions = type_str(&mut e, "x:phats ");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "phát ")),
+        "{actions:?}"
+    );
+}
+
+#[test]
 fn backspaces_inside_the_shortcode_keep_the_rewrite_in_range() {
     let mut e = with_emoji(
         Mode::NonPreedit,

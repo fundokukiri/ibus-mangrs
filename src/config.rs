@@ -98,9 +98,9 @@ pub struct Config {
     /// Hotkey opening the emoji picker. Reserved the same way; empty =
     /// unassigned.
     pub emoji_hotkey: String,
-    /// Typing `:name:` rewrites the shortcode to its emoji. Off by default:
-    /// a word glued directly after `:` stays raw while it is on (the URL
-    /// bypass behavior), so the user opts in.
+    /// Typing `:name:` rewrites the shortcode to its emoji — the word
+    /// after `:` composes like any word, and the closing ':' looks the raw
+    /// keys up (a miss keeps the text as typed).
     pub emoji_enabled: bool,
     /// Send preedit without the underline attribute (app support permitting).
     pub hide_underline: bool,
