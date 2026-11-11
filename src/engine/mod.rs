@@ -34,6 +34,8 @@ use process::CandidateEnd;
 mod surrounding;
 
 #[cfg(test)]
+mod backspace_probe;
+#[cfg(test)]
 mod digit_debug;
 #[cfg(test)]
 mod digit_probe2;
