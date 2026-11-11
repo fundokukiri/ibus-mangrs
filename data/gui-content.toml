@@ -160,7 +160,7 @@ subtitle = "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → 
 
 [rows.bypass_url]
 title = "Không gõ dấu sau URL"
-subtitle = "URL thật (https://, www.) giữ nguyên cả vùng; từ sau @ . _ / giữ nguyên"
+subtitle = "URL thật (https://, www.) giữ nguyên cả vùng tới dấu cách hoặc dấu câu"
 
 [rows.w2u]
 title = "W thành ư"
@@ -581,7 +581,7 @@ free = "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên â
 auto_correct = "Âm tiết không có trong từ điển tiếng Việt sẽ trả về đúng chuỗi phím đã bấm."
 auto_restore = "Từ nước ngoài (english, hello) gõ xong tự trả về chuỗi phím gốc thay vì giữ nguyên."
 abbrev = "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
-bypass_url = "Liên kết thật (https://, www.) gõ nguyên toàn bộ, kể cả phần ?x=1&#tag; từ đứng ngay sau @ . _ / cũng giữ nguyên (email, path, snake_case). Dấu : = # ? & % ~ trong câu chữ không còn chặn gõ dấu."
+bypass_url = "Liên kết thật (https://, www.) gõ nguyên toàn bộ, kể cả phần ?x=1&#tag;. Không ký tự nào chặn gõ dấu nữa — mọi dấu câu (: = # ? @ . _ /…) đều gõ tiếng Việt bình thường ngay sau nó."
 w2u = "Gõ w nhận ư: w = ư, wa = ưa... tiện cho bàn phím không có sẵn ư."
 bracket = "Gõ [ và ] nhận ơ và ư theo vị trí trong từ."
 em_dash = "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
@@ -607,7 +607,7 @@ extension_logout = "Đăng xuất để extension mới được tải (GNOME gi
 reset_defaults = "Ghi đè config.toml bằng giá trị mặc định (kể cả menu panel, luật theo app, phím tắt). Gõ tắt và từ điển không bị đụng đến."
 experimental_features = "Công tắc chính của tab Thử nghiệm: tắt thì mọi hàng dưới bị khóa và bộ gõ chạy theo mặc định; giá trị đã chỉnh vẫn được lưu để dùng lại khi bật lại."
 macro_valid_words = "Tính năng Gõ tắt: phím tắt trùng một từ tiếng Việt thật (vd “cam”) không nở để không cản gõ từ thường. Bật thì gõ tắt vẫn thắng — muốn gõ từ thật, Backspace một phím rồi gõ lại phím đó."
-extra_url_chars = "Tính năng Không dấu sau URL (mặc định áp dụng cho / @ . _): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải (ví dụ: ` ' !); dấu - bị loại để giữ -- thành gạch dài."
+extra_url_chars = "Tính năng Không dấu sau URL mặc định chỉ giữ nguyên URL thật (https://, www.). Hàng này thêm ký tự riêng: từ gõ ngay sau ký tự đó sẽ giữ nguyên (không thêm dấu). Bật công tắc trái, liệt kê ký tự vào ô phải (ví dụ: ` ' !); dấu - bị loại để giữ -- thành gạch dài."
 auto_capitalize_after = "Tính năng Tự viết hoa (sau . ! ? và Enter): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải (ví dụ : ”); không nhận chữ, số, khoảng trắng."
 clipboard_restore = "Tính năng khôi phục clipboard: khi dán chữ có dấu ở kênh Clipboard, clipboard bị đè tạm — số ms bên phải là thời gian chờ trước khi clipboard cũ được trả lại. Chỉ tác dụng khi kênh gửi từ là Clipboard.kênh gửi từ là Clipboard. 100–5000 ms, mặc định 600."
 echo_stale = "Bảo vệ xả commit trên Wayland: chờ các phím Backspace ảo (echo) quay về trước khi đổ chữ đã commit vào app. Số ms bên phải là thời hạn chờ — quá hạn thì xả luôn để chữ không treo.quá hạn thì xả luôn để chữ không treo. 50–1000 ms, quá thấp dễ mất chữ, quá cao làm chữ hiện trễ. Mặc định 150 ms."
