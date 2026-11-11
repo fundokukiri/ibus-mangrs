@@ -319,6 +319,7 @@ struct Ui {
     smooth_per_key_switch: adw::SwitchRow,
     smooth_per_key_spin: adw::SpinRow,
     smooth_backspace_retrack: adw::SwitchRow,
+    bypass_hyphen: adw::SwitchRow,
     experimental_features: adw::SwitchRow,
     show_toasts: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
@@ -593,6 +594,7 @@ impl Ui {
             .set_value(config.smooth_per_key_delay_ms as f64);
         self.smooth_backspace_retrack
             .set_active(config.smooth_backspace_retrack);
+        self.bypass_hyphen.set_active(config.bypass_hyphen);
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
@@ -748,6 +750,7 @@ impl Ui {
         config.smooth_per_key = self.smooth_per_key_switch.is_active();
         config.smooth_per_key_delay_ms = self.smooth_per_key_spin.value() as u64;
         config.smooth_backspace_retrack = self.smooth_backspace_retrack.is_active();
+        config.bypass_hyphen = self.bypass_hyphen.is_active();
         config.experimental_features = self.experimental_features.is_active();
         config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
@@ -782,6 +785,7 @@ impl Ui {
             config.nav_key_while_preedit = saved_experimental.nav_key_while_preedit;
             config.smooth_per_key_delay_ms = saved_experimental.smooth_per_key_delay_ms;
             config.smooth_backspace_retrack = saved_experimental.smooth_backspace_retrack;
+            config.bypass_hyphen = saved_experimental.bypass_hyphen;
         }
         config
     }
@@ -832,7 +836,7 @@ impl Ui {
     /// when the gate reopens; the engine forces the features off while the
     /// gate is closed.
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
-        let rows: [&gtk4::Widget; 14] = [
+        let rows: [&gtk4::Widget; 15] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_switch.upcast_ref(),
             self.extra_url_chars_entry.upcast_ref(),
@@ -846,6 +850,7 @@ impl Ui {
             self.idle_commit_spin.upcast_ref(),
             self.smooth_per_key_spin.upcast_ref(),
             self.smooth_backspace_retrack.upcast_ref(),
+            self.bypass_hyphen.upcast_ref(),
             self.nav_key_while_preedit.upcast_ref(),
         ];
         for row in rows {
@@ -899,6 +904,7 @@ impl Ui {
             .set_value(d.smooth_per_key_delay_ms as f64);
         self.smooth_backspace_retrack
             .set_active(d.smooth_backspace_retrack);
+        self.bypass_hyphen.set_active(d.bypass_hyphen);
         self.nav_key_while_preedit
             .set_selected(nav_key_selected(&d.nav_key_while_preedit));
         self.suppress_save.set(false);
@@ -931,6 +937,7 @@ impl Ui {
             .set_value(c.smooth_per_key_delay_ms as f64);
         self.smooth_backspace_retrack
             .set_active(c.smooth_backspace_retrack);
+        self.bypass_hyphen.set_active(c.bypass_hyphen);
         self.nav_key_while_preedit
             .set_selected(nav_key_selected(&c.nav_key_while_preedit));
         self.suppress_save.set(false);

@@ -279,6 +279,10 @@ subtitle = "How many ms a key waits before it lands in the text: lower shows mar
 title = "Mark editing after Backspace (Flow/Turbo)"
 subtitle = "Erase a character of a finished word and type a mark key: the word keeps transforming (tùn + s → tún) instead of the letter landing literally. Only applies while Per-key marks is on. Experimental."
 
+[rows.bypass_hyphen]
+title = "No marks after hyphens"
+subtitle = "A word typed right after a hyphen (-) stays raw like after a URL: vi-mangrs.com does not become vi-máng.com. Double hyphens (--) still make an em dash. Experimental."
+
 [rows.macro_enabled]
 title = "Enable shorthand"
 subtitle = "Keys expand into phrases at word end"
