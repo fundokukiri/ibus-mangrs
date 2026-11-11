@@ -7,8 +7,9 @@
 [Tiếng Việt](vi/README-vi.md) | **English**
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
-[`bamboo-core`](https://crates.io/crates/bamboo-core). 9 input method presets, 9 display
-modes, a GTK4 settings window, macros, an emoji picker at the caret and per-app rules.
+[`bamboo-core`](https://crates.io/crates/bamboo-core). 9 input methods, 11 output charsets,
+9 display modes, a GTK4 settings window, macros, an emoji picker at the caret and per-app
+rules.
 
 > Developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland; X11 smoke-tested).
 > The only hard requirements are IBus ≥ 1.5 and GTK4 + libadwaita — it should work wherever
@@ -16,9 +17,9 @@ modes, a GTK4 settings window, macros, an emoji picker at the caret and per-app 
 
 ## Features
 
-- **9 input method presets** — Telex (`tieengs` → `tiếng`), Telex 2, Telex W, Telex + VNI,
-  Telex + VNI + VIQR, VNI (`tie6ng1`), VNI for AZERTY, VIQR and the Microsoft layout
-  (`ti3ng8` → `tiếng`) — with **11 output charsets** (Unicode, VNI, VIQR, TCVN3, ...).
+- **9 input methods** — Telex (`tieengs` → `tiếng`), Telex 2, Telex W, Telex + VNI,
+  Telex + VNI + VIQR, VNI (`tie6ng1`), VNI (French keyboard), VIQR and the Microsoft layout
+  (`ti3ng8` → `tiếng`) — with **11 output charsets** (Unicode, VNI, VIQR, TCVN3, VISCII, ...).
 - **9 display modes** (table below), settable per application through **App Rules**.
 - **Flexible typing options**: modern tone placement (`hòa`) or traditional (`hoà`), free tone
   marking (`hoangf` → `hoàng`), auto-correction of invalid syllables, auto-restore of foreign
@@ -26,37 +27,45 @@ modes, a GTK4 settings window, macros, an emoji picker at the caret and per-app 
   double space → period.
 - **Three Backspace behaviors on tone-marked words**: tone first (`hạ` → `ha`), whole screen
   character (`việt` → `việ`), or the unikey walk (`hạ` → `hã` → `hà` → ...).
-- **Per-key display in the Flow/Turbo modes** (on by default): `ee` shows `ê` the moment it
-  lands instead of holding raw keys until the word ends, and a click or focus change never
-  loses the half-typed word (`ddc` still lands as `đc`).
+- **Per-key marks in the Flow/Turbo modes** (on by default): `ee` shows `ê` the moment it
+  lands instead of holding raw keys until the word ends. A click or a focus change never
+  loses the half-typed word — the preedit commits what it shows, including a shorthand fix
+  like `ddc` → `đc`.
 - **Macros** with `$TIME` / `$DATE` expansion and smart capitalization; a **custom
   dictionary** of words that are never auto-restored.
 - **Emoji**: typing `:name:` rewrites to the emoji (off by default), or an assignable hotkey
   opens a picker at the caret — 1,940 built-in emoji with Vietnamese and English keywords;
   your own `name = "glyph"` pairs in `emoji.toml` extend the table.
 - **Editable panel menu** (folders, functions, radio groups, separators) and 14 assignable
-  shortcuts, alongside 4 built-in ones.
-- **GTK4 + libadwaita settings window** (11 pages): every change hot-reloads within ~1 second,
-  and all settings back up into one JSON file.
+  shortcut functions, alongside the 4 built-in shortcut slots (all unassigned by default).
+- **GTK4 + libadwaita settings window** (12 pages, Vietnamese or English — a row on
+  _Other settings_ switches the language): every change hot-reloads within ~1 second, and
+  all settings back up into one JSON file.
 
 ## Display modes
 
-| Mode               | How it works                                                     | Best for                                      |
-| ------------------ | ---------------------------------------------------------------- | --------------------------------------------- |
-| Preedit (default)  | word shows inline with underline, commits at word end            | widest compatibility                          |
-| Non-preedit        | every key commits, the tail is rewritten on marks                | Firefox, GTK apps                             |
-| Surrounding text   | non-preedit, verified against the app's own text report          | Sublime Text                                  |
-| Flow (uinput)      | raw keys forwarded; real Backspaces erase the tail at word end   | terminals, quirky apps (X11)                  |
-| Turbo (uinput)     | Flow without the safety check before rewriting                   | fast typing (X11)                             |
-| Select (uinput)    | Shift+← selects the tail, Delete erases it, word commits         | apps where Backspaces misbehave (X11)         |
-| Forward Backspace  | the tail is deleted with Backspace events forwarded via IBus     | Chrome, Electron, GNOME Console, Sublime Text |
-| Forward Selection  | the tail is selected with Shift+← and replaced by the commit     | X11/XIM apps (JetBrains)                      |
-| OFF                | Vietnamese off, macros still work                                | mixed Vietnamese/English                      |
+| Display mode (label) | Config value    | How it works                                                     
+| -------------------- | --------------- | ---------------------------------------------------------------- | 
+| Underline (preedit)  | `preedit`       | word shows inline with underline, commits at word end            | 
+| No underline         | `nonpreedit`    | every key commits, the tail is rewritten on marks                | 
+| Surrounding text     | `surrounding`   | non-preedit, verified against the app's own text report          | 
+| Flow (uinput)        | `smooth`        | raw keys forwarded; real Backspaces erase the tail at word end   | 
+| Turbo (uinput)       | `supersmooth`   | Flow without the safety check before rewriting                   | 
+| Select (uinput)      | `select`        | Shift+← selects the tail, Delete erases it, word commits         | 
+| Forward Backspace    | `forwardkeyevent` | the tail is deleted with Backspace events forwarded via IBus   | 
+| Forward Selection    | `forwardselect` | the tail is selected with Shift+← and replaced by the commit     | 
+| OFF                  | `off`           | Vietnamese off, macros and auto-capitalize still work            | 
 
-Switch modes from the input-source menu, the settings window, a cycle hotkey, or per app with
-App Rules. The uinput modes need `/dev/uinput` and fall back to preedit where real-key
-injection cannot reach the app (on GNOME Wayland they resolve to preedit; they are meant for
-X11 sessions).
+The labels are the ones the engine's menu and settings window show; the config value is what
+`config.toml` and App Rules accept.
+
+Switch modes from the input-source menu, the settings window's _Display mode_ row, a cycle
+hotkey, or per app with App Rules. The three uinput modes press real keys through
+`/dev/uinput`: they need write access to that device and fall back to preedit without it
+(Select also needs a surrounding-text report from the app). They run on both X11 and GNOME
+Wayland. The two Forward modes need neither `/dev/uinput` nor a surrounding-text report —
+their delete or selection travels as forwarded key events. A config or rule still carrying
+the removed `auto` or `defaulttyping` value migrates automatically (to `preedit` and `off`).
 
 ## Requirements
 
@@ -66,9 +75,10 @@ X11 sessions).
 | Debian / Ubuntu | `ibus` `libgtk-4-dev` `libadwaita-1-dev` `libdbus-1-dev` + build-essential |
 | Fedora          | `ibus` `gtk4-devel` `libadwaita-devel` `dbus-devel` + `gcc` `make` |
 
-The installer detects the distro (apt / pacman / dnf), installs only what is missing and sets
-up Rust through rustup. GTK 4.10+ and libadwaita 1.5+ are required (Ubuntu 22.04 ships 4.6).
-Only Arch is tested. IBus must be the system's input-method framework (on GNOME it is).
+The installer detects the distro (apt / pacman / dnf / zypper), installs only what is missing
+and sets up Rust through rustup. GTK 4.10+ and libadwaita 1.5+ are required (Ubuntu 22.04
+ships 4.6). Only Arch is tested. IBus must be the system's input-method framework (on GNOME
+it is).
 
 ## Install
 
@@ -86,6 +96,15 @@ wget -qO- https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scrip
 ```
 
 (Piping a script from the network to `sh` runs code from the network — review it first.)
+
+To remove everything again:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/uninstall.sh | sh
+```
+
+Add `PURGE_CONFIG=1` before the command to also delete `~/.config/ibus-mangrs`; the plain
+run keeps your config. `--demo` previews the removal without deleting anything.
 
 ### From a checkout
 
@@ -141,28 +160,36 @@ Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
 1. `ibus restart` (after installing or upgrading the binary).
 2. **Settings → Keyboard → Input Sources → +** → _Vietnamese_ → **MăngRS**
    (or `ibus engine ibus-mangrs`).
-3. `Super+Space` switches input sources; the gear next to the engine opens the settings window.
+3. `Super+Space` switches between input sources (GNOME's own shortcut); the gear next to the
+   engine opens the settings window.
 
 ## Usage
 
-| Action                   | How                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------ |
-| Toggle Vietnamese        | input-source menu → _Enable Vietnamese_, or `Super+Space`                                  |
-| Open settings            | menu → _Cài đặt…_, or `ibus-engine-mangrs -gui`                                            |
-| Change input method      | menu → _Input Method_ (9 presets), or GUI                                                  |
-| Change charset           | menu → _Charset_ (11 charsets), or GUI                                                     |
-| Change display mode      | menu → _Display_, GUI (all 9), or the cycle hotkey                                         |
-| Type an emoji            | type `:name:` (enable in the GUI _Emoji_ page), or the emoji hotkey opens the picker       |
-| Assign a shortcut        | GUI _Phím tắt_ page (click a row, press the combo)                                         |
-| Type English / code      | just type — invalid words revert to raw keystrokes, URLs/emails/paths stay raw             |
-| Per-app display mode     | GUI _Luật theo app_ page (below)                                                           |
+| Action                     | How                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| Toggle Vietnamese          | input-source menu → _Vietnamese typing_, or an assignable hotkey (unassigned by default)   |
+| Open settings              | menu → _Settings_, or `ibus-engine-mangrs -gui`                                            |
+| Change input method        | menu → _Typing method_ (9 presets), or GUI                                                 |
+| Change charset             | menu → _Charset_ (11 charsets), or GUI                                                     |
+| Change display mode        | menu → _Display mode_, GUI (all 9), or the cycle hotkey                                    |
+| Type an emoji              | type `:name:` (enable in the GUI _Emoji_ page), or the emoji hotkey opens the picker       |
+| Pick a per-app rule        | the app-rule hotkey opens a picker at the caret: the app and its display mode              |
+| Assign a shortcut          | GUI _Shortcuts_ page (click a row, press the combo)                                        |
+| Type English / code        | just type — invalid words revert to raw keystrokes, URLs/emails/paths stay raw             |
+| Per-app display mode       | GUI _Per-app rules_ page (below)                                                           |
+
+All four built-in hotkey slots (toggle Vietnamese, cycle display mode, app-rule picker,
+emoji picker) ship unassigned — set them on the _Shortcuts_ page. `Super+Space` is GNOME's
+input-source switcher, not a MăngRS shortcut.
 
 ## App Rules (per-app display mode)
 
 A rule forces one display mode for one application and overrides the global mode; the first
-match wins, so put specific rules above general ones. Set them in the GUI _Luật theo app_ page
-(pick an app, pick a mode, press _Thêm luật_), or by hand in `~/.config/ibus-mangrs/config.toml`
-(hot-reloaded within ~1 s):
+match wins, so put specific rules above general ones. Matching is a case-insensitive
+substring of the app's name (`term` also matches `xterm`); the special pattern `none`
+targets apps that never report a name. Set rules on the GUI _Per-app rules_ page (pick an
+app, pick a mode), through the app-rule picker hotkey, or by hand in
+`~/.config/ibus-mangrs/config.toml` (hot-reloaded within ~1 s):
 
 ```toml
 [[app_rules]]
@@ -174,14 +201,19 @@ pattern = "sublime_text"
 mode = "surrounding"
 ```
 
-Mode values: `auto`, `preedit` (default), `nonpreedit`, `surrounding`, `smooth`, `supersmooth`,
-`select` (these three need `/dev/uinput` and are meant for X11), `forwardkeyevent`,
-`forwardselect`, `off`. Matching is a case-insensitive substring of the app name (`term` also
-matches `xterm`). Rules ship for Chrome, Chromium, Brave, Edge, Vivaldi, Electron apps
-(VS Code, Slack, Discord) and GNOME Console → `preedit`, Sublime Text → `surrounding` — those
-clients drop `DeleteSurroundingText` and would duplicate text. Chrome and Firefox on GNOME
-Wayland are reported to IBus only as an anonymous relay: matching them needs the companion
-GNOME Shell extension (`data/gnome-shell-extension/README.md`), then a logout/login.
+Mode values: `preedit` (default), `nonpreedit`, `surrounding`, `smooth`, `supersmooth`,
+`select` (these three press real keys through `/dev/uinput`), `forwardkeyevent`,
+`forwardselect`, `off`.
+
+No rules ship with the engine. It does carry a built-in safeguard for known
+delete-dropping clients (Chrome, Chromium, Edge, Brave, Vivaldi and Electron apps such as
+VS Code, Slack, Discord): if a rewriting mode is active there, the engine types them in
+preedit instead of duplicating text. Give such an app a different mode by adding your own
+rule.
+
+Chrome and Firefox on GNOME Wayland are reported to IBus only as an anonymous relay:
+matching them by name needs the companion GNOME Shell extension
+(`data/gnome-shell-extension/README.md`), then a logout/login.
 
 ## Configuration files
 
@@ -200,7 +232,7 @@ GNOME Shell extension (`data/gnome-shell-extension/README.md`), then a logout/lo
   not writable — see the permissions section above.
 - **Mode changes seem ignored**: an App Rule for the app overrides the global mode.
 - **X11/XIM apps (JetBrains) misbehave**: try the two _X11/XIM compatibility_ switches in the
-  GUI _Tinh chỉnh_ page.
+  GUI _Tuning_ page.
 
 ## License
 
