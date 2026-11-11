@@ -446,9 +446,6 @@ impl Engine {
         // the word starts.
         if !self.wrapper.has_composition() {
             self.cap_word = self.auto_capitalize && self.capitalize_next && c.is_alphabetic();
-            // A fresh region is never tracked: a rebuilt Select word ends
-            // with its region, and the next word starts untracked.
-            self.select_retracked = false;
             // Per-key display: the previous word's region has landed (its
             // own commit or the batch's) — this word's region starts empty,
             // so the coalesce diffs and erases stay INSIDE the word and can
@@ -460,7 +457,7 @@ impl Engine {
                 self.last_landed = std::mem::take(&mut self.tail);
             }
         }
-        let per_key = self.screen_tracked(mode);
+        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
         match self.wrapper.process_char(c) {
             Outcome::PassThrough => {
                 // The key produced no composition change (an inapplicable
@@ -728,7 +725,7 @@ impl Engine {
         // Per-key display: `tail` is the text the application holds (the
         // progressively committed word) — the word-end rewrites below erase
         // by it, so it must survive.
-        let per_key = self.screen_tracked(mode);
+        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
         if !per_key {
             self.tail.clear();
         }
@@ -810,7 +807,7 @@ impl Engine {
         // batch — the diff against what the app certainly holds becomes
         // extra Backspaces and the pending commit's text is replaced. The
         // terminator joins the batch too (a forwarded key would race it).
-        if self.screen_tracked(mode) {
+        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) {
             // The suffix (a rebuilt word's trailing terminators) sits on
             // the screen between the word and the caret; the terminator
             // the user just typed lands after it.
