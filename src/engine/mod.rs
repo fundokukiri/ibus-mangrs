@@ -306,6 +306,17 @@ pub struct Engine {
     /// legacy plain-text behavior byte for byte; apply_config bakes the
     /// flag with the gate.
     flow_backspace_retrack: bool,
+    /// The landed screen region before the current per-key word (`chào `
+    /// while a stray `f` sits after it). The same experiment uses it to give
+    /// a finished word back to the composition when the stray key is erased.
+    /// Only filled while the switch is on, and only consulted by the
+    /// Backspace path.
+    landed_region: String,
+    /// Whether the current per-key region has produced no composition change
+    /// yet — a lone key over a finished word (`f`) is litter, not a word, so
+    /// erasing it may restore the region behind it. A real word clears this
+    /// on its first composing key.
+    region_plain: bool,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -500,6 +511,8 @@ impl Engine {
             flow_per_key: false,
             flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
             flow_backspace_retrack: false,
+            landed_region: String::new(),
+            region_plain: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -637,6 +650,10 @@ impl Engine {
             Self::ECHO_APPLY_GRACE_MS
         };
         self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
+        // The restore state describes one per-key word boundary; a reload can
+        // land mid-word, so it starts clean.
+        self.landed_region.clear();
+        self.region_plain = false;
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
@@ -1583,6 +1600,8 @@ impl Engine {
             Vec::new()
         };
         self.tail.clear();
+        self.landed_region.clear();
+        self.region_plain = false;
         self.repair_delete = None;
         self.release_word_mode();
         self.url_word = false;

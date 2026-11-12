@@ -289,18 +289,39 @@ fn probe_flow_backspace_screen_model() {
             },
             "tungf ~\u{8}~s",
         );
+        probe_case(
+            "restore then letter",
+            mode,
+            Config {
+                experimental_features: true,
+                flow_per_key: true,
+                flow_backspace_retrack: true,
+                ..Config::default()
+            },
+            "chaof ~f\u{8}q",
+        );
+        probe_case(
+            "restore then whole-word delete",
+            mode,
+            Config {
+                experimental_features: true,
+                flow_per_key: true,
+                flow_backspace_retrack: true,
+                ..Config::default()
+            },
+            "chaof ~tungf ~\u{8}\u{8}\u{8}\u{8}\u{8}",
+        );
     }
 }
 
-// --- target semantics (red until the implementation round) -----------------
+// --- target semantics of the experimental feature --------------------------
 //
-// These pin what the Flow/Turbo Backspace must do once the experiment grows
-// the three behaviours the owner asked for: delete a mark, keep editing a
-// mark, and restore a word's mark after a stray key is erased — like the
-// inline modes. They read the SCREEN, not the action list, so the
-// implementation is free to pick its transport (forward + deferred rewrite,
-// or a narrowly scoped swallow). Every row was measured with the probes above;
-// the numbers in the comments are today's output.
+// These pin what the Flow/Turbo Backspace must do with the existing
+// experimental switch on (`flow_backspace_retrack`, gate-baked, default off):
+// delete a mark, keep editing a mark, and restore a word's mark after a stray
+// key is erased — like the inline modes. They read the SCREEN, not the action
+// list, so the transport stays free. The ToneFirst row is still the target of
+// a later stage and stays ignored.
 
 fn screen_of(mode: Mode, config: Config, script: &str) -> (String, Engine) {
     let mut sim = Sim::new(mode, config);
@@ -308,11 +329,14 @@ fn screen_of(mode: Mode, config: Config, script: &str) -> (String, Engine) {
     (sim.screen(), sim.e)
 }
 
+/// The experiment on: per-key display plus the Backspace switch, which is what
+/// a user of the "Thử nghiệm" tab has.
 fn tone(mode: Mode, tone: BackspaceToneConfig) -> (Mode, Config) {
     let (_, cfg) = per_key(mode);
     (
         mode,
         Config {
+            flow_backspace_retrack: true,
             backspace_tone: tone,
             ..cfg
         },
@@ -320,11 +344,9 @@ fn tone(mode: Mode, tone: BackspaceToneConfig) -> (Mode, Config) {
 }
 
 #[test]
-#[ignore = "target semantics for the Flow/Turbo mark-editing round"]
 fn target_unikeywalk_backspace_keeps_the_word_live() {
-    // Today (gate off): screen stays `tùng`, the composition is dead and the
-    // next mark key starts a new word (`tùngs`). Target: the word survives
-    // the Backspace, so a mark key still edits it.
+    // Gate off: screen stays `tùng`, the composition is dead and the next
+    // mark key starts a new word (`tùngs`).
     for mode in [Mode::Flow, Mode::Turbo] {
         let (_, cfg) = tone(mode, BackspaceToneConfig::UnikeyWalk);
         let (screen, e) = screen_of(mode, cfg, "tungf ~\u{8}");
@@ -335,14 +357,16 @@ fn target_unikeywalk_backspace_keeps_the_word_live() {
 }
 
 #[test]
-#[ignore = "target semantics for the Flow/Turbo mark-editing round"]
 fn target_wholechar_backspace_deletes_the_character() {
-    // WholeChar keeps the screen model: `tùng` -> `tùn` (one screen
-    // character), tone state intact. Today this equals the plain Backspace
-    // but the composition dies.
+    // The first Backspace erases the terminator and gives the word back; the
+    // second one follows the screen model (`tùng` -> `tùn`), tone intact.
     for mode in [Mode::Flow, Mode::Turbo] {
         let (_, cfg) = tone(mode, BackspaceToneConfig::WholeChar);
-        let (screen, e) = screen_of(mode, cfg, "tungf ~\u{8}");
+        let (screen, e) = screen_of(mode, cfg.clone(), "tungf ~\u{8}");
+        assert_eq!(screen, "tùng", "{mode:?}");
+        assert_eq!(e.tail, "tùng", "{mode:?}");
+        assert!(e.wrapper.has_composition(), "{mode:?}");
+        let (screen, e) = screen_of(mode, cfg, "tungf ~\u{8}\u{8}");
         assert_eq!(screen, "tùn", "{mode:?}");
         assert_eq!(e.tail, "tùn", "{mode:?}");
         assert!(e.wrapper.has_composition(), "{mode:?}");
@@ -350,7 +374,7 @@ fn target_wholechar_backspace_deletes_the_character() {
 }
 
 #[test]
-#[ignore = "target semantics for the Flow/Turbo mark-editing round"]
+#[ignore = "ToneFirst needs a rewrite (swallow or deferred delete): next stage"]
 fn target_tonefirst_backspace_drops_the_tone() {
     // ToneFirst is the only setting that changes the screen text without a
     // plain delete: `tùng` -> `tung`. It needs a rewrite (delete + insert),
@@ -365,49 +389,72 @@ fn target_tonefirst_backspace_drops_the_tone() {
 }
 
 #[test]
-#[ignore = "target semantics for the Flow/Turbo mark-editing round"]
 fn target_a_mark_key_edits_the_word_after_backspace() {
-    // The whole point of keeping the word live: `tùng` BS `s` -> `túng`.
-    // Today: `tùngs`.
+    // The whole point of keeping the word live: after the terminator erase the
+    // mark key edits the word (`tùng` + `s` -> `túng`); after the second
+    // Backspace the shortened screen keeps composing (`tùn` + `s` -> `tún`).
+    // Gate off: `tùngs` / `tùns`.
     for mode in [Mode::Flow, Mode::Turbo] {
         let (_, cfg) = tone(mode, BackspaceToneConfig::WholeChar);
         let (screen, _) = screen_of(mode, cfg, "tungf ~\u{8}~s");
-        assert_eq!(screen, "tún", "{mode:?}");
+        assert_eq!(screen, "túng", "{mode:?}");
     }
     for mode in [Mode::Flow, Mode::Turbo] {
         let (_, cfg) = tone(mode, BackspaceToneConfig::UnikeyWalk);
         let (screen, _) = screen_of(mode, cfg, "tungf ~\u{8}\u{8}~s");
-        assert_eq!(screen, "tú", "{mode:?}");
+        assert_eq!(screen, "tún", "{mode:?}");
     }
 }
 
 #[test]
-#[ignore = "target semantics for the Flow/Turbo mark-editing round"]
 fn target_committed_word_comes_back_after_the_litter_is_erased() {
     // Owner trace: `chào` committed, a stray `f` litters the next region,
-    // Backspace erases it — the word behind the caret must become editable
-    // again, so `s` turns it into `cháo`. Today the Backspace leaves the
-    // tracking empty and `s` becomes a new word (`chào s`).
+    // Backspace erases it — the word behind the terminator comes back to the
+    // composition, and the terminator is retracted with it so the word sits at
+    // the caret; `s` then turns it into `cháo`.
     for mode in [Mode::Flow, Mode::Turbo] {
         let (_, cfg) = per_key(mode);
+        let cfg = Config {
+            flow_backspace_retrack: true,
+            ..cfg
+        };
         let (screen, e) = screen_of(mode, cfg.clone(), "chaof ~f\u{8}");
-        assert_eq!(screen, "chào ", "{mode:?}");
+        assert_eq!(screen, "chào", "{mode:?}");
         assert_eq!(e.tail, "chào", "{mode:?}");
         assert!(e.wrapper.has_composition(), "{mode:?}: word must come back");
-        let (screen, _) = screen_of(mode, cfg, "chaof ~f\u{8}~s");
+        let (screen, _) = screen_of(mode, cfg.clone(), "chaof ~f\u{8}~s");
         assert_eq!(screen, "cháo", "{mode:?}");
+        // Same when the stray key already landed on screen (the batch flushed
+        // before the Backspace): the injected retract removes the terminator.
+        let (screen, e) = screen_of(mode, cfg, "chaof ~f~\u{8}");
+        assert_eq!(screen, "chào", "{mode:?}");
+        assert_eq!(e.tail, "chào", "{mode:?}");
+        assert!(e.wrapper.has_composition(), "{mode:?}");
     }
 }
 
 #[test]
 fn target_restore_never_resurrects_a_deleted_word() {
-    // Guard (green today, must stay green): deleting into a committed word
-    // must NOT bring it back — `chào` BS BS leaves `chà` and no composition.
+    // Guard: deleting into a committed word must NOT bring it back — `chào`
+    // BS BS leaves `chà` and no composition.
     for mode in [Mode::Flow, Mode::Turbo] {
         let (_, cfg) = per_key(mode);
-        let (screen, e) = screen_of(mode, cfg, "chaof ~\u{8}\u{8}");
+        let cfg = Config {
+            flow_backspace_retrack: true,
+            ..cfg
+        };
+        let (screen, e) = screen_of(mode, cfg.clone(), "chaof ~\u{8}\u{8}");
         assert_eq!(screen, "chà", "{mode:?}");
         assert_eq!(e.tail, "chà", "{mode:?}");
+        // The screen model may keep `chà` editable (the experiment re-tracks
+        // every shortened screen), but the erased characters must never come
+        // back.
+        assert_ne!(e.tail, "chào", "{mode:?}: no resurrection");
+        // Erasing a whole real word must not restore the region before it
+        // either: the deleted region composed, so it was not litter.
+        let (screen, e) = screen_of(mode, cfg, "chaof ~tungf ~\u{8}\u{8}\u{8}\u{8}\u{8}");
+        assert_eq!(screen, "chào ", "{mode:?}");
+        assert_eq!(e.tail, "", "{mode:?}");
         assert!(!e.wrapper.has_composition(), "{mode:?}");
     }
 }
