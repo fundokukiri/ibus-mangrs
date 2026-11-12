@@ -1,4 +1,9 @@
-# MăngRS presses real Backspace keys through /dev/uinput when an app cannot
-# delete text over IBus (Sublime Text, X11/XWayland apps). Give the device to
-# the `input` group; the user must be a member (see docs/install.md).
-KERNEL=="uinput", MODE="0660", GROUP="input"
+# Written by MăngRS (package ibus-mangrs).
+#
+# MăngRS presses real keys through /dev/uinput when an app cannot delete text
+# over IBus (Sublime Text, X11/XWayland clients, the Flow/Turbo/Select modes).
+# The device goes to the user of the active session through logind's uaccess
+# ACL, granted at login and dropped with the session. No permanent group
+# membership: the `input` group can read every keyboard of the machine
+# (/dev/input/event*), which one key injector must not require.
+KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"

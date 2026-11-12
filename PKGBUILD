@@ -3,13 +3,14 @@
 
 pkgname=ibus-mangrs
 pkgver=1.2.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Vietnamese input engine for IBus, built on bamboo-core (Rust)"
 arch=("x86_64")
 url="https://github.com/fundokukiri/ibus-mangrs"
 license=("GPL3")
 depends=("ibus" "gtk4" "libadwaita" "adwaita-icon-theme")
 makedepends=("rust")
+install=ibus-mangrs.install
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=("SKIP")
 

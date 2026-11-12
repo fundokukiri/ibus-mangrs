@@ -76,13 +76,24 @@ pub fn log_text(msg: &str) {
 }
 
 fn open_log_file() -> Option<File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let path = log_path()?;
     if let Some(parent) = path.parent() {
         // the cache dir may not exist (cleaned ~/.cache); without it the
         // append fails silently and diagnosis loses the log
         let _ = std::fs::create_dir_all(parent);
     }
-    OpenOptions::new().create(true).append(true).open(path).ok()
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        // The typed-text tier writes what the user typed; the file must not be
+        // readable by other local users (0666 minus the usual 022 umask).
+        .mode(0o600)
+        .open(&path)
+        .ok()?;
+    // Files written by older versions are 0644; tighten them on the next open.
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    Some(file)
 }
 
 fn log_path() -> Option<PathBuf> {

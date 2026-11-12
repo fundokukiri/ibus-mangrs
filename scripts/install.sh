@@ -37,16 +37,52 @@ elif command -v gtk-update-icon-cache >/dev/null; then
 fi
 update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
 
-# /dev/uinput permission for the backspace injector (docs/install.md).
-if [ -f "$here/data/80-uinput.rules" ]; then
-    install -Dm644 "$here/data/80-uinput.rules" \
-        /etc/udev/rules.d/80-uinput.rules
-    udevadm control --reload-rules 2>/dev/null || true
-    udevadm trigger /dev/uinput 2>/dev/null || true
-    if [ -n "${SUDO_USER:-}" ] && ! id -nG "$SUDO_USER" 2>/dev/null | tr ' ' '\n' \
-        | grep -qx input; then
-        usermod -aG input "$SUDO_USER"
-        echo "added $SUDO_USER to the input group (effective at next login)"
+# /dev/uinput access for the real-key injector. The active session's user gets
+# the device through logind's uaccess ACL (data/80-uinput.rules), which ends
+# with the session. Older installers added the user to the `input` group
+# instead; that group can read every keyboard of the machine, so it is removed.
+rule_src="$here/data/80-uinput.rules"
+rule_dst=/etc/udev/rules.d/80-uinput.rules
+if [ -f "$rule_src" ]; then
+    ours=0
+    if [ -f "$rule_dst" ]; then
+        if grep -q 'ibus-mangrs' "$rule_dst" 2>/dev/null; then
+            ours=1
+        elif grep -q 'Backspace keys through /dev/uinput' "$rule_dst" 2>/dev/null; then
+            ours=1
+        fi
+    else
+        ours=1
+    fi
+    if [ "$ours" -eq 1 ]; then
+        install -Dm644 "$rule_src" "$rule_dst"
+        udevadm control --reload-rules ||
+            echo "warning: udevadm control --reload-rules failed" >&2
+        udevadm trigger --name-match=/dev/uinput ||
+            echo "warning: udevadm trigger /dev/uinput failed" >&2
+    else
+        echo "warning: $rule_dst exists and was not written by MăngRS; leaving it." >&2
+        echo "         It overrides the packaged rule and may keep the old group access." >&2
+    fi
+    if [ -n "${SUDO_USER:-}" ]; then
+        if id -nG "$SUDO_USER" 2>/dev/null | tr ' ' '\n' | grep -qx input; then
+            if gpasswd -d "$SUDO_USER" input >/dev/null 2>&1; then
+                echo "removed $SUDO_USER from the input group (effective at next login)"
+            else
+                echo "warning: could not remove $SUDO_USER from the input group" >&2
+            fi
+            echo "  The input group can read every keystroke of the machine; MăngRS does not"
+            echo "  need it. Add it back only if another tool needs raw input access:"
+            echo "    sudo usermod -aG input $SUDO_USER"
+        fi
+        if command -v getfacl >/dev/null 2>&1; then
+            if getfacl -p /dev/uinput 2>/dev/null | grep -q "^user:$SUDO_USER:"; then
+                echo "uinput: session ACL present for $SUDO_USER"
+            else
+                echo "uinput: no ACL for $SUDO_USER yet; logind grants it once the session"
+                echo "        is active, so log out and back in if injection stays off."
+            fi
+        fi
     fi
 fi
 

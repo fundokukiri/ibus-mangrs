@@ -622,6 +622,14 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         }
         return false;
     }
+    // The session ACL for `/dev/uinput` is applied by logind around login, so
+    // the open at engine start can be too early. Pick the device up as soon as
+    // it becomes available instead of keeping the startup answer for the whole
+    // session; while it stays unavailable the check is throttled inside
+    // `Uinput::available`.
+    if !engine.uinput_available() && Uinput::available() {
+        engine.set_uinput_available(true);
+    }
     // Ctrl/Alt/Super combinations are application shortcuts.
     if state & keymap::SHORTCUT_MASK != 0 {
         // The Ctrl+V of a clipboard-channel paste comes back as a shortcut:
