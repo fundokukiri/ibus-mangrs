@@ -306,6 +306,12 @@ pub struct Engine {
     /// legacy plain-text behavior byte for byte; apply_config bakes the
     /// flag with the gate.
     flow_backspace_retrack: bool,
+    /// Experimental (needs the flag above): a Backspace that removes a key
+    /// which undid a mark gives the mark back. Off keeps the plain result.
+    flow_backspace_restore: bool,
+    /// How long the restore waits before rewriting the screen (ms); 0 means
+    /// the first main-loop wake. Baked with the gate like the flag.
+    flow_backspace_restore_delay_ms: u64,
     /// The landed screen region before the current per-key word (`chào `
     /// while a stray `f` sits after it). The same experiment uses it to give
     /// a finished word back to the composition when the stray key is erased.
@@ -522,6 +528,8 @@ impl Engine {
             flow_per_key: false,
             flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
             flow_backspace_retrack: false,
+            flow_backspace_restore: false,
+            flow_backspace_restore_delay_ms: Self::DEFERRED_FIX_MS,
             landed_region: String::new(),
             region_plain: false,
             deferred_fix: None,
@@ -662,6 +670,12 @@ impl Engine {
             Self::ECHO_APPLY_GRACE_MS
         };
         self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
+        self.flow_backspace_restore = experimental && config.flow_backspace_restore;
+        self.flow_backspace_restore_delay_ms = if experimental {
+            config.flow_backspace_restore_delay_ms
+        } else {
+            Self::DEFERRED_FIX_MS
+        };
         // The restore state describes one per-key word boundary; a reload can
         // land mid-word, so it starts clean.
         self.landed_region.clear();
