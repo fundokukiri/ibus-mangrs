@@ -515,17 +515,18 @@ subtitle = "App X11 xoá đuôi từ mà không báo cáo, giống ibus-bamboo. 
 title = "Preedit cho app XIM"
 subtitle = "Giữ gạch chân cho app XIM: chữ đang gõ hiện trong cửa sổ riêng, commit khi hết từ."
 
+[rows.pacing]
+title = "Nhịp uinput (ms)"
+subtitle = "Khoảng nghỉ giữa các phím ảo, tính bằng ms. Mặc định: {n}"
+
 [rows.commit_interval]
 title = "Nhịp gõ chữ"
-subtitle = "Khoảng cách giữa hai lần gửi chữ, tính bằng ms. Mặc định: {n}"
 
 [rows.backspace_interval]
 title = "Nhịp xoá lùi"
-subtitle = "Khoảng cách giữa hai lần Backspace, tính bằng ms. Mặc định: {n}"
 
 [rows.post_delay]
 title = "Độ trễ sau từ"
-subtitle = "Chờ sau khi viết lại từ, trước khi gõ tiếp, tính bằng ms. Mặc định: {n}"
 
 [rows.unicode_channel]
 title = "Kênh gửi từ tiếng Việt"

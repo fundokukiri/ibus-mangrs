@@ -386,36 +386,61 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ.",
         ),
     );
-    let commit_interval = spin_row(
-        &t("rows.commit_interval.title", "Nhịp gõ chữ"),
+    // One pacing row, three columns: the three uinput timings share the
+    // merged-row shape — a caption above each spin, dividers between the
+    // columns — and the row subtitle carries the shipped defaults.
+    let commit_interval = spin_button(1.0, 500.0, 1.0);
+    let backspace_interval = spin_button(1.0, 100.0, 1.0);
+    let post_delay = spin_button(0.0, 500.0, 1.0);
+    let pacing_defaults = crate::config::Config::default();
+    let pacing_row = action_row(
+        &t("rows.pacing.title", "Nhịp uinput (ms)"),
         &t(
-            "rows.commit_interval.subtitle",
-            "Khoảng cách giữa hai lần gửi chữ (ms). Mặc định: 20",
+            "rows.pacing.subtitle",
+            "Khoảng nghỉ giữa các phím ảo, tính bằng ms. Mặc định: {n}",
+        )
+        .replace(
+            "{n}",
+            &format!(
+                "{} · {} · {}",
+                pacing_defaults.commit_interval_ms,
+                pacing_defaults.backspace_interval_ms,
+                pacing_defaults.post_delay_ms
+            ),
         ),
-        1.0,
-        500.0,
-        1.0,
     );
-    let backspace_interval = spin_row(
-        &t("rows.backspace_interval.title", "Nhịp xoá lùi"),
-        &t(
-            "rows.backspace_interval.subtitle",
-            "Khoảng cách giữa hai lần Backspace (ms). Mặc định: 5",
+    let mut first_column = true;
+    for (key, fallback, spin) in [
+        (
+            "rows.commit_interval.title",
+            "Nhịp gõ chữ",
+            &commit_interval,
         ),
-        1.0,
-        100.0,
-        1.0,
-    );
-    let post_delay = spin_row(
-        &t("rows.post_delay.title", "Độ trễ sau từ"),
-        &t(
-            "rows.post_delay.subtitle",
-            "Chờ sau khi viết lại từ trước khi gõ tiếp (ms). Mặc định: 10",
+        (
+            "rows.backspace_interval.title",
+            "Nhịp xoá lùi",
+            &backspace_interval,
         ),
-        0.0,
-        500.0,
-        1.0,
-    );
+        ("rows.post_delay.title", "Độ trễ sau từ", &post_delay),
+    ] {
+        if !first_column {
+            let divider = gtk4::Separator::new(gtk4::Orientation::Vertical);
+            divider.set_margin_start(8);
+            divider.set_margin_end(8);
+            pacing_row.add_suffix(&divider);
+        }
+        first_column = false;
+        let caption_text = t(key, fallback);
+        let caption = gtk4::Label::new(Some(&caption_text));
+        caption.add_css_class("caption");
+        caption.set_halign(gtk4::Align::Center);
+        let column = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+        column.append(&caption);
+        column.append(spin);
+        pacing_row.add_suffix(&column);
+        let spoken = format!("{} (ms)", caption_text);
+        spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
+    }
     let unicode_channel = combo_row(
         &t("rows.unicode_channel.title", "Kênh gửi từ tiếng Việt"),
         &t(
@@ -787,6 +812,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         debug_log_text,
         x11_delete,
         preedit_xim,
+        pacing_row,
         commit_interval,
         backspace_interval,
         post_delay,

@@ -512,17 +512,18 @@ subtitle = "X11 apps delete word tails without reporting, like ibus-bamboo. May 
 title = "Preedit for XIM apps"
 subtitle = "Keeps the underline for XIM apps: the in-flight text shows in its own window and commits at word end."
 
+[rows.pacing]
+title = "uinput pacing (ms)"
+subtitle = "The pauses between the virtual keys, in ms. Default: {n}"
+
 [rows.commit_interval]
 title = "Typing pace"
-subtitle = "Distance between two text sends, in ms. Default: {n}"
 
 [rows.backspace_interval]
 title = "Backspace pace"
-subtitle = "Distance between two Backspaces, in ms. Default: {n}"
 
 [rows.post_delay]
 title = "Post-word delay"
-subtitle = "Wait after rewriting a word before typing on, in ms. Default: {n}"
 
 [rows.unicode_channel]
 title = "Vietnamese word channel"
