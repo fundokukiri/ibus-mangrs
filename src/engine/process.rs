@@ -123,7 +123,10 @@ impl Engine {
         // (em-dash, double space) stay off here — these modes are for
         // terminals and games, where rewriting before the word ends cannot
         // work anyway.
-        if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
+        if matches!(
+            mode,
+            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
+        ) {
             return self.process_char_uinput(mode, c);
         }
 
@@ -308,7 +311,10 @@ impl Engine {
             }
             return Some(actions);
         }
-        if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
+        if matches!(
+            mode,
+            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
+        ) {
             // Per-key off (plain display: the screen holds the raw keys) or
             // Select (its own erase shape): the ':' is covered by erasing
             // one more key than the name.
@@ -1048,6 +1054,17 @@ impl Engine {
                     actions.push(Action::PressDelete);
                 }
             }
+            Mode::SmoothForward => {
+                // The erase rides ForwardKeyEvent — the same ordered
+                // engine→daemon connection the commit below takes, so the
+                // batch lands in emission order with no park and no echoes.
+                // No pacing either: mode I ships without it (pacing there
+                // desynced JetBrains' XIM bridge).
+                let n = raw.chars().count() as u32;
+                if n > 0 {
+                    actions.push(Action::ForwardBackspaces(n));
+                }
+            }
             _ => {
                 let n = raw.chars().count() as u32;
                 if n > 0 {
@@ -1066,7 +1083,7 @@ impl Engine {
                 None => encoded,
             })),
         }
-        if self.post_delay_ms > 0 {
+        if self.post_delay_ms > 0 && mode != Mode::SmoothForward {
             actions.push(Action::PostDelay(self.post_delay_ms));
         }
         self.tail = text.to_string();

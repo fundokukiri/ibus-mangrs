@@ -1119,6 +1119,70 @@ fn forward_key_event_backspace_never_deletes_by_protocol() {
 }
 
 #[test]
+fn smoothforward_mode_rewrites_at_word_end_with_forwarded_backspaces() {
+    // The Smooth contract on the forward transport: raw keys forwarded
+    // while typing, one rewrite at word end — the erase rides ForwardKeyEvent
+    // and the word+terminator ride the Commit, same ordered channel, no
+    // uinput device, no echo bookkeeping.
+    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT); // no ST capability at all
+    let actions = type_str(&mut e, "tieengs ");
+    // "tieengs" is 7 raw keys; the terminator travels inside the commit.
+    let fb = actions
+        .iter()
+        .position(|a| matches!(a, Action::ForwardBackspaces(7)))
+        .expect("word-end rewrite must forward 7 Backspaces: {actions:?}");
+    assert!(
+        matches!(actions.get(fb + 1), Some(Action::Commit(t)) if t == "tiếng "),
+        "the commit with the terminator must follow the erase: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(_) | Action::PostDelay(_))),
+        "no uinput transport and no pacing on this mode: {actions:?}"
+    );
+    assert!(!e.has_deferred(), "no park on the forward transport");
+    assert!(!e.pending_echoes(), "no echoes come back over IBus");
+    assert_eq!(replay(&actions), "tiếng ");
+}
+
+#[test]
+fn smoothforward_mode_does_not_fall_back_without_uinput() {
+    // The whole point of the mode: it never needs /dev/uinput, so the
+    // device fallback that stands preedit in for Flow/Turbo/Select must
+    // not engage.
+    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_uinput_available(false);
+    assert_eq!(e.effective_mode(), Mode::SmoothForward);
+    let actions = type_str(&mut e, "tieengs ");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+        "SmoothForward never falls back to preedit: {actions:?}"
+    );
+}
+
+#[test]
+fn smoothforward_backspace_during_composition_forwards() {
+    // Mid-word Backspace behaves exactly like the uinput smooth modes:
+    // the application owns the on-screen raw keys, so the engine hands
+    // the key over (None) and keeps the unikey raw-key undo. Per-key is
+    // off here — with it on, the backspace rides that batch instead.
+    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.flow_per_key = false;
+    type_str(&mut e, "tiee");
+    assert!(
+        e.backspace().is_none(),
+        "the Backspace is forwarded, not handled"
+    );
+}
+
+#[test]
 fn config_rule_bypasses_the_delete_fallback() {
     // An explicit rule pins the mode for its client, skipping the runtime
     // fallback that would otherwise force preedit on delete-dropping
