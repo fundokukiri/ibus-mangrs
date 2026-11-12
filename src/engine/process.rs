@@ -692,23 +692,6 @@ impl Engine {
         }
         let region_len = self.tail.chars().count();
         let target = replace_tail(&self.tail, 1, "");
-        // Experimental: the last key undid a mark, so the screen shows the raw
-        // keys again (`chào` + `f` gives `chaof`). The Backspace must bring the
-        // mark back, not just drop the last raw key off the screen — popping
-        // the key restores the previous composition and the batch rewrites the
-        // screen to it. This one case swallows the key: the rewrite needs a
-        // delete the engine cannot leave to the application's own Backspace,
-        // which would land at the wrong place in the rewrite.
-        if self.flow_backspace_retrack
-            && self.wrapper.undo_in_word()
-            && self.wrapper.backspace().is_some()
-        {
-            let want = encode(self.charset, &self.wrapper.output());
-            debug_log::log("per-key backspace restores an undone mark");
-            actions.extend(self.per_key_coalesce(want));
-            self.note_backspace_forwarded();
-            return actions;
-        }
         let raw_len = self.wrapper.raw().chars().count();
         let mut matched = false;
         for _ in 0..raw_len {
