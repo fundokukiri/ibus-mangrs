@@ -560,6 +560,7 @@ impl Engine {
                         self.tail.clear();
                     }
                     self.region_plain = true;
+                    self.undo_key_at = None;
                 }
             }
         }
@@ -569,7 +570,16 @@ impl Engine {
         // which still carries the mark, and lands on the shortened screen —
         // the correction is folded into this key.
         self.deferred_fix = None;
-        match self.wrapper.process_char(c) {
+        // The undo of a mark is one key event: remember where the raw keys
+        // stood when it happened, so only an immediate Backspace treats it as
+        // the erase to restore (`undo_in_word` itself stays set for the whole
+        // word and made every later Backspace restore instead of deleting).
+        let undo_before = self.wrapper.undo_in_word();
+        let outcome = self.wrapper.process_char(c);
+        if !undo_before && self.wrapper.undo_in_word() {
+            self.undo_key_at = Some(self.wrapper.raw().chars().count());
+        }
+        match outcome {
             Outcome::PassThrough => {
                 // The key produced no composition change (an inapplicable
                 // mark key, say) — it is still a literal on screen.
@@ -683,6 +693,10 @@ impl Engine {
     /// from there, the accepted cost of dropping the injection.
     pub(super) fn backspace_per_key(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
+        // A second Backspace before the first correction fired means the user
+        // is deleting, not fixing: drop the pending rewrite (it would put back
+        // the character this key removes).
+        self.deferred_fix = None;
         // Experimental: the last key undid a mark, so bamboo shows the raw keys
         // again (`chào` + `f` gives `chaof`). The wrapper works out the target
         // with the user's "Backspace xóa dấu" setting, exactly like the inline
@@ -693,10 +707,14 @@ impl Engine {
         // this key is being handled never reach the application (measured in
         // the owner's log: 3 injected presses, no echo, only the commit
         // landed, and the word duplicated).
-        if self.flow_backspace_retrack && self.flow_backspace_restore && self.wrapper.undo_in_word()
+        if self.flow_backspace_retrack
+            && self.flow_backspace_restore
+            && self.wrapper.undo_in_word()
+            && self.undo_key_at == Some(self.wrapper.raw().chars().count())
         {
             self.wrapper.set_backspace_tone(self.backspace_tone);
             if self.wrapper.backspace().is_some() {
+                self.undo_key_at = None;
                 if let Some((_, text)) = self.per_key_park.take() {
                     actions.push(Action::CommitNow(text));
                 }

@@ -541,7 +541,7 @@ fn target_repeated_backspace_after_an_undone_mark_never_duplicates() {
     for mode in [Mode::Flow, Mode::Turbo] {
         let (_, cfg) = tone(mode, BackspaceToneConfig::UnikeyWalk);
         let (screen, _) = screen_of(mode, cfg.clone(), "chaoff\u{8}\u{8}");
-        assert_eq!(screen, "chao", "{mode:?}");
+        assert_eq!(screen, "cha", "{mode:?}");
         let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}");
         assert_eq!(screen, "", "{mode:?}");
     }
@@ -647,6 +647,28 @@ fn target_the_fix_waits_for_the_backspace_release() {
         "{actions:?}"
     );
     assert!(e.deferred_fix.is_none());
+}
+
+#[test]
+fn target_the_restore_fires_only_on_the_undo_key() {
+    // Live bug from the owner's log: `undo_in_word` stays set for the whole
+    // word, so every later Backspace took the restore branch and re-marked the
+    // word while the user was deleting it. Only the key that undid the mark
+    // may restore.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = tone(mode, BackspaceToneConfig::ToneFirst);
+        // The undo key is erased: restore.
+        let (screen, e) = screen_of(mode, cfg.clone(), "chaoff\u{8}");
+        assert_eq!(screen, "chào", "{mode:?}");
+        assert!(e.deferred_fix.is_none(), "{mode:?}");
+        // A second Backspace is a delete: the first correction is dropped and
+        // the screen only shortens.
+        let (screen, _) = screen_of(mode, cfg.clone(), "chaoff\u{8}\u{8}");
+        assert_eq!(screen, "cha", "{mode:?}");
+        // Typing anything after the undo closes the restore window.
+        let (screen, _) = screen_of(mode, cfg, "chaoffn\u{8}");
+        assert_eq!(screen, "chaof", "{mode:?}");
+    }
 }
 
 #[test]
