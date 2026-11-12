@@ -614,6 +614,12 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     }
     // Key releases are never ours.
     if state & keymap::RELEASE_MASK != 0 {
+        // The experimental Backspace correction may only inject once the key
+        // is up — injected Backspaces sent while it is down never reach the
+        // application. The release is the engine's only signal for that.
+        if keyval == keymap::BACKSPACE {
+            engine.note_backspace_released();
+        }
         return false;
     }
     // Ctrl/Alt/Super combinations are application shortcuts.

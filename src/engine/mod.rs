@@ -327,6 +327,10 @@ pub struct Engine {
     /// the tracked region must read, once the main loop wakes. See
     /// `DEFERRED_FIX_MS` for why it cannot be emitted with the key.
     deferred_fix: Option<(Instant, String)>,
+    /// The user's Backspace is physically down. Injected Backspaces sent while
+    /// it is (the deferred fix included) never reach the application, so the
+    /// fix waits for the release — the server reports it.
+    backspace_down: bool,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -533,6 +537,7 @@ impl Engine {
             landed_region: String::new(),
             region_plain: false,
             deferred_fix: None,
+            backspace_down: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -1394,6 +1399,12 @@ impl Engine {
         self.word_mode = None;
     }
 
+    /// The user's Backspace went up. Injected Backspaces are only delivered
+    /// once this happened, so the deferred screen correction waits for it.
+    pub fn note_backspace_released(&mut self) {
+        self.backspace_down = false;
+    }
+
     /// The Backspace was forwarded: the application's buffer lost its last
     /// character. The per-key features keyed on `last_char` (em-dash,
     /// double space, the emoji/URL arms) must not fire on the deleted
@@ -1422,6 +1433,8 @@ impl Engine {
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
+        // The key is physically down until the server reports the release.
+        self.backspace_down = true;
         // The idle-commit clock, like process_char.
         if self.idle_commit_enabled {
             self.last_key_at = Some(Instant::now());
@@ -1715,10 +1728,16 @@ impl Engine {
             actions.push(action);
         }
         // The experimental Backspace's correction: by now the user's own
-        // Backspace has landed, so injected deletes reach the application
-        // (they never do while the key is still being handled).
+        // Backspace has landed, so injected deletes reach the application —
+        // but only once the key is UP. Injected Backspaces sent while it is
+        // still down are dropped by the input stack (measured in the owner's
+        // log: no echo, only the parked commit landed). A release the engine
+        // never sees (focus loss) must not leave the fix hanging, so a long
+        // overdue fire is allowed.
         if let Some((deadline, want)) = self.deferred_fix.clone() {
-            if deadline <= Instant::now() {
+            let overdue =
+                Instant::now() >= deadline + Duration::from_millis(Self::DEFERRED_FIX_MS * 4);
+            if deadline <= Instant::now() && (!self.backspace_down || overdue) {
                 self.deferred_fix = None;
                 debug_log::log("deferred backspace fix: rewrite the region");
                 actions.extend(self.per_key_coalesce(want));
@@ -1811,12 +1830,16 @@ impl Engine {
             );
         }
         if let Some((deadline, _)) = &self.deferred_fix {
-            deadlines.push(
-                deadline
-                    .saturating_duration_since(Instant::now())
-                    .as_millis()
-                    .max(1) as u64,
-            );
+            // While the Backspace is still down the fix cannot land; the
+            // release event itself wakes the loop, so do not spin on it.
+            if !self.backspace_down {
+                deadlines.push(
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis()
+                        .max(1) as u64,
+                );
+            }
         }
         deadlines.into_iter().min().map(|ms| ms.max(1))
     }

@@ -564,11 +564,11 @@ impl Engine {
             }
         }
         let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
-        // A deferred Backspace correction means the tracked region's screen is
-        // one character behind the composition (`chao` on screen, `chào` in
-        // the wrapper). This key must rewrite the WHOLE word instead of
-        // applying a delta computed against the wrapper's old output.
-        let full_rewrite = self.deferred_fix.take().is_some();
+        // A key arriving before the deferred correction fires cancels it: the
+        // compose delta below is computed against the wrapper's old output,
+        // which still carries the mark, and lands on the shortened screen —
+        // the correction is folded into this key.
+        self.deferred_fix = None;
         match self.wrapper.process_char(c) {
             Outcome::PassThrough => {
                 // The key produced no composition change (an inapplicable
@@ -579,11 +579,7 @@ impl Engine {
                     // this path. `want` is built from the pre-key tail —
                     // coalescing with the tail already grown would look
                     // like "no change" and cancel the pending insert.
-                    let want = if full_rewrite {
-                        format!("{}{}", encode(self.charset, &self.wrapper.output()), c)
-                    } else {
-                        format!("{}{}", self.tail, c)
-                    };
+                    let want = format!("{}{}", self.tail, c);
                     actions.extend(self.per_key_coalesce(want));
                     return actions;
                 }
@@ -598,9 +594,7 @@ impl Engine {
                 // display the composed delta applies immediately through
                 // the injected transport.
                 if per_key {
-                    let want = if full_rewrite {
-                        encode(self.charset, &self.wrapper.output())
-                    } else if self.charset == Charset::Unicode {
+                    let want = if self.charset == Charset::Unicode {
                         replace_tail(&self.tail, edit.delete_chars, &edit.insert)
                     } else {
                         // Legacy encodings change the character count: the

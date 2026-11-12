@@ -169,6 +169,10 @@ impl Sim {
             Some(actions) => {
                 self.apply(&actions);
                 println!("  {label:<4} {step:?} {actions:?}");
+                if step == '\u{8}' {
+                    // The user lets go before the main loop runs again.
+                    self.e.note_backspace_released();
+                }
             }
             None => {
                 self.buf.pop();
@@ -596,6 +600,53 @@ fn target_restore_runs_with_a_zero_delay() {
         assert_eq!(screen, "chào", "{mode:?}");
         assert!(e.deferred_fix.is_none(), "{mode:?}");
     }
+}
+
+#[test]
+fn target_the_fix_waits_for_the_backspace_release() {
+    // Measured in the owner's log: injected Backspaces sent while the user's
+    // Backspace is still down never arrive. The fix must hold until the
+    // server reports the release.
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    let cfg = Config {
+        experimental_features: true,
+        flow_per_key: true,
+        flow_backspace_retrack: true,
+        flow_backspace_restore: true,
+        backspace_tone: BackspaceToneConfig::ToneFirst,
+        mode: Mode::Flow.into(),
+        ..Config::default()
+    };
+    e.apply_config(&cfg);
+    e.set_client(Some("gtk4-im:probe".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_uinput_available(true);
+    for c in "chaoff".chars() {
+        e.process_char(c);
+    }
+    let _ = e.backspace();
+    assert!(e.deferred_fix.is_some(), "the fix must be scheduled");
+    if let Some((deadline, _)) = e.deferred_fix.as_mut() {
+        *deadline = Instant::now() - Duration::from_millis(1);
+    }
+    let actions = e.tick();
+    assert!(
+        actions.is_empty(),
+        "no injection while the key is still down: {actions:?}"
+    );
+    assert!(e.deferred_fix.is_some(), "the fix must keep waiting");
+    e.note_backspace_released();
+    if let Some((deadline, _)) = e.deferred_fix.as_mut() {
+        *deadline = Instant::now() - Duration::from_millis(1);
+    }
+    let actions = e.tick();
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(_))),
+        "{actions:?}"
+    );
+    assert!(e.deferred_fix.is_none());
 }
 
 #[test]
