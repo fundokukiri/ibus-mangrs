@@ -422,7 +422,7 @@ echo
 echo "done. enable the input source:"
 echo "  GNOME: done automatically above — switch with Super+Space if needed"
 echo "  other desktops: Settings -> Keyboard -> Input Sources -> + -> Vietnamese -> MăngRS"
-echo "  (log out and back in once if you were just added to the input group)"
+echo "  (log out and back in once if the installer removed you from the input group)"
 if [ -n "$RUSTUP_INSTALLED" ]; then
     echo "  (Rust was installed via rustup and stays; remove with 'rustup self uninstall' if unwanted)"
 fi

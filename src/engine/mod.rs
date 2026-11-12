@@ -30,8 +30,11 @@ use crate::macros::{Dictionary, Macros};
 
 mod helpers;
 mod process;
+use process::CandidateEnd;
 mod surrounding;
 
+#[cfg(test)]
+mod backspace_probe;
 #[cfg(test)]
 mod digit_debug;
 #[cfg(test)]
@@ -57,9 +60,9 @@ pub enum Mode {
     Surrounding,
     /// Raw keys are forwarded while typing; the latin tail is erased with
     /// real Backspaces at word end and the Vietnamese word is committed.
-    Smooth,
-    /// Smooth without the pre-rewrite verification.
-    SuperSmooth,
+    Flow,
+    /// Flow without the pre-rewrite verification.
+    Turbo,
     /// Shift+Left selects the typed tail, Delete erases it, then the word is
     /// committed. Needs a surrounding-text report.
     Select,
@@ -288,21 +291,56 @@ pub struct Engine {
     /// Commit a paused preedit word after `idle_commit_ms` of no keys.
     idle_commit_enabled: bool,
     idle_commit_ms: u64,
-    /// The smooth modes show the composed word progressively: every
+    /// The uinput modes show the composed word progressively: every
     /// composition-changing key erases the committed tail and commits the
     /// new one through the injected transport. Mirror of
-    /// `config.smooth_per_key`, on by default and outside the
+    /// `config.flow_per_key`, on by default and outside the
     /// experimental gate.
-    smooth_per_key: bool,
+    flow_per_key: bool,
     /// How long the per-key batch stays parked before it lands. Experimental:
     /// apply_config bakes the built-in grace in while the gate is off, so the
     /// shipped behavior cannot drift from the file.
-    smooth_per_key_delay_ms: u64,
+    flow_per_key_delay_ms: u64,
     /// Experimental: a Backspace on a committed uinput word re-tracks the
     /// shortened screen so the next mark key keeps editing. Off keeps the
     /// legacy plain-text behavior byte for byte; apply_config bakes the
     /// flag with the gate.
-    smooth_backspace_retrack: bool,
+    flow_backspace_retrack: bool,
+    /// Experimental (needs the flag above): a Backspace that removes a key
+    /// which undid a mark gives the mark back. Off keeps the plain result.
+    flow_backspace_restore: bool,
+    /// How long the restore waits before rewriting the screen (ms); 0 means
+    /// the first main-loop wake. Baked with the gate like the flag.
+    flow_backspace_restore_delay_ms: u64,
+    /// The landed screen region before the current per-key word (`chào `
+    /// while a stray `f` sits after it). The same experiment uses it to give
+    /// a finished word back to the composition when the stray key is erased.
+    /// Only filled while the switch is on, and only consulted by the
+    /// Backspace path.
+    landed_region: String,
+    /// Whether the current per-key region has produced no composition change
+    /// yet — a lone key over a finished word (`f`) is litter, not a word, so
+    /// erasing it may restore the region behind it. A real word clears this
+    /// on its first composing key.
+    region_plain: bool,
+    /// Screen correction waiting for the user's Backspace to land: the text
+    /// the tracked region must read, once the main loop wakes. See
+    /// `DEFERRED_FIX_MS` for why it cannot be emitted with the key.
+    deferred_fix: Option<(Instant, String)>,
+    /// The user's Backspace is physically down. Injected Backspaces sent while
+    /// it is (the deferred fix included) never reach the application, so the
+    /// fix waits for the release — the server reports it.
+    backspace_down: bool,
+    /// Raw-key count at the moment a key undid a mark. The restore only fires
+    /// while nothing has been typed or deleted since: `undo_in_word` stays set
+    /// for the whole word (the wrapper's poison guard), so without this every
+    /// later Backspace looked like an undone-mark erase — measured live, it
+    /// re-marked the word while the user was deleting it.
+    undo_key_at: Option<usize>,
+    /// The last character in `tail` is the key that finished the word (a
+    /// digit, for the presets that end a word on one). The Backspace that
+    /// erases it deletes a character; it is not an edit of the word under it.
+    tail_ends_word: bool,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -324,6 +362,16 @@ pub struct Engine {
     /// The word being typed follows a URL/email/path character: keep it raw
     /// until the next terminator (URL/email/path bypass).
     url_word: bool,
+    /// The bypass was opened by real URL evidence (`://` or `www.`) — the
+    /// whole address stays raw until a sentence boundary (see
+    /// `URL_SPAN_KEEP`). False is the per-word bypass after `/ @ . _`.
+    url_span: bool,
+    /// The word that just ended was scheme-like and its terminator was `:`:
+    /// the next `/` completes `://` and opens the URL span.
+    scheme_pending: bool,
+    /// The word that just ended was `www` and its terminator was `.`: the
+    /// next word character opens the URL span.
+    www_pending: bool,
     /// Keep words raw after URL/email/path characters (`bypass_url`).
     bypass_url: bool,
     /// The filtered `extra_url_chars` — empty unless the switch is on
@@ -333,16 +381,24 @@ pub struct Engine {
     /// on (same filter shape as `extra_url_chars`, without the `-` ban: a
     /// hyphen trigger is legitimate here).
     extra_capitalize_after: Vec<char>,
-    /// Emoji shortcodes on: a word glued directly after `:` stays raw and a
-    /// closing `:` rewrites `:name:` to the emoji (see `process_char_emoji`).
+    /// Emoji shortcodes on: a word after `:` composes like any word and a
+    /// closing `:` rewrites `:name:` to the emoji (see `emoji_close_rewrite`).
     emoji_enabled: bool,
     /// The word being typed is an emoji shortcode candidate (`:name:`). The
-    /// state starts at the first key after the opening `:` and ends at the
-    /// closing one — or at any other terminator, which leaves the text raw.
+    /// word composes like any word; the flag only matters at its end — the
+    /// closing ':' looks the raw keys up and rewrites the shown text to the
+    /// emoji, any other end (or erasing the word) just drops the flag.
     emoji_word: bool,
     /// The user's emoji table, reloaded by mtime like the macros.
     emojis: UserEmoji,
     emoji_mtime: Option<SystemTime>,
+    /// Tail char count when the current raw-forward word armed — the
+    /// `url_word`/`emoji_word` span is everything pushed after it. A
+    /// Backspace that erases the span releases the bypass (terminators were
+    /// the only release before, so deleting a mis-typed word after `:` left
+    /// typing raw until space/enter). The per-key tail spans whole words
+    /// (`x:abc`), so an empty tail is not the signal — the arm point is.
+    raw_word_start: usize,
     /// The app appended suggestion text after the caret mid-word (Chrome's
     /// inline autocomplete). Its rewrite delete is dropped and repairs crash
     /// mutter, so show the following words as preedit — no delete needed.
@@ -369,13 +425,25 @@ const FALLBACK_NO_DELETE_SURROUNDING: &[&str] = &[
     "chrome", "chromium", "electron", "code", "brave", "msedge", "vivaldi", "slack", "discord",
 ];
 
-/// A word typed directly after one of these characters is part of a URL,
-/// email address, file path or code (`example.com`, `a@site`, `/etc/hosts`,
-/// `get_user_id`) and must stay raw. `-` is deliberately excluded from
-/// starting a bypass: it would break the `--` → em-dash feature. Once a
-/// bypass is running, `-` and `+` keep it alive so `vi-mangrs.com` is not
-/// composed as Vietnamese after the hyphen.
-const URL_CONTEXT_CHARS: &[char] = &['/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?'];
+/// While a URL span is open (armed by a `://` scheme or `www.`), these word
+/// terminators belong to the address and keep it raw; any other terminator
+/// (space, Enter, `, ; ! " '` …) ends the span and typing composes again.
+/// Only real URL evidence opens the span — no built-in character starts a
+/// bypass by itself, so punctuation in prose never blocks marks. The
+/// user's own `extra_url_chars` list is the only per-word trigger.
+const URL_SPAN_KEEP: &[char] = &[
+    '/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?', '-', '+',
+];
+
+/// RFC 3986 scheme shape: an ASCII letter, then letters, digits, `+`, `-`
+/// or `.`. Every scheme passes so custom app links (`spotify://`,
+/// `zoommtg://`) open the span too; in prose a colon is followed by a
+/// space, not by `//`.
+fn is_scheme_like(s: &str) -> bool {
+    let mut chars = s.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
 
 impl Engine {
     /// How long injected-key echoes may be missing before they count as
@@ -392,6 +460,13 @@ impl Engine {
     /// final deletes (`titiến`). 60 ms clears the observed ~7 ms apply
     /// window with margin while staying imperceptible at word end.
     pub const ECHO_APPLY_GRACE_MS: u64 = 60;
+
+    /// How long the experimental Backspace waits before correcting the screen
+    /// after the application applied the user's own Backspace. Backspaces the
+    /// engine injects while that key is still being handled never reach the
+    /// application (measured: 3 injected presses, no echo, only the commit
+    /// landed), so the rewrite must wait until the physical key is long gone.
+    pub const DEFERRED_FIX_MS: u64 = 150;
 
     pub fn new(method: Method, mode: Mode) -> Self {
         let mut engine = Self {
@@ -439,11 +514,15 @@ impl Engine {
             per_key_park: None,
             word_mode: None,
             url_word: false,
+            url_span: false,
+            scheme_pending: false,
+            www_pending: false,
             bypass_url: true,
             extra_url_chars: Vec::new(),
             extra_capitalize_after: Vec::new(),
             emoji_enabled: false,
             emoji_word: false,
+            raw_word_start: 0,
             emojis: UserEmoji::load(),
             emoji_mtime: None,
             suggestions: false,
@@ -460,9 +539,17 @@ impl Engine {
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            smooth_per_key: false,
-            smooth_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
-            smooth_backspace_retrack: false,
+            flow_per_key: false,
+            flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
+            flow_backspace_retrack: false,
+            flow_backspace_restore: false,
+            flow_backspace_restore_delay_ms: Self::DEFERRED_FIX_MS,
+            landed_region: String::new(),
+            region_plain: false,
+            deferred_fix: None,
+            backspace_down: false,
+            undo_key_at: None,
+            tail_ends_word: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -489,8 +576,20 @@ impl Engine {
             let raw = self.wrapper.raw().to_string();
             let valid = self.wrapper.is_valid();
             let valid_prefix = self.wrapper.is_valid_prefix();
-            let mut finished =
-                self.on_finish(Mode::Preedit, pending.clone(), raw, valid, valid_prefix);
+            // A shortcode candidate word never word-macro-expands here.
+            let candidate = if self.emoji_word {
+                CandidateEnd::Word
+            } else {
+                CandidateEnd::None
+            };
+            let mut finished = self.on_finish(
+                Mode::Preedit,
+                pending.clone(),
+                raw,
+                valid,
+                valid_prefix,
+                candidate,
+            );
             finished.retain(|a| !matches!(a, Action::Forward));
             actions.extend(finished);
             self.wrapper.reset();
@@ -579,15 +678,27 @@ impl Engine {
         self.idle_commit_ms = config.idle_commit_ms;
         // Not part of the experimental set anymore: the gate must not force
         // it off or the always-visible switch would silently do nothing.
-        self.smooth_per_key = config.smooth_per_key;
+        self.flow_per_key = config.flow_per_key;
         // The delay knob is experimental: gate off applies the built-in 60 ms
         // whatever the file says; the value stays saved for when the gate reopens.
-        self.smooth_per_key_delay_ms = if experimental {
-            config.smooth_per_key_delay_ms
+        self.flow_per_key_delay_ms = if experimental {
+            config.flow_per_key_delay_ms
         } else {
             Self::ECHO_APPLY_GRACE_MS
         };
-        self.smooth_backspace_retrack = experimental && config.smooth_backspace_retrack;
+        self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
+        self.flow_backspace_restore = experimental && config.flow_backspace_restore;
+        self.flow_backspace_restore_delay_ms = if experimental {
+            config.flow_backspace_restore_delay_ms
+        } else {
+            Self::DEFERRED_FIX_MS
+        };
+        // The restore state describes one per-key word boundary; a reload can
+        // land mid-word, so it starts clean.
+        self.landed_region.clear();
+        self.region_plain = false;
+        self.deferred_fix = None;
+        self.undo_key_at = None;
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
@@ -615,6 +726,10 @@ impl Engine {
         self.emoji_enabled = config.emoji_enabled;
         self.emoji_word = false;
         self.url_word = false;
+        self.url_span = false;
+        self.scheme_pending = false;
+        self.www_pending = false;
+        self.raw_word_start = 0;
         let emoji_time = file_time(UserEmoji::path().as_deref());
         if emoji_time != self.emoji_mtime {
             self.emojis = UserEmoji::load();
@@ -736,7 +851,7 @@ impl Engine {
     /// text for the user who set it; the two server-side rewrite parks
     /// stay on the built-in constant and are not tunable.
     pub fn per_key_delay(&self) -> Duration {
-        Duration::from_millis(self.smooth_per_key_delay_ms.clamp(0, 500))
+        Duration::from_millis(self.flow_per_key_delay_ms.clamp(0, 500))
     }
 
     /// The client dropped the protocol delete at least once; the server
@@ -1120,6 +1235,22 @@ impl Engine {
         }
     }
 
+    /// Remember URL evidence from the word that just ended: a scheme-like
+    /// word closed by `:` (the next `/` completes `://`) or the literal
+    /// `www` closed by `.` opens a raw URL span on the next key (see the
+    /// arming block in `process_char`). Both word-end paths feed it; any
+    /// other terminator discards the evidence.
+    fn note_url_pending(&mut self, raw: &str, c: char) {
+        match c {
+            ':' if is_scheme_like(raw) => self.scheme_pending = true,
+            '.' if raw.eq_ignore_ascii_case("www") => self.www_pending = true,
+            _ => {
+                self.scheme_pending = false;
+                self.www_pending = false;
+            }
+        }
+    }
+
     /// The focused application's name from the focus extension or the X
     /// active window. Rule matching only — see the field docs.
     pub fn set_app_name(&mut self, name: Option<String>) {
@@ -1221,7 +1352,7 @@ impl Engine {
         // these modes. Without the virtual device, or Select without a
         // surrounding-text report (it sizes the selection from it),
         // preedit still stands in.
-        if matches!(requested, Mode::Smooth | Mode::SuperSmooth | Mode::Select)
+        if matches!(requested, Mode::Flow | Mode::Turbo | Mode::Select)
             && (!self.uinput_available || (requested == Mode::Select && self.surrounding.is_none()))
         {
             return Mode::Preedit;
@@ -1281,6 +1412,12 @@ impl Engine {
         self.word_mode = None;
     }
 
+    /// The user's Backspace went up. Injected Backspaces are only delivered
+    /// once this happened, so the deferred screen correction waits for it.
+    pub fn note_backspace_released(&mut self) {
+        self.backspace_down = false;
+    }
+
     /// The Backspace was forwarded: the application's buffer lost its last
     /// character. The per-key features keyed on `last_char` (em-dash,
     /// double space, the emoji/URL arms) must not fire on the deleted
@@ -1290,12 +1427,28 @@ impl Engine {
     /// when it holds nothing of ours the context is unknown and stays empty.
     fn note_backspace_forwarded(&mut self) {
         self.last_char = self.tail.chars().last();
+        self.tail_ends_word = false;
         self.capitalize_next = false;
+        // The deleted character invalidates pending URL evidence too.
+        self.scheme_pending = false;
+        self.www_pending = false;
+        // A Backspace that erased the whole raw-forward span kills the
+        // bypass: terminators were the only release, so deleting a word
+        // typed after `:` left every following letter raw until space/enter.
+        // A partial delete keeps it — the word is still on screen.
+        if (self.url_word || self.emoji_word) && self.tail.chars().count() <= self.raw_word_start {
+            self.url_word = false;
+            self.url_span = false;
+            self.emoji_word = false;
+            self.raw_word_start = 0;
+        }
     }
 
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
+        // The key is physically down until the server reports the release.
+        self.backspace_down = true;
         // The idle-commit clock, like process_char.
         if self.idle_commit_enabled {
             self.last_key_at = Some(Instant::now());
@@ -1318,7 +1471,7 @@ impl Engine {
         // modes show the raw keys, and a skipped tone would desync the
         // screen from the wrapper. They keep the unikey undo.
         self.wrapper.set_backspace_tone(
-            if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+            if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
                 BackspaceToneConfig::UnikeyWalk
             } else {
                 self.backspace_tone
@@ -1328,21 +1481,24 @@ impl Engine {
         // Backspace is forwarded so it deletes the raw key shown there, and
         // bamboo follows so the composition stays aligned (unikey
         // convention: Backspace undoes the last raw key).
-        if matches!(mode, Mode::Smooth | Mode::SuperSmooth | Mode::Select) {
+        if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
             // Per-key display: the app holds the composed word, so the
             // Backspace passes through with a reverse-mapped raw buffer —
             // the user's real key, the one transport the relay never drops.
-            if self.smooth_per_key && !matches!(mode, Mode::Select) {
+            if self.flow_per_key && !matches!(mode, Mode::Select) {
                 return Some(self.backspace_per_key());
             }
             self.wrapper.backspace();
             if !self.wrapper.has_composition() {
                 self.release_word_mode();
                 // Nothing composed: the application deletes one of its own
-                // characters — the raw forwarders (URL/emoji bypass) track
-                // the screen in `tail`, so it has to shrink with the text.
+                // characters — the raw forwarders (URL bypass) track the
+                // screen in `tail`, so it has to shrink with the text.
                 self.tail = replace_tail(&self.tail, 1, "");
                 self.note_backspace_forwarded();
+                // Erasing the whole candidate word drops the shortcode flag
+                // — the next word is no longer a `:name:` lookup.
+                self.emoji_word = false;
             }
             return None;
         }
@@ -1360,6 +1516,8 @@ impl Engine {
         };
         if !self.wrapper.has_composition() {
             self.release_word_mode();
+            // Erasing the whole candidate word drops the shortcode flag.
+            self.emoji_word = false;
         }
         match mode {
             Mode::Preedit => {
@@ -1374,7 +1532,7 @@ impl Engine {
             }
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
-            Mode::Smooth | Mode::SuperSmooth | Mode::Select => None,
+            Mode::Flow | Mode::Turbo | Mode::Select => None,
             Mode::NonPreedit | Mode::Surrounding | Mode::ForwardKeyEvent | Mode::ForwardSelect => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
@@ -1457,8 +1615,20 @@ impl Engine {
             let raw = self.wrapper.raw().to_string();
             let valid = self.wrapper.is_valid();
             let valid_prefix = self.wrapper.is_valid_prefix();
-            let mut finished =
-                self.on_finish(Mode::Preedit, pending.clone(), raw, valid, valid_prefix);
+            // A shortcode candidate word never word-macro-expands here.
+            let candidate = if self.emoji_word {
+                CandidateEnd::Word
+            } else {
+                CandidateEnd::None
+            };
+            let mut finished = self.on_finish(
+                Mode::Preedit,
+                pending.clone(),
+                raw,
+                valid,
+                valid_prefix,
+                candidate,
+            );
             finished.retain(|a| !matches!(a, Action::Forward));
             actions.extend(finished);
         }
@@ -1484,10 +1654,18 @@ impl Engine {
             Vec::new()
         };
         self.tail.clear();
+        self.landed_region.clear();
+        self.region_plain = false;
+        self.deferred_fix = None;
+        self.undo_key_at = None;
         self.repair_delete = None;
         self.release_word_mode();
         self.url_word = false;
+        self.url_span = false;
+        self.scheme_pending = false;
+        self.www_pending = false;
         self.emoji_word = false;
+        self.raw_word_start = 0;
         self.idle_committed = None;
         actions
     }
@@ -1564,6 +1742,22 @@ impl Engine {
             debug_log::log("timed commit flush (per-key)");
             actions.push(action);
         }
+        // The experimental Backspace's correction: by now the user's own
+        // Backspace has landed, so injected deletes reach the application —
+        // but only once the key is UP. Injected Backspaces sent while it is
+        // still down are dropped by the input stack (measured in the owner's
+        // log: no echo, only the parked commit landed). A release the engine
+        // never sees (focus loss) must not leave the fix hanging, so a long
+        // overdue fire is allowed.
+        if let Some((deadline, want)) = self.deferred_fix.clone() {
+            let overdue =
+                Instant::now() >= deadline + Duration::from_millis(Self::DEFERRED_FIX_MS * 4);
+            if deadline <= Instant::now() && (!self.backspace_down || overdue) {
+                self.deferred_fix = None;
+                debug_log::log("deferred backspace fix: rewrite the region");
+                actions.extend(self.per_key_coalesce(want));
+            }
+        }
         if self.take_stale_injection(self.echo_stale()) {
             for text in self.flush_deferred() {
                 actions.push(Action::Commit(text));
@@ -1582,12 +1776,18 @@ impl Engine {
             let raw = self.wrapper.raw().to_string();
             let valid = self.wrapper.is_valid();
             let valid_prefix = self.wrapper.is_valid_prefix();
+            let candidate = if self.emoji_word {
+                CandidateEnd::Word
+            } else {
+                CandidateEnd::None
+            };
             let mut finished = self.on_finish(
                 Mode::Preedit,
                 pending.clone(),
                 raw.clone(),
                 valid,
                 valid_prefix,
+                candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));
             self.wrapper.reset();
@@ -1643,6 +1843,18 @@ impl Engine {
                     .as_millis()
                     .max(1) as u64,
             );
+        }
+        if let Some((deadline, _)) = &self.deferred_fix {
+            // While the Backspace is still down the fix cannot land; the
+            // release event itself wakes the loop, so do not spin on it.
+            if !self.backspace_down {
+                deadlines.push(
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis()
+                        .max(1) as u64,
+                );
+            }
         }
         deadlines.into_iter().min().map(|ms| ms.max(1))
     }
