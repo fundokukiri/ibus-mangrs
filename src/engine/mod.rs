@@ -331,6 +331,12 @@ pub struct Engine {
     /// it is (the deferred fix included) never reach the application, so the
     /// fix waits for the release — the server reports it.
     backspace_down: bool,
+    /// Raw-key count at the moment a key undid a mark. The restore only fires
+    /// while nothing has been typed or deleted since: `undo_in_word` stays set
+    /// for the whole word (the wrapper's poison guard), so without this every
+    /// later Backspace looked like an undone-mark erase — measured live, it
+    /// re-marked the word while the user was deleting it.
+    undo_key_at: Option<usize>,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -538,6 +544,7 @@ impl Engine {
             region_plain: false,
             deferred_fix: None,
             backspace_down: false,
+            undo_key_at: None,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -686,6 +693,7 @@ impl Engine {
         self.landed_region.clear();
         self.region_plain = false;
         self.deferred_fix = None;
+        self.undo_key_at = None;
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
@@ -1643,6 +1651,7 @@ impl Engine {
         self.landed_region.clear();
         self.region_plain = false;
         self.deferred_fix = None;
+        self.undo_key_at = None;
         self.repair_delete = None;
         self.release_word_mode();
         self.url_word = false;
