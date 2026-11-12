@@ -16,6 +16,7 @@ pub(super) enum CandidateEnd {
 impl Engine {
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
+        self.tail_ends_word = false;
         // The idle-commit clock: only stamped while the feature is on, so
         // the default path costs nothing.
         if self.idle_commit_enabled {
@@ -763,6 +764,10 @@ impl Engine {
                 .chars()
                 .last()
                 .is_some_and(crate::bamboo_wrapper::is_word_terminator)
+            // A digit ends the word for the Telex-family presets but is not a
+            // terminator character, so the check above misses it: erasing the
+            // digit is a delete too (`việt` + `6` + Backspace stays `việt`).
+            && !self.tail_ends_word
         {
             let target = replace_tail(&self.tail, 1, "");
             // The wrapper must still describe the screen this key deletes
@@ -908,6 +913,9 @@ impl Engine {
         c: char,
     ) -> Vec<Action> {
         let _ = valid;
+        // The key that just arrived closed the word and is the last character
+        // of the tracked region: Backspace erases that key, not the word.
+        self.tail_ends_word = true;
         // A word that reached its end is a word, not litter: it never gives a
         // previous region back if the user later erases it.
         self.region_plain = false;

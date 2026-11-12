@@ -337,6 +337,10 @@ pub struct Engine {
     /// later Backspace looked like an undone-mark erase — measured live, it
     /// re-marked the word while the user was deleting it.
     undo_key_at: Option<usize>,
+    /// The last character in `tail` is the key that finished the word (a
+    /// digit, for the presets that end a word on one). The Backspace that
+    /// erases it deletes a character; it is not an edit of the word under it.
+    tail_ends_word: bool,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -545,6 +549,7 @@ impl Engine {
             deferred_fix: None,
             backspace_down: false,
             undo_key_at: None,
+            tail_ends_word: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -1422,6 +1427,7 @@ impl Engine {
     /// when it holds nothing of ours the context is unknown and stays empty.
     fn note_backspace_forwarded(&mut self) {
         self.last_char = self.tail.chars().last();
+        self.tail_ends_word = false;
         self.capitalize_next = false;
         // The deleted character invalidates pending URL evidence too.
         self.scheme_pending = false;
