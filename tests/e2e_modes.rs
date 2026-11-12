@@ -59,6 +59,14 @@ const CASES: &[Case] = &[
         dict: "",
         f: forward_select,
     },
+    Case {
+        name: "smoothforward rewrites at word end on a relayed client",
+        cfg: &[("mode", "\"smoothforward\"")],
+        macros: &[],
+        raw: "",
+        dict: "",
+        f: smooth_forward,
+    },
 ];
 
 fn off_forwards(s: &mut common::Sess) {
@@ -119,6 +127,45 @@ fn forward_keyevent(s: &mut common::Sess) {
     assert!(
         presses.iter().all(|(_, code)| *code == BACKSPACE_KEYCODE),
         "the scancode must be 14, not the X keycode: {presses:x?}"
+    );
+}
+
+fn smooth_forward(s: &mut common::Sess) {
+    // The Smooth contract over the forward transport: raw keys ride the
+    // commit/forward channel while typing, and the word-end rewrite erases
+    // the raw tail with Backspace key events — no /dev/uinput, no protocol
+    // delete, no pacing.
+    s.focus(CAPS_BOTH, "gnome-shell");
+    s.drain();
+    let (buf, sigs) = s.type_buffered("tieengs ");
+    assert_eq!(buf, "tiếng ", "the word-end rewrite must land the word");
+    assert!(
+        deletes(&sigs).is_empty(),
+        "no DeleteSurroundingText in SmoothForward mode: {sigs:?}"
+    );
+    assert!(preedits(&sigs).is_empty(), "no preedit: {sigs:?}");
+    let presses: Vec<(u32, u32)> = sigs
+        .iter()
+        .filter_map(|sig| match sig {
+            Sig::ForwardKeyEvent {
+                keyval,
+                keycode,
+                state: 0,
+            } => Some((*keyval, *keycode)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !presses.is_empty(),
+        "the word-end rewrite must forward Backspace presses: {sigs:?}"
+    );
+    assert!(
+        presses.iter().all(|(k, _)| *k == BACKSPACE_KEYVAL),
+        "only Backspace may be forwarded: {presses:x?}"
+    );
+    assert!(
+        presses.iter().all(|(_, code)| *code == BACKSPACE_KEYCODE),
+        "the Backspace rides evdev scancode 14, not X keycode 22: {presses:x?}"
     );
 }
 
