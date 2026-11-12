@@ -506,6 +506,12 @@ pub enum ModeConfig {
     /// Select (uinput): Shift+Left selects the typed tail, Delete erases it,
     /// then the Vietnamese word is committed. Needs a surrounding-text report.
     Select,
+    /// The Smooth contract (raw keys forwarded while typing, one rewrite at
+    /// word end, optional per-key mark display) with the rewrite delivered
+    /// through forwarded Backspace key events plus the commit — no
+    /// `/dev/uinput` needed. Raw-key apps (games) and XIM clients should
+    /// pin another mode.
+    SmoothForward,
     /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
@@ -609,6 +615,7 @@ impl From<ModeConfig> for Mode {
             ModeConfig::Flow => Mode::Flow,
             ModeConfig::Turbo => Mode::Turbo,
             ModeConfig::Select => Mode::Select,
+            ModeConfig::SmoothForward => Mode::SmoothForward,
             ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
             ModeConfig::ForwardSelect => Mode::ForwardSelect,
             ModeConfig::Off => Mode::Off,
@@ -625,6 +632,7 @@ impl From<Mode> for ModeConfig {
             Mode::Flow => ModeConfig::Flow,
             Mode::Turbo => ModeConfig::Turbo,
             Mode::Select => ModeConfig::Select,
+            Mode::SmoothForward => ModeConfig::SmoothForward,
             Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
             Mode::ForwardSelect => ModeConfig::ForwardSelect,
             Mode::Off => ModeConfig::Off,
@@ -715,6 +723,7 @@ impl ModeConfig {
             ModeConfig::Flow => "flow",
             ModeConfig::Turbo => "turbo",
             ModeConfig::Select => "select",
+            ModeConfig::SmoothForward => "smoothforward",
             ModeConfig::ForwardKeyEvent => "forwardkeyevent",
             ModeConfig::ForwardSelect => "forwardselect",
             ModeConfig::Off => "off",

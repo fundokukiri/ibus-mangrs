@@ -9,10 +9,13 @@ use super::Mode;
 /// They need neither a surrounding-text report nor the virtual device, which
 /// makes them the only workable delete transport in XIM clients (their input
 /// context reports no capabilities at all) and in mutter-relayed Wayland
-/// contexts. Keep this the single place the two variants are recognised, or
-/// one of them silently stops deleting.
+/// contexts. Keep this the single place the forwarded-delete modes are
+/// recognised, or one of them silently stops deleting.
 pub(super) fn forwards_delete(mode: Mode) -> bool {
-    matches!(mode, Mode::ForwardKeyEvent | Mode::ForwardSelect)
+    matches!(
+        mode,
+        Mode::ForwardKeyEvent | Mode::ForwardSelect | Mode::SmoothForward
+    )
 }
 
 /// mtime of `path`, or None when it does not exist — the reload gate for
