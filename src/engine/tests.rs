@@ -1123,8 +1123,10 @@ fn smoothforward_mode_rewrites_at_word_end_with_forwarded_backspaces() {
     // The Smooth contract on the forward transport: raw keys forwarded
     // while typing, one rewrite at word end — the erase rides ForwardKeyEvent
     // and the word+terminator ride the Commit, same ordered channel, no
-    // uinput device, no echo bookkeeping.
+    // uinput device, no echo bookkeeping. Per-key off: with it on, the
+    // rewrite applies inline per key instead (see the per-key tests).
     let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.flow_per_key = false;
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT); // no ST capability at all
     let actions = type_str(&mut e, "tieengs ");
@@ -1180,6 +1182,59 @@ fn smoothforward_backspace_during_composition_forwards() {
         e.backspace().is_none(),
         "the Backspace is forwarded, not handled"
     );
+}
+
+#[test]
+fn smoothforward_per_key_applies_marks_inline() {
+    // Per-key display on the forward transport: every key commits inline
+    // through the ordered channel (no park, no deadline), so the mark shows
+    // immediately and deletes can never overtake the commit.
+    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.flow_per_key = true;
+    let actions = type_str(&mut e, "tiee");
+    let fb = actions
+        .iter()
+        .position(|a| matches!(a, Action::ForwardBackspaces(1)))
+        .expect("the ee→ê mark must erase one character: {actions:?}");
+    assert!(
+        matches!(actions.get(fb + 1), Some(Action::Commit(t)) if t == "ê"),
+        "the composed vowel must follow the erase inline: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(
+            a,
+            Action::InjectBackspaces(_) | Action::PostDelay(_) | Action::CommitNow(_)
+        )),
+        "no uinput transport, no pacing, no park on this mode: {actions:?}"
+    );
+    assert!(!e.has_deferred(), "the forward transport parks nothing");
+    assert_eq!(replay(&actions), "tiê");
+}
+
+#[test]
+fn smoothforward_per_key_coalesces_fast_typing() {
+    // Two composition-changing keys in one word: each diff is computed
+    // against the previous batch's landing point, so the erase stays inside
+    // the word region and the final batch is one ordered FB+Commit pair.
+    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.flow_per_key = true;
+    let actions = type_str(&mut e, "tieengs");
+    let fb = actions
+        .iter()
+        .position(|a| matches!(a, Action::ForwardBackspaces(3)))
+        .expect("the sắc mark rewrites the tail's vowel run: {actions:?}");
+    assert!(
+        matches!(actions.get(fb + 1), Some(Action::Commit(t)) if t == "ếng"),
+        "the vowel run + suffix must follow inline: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(_) | Action::CommitNow(_))),
+        "the erase never leaves the word region nor rides uinput: {actions:?}"
+    );
+    assert!(!e.has_deferred(), "the forward transport parks nothing");
+    assert_eq!(replay(&actions), "tiếng");
 }
 
 #[test]
