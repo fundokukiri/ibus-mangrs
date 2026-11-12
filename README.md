@@ -176,6 +176,8 @@ sudo rm /etc/udev/rules.d/80-uinput.rules
 sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
 ```
 
+See [SECURITY.md](SECURITY.md) for what the engine can and cannot do with this access.
+
 ## Enable the input source
 
 1. `ibus restart` (after installing or upgrading the binary).
@@ -245,12 +247,28 @@ matching them by name needs the companion GNOME Shell extension
 ~/.config/ibus-mangrs/dictionary.txt  # words never auto-restored
 ```
 
+## Security
+
+- The engine runs as you, never as root: no setuid helper, no network connection.
+- `/dev/uinput` comes from `systemd-logind` as a **session-scoped ACL**; the `input` group is no
+  longer used. That group can read every keyboard of the machine (`/dev/input/event*`), so the
+  installer removes the account from it and deletes the old `80-uinput.rules`.
+- The virtual keyboard registers **six keys only** — Backspace, Delete, Left, Shift, Ctrl+V. The
+  kernel drops every other keycode, so a bug there cannot type text.
+- The debug log is off by default and created `0600`; it only contains typed text when
+  `debug_log_text` is enabled on purpose.
+
+The threat model, the residual risks, the commands that verify the access and the way to revoke
+it are in [SECURITY.md](SECURITY.md).
+
 ## Troubleshooting
 
 - **Engine not listed in Input Sources**: run `ibus write-cache --system` then `ibus-daemon -drx`;
   make sure `/usr/share/ibus/component/ibus-mangrs.xml` exists.
 - **Marks do not appear in some apps** (Sublime, XWayland clients): `/dev/uinput` is missing or
-  not writable — see the permissions section above.
+  not writable — see the permissions section above. Check the session ACL with
+  `getfacl -p /dev/uinput`; after a fresh install log out and back in once, and restart IBus
+  after the engine binary was replaced.
 - **Mode changes seem ignored**: an App Rule for the app overrides the global mode.
 - **X11/XIM apps (JetBrains) misbehave**: try the two _X11/XIM compatibility_ switches in the
   GUI _Tuning_ page.
