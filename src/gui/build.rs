@@ -397,7 +397,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.pacing.title", "Nhịp uinput (ms)"),
         &t(
             "rows.pacing.subtitle",
-            "Khoảng nghỉ giữa các phím ảo, tính bằng ms. Mặc định: {n}",
+            "Khoảng nghỉ giữa các phím ảo. Mặc định: {n}",
         )
         .replace(
             "{n}",

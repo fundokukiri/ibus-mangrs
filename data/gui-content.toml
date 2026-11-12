@@ -517,7 +517,7 @@ subtitle = "Giữ gạch chân cho app XIM: chữ đang gõ hiện trong cửa s
 
 [rows.pacing]
 title = "Nhịp uinput (ms)"
-subtitle = "Khoảng nghỉ giữa các phím ảo, tính bằng ms. Mặc định: {n}"
+subtitle = "Khoảng nghỉ giữa các phím ảo. Mặc định: {n}"
 
 [rows.commit_interval]
 title = "Nhịp gõ chữ"
