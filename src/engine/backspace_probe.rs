@@ -672,6 +672,38 @@ fn target_the_restore_fires_only_on_the_undo_key() {
 }
 
 #[test]
+fn probe_bamboo_055_behaviour() {
+    // What bamboo-core 0.5.5 changed, measured through the wrapper: the
+    // refused-mark syllable and the extended f/j/w onsets.
+    println!("\n== probe_bamboo_055_behaviour ==");
+    for (method, keys) in [
+        (Method::Vni, "hao123456"),
+        (Method::Vni, "hao1234"),
+        (Method::Vni, "hao123456x"),
+        (Method::Telex, "vieejtf"),
+        (Method::Telex, "fire"),
+    ] {
+        let mut w = BambooWrapper::new(
+            method,
+            bamboo_core::Config::builder().auto_correct(true).build(),
+        );
+        let mut trace = String::new();
+        for c in keys.chars() {
+            let o = w.process_char(c);
+            trace.push_str(&format!(
+                "\n  {c:?} -> out={:?} raw={:?} valid={} valid_prefix={}",
+                w.output(),
+                w.raw(),
+                w.is_valid(),
+                w.is_valid_prefix()
+            ));
+            let _ = o;
+        }
+        println!("{method:?} {keys:?}:{trace}");
+    }
+}
+
+#[test]
 fn target_restore_never_resurrects_a_deleted_word() {
     // Guard: deleting into a committed word must NOT bring it back — `chào`
     // BS BS leaves `chà` and no composition.
