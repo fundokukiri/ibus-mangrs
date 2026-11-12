@@ -183,8 +183,8 @@ title = "Nhấn “Space” hai lần thành dấu chấm"
 subtitle = "Hai dấu cách thành dấu chấm"
 
 [rows.macro_valid_words]
-title = "Gõ tắt: nở cả trên từ hợp lệ"
-subtitle = "Phím tắt trùng từ thật vẫn nở"
+title = "Gõ tắt trên từ hợp lệ"
+subtitle = "Phím tắt trùng từ thật vẫn thành công"
 
 [rows.extra_url_chars]
 title = "Thêm ký tự giữ nguyên dấu"
