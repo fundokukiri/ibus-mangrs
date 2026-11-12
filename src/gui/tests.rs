@@ -799,10 +799,8 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(!ui.macro_valid_words.is_sensitive());
     assert!(!ui.extra_url_chars_row.is_sensitive());
     assert!(!ui.extra_url_chars_entry.is_sensitive());
-    assert!(!ui.flow_per_key_spin.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
-    assert_eq!(ui.flow_per_key_spin.value(), 60.0);
     assert!(!ui.flow_backspace_restore_row.is_sensitive());
     assert_eq!(ui.flow_backspace_restore_spin.value(), 150.0);
 
@@ -837,7 +835,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.set_experimental_sensitive(false);
     ui.show_experimental_defaults();
     assert!(!ui.macro_valid_words.is_sensitive());
-    assert_eq!(ui.flow_per_key_spin.value(), 60.0);
     // Hand the sandbox file to the later scenarios the way they expect it:
     // with the gate off, read() reports the file's experimental fields, so
     // a leftover saved value would trip their refresh asserts.

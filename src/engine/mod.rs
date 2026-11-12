@@ -297,9 +297,9 @@ pub struct Engine {
     /// `config.flow_per_key`, on by default and outside the
     /// experimental gate.
     flow_per_key: bool,
-    /// How long the per-key batch stays parked before it lands. Experimental:
-    /// apply_config bakes the built-in grace in while the gate is off, so the
-    /// shipped behavior cannot drift from the file.
+    /// How long the per-key batch stays parked before it lands. Plain config:
+    /// the delay row shares the switch's Tuning-tab row, outside the
+    /// experimental gate.
     flow_per_key_delay_ms: u64,
     /// Experimental: a Backspace on a committed uinput word re-tracks the
     /// shortened screen so the next mark key keeps editing. Off keeps the
@@ -679,13 +679,9 @@ impl Engine {
         // Not part of the experimental set anymore: the gate must not force
         // it off or the always-visible switch would silently do nothing.
         self.flow_per_key = config.flow_per_key;
-        // The delay knob is experimental: gate off applies the built-in 60 ms
-        // whatever the file says; the value stays saved for when the gate reopens.
-        self.flow_per_key_delay_ms = if experimental {
-            config.flow_per_key_delay_ms
-        } else {
-            Self::ECHO_APPLY_GRACE_MS
-        };
+        // The delay shares the switch's Tuning-tab row: plain config, no
+        // gate bake-in.
+        self.flow_per_key_delay_ms = config.flow_per_key_delay_ms;
         self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
         self.flow_backspace_restore = experimental && config.flow_backspace_restore;
         self.flow_backspace_restore_delay_ms = if experimental {
