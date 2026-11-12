@@ -330,13 +330,16 @@ impl BambooWrapper {
         // digit-mark presets are covered: Telex letter tone keys keep the
         // revert, which English typing leans on.
         if !self.abbrev_fixed
-            && new_output == self.raw
             && prev_valid_word
             && self.is_digit_mark_key(c)
-            && format!("{prev}{c}") != new_output
+            && (new_output == self.raw
+                || (new_output == format!("{prev}{c}")
+                    && self.raw.chars().count() > prev.chars().count() + 1))
         {
             debug_log::log("auto_correct reverted a complete syllable → keep it, key literal");
-            new_output = format!("{prev}{c}");
+            if new_output == self.raw {
+                new_output = format!("{prev}{c}");
+            }
             self.output_override = Some(new_output.clone());
             self.kept_composition = true;
         }
@@ -1485,14 +1488,15 @@ mod tests {
 
     #[test]
     fn telex_letter_marks_keep_the_revert() {
-        // Out of scope on purpose: a Telex tone key on a complete syllable
-        // still reverts (the raw keys are what English typing leans on) —
-        // only the digit-mark presets are covered by the guard.
+        // bamboo-core 0.5.5 keeps a completed syllable when a mark key is
+        // refused instead of reverting to the raw keys, so the refused `f`
+        // (now also an onset consonant) lands literally on the word. The VNI
+        // digit presets are covered by the wrapper's own guard below.
         let mut w = wrapper(Method::Telex);
         type_str(&mut w, "vieejt");
         assert_eq!(w.output(), "việt");
         type_str(&mut w, "f");
-        assert_eq!(w.output(), "vieejtf");
+        assert_eq!(w.output(), "việtf");
     }
 
     #[test]
