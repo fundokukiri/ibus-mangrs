@@ -95,6 +95,7 @@ const MODES: &[(&str, &str)] = &[
     ("Flow (uinput)", "Flow (uinput)"),
     ("Turbo (uinput)", "Turbo (uinput)"),
     ("Select (uinput)", "Select (uinput)"),
+    ("Smooth (Forward)", "Smooth (Forward)"),
     ("Forward Backspace", "Forward Backspace"),
     ("Forward Selection", "Forward Selection"),
     ("OFF", "OFF"),
@@ -386,9 +387,10 @@ fn mode_index(m: ModeConfig) -> u32 {
         ModeConfig::Flow => 3,
         ModeConfig::Turbo => 4,
         ModeConfig::Select => 5,
-        ModeConfig::ForwardKeyEvent => 6,
-        ModeConfig::ForwardSelect => 7,
-        ModeConfig::Off => 8,
+        ModeConfig::SmoothForward => 6,
+        ModeConfig::ForwardKeyEvent => 7,
+        ModeConfig::ForwardSelect => 8,
+        ModeConfig::Off => 9,
     }
 }
 
@@ -402,9 +404,10 @@ fn mode_at(i: u32) -> ModeConfig {
         3 => ModeConfig::Flow,
         4 => ModeConfig::Turbo,
         5 => ModeConfig::Select,
-        6 => ModeConfig::ForwardKeyEvent,
-        7 => ModeConfig::ForwardSelect,
-        8 => ModeConfig::Off,
+        6 => ModeConfig::SmoothForward,
+        7 => ModeConfig::ForwardKeyEvent,
+        8 => ModeConfig::ForwardSelect,
+        9 => ModeConfig::Off,
         // Out of range: the factory default.
         _ => ModeConfig::Preedit,
     }

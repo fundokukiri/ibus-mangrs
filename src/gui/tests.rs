@@ -619,6 +619,7 @@ fn refresh_round_trips_every_widget() {
         ModeConfig::Flow,
         ModeConfig::Turbo,
         ModeConfig::Select,
+        ModeConfig::SmoothForward,
         ModeConfig::ForwardKeyEvent,
         ModeConfig::ForwardSelect,
         ModeConfig::Off,
@@ -627,6 +628,20 @@ fn refresh_round_trips_every_widget() {
         assert!(i < MODES.len(), "{m:?} index {i} outside the list");
         assert_eq!(mode_at(i as u32), m, "index round-trip for {m:?}");
     }
+    assert_eq!(
+        MODES[6].0, "Smooth (Forward)",
+        "the new mode sits between Select and Forward Backspace"
+    );
+    // The mode's limits (design §9) must be discoverable: the mode-row tip
+    // names the transport and the game/XIM exclusions, in both content files.
+    assert!(
+        include_str!("../../data/gui-content.toml").contains("Smooth (Forward)"),
+        "the Vietnamese tip must mention Smooth (Forward)"
+    );
+    assert!(
+        include_str!("../../data/gui-content.en.toml").contains("Smooth (Forward)"),
+        "the English tip must mention Smooth (Forward)"
+    );
     assert_eq!(
         ui.mode.selected(),
         mode_index(ModeConfig::Select),

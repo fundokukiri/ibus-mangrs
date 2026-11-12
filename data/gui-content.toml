@@ -574,7 +574,7 @@ hotkey_settings = "Mở Cài đặt"
 [tips]
 enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
 method = "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
-mode = "Cách hiển thị chữ đang gõ: preedit (gạch chân) dùng được ở mọi app, các mode uinput gửi phím thật nhưng có thể lệch app."
+mode = "Cách hiển thị chữ đang gõ: preedit (gạch chân) dùng được ở mọi app, các mode uinput gửi phím thật nhưng có thể lệch app. Smooth (Forward) xóa bằng phím forwarded qua IBus — không cần /dev/uinput; không dùng cho game hoặc client XIM."
 charset = "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
 hide_underline = "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
 modern = "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."
