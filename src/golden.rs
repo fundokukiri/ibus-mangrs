@@ -1095,6 +1095,7 @@ mod matrix {
             Mode::Flow,
             Mode::Turbo,
             Mode::Select,
+            Mode::SmoothForward,
         ];
         let fault_sets: Vec<Faults> = vec![
             Faults::default(),

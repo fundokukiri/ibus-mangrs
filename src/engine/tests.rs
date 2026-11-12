@@ -3013,6 +3013,30 @@ fn flow_per_key_backspace_forwards_and_keeps_tracking() {
 }
 
 #[test]
+fn smoothforward_per_key_backspace_forwards_and_keeps_tracking() {
+    // The same per-key Backspace contract as Flow, on the forward transport:
+    // zero injections — the user's real key deletes and tracking survives;
+    // the retyped key rides the inline commit instead of the park.
+    let mut e = per_key_engine(Mode::SmoothForward);
+    type_str(&mut e, "tiee"); // the mark applies inline on this transport
+    assert_eq!(e.tail, "tiê");
+    let actions = e.backspace().expect("backspace");
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert!(e.per_key_park.is_none());
+    // The screen's last character (`ê`) is gone — the reverse-map popped
+    // both raw `e` keys behind it.
+    assert_eq!(e.tail, "ti");
+    // Tracking survived: the retyped key appends through the forward batch.
+    let actions = type_str(&mut e, "e");
+    assert!(
+        actions.contains(&Action::Commit("e".to_string())),
+        "the retyped key rides the inline commit: {actions:?}"
+    );
+    assert_eq!(e.tail, "tie");
+    assert!(!e.has_deferred());
+}
+
+#[test]
 fn flow_per_key_macro_rewrites_the_landed_tail() {
     // The word-end macro erases what the app actually holds (the landed
     // tail after a flush) and parks the expansion with the terminator.
