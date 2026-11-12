@@ -1495,7 +1495,7 @@ impl Engine {
             // Backspace passes through with a reverse-mapped raw buffer —
             // the user's real key, the one transport the relay never drops.
             if self.flow_per_key && !matches!(mode, Mode::Select) {
-                return Some(self.backspace_per_key());
+                return Some(self.backspace_per_key(mode));
             }
             self.wrapper.backspace();
             if !self.wrapper.has_composition() {
@@ -1764,7 +1764,8 @@ impl Engine {
             if deadline <= Instant::now() && (!self.backspace_down || overdue) {
                 self.deferred_fix = None;
                 debug_log::log("deferred backspace fix: rewrite the region");
-                actions.extend(self.per_key_coalesce(want));
+                let mode = self.effective_mode();
+                actions.extend(self.per_key_coalesce(mode, want));
             }
         }
         if self.take_stale_injection(self.echo_stale()) {
