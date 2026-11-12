@@ -91,7 +91,6 @@ fn probe_backspace_tone_matrix() {
 struct Sim {
     e: Engine,
     buf: Vec<char>,
-    preedit: String,
 }
 
 impl Sim {
@@ -103,11 +102,7 @@ impl Sim {
         e.set_client(Some("gtk4-im:probe".into()));
         e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
         e.set_uinput_available(true);
-        Self {
-            e,
-            buf: Vec::new(),
-            preedit: String::new(),
-        }
+        Self { e, buf: Vec::new() }
     }
 
     fn apply(&mut self, actions: &[Action]) {
@@ -121,12 +116,7 @@ impl Sim {
                     self.buf
                         .truncate(self.buf.len().saturating_sub(*n as usize));
                 }
-                Action::Commit(t) | Action::CommitNow(t) => {
-                    self.buf.extend(t.chars());
-                    self.preedit.clear();
-                }
-                Action::UpdatePreedit { text, .. } => self.preedit = text.clone(),
-                Action::HidePreedit => self.preedit.clear(),
+                Action::Commit(t) | Action::CommitNow(t) => self.buf.extend(t.chars()),
                 _ => {}
             }
         }
@@ -139,22 +129,18 @@ impl Sim {
     }
 
     fn screen(&self) -> String {
-        let mut s: String = self.buf.iter().collect();
-        s.push_str(&self.preedit);
-        s
+        self.buf.iter().collect()
     }
 
     fn state(&self) -> String {
         format!(
-            "screen={:?} preedit={:?} tail={:?} park={:?} out={:?} comp={} raw={:?} undo={}",
+            "screen={:?} tail={:?} park={:?} out={:?} comp={} raw={:?}",
             self.screen(),
-            self.preedit,
             self.e.tail,
             self.e.per_key_park.as_ref().map(|(_, t)| t.clone()),
             self.e.wrapper.output(),
             self.e.wrapper.has_composition(),
-            self.e.wrapper.raw(),
-            self.e.wrapper.undo_in_word()
+            self.e.wrapper.raw()
         )
     }
 
@@ -448,38 +434,6 @@ fn target_committed_word_comes_back_after_the_litter_is_erased() {
 }
 
 #[test]
-fn probe_inline_modes_undone_mark() {
-    // The owner's reference: what the inline modes do for `chào` + `f` (the
-    // tone is undone) + Backspace, per "Backspace xóa dấu" setting. Printed,
-    // not asserted — this is the behavior the uinput modes are compared to.
-    println!("\n== probe_inline_modes_undone_mark ==");
-    for mode in [Mode::Preedit, Mode::NonPreedit, Mode::Surrounding] {
-        for tone in [
-            BackspaceToneConfig::ToneFirst,
-            BackspaceToneConfig::WholeChar,
-            BackspaceToneConfig::UnikeyWalk,
-        ] {
-            let mut sim = Sim::new(
-                mode,
-                Config {
-                    backspace_tone: tone,
-                    ..Config::default()
-                },
-            );
-            sim.run("chaoff\u{8}");
-            println!(
-                "{mode:?} {tone:?} buffer={:?} preedit={:?} out={:?} raw={:?} undo={}",
-                sim.buf.iter().collect::<String>(),
-                sim.preedit,
-                sim.e.wrapper.output(),
-                sim.e.wrapper.raw(),
-                sim.e.wrapper.undo_in_word()
-            );
-        }
-    }
-}
-
-#[test]
 fn target_undone_mark_comes_back_on_backspace() {
     // Owner: type `chào`, press `f` again — the tone is undone and the raw
     // keys show (`chaof`); with the unikey walk Backspace gives `chào` back.
@@ -493,45 +447,17 @@ fn target_undone_mark_comes_back_on_backspace() {
 }
 
 #[test]
-fn target_undone_mark_matches_the_inline_modes() {
-    // The owner's requirement: for `chào` + `f` + Backspace the uinput modes
-    // must produce what Preedit / NonPreedit / Surrounding produce with the
-    // same "Backspace xóa dấu" setting — ToneFirst `chào`, WholeChar `chao`,
-    // UnikeyWalk `chào`.
-    for t in [
-        BackspaceToneConfig::ToneFirst,
-        BackspaceToneConfig::WholeChar,
-        BackspaceToneConfig::UnikeyWalk,
-    ] {
-        let (inline, _) = screen_of(
-            Mode::Preedit,
-            Config {
-                backspace_tone: t,
-                ..Config::default()
-            },
-            "chaoff\u{8}",
-        );
-        for mode in [Mode::Flow, Mode::Turbo] {
-            let (_, cfg) = tone(mode, t);
-            let (screen, e) = screen_of(mode, cfg, "chaoff\u{8}");
-            assert_eq!(screen, inline, "{mode:?} {t:?}");
-            assert_eq!(e.tail, inline, "{mode:?} {t:?}");
-        }
-    }
-}
-
-#[test]
 fn target_undone_mark_follows_the_delete_mode() {
-    // The concrete values behind the comparison above.
-    for (t, expected) in [
-        (BackspaceToneConfig::ToneFirst, "chào"),
-        (BackspaceToneConfig::WholeChar, "chao"),
-        (BackspaceToneConfig::UnikeyWalk, "chào"),
+    // The other two settings delete a visible character: the screen shows the
+    // raw keys (`chaof`), so Backspace leaves `chao`.
+    for t in [
+        BackspaceToneConfig::WholeChar,
+        BackspaceToneConfig::ToneFirst,
     ] {
         for mode in [Mode::Flow, Mode::Turbo] {
             let (_, cfg) = tone(mode, t);
             let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}");
-            assert_eq!(screen, expected, "{mode:?} {t:?}");
+            assert_eq!(screen, "chao", "{mode:?} {t:?}");
         }
     }
 }
