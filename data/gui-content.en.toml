@@ -249,7 +249,7 @@ subtitle = "The first arrow key while a word is open"
 
 [rows.flow_per_key]
 title = "Per-key marks in Flow"
-subtitle = "Flow/Turbo show the accented letter as you type (ee → ê) instead of holding the raw keys until word end — the delay is the field on the right; very fast typing merges the steps, the text appears when you pause; Select is unchanged"
+subtitle = "Marks appear as you type in Flow/Turbo"
 
 [rows.flow_backspace_retrack]
 title = "Mark editing after Backspace (Flow/Turbo)"
@@ -609,7 +609,7 @@ auto_capitalize_after = "The Auto-capitalize feature (after . ! ? and Enter): th
 clipboard_restore = "The clipboard-restore feature: pasting marked text over the Clipboard channel overwrites the clipboard for a moment — the right number is how long before the old clipboard comes back. Only effective when the send channel is Clipboard.Only effective when the send channel is Clipboard. 100–5000 ms, default 600."
 echo_stale = "The commit-flush guard on Wayland: the engine waits for the virtual Backspace keys (echoes) to return before the committed text lands in the app. The right number is the wait limit — past it the text flushes anyway instead of hanging.past it the text flushes anyway instead of hanging. 50–1000 ms, too low risks losing text, too high delays it. Default 150 ms."
 idle_commit = "The commit-on-pause feature: pausing long enough on an underlined word commits it, as if Space was pressed. The right number is the pause threshold.The right number is the pause threshold. 300–2000 ms."
-flow_per_key = "The per-key marks feature in Flow: Flow/Turbo show the accented letter as you type instead of holding the raw keys until word end. The right number is the delay before marked text lands in the document — lower shows marks sooner, higher types smoother. 0–500 ms, default 20. A too-low value can reorder text on Wayland. Select is unchanged."
+flow_per_key = "The per-key marks feature in Flow: Flow/Turbo show the accented letter as you type (ee → ê) instead of holding the raw keys until word end. Very fast typing merges the steps, the text appears when you pause. The right number is the delay before marked text lands in the document — lower shows marks sooner, higher types smoother. 0–500 ms, default 20. A too-low value can reorder text on Wayland. Select is unchanged."
 flow_backspace_retrack = "The mark-editing-after-Backspace feature in Flow/Turbo: erase one character of a finished word and type a mark key — the word keeps transforming (tùn + s → tún) instead of falling back to plain letters. Needs per-key marks on."
 flow_backspace_restore = "The restore-mark-after-Backspace feature: type chào, press f again (the mark is undone, the screen shows chaof), then Backspace brings the mark back (chào) — following your \"Backspace xóa dấu\" setting: Unikey and Tone first restore the mark, Whole char deletes one character. The right number is how long to wait after Backspace before rewriting the screen (0–1000, default 150). Needs Mark editing after Backspace on too."
 nav_key_while_preedit = "The nav-key-while-a-word-is-typed feature: with a word still underlined, the first arrow key swallows to commit first (default, press twice to move) or moves the caret right away. If text lands in the wrong place, go back to Swallow."
