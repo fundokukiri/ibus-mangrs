@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Warn when the user still belongs to `input`. That group can read every
 /// keyboard of the machine (`/dev/input/event*`); `/dev/uinput` no longer
-/// needs it, because the session ACL from `80-uinput.rules` is used instead.
+/// needs it, because the session ACL from `70-uinput.rules` is used instead.
 fn warn_if_in_input_group() {
     let Ok(name) = std::ffi::CString::new("input") else {
         return;

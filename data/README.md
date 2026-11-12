@@ -21,14 +21,16 @@ Wayland-native apps, which IBus reports only as an anonymous mutter relay.
 Not installed by `scripts/install.sh`; install and verify it through its own
 `README.md`.
 
-## `80-uinput.rules`
+## `70-uinput.rules`
 
 udev rule giving the active session's user access to `/dev/uinput` through
 logind's uaccess ACL (the key injector). No group membership is involved:
 `input` can read every keyboard of the machine. Installed to
 `/etc/udev/rules.d/` by `scripts/install.sh` and to `/usr/lib/udev/rules.d/`
-by the PKGBUILD; a file with the same name in `/etc` overrides the packaged
-one. See the "`/dev/uinput` permissions" section of the README.
+by the PKGBUILD. It was called `80-uinput.rules` before; udev reads every
+file in the directory, so the installer deletes the old name when it
+recognizes it as an older MăngRS rule. See the "`/dev/uinput` permissions"
+section of the README.
 
 ## `gui-content.toml`
 

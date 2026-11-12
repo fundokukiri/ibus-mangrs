@@ -143,7 +143,7 @@ Arch: `makepkg -si`.
 The engine presses **real Backspace keys** through `/dev/uinput` for apps that cannot delete
 text over IBus; without write permission those apps cannot type tone marks. Access comes from
 the active session's user through logind, not from group membership. Create
-`/etc/udev/rules.d/80-uinput.rules` (shipped as `data/80-uinput.rules`):
+`/etc/udev/rules.d/70-uinput.rules` (shipped as `data/70-uinput.rules`):
 
 ```
 KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
@@ -167,8 +167,9 @@ sudo gpasswd -d $USER input       # log out and back in afterwards
 Keep it only if another tool of yours needs raw input access; add it back with
 `sudo usermod -aG input $USER`.
 
-**If you still have `/etc/udev/rules.d/80-uinput.rules` from an older version**, it overrides the
-packaged rule (same filename in `/usr/lib`). Remove it so the session ACL applies:
+**If you still have an old `/etc/udev/rules.d/80-uinput.rules`**, udev reads it alongside the
+new one and it keeps handing `/dev/uinput` to the `input` group. The installer removes it when
+it recognizes the file as an older MăngRS rule; do it by hand otherwise:
 
 ```sh
 sudo rm /etc/udev/rules.d/80-uinput.rules
