@@ -146,6 +146,16 @@ pub struct Config {
     /// (`tùn` + `s` -> `tún`) instead of landing as a literal letter. Off
     /// keeps today's plain-text behavior byte for byte.
     pub flow_backspace_retrack: bool,
+    /// Experimental: a Backspace that removes a key which undid a mark gives
+    /// the mark back (`chào` + `f` -> `chaof`, Backspace -> `chào`) with the
+    /// user's "Backspace xóa dấu" setting, like the inline modes. Needs
+    /// `flow_backspace_retrack`; off keeps today's plain result.
+    pub flow_backspace_restore: bool,
+    /// How long the restore waits after the user's Backspace before rewriting
+    /// the screen (ms). Injected Backspaces sent while that key is handled
+    /// never reach the application, so 0 only means "as soon as the main loop
+    /// wakes", not "during the key".
+    pub flow_backspace_restore_delay_ms: u64,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
     /// each switch and value stays saved in this file and comes back when
@@ -822,6 +832,8 @@ impl Default for Config {
             flow_per_key: true,
             flow_per_key_delay_ms: 60,
             flow_backspace_retrack: false,
+            flow_backspace_restore: false,
+            flow_backspace_restore_delay_ms: 150,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
@@ -1300,6 +1312,17 @@ children = ["preedit", "flow"]
         let c: Config = toml::from_str("flow_backspace_retrack = true").unwrap();
         assert!(c.flow_backspace_retrack);
         assert!(!Config::default().flow_backspace_retrack);
+    }
+
+    #[test]
+    fn flow_backspace_restore_round_trips_and_defaults_off() {
+        let c: Config =
+            toml::from_str("flow_backspace_restore = true\nflow_backspace_restore_delay_ms = 0")
+                .unwrap();
+        assert!(c.flow_backspace_restore);
+        assert_eq!(c.flow_backspace_restore_delay_ms, 0);
+        assert!(!Config::default().flow_backspace_restore);
+        assert_eq!(Config::default().flow_backspace_restore_delay_ms, 150);
     }
 
     /// The old mode names are gone for good: an old file resets the mode to

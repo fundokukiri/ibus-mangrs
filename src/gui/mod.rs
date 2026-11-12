@@ -324,6 +324,9 @@ struct Ui {
     flow_per_key_switch: adw::SwitchRow,
     flow_per_key_spin: adw::SpinRow,
     flow_backspace_retrack: adw::SwitchRow,
+    flow_backspace_restore_row: adw::ActionRow,
+    flow_backspace_restore_switch: gtk4::Switch,
+    flow_backspace_restore_spin: gtk4::SpinButton,
     experimental_features: adw::SwitchRow,
     show_toasts: adw::SwitchRow,
     /// The panel-menu editor: the design vector is the source of truth
@@ -597,6 +600,12 @@ impl Ui {
             .set_value(config.flow_per_key_delay_ms as f64);
         self.flow_backspace_retrack
             .set_active(config.flow_backspace_retrack);
+        self.flow_backspace_restore_switch
+            .set_active(config.flow_backspace_restore);
+        self.flow_backspace_restore_spin
+            .set_sensitive(config.flow_backspace_restore);
+        self.flow_backspace_restore_spin
+            .set_value(config.flow_backspace_restore_delay_ms as f64);
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
@@ -752,6 +761,8 @@ impl Ui {
         config.flow_per_key = self.flow_per_key_switch.is_active();
         config.flow_per_key_delay_ms = self.flow_per_key_spin.value() as u64;
         config.flow_backspace_retrack = self.flow_backspace_retrack.is_active();
+        config.flow_backspace_restore = self.flow_backspace_restore_switch.is_active();
+        config.flow_backspace_restore_delay_ms = self.flow_backspace_restore_spin.value() as u64;
         config.experimental_features = self.experimental_features.is_active();
         config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
@@ -786,6 +797,9 @@ impl Ui {
             config.nav_key_while_preedit = saved_experimental.nav_key_while_preedit;
             config.flow_per_key_delay_ms = saved_experimental.flow_per_key_delay_ms;
             config.flow_backspace_retrack = saved_experimental.flow_backspace_retrack;
+            config.flow_backspace_restore = saved_experimental.flow_backspace_restore;
+            config.flow_backspace_restore_delay_ms =
+                saved_experimental.flow_backspace_restore_delay_ms;
         }
         config
     }
@@ -838,7 +852,7 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 9] = [
+        let rows: [&gtk4::Widget; 10] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_row.upcast_ref(),
             self.auto_capitalize_after_row.upcast_ref(),
@@ -847,6 +861,7 @@ impl Ui {
             self.idle_commit_row.upcast_ref(),
             self.flow_per_key_spin.upcast_ref(),
             self.flow_backspace_retrack.upcast_ref(),
+            self.flow_backspace_restore_row.upcast_ref(),
             self.nav_key_while_preedit.upcast_ref(),
         ];
         for row in rows {
@@ -864,6 +879,8 @@ impl Ui {
                 .set_sensitive(gate && self.idle_commit_switch.is_active());
             self.flow_per_key_spin
                 .set_sensitive(gate && self.flow_per_key_switch.is_active());
+            self.flow_backspace_restore_spin
+                .set_sensitive(gate && self.flow_backspace_restore_switch.is_active());
             self.extra_url_chars_entry
                 .set_sensitive(gate && self.extra_url_chars_switch.is_active());
             self.auto_capitalize_after_entry
@@ -900,6 +917,10 @@ impl Ui {
             .set_value(d.flow_per_key_delay_ms as f64);
         self.flow_backspace_retrack
             .set_active(d.flow_backspace_retrack);
+        self.flow_backspace_restore_switch
+            .set_active(d.flow_backspace_restore);
+        self.flow_backspace_restore_spin
+            .set_value(d.flow_backspace_restore_delay_ms as f64);
         self.nav_key_while_preedit
             .set_selected(nav_key_selected(&d.nav_key_while_preedit));
         self.suppress_save.set(false);
@@ -932,6 +953,10 @@ impl Ui {
             .set_value(c.flow_per_key_delay_ms as f64);
         self.flow_backspace_retrack
             .set_active(c.flow_backspace_retrack);
+        self.flow_backspace_restore_switch
+            .set_active(c.flow_backspace_restore);
+        self.flow_backspace_restore_spin
+            .set_value(c.flow_backspace_restore_delay_ms as f64);
         self.nav_key_while_preedit
             .set_selected(nav_key_selected(&c.nav_key_while_preedit));
         self.suppress_save.set(false);

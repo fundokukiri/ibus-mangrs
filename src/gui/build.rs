@@ -487,6 +487,19 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Xoá một ký tự rồi gõ dấu — từ vẫn biến hoá",
         ),
     );
+    let flow_backspace_restore_spin = spin_button(0.0, 1000.0, 10.0);
+    flow_backspace_restore_spin.set_sensitive(false);
+    let (flow_backspace_restore_row, flow_backspace_restore_switch) = switch_value_row(
+        &t(
+            "rows.flow_backspace_restore.title",
+            "Hoàn dấu sau Backspace (Flow/Turbo)",
+        ),
+        &t(
+            "rows.flow_backspace_restore.subtitle",
+            "Xoá phím đã gỡ dấu — dấu hiện lại",
+        ),
+        &flow_backspace_restore_spin,
+    );
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
@@ -705,6 +718,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Tính năng Sửa dấu sau Backspace ở Flow/Turbo: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước đang bật."
     );
     tip!(
+        flow_backspace_restore_row,
+        "tips.flow_backspace_restore",
+        "Tính năng Hoàn dấu sau Backspace: gõ chào rồi gõ thêm f (dấu bị gỡ, màn hình thành chaof), bấm Backspace thì dấu quay lại (chào) — theo đúng cài đặt “Xóa dấu bằng Backspace”: Unikey và Xóa dấu trước trả lại dấu, Cả ký tự thì xoá một ký tự. Số ms bên phải là thời gian chờ sau Backspace rồi mới sửa màn hình (0–1000, mặc định 150); cần bật cả Sửa dấu sau Backspace."
+    );
+    tip!(
         nav_key_while_preedit,
         "tips.nav_key_while_preedit",
         "Tính năng Phím điều hướng khi còn từ: khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên sẽ nuốt để commit trước (mặc định, nhấn hai lần mới chạy) hoặc cho caret chạy ngay lần đầu. Nếu chữ bị chèn sai chỗ thì quay lại Nuốt."
@@ -796,6 +814,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         flow_per_key_switch,
         flow_per_key_spin,
         flow_backspace_retrack,
+        flow_backspace_restore_row,
+        flow_backspace_restore_switch,
+        flow_backspace_restore_spin,
         experimental_features,
         menu,
         menu_box,
