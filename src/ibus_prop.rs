@@ -94,6 +94,7 @@ pub const MODES: &[(&str, &str, &str)] = &[
     ("flow", "Flow (uinput)", "Flow (uinput)"),
     ("turbo", "Turbo (uinput)", "Turbo (uinput)"),
     ("select", "Select (uinput)", "Select (uinput)"),
+    ("smoothforward", "Smooth (Forward)", "Smooth (Forward)"),
     ("forwardkeyevent", "Forward Backspace", "Forward Backspace"),
     ("forwardselect", "Forward Selection", "Forward Selection"),
     ("off", "OFF", "OFF"),
