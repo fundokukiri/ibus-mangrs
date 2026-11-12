@@ -85,9 +85,10 @@ it is).
 ### One line (online)
 
 Downloads the source, builds and installs; missing dependencies are installed too, so only
-`curl` (or `wget`) and `sudo` are needed up front. The `/dev/uinput` udev rule and the `input`
-group are set up, build-only packages installed by the run are removed afterwards, and
-re-running installs nothing twice. `--demo` previews the whole run without touching anything:
+`curl` (or `wget`) and `sudo` are needed up front. The `/dev/uinput` udev rule is set up (the
+session's user gets the device through logind, no group membership), build-only packages
+installed by the run are removed afterwards, and re-running installs nothing twice. `--demo`
+previews the whole run without touching anything:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
@@ -133,27 +134,46 @@ ibus restart
 ```
 
 The install script copies the engine to `/usr/lib/ibus-mangrs/`, registers the IBus component,
-installs the udev rule and adds your user to the `input` group (next login). Uninstall:
-`sudo ./scripts/uninstall.sh` (keeps your config). On Arch: `makepkg -si`.
+installs the udev rule and removes your user from the `input` group if an older version added it
+(effective at next login). Uninstall: `sudo ./scripts/uninstall.sh` (keeps your config). On
+Arch: `makepkg -si`.
 
 ### /dev/uinput permissions (manual fallback)
 
 The engine presses **real Backspace keys** through `/dev/uinput` for apps that cannot delete
-text over IBus; without write permission those apps cannot type tone marks. Create
+text over IBus; without write permission those apps cannot type tone marks. Access comes from
+the active session's user through logind, not from group membership. Create
 `/etc/udev/rules.d/80-uinput.rules` (shipped as `data/80-uinput.rules`):
 
 ```
-KERNEL=="uinput", MODE="0660", GROUP="input"
+KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
 ```
+
+Then reload the rules and log out/in once (the ACL is granted when the session becomes active):
 
 ```sh
-sudo modprobe uinput
-sudo usermod -aG input $USER                    # next login
-sudo udevadm control --reload-rules && sudo udevadm trigger /dev/uinput
+sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
 echo uinput | sudo tee /etc/modules-load.d/uinput.conf   # load at every boot
+getfacl -p /dev/uinput            # must list user:<you>:rw-
 ```
 
-Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
+**If an older version told you to join the `input` group, leave it.** That group can read every
+keyboard of the machine (`/dev/input/event*`), which one key injector does not need:
+
+```sh
+sudo gpasswd -d $USER input       # log out and back in afterwards
+```
+
+Keep it only if another tool of yours needs raw input access; add it back with
+`sudo usermod -aG input $USER`.
+
+**If you still have `/etc/udev/rules.d/80-uinput.rules` from an older version**, it overrides the
+packaged rule (same filename in `/usr/lib`). Remove it so the session ACL applies:
+
+```sh
+sudo rm /etc/udev/rules.d/80-uinput.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
+```
 
 ## Enable the input source
 

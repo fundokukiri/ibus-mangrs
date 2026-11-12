@@ -12,14 +12,17 @@
 //! no keycodes, so text is injected per ASCII character only — everything
 //! else travels over IBus (CommitText or the clipboard, see `paste.rs`).
 //!
-//! The device is opened lazily and kept for the engine's lifetime; if
-//! `/dev/uinput` is missing or not permitted, injection is skipped and the
-//! protocol delete is used as before.
+//! The device is opened lazily and kept for the engine's lifetime; a failed
+//! attempt is retried every couple of seconds, because the session ACL that
+//! grants access is applied by logind around login — later than the engine
+//! may start. If `/dev/uinput` is missing or not permitted, injection is
+//! skipped and the protocol delete is used as before.
 
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
+use std::sync::Mutex;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // ioctl requests from linux/uinput.h (64-bit values, computed with _IOW).
 const UI_SET_EVBIT: libc::c_ulong = 0x4004_5564;
@@ -183,11 +186,53 @@ pub struct Uinput {
     file: File,
 }
 
+/// Pause between two failed opens. The session ACL for `/dev/uinput` is
+/// applied by logind around login, which can be later than the engine start,
+/// so a failed open must not be final — but retrying on every keystroke would
+/// put an `open()` on the key path.
+const RETRY: Duration = Duration::from_secs(2);
+
+/// The device slot: `None` until an open succeeds, plus when to try again.
+struct Slot {
+    device: Option<&'static Uinput>,
+    next_try: Option<Instant>,
+}
+
+static DEVICE: Mutex<Slot> = Mutex::new(Slot {
+    device: None,
+    next_try: None,
+});
+
+/// Whether a fresh open attempt is due at `now`.
+fn retry_due(next_try: Option<Instant>, now: Instant) -> bool {
+    match next_try {
+        Some(at) => now >= at,
+        None => true,
+    }
+}
+
 impl Uinput {
-    /// Open the virtual keyboard once per process; `None` when unavailable.
+    /// Open the virtual keyboard once per process and keep it for the process
+    /// lifetime; a failed attempt is retried after `RETRY`.
     fn device() -> Option<&'static Uinput> {
-        static DEVICE: std::sync::OnceLock<Option<Uinput>> = std::sync::OnceLock::new();
-        DEVICE.get_or_init(Uinput::open).as_ref()
+        let mut slot = DEVICE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(device) = slot.device {
+            return Some(device);
+        }
+        if !retry_due(slot.next_try, Instant::now()) {
+            return None;
+        }
+        match Self::open() {
+            Some(device) => {
+                // Lives as long as the process, like the old `OnceLock`.
+                slot.device = Some(Box::leak(Box::new(device)));
+                slot.next_try = None;
+            }
+            None => slot.next_try = Some(Instant::now() + RETRY),
+        }
+        slot.device
     }
 
     /// Whether a virtual keyboard is available.
@@ -440,6 +485,14 @@ mod tests {
         assert_eq!(char_key('a'), Some((30, false)));
         assert_eq!(char_key('A'), Some((30, true)));
         assert_eq!(char_key('?'), Some((53, true)));
+    }
+
+    #[test]
+    fn retry_backoff_gates_failed_opens() {
+        let now = Instant::now();
+        assert!(retry_due(None, now));
+        assert!(retry_due(Some(now), now));
+        assert!(!retry_due(Some(now + RETRY), now));
     }
 
     #[test]

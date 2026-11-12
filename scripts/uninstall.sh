@@ -82,7 +82,11 @@ step "Removing uinput rule"
 if [ -n "$DEMO" ]; then
     echo "(demo) nothing is removed"
 else
-    $SUDO rm -f /etc/udev/rules.d/80-uinput.rules
+    # /etc for install.sh, /usr/lib for the package; the first one overrides.
+    $SUDO rm -f /etc/udev/rules.d/80-uinput.rules \
+          "$PREFIX/lib/udev/rules.d/80-uinput.rules"
+    $SUDO udevadm control --reload-rules 2>/dev/null || true
+    $SUDO udevadm trigger --name-match=/dev/uinput 2>/dev/null || true
 fi
 ok
 

@@ -23,9 +23,12 @@ Not installed by `scripts/install.sh`; install and verify it through its own
 
 ## `80-uinput.rules`
 
-udev rule giving the `input` group access to `/dev/uinput` (the backspace
-injector), installed to `/etc/udev/rules.d/` by `scripts/install.sh` and to
-`/usr/lib/udev/rules.d/` by the PKGBUILD. See `docs/install.md`.
+udev rule giving the active session's user access to `/dev/uinput` through
+logind's uaccess ACL (the key injector). No group membership is involved:
+`input` can read every keyboard of the machine. Installed to
+`/etc/udev/rules.d/` by `scripts/install.sh` and to `/usr/lib/udev/rules.d/`
+by the PKGBUILD; a file with the same name in `/etc` overrides the packaged
+one. See the "`/dev/uinput` permissions" section of the README.
 
 ## `gui-content.toml`
 
