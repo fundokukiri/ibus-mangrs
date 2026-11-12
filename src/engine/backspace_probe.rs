@@ -134,13 +134,14 @@ impl Sim {
 
     fn state(&self) -> String {
         format!(
-            "screen={:?} tail={:?} park={:?} out={:?} comp={} raw={:?}",
+            "screen={:?} tail={:?} park={:?} out={:?} comp={} raw={:?} undo={}",
             self.screen(),
             self.e.tail,
             self.e.per_key_park.as_ref().map(|(_, t)| t.clone()),
             self.e.wrapper.output(),
             self.e.wrapper.has_composition(),
-            self.e.wrapper.raw()
+            self.e.wrapper.raw(),
+            self.e.wrapper.undo_in_word()
         )
     }
 
@@ -311,6 +312,39 @@ fn probe_flow_backspace_screen_model() {
             },
             "chaof ~tungf ~\u{8}\u{8}\u{8}\u{8}\u{8}",
         );
+        probe_case(
+            "owner: chao f f BS (mark undone, no space)",
+            mode,
+            Config {
+                experimental_features: true,
+                flow_per_key: true,
+                flow_backspace_retrack: true,
+                ..Config::default()
+            },
+            "chaoff\u{8}",
+        );
+        probe_case(
+            "owner: chao f BS (single f, live)",
+            mode,
+            Config {
+                experimental_features: true,
+                flow_per_key: true,
+                flow_backspace_retrack: true,
+                ..Config::default()
+            },
+            "chaof\u{8}",
+        );
+        probe_case(
+            "owner: chao f f BS with space",
+            mode,
+            Config {
+                experimental_features: true,
+                flow_per_key: true,
+                flow_backspace_retrack: true,
+                ..Config::default()
+            },
+            "chaoff \u{8}",
+        );
     }
 }
 
@@ -430,6 +464,30 @@ fn target_committed_word_comes_back_after_the_litter_is_erased() {
         assert_eq!(screen, "chào", "{mode:?}");
         assert_eq!(e.tail, "chào", "{mode:?}");
         assert!(e.wrapper.has_composition(), "{mode:?}");
+    }
+}
+
+#[test]
+fn target_undone_mark_comes_back_on_backspace() {
+    // Owner: type `chào`, press `f` again — the tone is undone and the raw
+    // keys show (`chaof`); Backspace must give `chào` back, not `chao`.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = tone(mode, BackspaceToneConfig::UnikeyWalk);
+        let (screen, e) = screen_of(mode, cfg, "chaoff\u{8}");
+        assert_eq!(screen, "chào", "{mode:?}");
+        assert_eq!(e.tail, "chào", "{mode:?}");
+        assert!(e.wrapper.has_composition(), "{mode:?}");
+    }
+}
+
+#[test]
+fn target_gate_off_keeps_the_plain_backspace() {
+    // The switch off is today's behavior byte for byte: the undone mark stays
+    // undone (`chaof` Backspace gives `chao`).
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = per_key(mode);
+        let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}");
+        assert_eq!(screen, "chao", "{mode:?}");
     }
 }
 
