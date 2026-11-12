@@ -571,7 +571,7 @@ hotkey_settings = "Open Settings"
 [tips]
 enabled = "Toggles the whole input method. When off, every key goes straight into the app as if MăngRS were not installed."
 method = "The typing method decides how accented text is built from the keys: Telex (ss → á), VNI (a1 → á) or VIQR."
-mode = "How the in-flight text is displayed: preedit (underlined) works in every app; the uinput modes send real keys but can drift per app."
+mode = "How the in-flight text is displayed: preedit (underlined) works in every app; the uinput modes send real keys but can drift per app. Smooth (Forward) deletes via keys forwarded over IBus — no /dev/uinput; not for games or XIM clients."
 charset = "The character table: Unicode for every normal use; the VNI/TCVN3 tables are only needed when reading old text files."
 hide_underline = "Hides the preedit underline for apps that draw it broken (some games, terminals)."
 modern = "The Ministry of Education's new tone standard: hòa instead of hoà, thuế instead of thuể."
