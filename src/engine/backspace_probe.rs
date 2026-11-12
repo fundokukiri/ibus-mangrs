@@ -405,6 +405,19 @@ fn target_wholechar_backspace_deletes_the_character() {
 }
 
 #[test]
+fn target_a_later_letter_does_not_rearm_the_restore() {
+    // Live bug from the owner's log: a letter typed after the undo made the
+    // wrapper's diff read bamboo's auto_correct revert as another undo, which
+    // re-armed the restore window — the next ordinary Backspace then injected
+    // deletes and the word lost characters it should not have.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = tone(mode, BackspaceToneConfig::ToneFirst);
+        let (screen, _) = screen_of(mode, cfg, "chaoffg\u{8}");
+        assert_eq!(screen, "chaof", "{mode:?}");
+    }
+}
+
+#[test]
 fn target_tonefirst_backspace_drops_the_tone() {
     // ToneFirst is the one setting that changes the screen text without a
     // plain delete: `tùng` -> `tung`, like the inline modes. The rewrite is
@@ -676,10 +689,10 @@ fn probe_bamboo_055_behaviour() {
     // refused-mark syllable and the extended f/j/w onsets.
     println!("\n== probe_bamboo_055_behaviour ==");
     for (method, keys) in [
-        (Method::Telex, "chaoff"),
+        (Method::Telex, "ddd"),
+        (Method::Telex, "too"),
         (Method::Telex, "chaof"),
-        (Method::Telex, "vieejtf"),
-        (Method::Vni, "hao123456"),
+        (Method::Telex, "chaoff"),
     ] {
         let mut w = BambooWrapper::new(
             method,
