@@ -457,25 +457,14 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
         &idle_commit_spin,
     );
-    let flow_per_key_switch = switch_row(
+    let flow_per_key_spin = spin_button(0.0, 500.0, 5.0);
+    let (flow_per_key_row, flow_per_key_switch) = switch_value_row(
         &t("rows.flow_per_key.title", "Hiện dấu từng bước ở Flow"),
         &t(
             "rows.flow_per_key.subtitle",
-            "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — trễ chỉnh ở hàng dưới; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi",
+            "Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — trễ chỉnh ở ô bên phải; gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay; Select không đổi",
         ),
-    );
-    let flow_per_key_spin = spin_row(
-        &t(
-            "rows.flow_per_key_delay.title",
-            "Hiện dấu từng bước Flow: trễ (ms)",
-        ),
-        &t(
-            "rows.flow_per_key_delay.subtitle",
-            "Trễ đổ chữ có dấu vào văn bản",
-        ),
-        0.0,
-        500.0,
-        5.0,
+        &flow_per_key_spin,
     );
     let flow_backspace_retrack = switch_row(
         &t(
@@ -708,9 +697,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Tính năng Chấp nhận từ khi nghỉ gõ: dừng tay quá lâu trên một từ đang gạch chân thì từ đó được commit luôn, như bấm dấu cách. Số ms bên phải là ngưỡng nghỉ tay."
     );
     tip!(
-        flow_per_key_spin,
-        "tips.flow_per_key_delay",
-        "Tính năng Hiện dấu từng bước ở Flow (công tắc nằm ở tab Tinh chỉnh): số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 60."
+        flow_per_key_row,
+        "tips.flow_per_key",
+        "Tính năng Hiện dấu từng bước ở Flow: Flow/Turbo hiện chữ có dấu ngay trong lúc gõ thay vì giữ phím raw đến hết từ. Số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland. Select không đổi."
     );
     tip!(
         flow_backspace_retrack,
@@ -811,6 +800,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         idle_commit_row,
         idle_commit_switch,
         idle_commit_spin,
+        flow_per_key_row,
         flow_per_key_switch,
         flow_per_key_spin,
         flow_backspace_retrack,

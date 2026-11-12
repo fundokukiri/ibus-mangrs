@@ -2722,12 +2722,11 @@ fn per_key_delay_follows_the_configured_value() {
 
 #[test]
 fn per_key_delay_clamps_out_of_range_values() {
-    // 0 is allowed by owner decision (experimental knob; the gate-off bake
-    // is what protects the shipped behavior, not the floor).
+    // 0 is allowed by owner decision (the clamp protects against nonsense
+    // values, the floor stays open).
     let e = engine(
         Mode::Flow,
         Config {
-            experimental_features: true,
             flow_per_key: true,
             flow_per_key_delay_ms: 0,
             ..Config::default()
@@ -2737,7 +2736,6 @@ fn per_key_delay_clamps_out_of_range_values() {
     let e = engine(
         Mode::Flow,
         Config {
-            experimental_features: true,
             flow_per_key: true,
             flow_per_key_delay_ms: 700,
             ..Config::default()
@@ -2746,25 +2744,9 @@ fn per_key_delay_clamps_out_of_range_values() {
     assert_eq!(e.per_key_delay(), Duration::from_millis(500));
     assert_eq!(
         Engine::new(Method::Telex, Mode::Flow).per_key_delay(),
-        Duration::from_millis(60),
-        "engine default stays today's behavior"
+        Duration::from_millis(20),
+        "the engine default follows the config default"
     );
-}
-
-#[test]
-fn per_key_delay_gate_off_forces_the_builtin_60() {
-    // The knob is experimental: gate off bakes the built-in 60 ms into the
-    // engine whatever the file says (the stored value stays saved).
-    let e = engine(
-        Mode::Flow,
-        Config {
-            flow_per_key: true,
-            flow_per_key_delay_ms: 200,
-            experimental_features: false,
-            ..Config::default()
-        },
-    );
-    assert_eq!(e.per_key_delay(), Duration::from_millis(60));
 }
 
 #[test]

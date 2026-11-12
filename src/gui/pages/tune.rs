@@ -44,9 +44,20 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     pacing.add(&ui.commit_interval);
     pacing.add(&ui.backspace_interval);
     pacing.add(&ui.post_delay);
-    // The per-key display switch lives with the pacing knobs: it shapes the
-    // same uinput word rendering, and it is no longer gated as experimental.
-    pacing.add(&ui.flow_per_key_switch);
+    // The per-key display row lives with the pacing knobs: it shapes the
+    // same uinput word rendering. One merged row — the switch and its delay
+    // — outside the experimental gate, like the merged rows elsewhere.
+    pacing.add(&ui.flow_per_key_row);
+    {
+        // The switch saves through the central `wire_switch_saves`; the spin
+        // is new here and needs its own value hook, like the pacing spins.
+        let s = ui.save_cb.clone();
+        ui.flow_per_key_spin.connect_value_notify(move |_| {
+            if let Some(save) = s.borrow().as_ref() {
+                save();
+            }
+        });
+    }
     for (row, subtitle) in [
         (
             &ui.commit_interval,

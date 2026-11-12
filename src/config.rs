@@ -830,7 +830,7 @@ impl Default for Config {
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             flow_per_key: true,
-            flow_per_key_delay_ms: 60,
+            flow_per_key_delay_ms: 20,
             flow_backspace_retrack: false,
             flow_backspace_restore: false,
             flow_backspace_restore_delay_ms: 150,
@@ -1301,10 +1301,10 @@ children = ["preedit", "flow"]
     }
 
     #[test]
-    fn flow_per_key_delay_round_trips_and_defaults_to_60() {
+    fn flow_per_key_delay_round_trips_and_defaults_to_20() {
         let c: Config = toml::from_str("flow_per_key_delay_ms = 120").unwrap();
         assert_eq!(c.flow_per_key_delay_ms, 120);
-        assert_eq!(Config::default().flow_per_key_delay_ms, 60);
+        assert_eq!(Config::default().flow_per_key_delay_ms, 20);
     }
 
     #[test]
