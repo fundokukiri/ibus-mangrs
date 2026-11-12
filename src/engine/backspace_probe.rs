@@ -405,6 +405,20 @@ fn target_wholechar_backspace_deletes_the_character() {
 }
 
 #[test]
+fn target_backspace_on_a_terminator_keeps_the_tone() {
+    // Owner bug: `chào` + space + Backspace dropped the tone and then ate a
+    // letter per press (`chao`, `cha`). Erasing the space belongs to the
+    // region path, never to the tone-first rewrite.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = tone(mode, BackspaceToneConfig::ToneFirst);
+        let (screen, _) = screen_of(mode, cfg.clone(), "chaof ~\u{8}");
+        assert_eq!(screen, "chào", "{mode:?}");
+        let (screen, _) = screen_of(mode, cfg, "chaof ~\u{8} \u{8}");
+        assert_eq!(screen, "chào", "{mode:?}");
+    }
+}
+
+#[test]
 fn target_a_later_letter_does_not_rearm_the_restore() {
     // Live bug from the owner's log: a letter typed after the undo made the
     // wrapper's diff read bamboo's auto_correct revert as another undo, which
@@ -420,11 +434,12 @@ fn target_a_later_letter_does_not_rearm_the_restore() {
 #[test]
 fn target_tonefirst_backspace_drops_the_tone() {
     // ToneFirst is the one setting that changes the screen text without a
-    // plain delete: `tùng` -> `tung`, like the inline modes. The rewrite is
-    // deferred past the key release, so the harness settles it.
+    // plain delete: `tùng` -> `tung`, like the inline modes. The first
+    // Backspace erases the space after the committed word, the second drops
+    // the tone; the rewrite is deferred past the key release.
     for mode in [Mode::Flow, Mode::Turbo] {
         let (_, cfg) = tone(mode, BackspaceToneConfig::ToneFirst);
-        let (screen, e) = screen_of(mode, cfg, "tungf ~\u{8}");
+        let (screen, e) = screen_of(mode, cfg, "tungf ~\u{8}\u{8}");
         assert_eq!(screen, "tung", "{mode:?}");
         assert_eq!(e.tail, "tung", "{mode:?}");
         assert!(e.wrapper.has_composition(), "{mode:?}");

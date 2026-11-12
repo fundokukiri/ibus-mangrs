@@ -755,6 +755,14 @@ impl Engine {
             && self.flow_backspace_restore
             && self.backspace_tone == BackspaceToneConfig::ToneFirst
             && !(self.url_word || self.emoji_word)
+            // Erasing a word terminator is a delete of that character: the
+            // word behind it comes back for editing, it does not lose its
+            // tone (`chào ` + Backspace must stay `chào`).
+            && !self
+                .tail
+                .chars()
+                .last()
+                .is_some_and(crate::bamboo_wrapper::is_word_terminator)
         {
             let target = replace_tail(&self.tail, 1, "");
             // The wrapper must still describe the screen this key deletes
