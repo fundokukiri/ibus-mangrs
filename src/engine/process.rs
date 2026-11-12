@@ -746,6 +746,56 @@ impl Engine {
                 return actions;
             }
         }
+        // Experimental: "Xóa dấu trước" (ToneFirst) on a tracked word. The
+        // inline modes drop the tone (`tùng` -> `tung`) while a plain
+        // Backspace would lose the last screen character (`tùn`), so the
+        // screen rewrite is deferred past the key release like the restore
+        // above. Without the switch the wrapper keeps the unikey walk.
+        if self.flow_backspace_retrack
+            && self.flow_backspace_restore
+            && self.backspace_tone == BackspaceToneConfig::ToneFirst
+            && !(self.url_word || self.emoji_word)
+        {
+            let target = replace_tail(&self.tail, 1, "");
+            let live = if self.wrapper.has_composition() {
+                true
+            } else {
+                // The word end dropped the composition: rebuild it from the
+                // screen the app holds before this key.
+                self.wrapper.retrack_from_screen(&target)
+            };
+            // The wrapper must still describe the screen this key deletes
+            // from. A cancelled fix (a key arrived first) leaves it ahead, and
+            // stacking another mode rewrite on that would put text back the
+            // user is deleting — the plain path below handles that case.
+            let in_sync = live && encode(self.charset, &self.wrapper.output()) == target;
+            if in_sync {
+                self.wrapper
+                    .set_backspace_tone(BackspaceToneConfig::ToneFirst);
+                if self.wrapper.backspace().is_some() {
+                    if let Some((_, text)) = self.per_key_park.take() {
+                        actions.push(Action::CommitNow(text));
+                    }
+                    let want = encode(self.charset, &self.wrapper.output());
+                    let differs = want != target;
+                    self.tail = target;
+                    if differs {
+                        self.deferred_fix = Some((
+                            Instant::now()
+                                + Duration::from_millis(self.flow_backspace_restore_delay_ms),
+                            want,
+                        ));
+                        debug_log::log("per-key backspace schedules a tone-first fix");
+                    }
+                    if !self.wrapper.has_composition() {
+                        self.release_word_mode();
+                    }
+                    self.note_backspace_forwarded();
+                    actions.push(Action::Forward);
+                    return actions;
+                }
+            }
+        }
         // The pass-through Backspace deletes one character of the FINAL
         // screen: land the in-flight batch first, or the key deletes a
         // character the batch was still going to add.
