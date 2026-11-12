@@ -511,6 +511,7 @@ pub enum ModeConfig {
     /// through forwarded Backspace key events plus the commit — no
     /// `/dev/uinput` needed. Raw-key apps (games) and XIM clients should
     /// pin another mode.
+    #[serde(alias = "smooth-forward")]
     SmoothForward,
     /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
     /// events through IBus instead of `DeleteSurroundingText` — works in
@@ -738,6 +739,7 @@ impl ModeConfig {
             "flow" => ModeConfig::Flow,
             "turbo" => ModeConfig::Turbo,
             "select" => ModeConfig::Select,
+            "smoothforward" | "smooth-forward" => ModeConfig::SmoothForward,
             "forwardkeyevent" | "forwardkey" | "forward-key-event" | "forward_key_event" => {
                 ModeConfig::ForwardKeyEvent
             }
@@ -1056,6 +1058,28 @@ mod tests {
         assert_eq!(
             ModeConfig::from_key("forwardkeyevent2"),
             Some(ModeConfig::ForwardSelect)
+        );
+    }
+
+    #[test]
+    fn smoothforward_mode_key_round_trips() {
+        let c: Config = toml::from_str("mode = \"smoothforward\"").unwrap();
+        assert_eq!(c.mode, ModeConfig::SmoothForward);
+        assert_eq!(c.mode.key(), "smoothforward");
+        assert_eq!(
+            ModeConfig::from_key("smooth-forward"),
+            Some(ModeConfig::SmoothForward),
+            "the dashed alias must parse"
+        );
+        // A per-app rule can pin the mode by either spelling, and the value
+        // maps onto the engine mode the smooth path dispatches on.
+        let c: Config =
+            toml::from_str("[[app_rules]]\npattern = \"chrome\"\nmode = \"smoothforward\"\n")
+                .unwrap();
+        assert_eq!(c.app_rules[0].mode, ModeConfig::SmoothForward);
+        assert_eq!(
+            Mode::from(c.app_rules[0].mode),
+            crate::engine::Mode::SmoothForward
         );
     }
 
