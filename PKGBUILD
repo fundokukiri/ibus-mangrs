@@ -2,14 +2,15 @@
 # Build: makepkg -si
 
 pkgname=ibus-mangrs
-pkgver=1.2.0
-pkgrel=1
+pkgver=1.2.1
+pkgrel=2
 pkgdesc="Vietnamese input engine for IBus, built on bamboo-core (Rust)"
 arch=("x86_64")
 url="https://github.com/fundokukiri/ibus-mangrs"
 license=("GPL3")
 depends=("ibus" "gtk4" "libadwaita" "adwaita-icon-theme")
 makedepends=("rust")
+install=ibus-mangrs.install
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=("SKIP")
 
@@ -24,8 +25,8 @@ package() {
         "$pkgdir/usr/lib/ibus-mangrs/ibus-engine-mangrs"
     install -Dm644 data/ibus-mangrs.xml \
         "$pkgdir/usr/share/ibus/component/ibus-mangrs.xml"
-    install -Dm644 data/80-uinput.rules \
-        "$pkgdir/usr/lib/udev/rules.d/80-uinput.rules"
+    install -Dm644 data/70-uinput.rules \
+        "$pkgdir/usr/lib/udev/rules.d/70-uinput.rules"
     install -Dm644 data/logo.png \
         "$pkgdir/usr/share/icons/hicolor/512x512/apps/ibus-mangrs.png"
     install -Dm644 data/org.freedesktop.IBus.mangrs.desktop \

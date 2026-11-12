@@ -1,0 +1,23 @@
+post_install() {
+    cat <<'EOF'
+MăngRS no longer needs the `input` group: /dev/uinput is handed to the
+logged-in user by a session ACL (udev rule uaccess), so no account has to be
+able to read /dev/input/event* for the engine to inject keys.
+
+If you still belong to `input` (older install), remove it:
+    sudo gpasswd -d "$USER" input
+Log out and back in afterwards. The group can read every keystroke of the
+machine, so keep it only if another tool of yours needs raw input access.
+
+The rule is now 70-uinput.rules. If an older version left
+/etc/udev/rules.d/80-uinput.rules behind, udev still reads it and it keeps
+handing /dev/uinput to the `input` group. Remove it:
+    sudo rm /etc/udev/rules.d/80-uinput.rules
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger --name-match=/dev/uinput
+EOF
+}
+
+post_upgrade() {
+    post_install
+}

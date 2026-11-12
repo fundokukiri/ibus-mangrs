@@ -614,7 +614,21 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     }
     // Key releases are never ours.
     if state & keymap::RELEASE_MASK != 0 {
+        // The experimental Backspace correction may only inject once the key
+        // is up — injected Backspaces sent while it is down never reach the
+        // application. The release is the engine's only signal for that.
+        if keyval == keymap::BACKSPACE {
+            engine.note_backspace_released();
+        }
         return false;
+    }
+    // The session ACL for `/dev/uinput` is applied by logind around login, so
+    // the open at engine start can be too early. Pick the device up as soon as
+    // it becomes available instead of keeping the startup answer for the whole
+    // session; while it stays unavailable the check is throttled inside
+    // `Uinput::available`.
+    if !engine.uinput_available() && Uinput::available() {
+        engine.set_uinput_available(true);
     }
     // Ctrl/Alt/Super combinations are application shortcuts.
     if state & keymap::SHORTCUT_MASK != 0 {
@@ -967,18 +981,18 @@ fn emit_with(
             // uinput modes' word-end rewrite: real Backspaces, paced.
             Action::InjectBackspaces(n) => {
                 if (t.backspaces)(*n, bs_gap) {
-                    debug_log::log(&format!("smooth rewrite: inject backspaces n={n}"));
+                    debug_log::log(&format!("flow rewrite: inject backspaces n={n}"));
                     injected_since_commit += *n;
                     injected_total += *n;
                 } else if engine.surrounding_data_ok() {
                     // Device lost mid-session: protocol delete as fallback.
-                    debug_log::log(&format!("smooth rewrite inject FAILED → protocol -{n}"));
+                    debug_log::log(&format!("flow rewrite inject FAILED → protocol -{n}"));
                     let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*n as i32)).append1(*n);
                     out.push(m);
                 } else {
                     debug_log::log(&format!(
-                        "smooth rewrite inject FAILED and no report: deletion dropped n={n}"
+                        "flow rewrite inject FAILED and no report: deletion dropped n={n}"
                     ));
                 }
             }

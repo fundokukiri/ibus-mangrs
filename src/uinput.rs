@@ -7,19 +7,22 @@
 //! When that is detected, the server falls back to injecting real Backspace
 //! key events through a virtual keyboard, which every toolkit honours.
 //!
-//! The uinput display modes (Smooth, Select) use the same device for more:
+//! The uinput display modes (Flow, Select) use the same device for more:
 //! paced key presses, Shift+Left selection and Ctrl+V. Vietnamese glyphs have
 //! no keycodes, so text is injected per ASCII character only — everything
 //! else travels over IBus (CommitText or the clipboard, see `paste.rs`).
 //!
-//! The device is opened lazily and kept for the engine's lifetime; if
-//! `/dev/uinput` is missing or not permitted, injection is skipped and the
-//! protocol delete is used as before.
+//! The device is opened lazily and kept for the engine's lifetime; a failed
+//! attempt is retried every couple of seconds, because the session ACL that
+//! grants access is applied by logind around login — later than the engine
+//! may start. If `/dev/uinput` is missing or not permitted, injection is
+//! skipped and the protocol delete is used as before.
 
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
+use std::sync::Mutex;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // ioctl requests from linux/uinput.h (64-bit values, computed with _IOW).
 const UI_SET_EVBIT: libc::c_ulong = 0x4004_5564;
@@ -49,145 +52,71 @@ struct InputEvent {
     value: i32,
 }
 
-/// US-QWERTY mapping for injectable characters: (keycode, shift needed).
-/// Non-ASCII (Vietnamese) characters have no keycode and return `None` —
-/// they must travel over IBus, not the virtual keyboard.
-pub fn char_key(ch: char) -> Option<(u16, bool)> {
-    Some(match ch {
-        ' ' => (57, false),
-        '\n' => (28, false),
-        '\t' => (15, false),
-        'a' => (30, false),
-        'b' => (48, false),
-        'c' => (46, false),
-        'd' => (32, false),
-        'e' => (18, false),
-        'f' => (33, false),
-        'g' => (34, false),
-        'h' => (35, false),
-        'i' => (23, false),
-        'j' => (36, false),
-        'k' => (37, false),
-        'l' => (38, false),
-        'm' => (50, false),
-        'n' => (49, false),
-        'o' => (24, false),
-        'p' => (25, false),
-        'q' => (16, false),
-        'r' => (19, false),
-        's' => (31, false),
-        't' => (20, false),
-        'u' => (22, false),
-        'v' => (47, false),
-        'w' => (17, false),
-        'x' => (45, false),
-        'y' => (21, false),
-        'z' => (44, false),
-        '1' => (2, false),
-        '2' => (3, false),
-        '3' => (4, false),
-        '4' => (5, false),
-        '5' => (6, false),
-        '6' => (7, false),
-        '7' => (8, false),
-        '8' => (9, false),
-        '9' => (10, false),
-        '0' => (11, false),
-        '.' => (52, false),
-        ',' => (51, false),
-        '/' => (53, false),
-        ';' => (39, false),
-        '\'' => (40, false),
-        '-' => (12, false),
-        '=' => (13, false),
-        '[' => (26, false),
-        ']' => (27, false),
-        '\\' => (43, false),
-        '`' => (41, false),
-        'A' => (30, true),
-        'B' => (48, true),
-        'C' => (46, true),
-        'D' => (32, true),
-        'E' => (18, true),
-        'F' => (33, true),
-        'G' => (34, true),
-        'H' => (35, true),
-        'I' => (23, true),
-        'J' => (36, true),
-        'K' => (37, true),
-        'L' => (38, true),
-        'M' => (50, true),
-        'N' => (49, true),
-        'O' => (24, true),
-        'P' => (25, true),
-        'Q' => (16, true),
-        'R' => (19, true),
-        'S' => (31, true),
-        'T' => (20, true),
-        'U' => (22, true),
-        'V' => (47, true),
-        'W' => (17, true),
-        'X' => (45, true),
-        'Y' => (21, true),
-        'Z' => (44, true),
-        '!' => (2, true),
-        '@' => (3, true),
-        '#' => (4, true),
-        '$' => (5, true),
-        '%' => (6, true),
-        '^' => (7, true),
-        '&' => (8, true),
-        '*' => (9, true),
-        '(' => (10, true),
-        ')' => (11, true),
-        '?' => (53, true),
-        ':' => (39, true),
-        '"' => (40, true),
-        '_' => (12, true),
-        '+' => (13, true),
-        '{' => (26, true),
-        '}' => (27, true),
-        '|' => (43, true),
-        '<' => (51, true),
-        '>' => (52, true),
-        '~' => (41, true),
-        _ => return None,
-    })
-}
-
-/// Every keycode this module may ever press (device registration list).
-fn all_keycodes() -> Vec<u16> {
-    let mut codes: Vec<u16> = vec![
-        KEY_BACKSPACE,
-        KEY_LEFTCTRL,
-        KEY_LEFTSHIFT,
-        KEY_LEFT,
-        KEYCODE_DELETE,
-        28, // enter
-        15, // tab
-        57, // space
-    ];
-    // Collect the distinct keycodes from the whole character table.
-    for ch in "abcdefghijklmnopqrstuvwxyz0123456789.,/;'-=[]\\`!@#$%^&*()?:\"_+{}|<>~"
-        .chars()
-        .filter_map(char_key)
-    {
-        codes.push(ch.0);
-    }
-    codes.sort_unstable();
-    codes.dedup();
-    codes
-}
+/// The only keycodes the virtual keyboard registers. The kernel drops events
+/// for unregistered codes, so a bug in the injection path can press these six
+/// keys and nothing else — no letters, so it cannot type text. Keep the list in
+/// sync with the calls in `Uinput` (`backspace`, `select_left`, `ctrl_v`) and
+/// with `KEYCODE_DELETE` pressed by the server.
+const KEYCODES: [u16; 6] = [
+    KEY_BACKSPACE,
+    KEYCODE_DELETE,
+    KEY_LEFT,
+    KEY_LEFTSHIFT,
+    KEY_LEFTCTRL,
+    KEY_V_CODE,
+];
 
 pub struct Uinput {
     file: File,
 }
 
+/// Pause between two failed opens. The session ACL for `/dev/uinput` is
+/// applied by logind around login, which can be later than the engine start,
+/// so a failed open must not be final — but retrying on every keystroke would
+/// put an `open()` on the key path.
+const RETRY: Duration = Duration::from_secs(2);
+
+/// The device slot: `None` until an open succeeds, plus when to try again.
+struct Slot {
+    device: Option<&'static Uinput>,
+    next_try: Option<Instant>,
+}
+
+static DEVICE: Mutex<Slot> = Mutex::new(Slot {
+    device: None,
+    next_try: None,
+});
+
+/// Whether a fresh open attempt is due at `now`.
+fn retry_due(next_try: Option<Instant>, now: Instant) -> bool {
+    match next_try {
+        Some(at) => now >= at,
+        None => true,
+    }
+}
+
 impl Uinput {
-    /// Open the virtual keyboard once per process; `None` when unavailable.
+    /// Open the virtual keyboard once per process and keep it for the process
+    /// lifetime; a failed attempt is retried after `RETRY`.
     fn device() -> Option<&'static Uinput> {
-        static DEVICE: std::sync::OnceLock<Option<Uinput>> = std::sync::OnceLock::new();
-        DEVICE.get_or_init(Uinput::open).as_ref()
+        let mut slot = DEVICE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(device) = slot.device {
+            return Some(device);
+        }
+        if !retry_due(slot.next_try, Instant::now()) {
+            return None;
+        }
+        match Self::open() {
+            Some(device) => {
+                // Lives as long as the process, like the old `OnceLock`.
+                slot.device = Some(Box::leak(Box::new(device)));
+                slot.next_try = None;
+            }
+            None => slot.next_try = Some(Instant::now() + RETRY),
+        }
+        slot.device
     }
 
     /// Whether a virtual keyboard is available.
@@ -278,8 +207,9 @@ impl Uinput {
                 return None;
             }
             // Every keycode must be registered or its events are silently
-            // dropped by the kernel.
-            for code in all_keycodes() {
+            // dropped by the kernel — which is exactly the capability limit
+            // this device relies on.
+            for code in KEYCODES {
                 if libc::ioctl(fd, UI_SET_KEYBIT, code as libc::c_int) != 0 {
                     return None;
                 }
@@ -429,22 +359,35 @@ mod tests {
     }
 
     #[test]
-    fn char_table_covers_ascii_and_refuses_vietnamese() {
-        for ch in ' '..='~' {
-            assert!(char_key(ch).is_some(), "printable ASCII {ch:?} must map");
-        }
-        assert_eq!(char_key('ư'), None);
-        assert_eq!(char_key('ạ'), None);
-        assert_eq!(char_key('ế'), None);
-        // shift correctness spot checks
-        assert_eq!(char_key('a'), Some((30, false)));
-        assert_eq!(char_key('A'), Some((30, true)));
-        assert_eq!(char_key('?'), Some((53, true)));
+    fn device_registers_only_the_whitelisted_keys() {
+        // The kernel drops events for unregistered keycodes, so this list is
+        // the device's whole capability. No letter or digit may be added: with
+        // one, a bug in the injection path could type arbitrary text. `V`
+        // appears only as Ctrl+V (the clipboard channel).
+        assert_eq!(
+            KEYCODES,
+            [
+                KEY_BACKSPACE,
+                KEYCODE_DELETE,
+                KEY_LEFT,
+                KEY_LEFTSHIFT,
+                KEY_LEFTCTRL,
+                KEY_V_CODE,
+            ]
+        );
+    }
+
+    #[test]
+    fn retry_backoff_gates_failed_opens() {
+        let now = Instant::now();
+        assert!(retry_due(None, now));
+        assert!(retry_due(Some(now), now));
+        assert!(!retry_due(Some(now + RETRY), now));
     }
 
     #[test]
     fn device_opens_with_correct_permissions() {
-        // Needs /dev/uinput readable+writable (udev rule 80-uinput.rules).
+        // Needs /dev/uinput readable+writable (udev rule 70-uinput.rules).
         // Without it the engine falls back to the protocol delete, so a
         // sandbox/CI without the device is not a code failure. Set
         // MANGRS_REQUIRE_UINPUT=1 to enforce the hardware check.

@@ -544,9 +544,11 @@ fn refresh_round_trips_every_widget() {
         echo_stale_ms: 250,
         idle_commit_enabled: true,
         idle_commit_ms: 800,
-        smooth_per_key: true,
-        smooth_per_key_delay_ms: 80,
-        smooth_backspace_retrack: true,
+        flow_per_key: true,
+        flow_per_key_delay_ms: 80,
+        flow_backspace_retrack: true,
+        flow_backspace_restore: true,
+        flow_backspace_restore_delay_ms: 40,
         experimental_features: true,
         show_toasts: false,
         debug_log: true,
@@ -588,7 +590,7 @@ fn refresh_round_trips_every_widget() {
             },
             MenuNode::Radios {
                 group: "display".into(),
-                children: vec!["preedit".into(), "smooth".into()],
+                children: vec!["preedit".into(), "flow".into()],
             },
         ]),
     };
@@ -614,8 +616,8 @@ fn refresh_round_trips_every_widget() {
         ModeConfig::NonPreedit,
         ModeConfig::Preedit,
         ModeConfig::Surrounding,
-        ModeConfig::Smooth,
-        ModeConfig::SuperSmooth,
+        ModeConfig::Flow,
+        ModeConfig::Turbo,
         ModeConfig::Select,
         ModeConfig::ForwardKeyEvent,
         ModeConfig::ForwardSelect,
@@ -681,7 +683,7 @@ fn row_texts_render_as_plain_text() {
     }
     assert_eq!(
         ui.bypass_url.subtitle().as_deref(),
-        Some("Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên")
+        Some("URL thật (https://, www.) giữ nguyên cả vùng tới dấu cách hoặc dấu câu")
     );
 }
 
@@ -694,7 +696,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 27] = [
+    let rows: [&adw::SwitchRow; 22] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -702,13 +704,8 @@ fn every_switch_triggers_save() {
         &ui.auto_restore,
         &ui.abbrev,
         &ui.bypass_url,
-        &ui.extra_url_chars_switch,
         &ui.em_dash,
         &ui.auto_capitalize,
-        &ui.auto_capitalize_after_switch,
-        &ui.clipboard_restore_switch,
-        &ui.echo_stale_switch,
-        &ui.idle_commit_switch,
         &ui.experimental_features,
         &ui.show_toasts,
         &ui.double_space,
@@ -726,6 +723,21 @@ fn every_switch_triggers_save() {
     for row in rows {
         let before = saves.get();
         row.set_active(!row.is_active());
+        assert!(saves.get() > before, "a switch toggled without saving");
+    }
+    // The merged "Thử nghiệm" rows carry bare GtkSwitch suffixes — same
+    // wiring, different widget type.
+    let switches: [&gtk4::Switch; 6] = [
+        &ui.extra_url_chars_switch,
+        &ui.auto_capitalize_after_switch,
+        &ui.clipboard_restore_switch,
+        &ui.echo_stale_switch,
+        &ui.idle_commit_switch,
+        &ui.flow_backspace_restore_switch,
+    ];
+    for switch in switches {
+        let before = saves.get();
+        switch.set_active(!switch.is_active());
         assert!(saves.get() > before, "a switch toggled without saving");
     }
     // The reported bug end to end: the toggled state survives read(), so
@@ -761,15 +773,21 @@ fn experimental_gate_locks_rows_and_preserves_values() {
         extra_url_chars: "`".into(),
         echo_stale_enabled: true,
         echo_stale_ms: 250,
-        smooth_per_key_delay_ms: 200,
+        flow_per_key_delay_ms: 200,
+        flow_backspace_restore: true,
+        flow_backspace_restore_delay_ms: 40,
         ..Config::default()
     };
     saved.save().expect("seed config");
     let on = Config::load();
     ui.refresh(&on, &macros, &dictionary);
     assert!(ui.macro_valid_words.is_sensitive());
+    // The merged row locks as one unit with the gate.
+    assert!(ui.extra_url_chars_row.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
     assert_eq!(ui.echo_stale_spin.value(), 250.0);
+    assert!(ui.flow_backspace_restore_switch.is_active());
+    assert_eq!(ui.flow_backspace_restore_spin.value(), 40.0);
 
     // Off (driven through the file, as the real funnel produces it): rows
     // locked, shipped defaults on display.
@@ -779,11 +797,14 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     let off = Config::load();
     ui.refresh(&off, &macros, &dictionary);
     assert!(!ui.macro_valid_words.is_sensitive());
+    assert!(!ui.extra_url_chars_row.is_sensitive());
     assert!(!ui.extra_url_chars_entry.is_sensitive());
-    assert!(!ui.smooth_per_key_spin.is_sensitive());
+    assert!(!ui.flow_per_key_spin.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
-    assert_eq!(ui.smooth_per_key_spin.value(), 60.0);
+    assert_eq!(ui.flow_per_key_spin.value(), 60.0);
+    assert!(!ui.flow_backspace_restore_row.is_sensitive());
+    assert_eq!(ui.flow_backspace_restore_spin.value(), 150.0);
 
     // A save with the gate off — the funnel reads the default-displaying
     // widgets — must not wipe the file's values.
@@ -792,7 +813,9 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(!closed.experimental_features);
     assert_eq!(closed.extra_url_chars, "`", "no wipe on save");
     assert_eq!(closed.echo_stale_ms, 250);
-    assert_eq!(closed.smooth_per_key_delay_ms, 200);
+    assert_eq!(closed.flow_per_key_delay_ms, 200);
+    assert!(closed.flow_backspace_restore);
+    assert_eq!(closed.flow_backspace_restore_delay_ms, 40);
 
     // Reopen (what the real toggle does: flip the switch, then the
     // presentation runs in the handler's order — restore first, sensitivity
@@ -800,6 +823,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.experimental_features.set_active(true);
     ui.restore_experimental_saved();
     ui.set_experimental_sensitive(true);
+    assert!(ui.extra_url_chars_row.is_sensitive());
     assert!(ui.extra_url_chars_entry.is_sensitive());
     assert_eq!(
         ui.extra_url_chars_entry.text(),
@@ -813,7 +837,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.set_experimental_sensitive(false);
     ui.show_experimental_defaults();
     assert!(!ui.macro_valid_words.is_sensitive());
-    assert_eq!(ui.smooth_per_key_spin.value(), 60.0);
+    assert_eq!(ui.flow_per_key_spin.value(), 60.0);
     // Hand the sandbox file to the later scenarios the way they expect it:
     // with the gate off, read() reports the file's experimental fields, so
     // a leftover saved value would trip their refresh asserts.

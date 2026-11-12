@@ -91,8 +91,8 @@ pub const MODES: &[(&str, &str, &str)] = &[
     ("nonpreedit", "Không gạch chân", "No underline"),
     ("preedit", "Gạch chân (preedit)", "Underline (preedit)"),
     ("surrounding", "Surrounding text", "Surrounding text"),
-    ("smooth", "Flow (uinput)", "Flow (uinput)"),
-    ("supersmooth", "Turbo (uinput)", "Turbo (uinput)"),
+    ("flow", "Flow (uinput)", "Flow (uinput)"),
+    ("turbo", "Turbo (uinput)", "Turbo (uinput)"),
     ("select", "Select (uinput)", "Select (uinput)"),
     ("forwardkeyevent", "Forward Backspace", "Forward Backspace"),
     ("forwardselect", "Forward Selection", "Forward Selection"),
@@ -802,7 +802,7 @@ mod tests {
         let config = Config {
             menu_modes: vec![
                 "off".into(),
-                "smooth".into(),
+                "flow".into(),
                 "not_a_mode".into(),
                 "preedit".into(),
             ],
@@ -818,11 +818,11 @@ mod tests {
                 .iter()
                 .map(|p| p.key.as_str())
                 .collect::<Vec<_>>(),
-            vec!["display:off", "display:smooth", "display:preedit"]
+            vec!["display:off", "display:flow", "display:preedit"]
         );
         // The check mark follows the active mode even when it is not listed.
         let config = Config {
-            mode: crate::config::ModeConfig::Smooth,
+            mode: crate::config::ModeConfig::Flow,
             menu_modes: vec!["preedit".into(), "off".into()],
             ..Config::default()
         };
