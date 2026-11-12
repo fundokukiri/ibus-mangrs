@@ -38,32 +38,34 @@ fi
 update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
 
 # /dev/uinput access for the real-key injector. The active session's user gets
-# the device through logind's uaccess ACL (data/80-uinput.rules), which ends
+# the device through logind's uaccess ACL (data/70-uinput.rules), which ends
 # with the session. Older installers added the user to the `input` group
 # instead; that group can read every keyboard of the machine, so it is removed.
-rule_src="$here/data/80-uinput.rules"
-rule_dst=/etc/udev/rules.d/80-uinput.rules
+rule_src="$here/data/70-uinput.rules"
+rule_dst=/etc/udev/rules.d/70-uinput.rules
+
+# The rule used to be 80-uinput.rules. udev reads every file in the directory,
+# so a differently named old copy still applies its `GROUP="input"` line and
+# must be removed — only when it is ours (marker, old comment, or that line).
+for legacy in /etc/udev/rules.d/80-uinput.rules "$PREFIX/lib/udev/rules.d/80-uinput.rules"; do
+    [ -f "$legacy" ] || continue
+    if grep -q 'ibus-mangrs' "$legacy" 2>/dev/null ||
+        grep -q 'Backspace keys through /dev/uinput' "$legacy" 2>/dev/null ||
+        grep -q 'GROUP="input"' "$legacy" 2>/dev/null; then
+        rm -f "$legacy"
+        echo "removed the old uinput rule: $legacy"
+    else
+        echo "warning: $legacy was not written by MăngRS; leaving it." >&2
+        echo "         It may keep granting /dev/uinput to the input group." >&2
+    fi
+done
+
 if [ -f "$rule_src" ]; then
-    ours=0
-    if [ -f "$rule_dst" ]; then
-        if grep -q 'ibus-mangrs' "$rule_dst" 2>/dev/null; then
-            ours=1
-        elif grep -q 'Backspace keys through /dev/uinput' "$rule_dst" 2>/dev/null; then
-            ours=1
-        fi
-    else
-        ours=1
-    fi
-    if [ "$ours" -eq 1 ]; then
-        install -Dm644 "$rule_src" "$rule_dst"
-        udevadm control --reload-rules ||
-            echo "warning: udevadm control --reload-rules failed" >&2
-        udevadm trigger --name-match=/dev/uinput ||
-            echo "warning: udevadm trigger /dev/uinput failed" >&2
-    else
-        echo "warning: $rule_dst exists and was not written by MăngRS; leaving it." >&2
-        echo "         It overrides the packaged rule and may keep the old group access." >&2
-    fi
+    install -Dm644 "$rule_src" "$rule_dst"
+    udevadm control --reload-rules ||
+        echo "warning: udevadm control --reload-rules failed" >&2
+    udevadm trigger --name-match=/dev/uinput ||
+        echo "warning: udevadm trigger /dev/uinput failed" >&2
     if [ -n "${SUDO_USER:-}" ]; then
         if id -nG "$SUDO_USER" 2>/dev/null | tr ' ' '\n' | grep -qx input; then
             if gpasswd -d "$SUDO_USER" input >/dev/null 2>&1; then

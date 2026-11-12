@@ -9,10 +9,12 @@ If you still belong to `input` (older install), remove it:
 Log out and back in afterwards. The group can read every keystroke of the
 machine, so keep it only if another tool of yours needs raw input access.
 
-A leftover /etc/udev/rules.d/80-uinput.rules overrides the packaged rule.
-Remove it so the session ACL applies:
+The rule is now 70-uinput.rules. If an older version left
+/etc/udev/rules.d/80-uinput.rules behind, udev still reads it and it keeps
+handing /dev/uinput to the `input` group. Remove it:
     sudo rm /etc/udev/rules.d/80-uinput.rules
     sudo udevadm control --reload-rules
+    sudo udevadm trigger --name-match=/dev/uinput
 EOF
 }
 

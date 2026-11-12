@@ -25,8 +25,8 @@ package() {
         "$pkgdir/usr/lib/ibus-mangrs/ibus-engine-mangrs"
     install -Dm644 data/ibus-mangrs.xml \
         "$pkgdir/usr/share/ibus/component/ibus-mangrs.xml"
-    install -Dm644 data/80-uinput.rules \
-        "$pkgdir/usr/lib/udev/rules.d/80-uinput.rules"
+    install -Dm644 data/70-uinput.rules \
+        "$pkgdir/usr/lib/udev/rules.d/70-uinput.rules"
     install -Dm644 data/logo.png \
         "$pkgdir/usr/share/icons/hicolor/512x512/apps/ibus-mangrs.png"
     install -Dm644 data/org.freedesktop.IBus.mangrs.desktop \

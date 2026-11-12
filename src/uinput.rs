@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn device_opens_with_correct_permissions() {
-        // Needs /dev/uinput readable+writable (udev rule 80-uinput.rules).
+        // Needs /dev/uinput readable+writable (udev rule 70-uinput.rules).
         // Without it the engine falls back to the protocol delete, so a
         // sandbox/CI without the device is not a code failure. Set
         // MANGRS_REQUIRE_UINPUT=1 to enforce the hardware check.
