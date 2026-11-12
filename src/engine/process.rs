@@ -564,6 +564,11 @@ impl Engine {
             }
         }
         let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
+        // A deferred Backspace correction means the tracked region's screen is
+        // one character behind the composition (`chao` on screen, `chào` in
+        // the wrapper). This key must rewrite the WHOLE word instead of
+        // applying a delta computed against the wrapper's old output.
+        let full_rewrite = self.deferred_fix.take().is_some();
         match self.wrapper.process_char(c) {
             Outcome::PassThrough => {
                 // The key produced no composition change (an inapplicable
@@ -574,7 +579,11 @@ impl Engine {
                     // this path. `want` is built from the pre-key tail —
                     // coalescing with the tail already grown would look
                     // like "no change" and cancel the pending insert.
-                    let want = format!("{}{}", self.tail, c);
+                    let want = if full_rewrite {
+                        format!("{}{}", encode(self.charset, &self.wrapper.output()), c)
+                    } else {
+                        format!("{}{}", self.tail, c)
+                    };
                     actions.extend(self.per_key_coalesce(want));
                     return actions;
                 }
@@ -589,7 +598,9 @@ impl Engine {
                 // display the composed delta applies immediately through
                 // the injected transport.
                 if per_key {
-                    let want = if self.charset == Charset::Unicode {
+                    let want = if full_rewrite {
+                        encode(self.charset, &self.wrapper.output())
+                    } else if self.charset == Charset::Unicode {
                         replace_tail(&self.tail, edit.delete_chars, &edit.insert)
                     } else {
                         // Legacy encodings change the character count: the
@@ -624,7 +635,7 @@ impl Engine {
     /// REPLACED — one commit per batch, emitted by the main-loop tick past
     /// the deadline, so deletes can never overtake it and fast typing
     /// coalesces instead of mis-ordering. An empty diff cancels the park.
-    fn per_key_coalesce(&mut self, want: String) -> Vec<Action> {
+    pub(super) fn per_key_coalesce(&mut self, want: String) -> Vec<Action> {
         let pending_len = self
             .per_key_park
             .as_ref()
@@ -678,6 +689,35 @@ impl Engine {
     /// from there, the accepted cost of dropping the injection.
     pub(super) fn backspace_per_key(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
+        // Experimental: the last key undid a mark, so bamboo shows the raw keys
+        // again (`chào` + `f` gives `chaof`). The wrapper works out the target
+        // with the user's "Backspace xóa dấu" setting, exactly like the inline
+        // modes (ToneFirst and UnikeyWalk pop the key and the mark returns,
+        // WholeChar deletes a visible character). The user's own Backspace
+        // does the deleting; the correction that brings the mark back is
+        // deferred to the main loop, because injected Backspaces emitted while
+        // this key is being handled never reach the application (measured in
+        // the owner's log: 3 injected presses, no echo, only the commit
+        // landed, and the word duplicated).
+        if self.flow_backspace_retrack && self.wrapper.undo_in_word() {
+            self.wrapper.set_backspace_tone(self.backspace_tone);
+            if self.wrapper.backspace().is_some() {
+                if let Some((_, text)) = self.per_key_park.take() {
+                    actions.push(Action::CommitNow(text));
+                }
+                // What the application will hold once it applies this key.
+                self.tail = replace_tail(&self.tail, 1, "");
+                let want = encode(self.charset, &self.wrapper.output());
+                self.deferred_fix = Some((
+                    Instant::now() + Duration::from_millis(Self::DEFERRED_FIX_MS),
+                    want,
+                ));
+                debug_log::log("per-key backspace schedules an undone-mark fix");
+                self.note_backspace_forwarded();
+                actions.push(Action::Forward);
+                return actions;
+            }
+        }
         // The pass-through Backspace deletes one character of the FINAL
         // screen: land the in-flight batch first, or the key deletes a
         // character the batch was still going to add.

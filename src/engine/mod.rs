@@ -317,6 +317,10 @@ pub struct Engine {
     /// erasing it may restore the region behind it. A real word clears this
     /// on its first composing key.
     region_plain: bool,
+    /// Screen correction waiting for the user's Backspace to land: the text
+    /// the tracked region must read, once the main loop wakes. See
+    /// `DEFERRED_FIX_MS` for why it cannot be emitted with the key.
+    deferred_fix: Option<(Instant, String)>,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -437,6 +441,13 @@ impl Engine {
     /// window with margin while staying imperceptible at word end.
     pub const ECHO_APPLY_GRACE_MS: u64 = 60;
 
+    /// How long the experimental Backspace waits before correcting the screen
+    /// after the application applied the user's own Backspace. Backspaces the
+    /// engine injects while that key is still being handled never reach the
+    /// application (measured: 3 injected presses, no echo, only the commit
+    /// landed), so the rewrite must wait until the physical key is long gone.
+    pub const DEFERRED_FIX_MS: u64 = 150;
+
     pub fn new(method: Method, mode: Mode) -> Self {
         let mut engine = Self {
             wrapper: BambooWrapper::new(method, bamboo_core::Config::default()),
@@ -513,6 +524,7 @@ impl Engine {
             flow_backspace_retrack: false,
             landed_region: String::new(),
             region_plain: false,
+            deferred_fix: None,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -654,6 +666,7 @@ impl Engine {
         // land mid-word, so it starts clean.
         self.landed_region.clear();
         self.region_plain = false;
+        self.deferred_fix = None;
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
@@ -1602,6 +1615,7 @@ impl Engine {
         self.tail.clear();
         self.landed_region.clear();
         self.region_plain = false;
+        self.deferred_fix = None;
         self.repair_delete = None;
         self.release_word_mode();
         self.url_word = false;
@@ -1686,6 +1700,16 @@ impl Engine {
             debug_log::log("timed commit flush (per-key)");
             actions.push(action);
         }
+        // The experimental Backspace's correction: by now the user's own
+        // Backspace has landed, so injected deletes reach the application
+        // (they never do while the key is still being handled).
+        if let Some((deadline, want)) = self.deferred_fix.clone() {
+            if deadline <= Instant::now() {
+                self.deferred_fix = None;
+                debug_log::log("deferred backspace fix: rewrite the region");
+                actions.extend(self.per_key_coalesce(want));
+            }
+        }
         if self.take_stale_injection(self.echo_stale()) {
             for text in self.flush_deferred() {
                 actions.push(Action::Commit(text));
@@ -1765,6 +1789,14 @@ impl Engine {
             );
         }
         if let Some((deadline, _)) = &self.per_key_park {
+            deadlines.push(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_millis()
+                    .max(1) as u64,
+            );
+        }
+        if let Some((deadline, _)) = &self.deferred_fix {
             deadlines.push(
                 deadline
                     .saturating_duration_since(Instant::now())
