@@ -678,6 +678,28 @@ impl Engine {
     /// from there, the accepted cost of dropping the injection.
     pub(super) fn backspace_per_key(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
+        // Experimental: the last key undid a mark, so bamboo shows the raw
+        // keys again (`chào` + `f` gives `chaof`). With the unikey walk the
+        // convention is "undo the last key and recompose", so popping that key
+        // brings the mark back (`chào`); the other two settings delete a
+        // visible character instead and take the plain path below.
+        //
+        // The pending batch is deliberately NOT landed here: the coalesce
+        // replaces its parked text in one park. Landing it would put a
+        // synchronous commit and injected deletes in the same dispatch, and
+        // their order is not guaranteed — the live bug was `chaof` Backspace
+        // becoming `chaofào` (the deletes landed before the commit).
+        if self.flow_backspace_retrack
+            && self.backspace_tone == BackspaceToneConfig::UnikeyWalk
+            && self.wrapper.undo_in_word()
+            && self.wrapper.backspace().is_some()
+        {
+            let want = encode(self.charset, &self.wrapper.output());
+            debug_log::log("per-key backspace restores an undone mark (unikey walk)");
+            actions.extend(self.per_key_coalesce(want));
+            self.note_backspace_forwarded();
+            return actions;
+        }
         // The pass-through Backspace deletes one character of the FINAL
         // screen: land the in-flight batch first, or the key deletes a
         // character the batch was still going to add.

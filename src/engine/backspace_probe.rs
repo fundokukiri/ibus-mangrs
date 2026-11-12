@@ -434,6 +434,59 @@ fn target_committed_word_comes_back_after_the_litter_is_erased() {
 }
 
 #[test]
+fn target_undone_mark_comes_back_on_backspace() {
+    // Owner: type `chào`, press `f` again — the tone is undone and the raw
+    // keys show (`chaof`); with the unikey walk Backspace gives `chào` back.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = tone(mode, BackspaceToneConfig::UnikeyWalk);
+        let (screen, e) = screen_of(mode, cfg, "chaoff\u{8}");
+        assert_eq!(screen, "chào", "{mode:?}");
+        assert_eq!(e.tail, "chào", "{mode:?}");
+        assert!(e.wrapper.has_composition(), "{mode:?}");
+    }
+}
+
+#[test]
+fn target_undone_mark_follows_the_delete_mode() {
+    // The other two settings delete a visible character: the screen shows the
+    // raw keys (`chaof`), so Backspace leaves `chao`.
+    for t in [
+        BackspaceToneConfig::WholeChar,
+        BackspaceToneConfig::ToneFirst,
+    ] {
+        for mode in [Mode::Flow, Mode::Turbo] {
+            let (_, cfg) = tone(mode, t);
+            let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}");
+            assert_eq!(screen, "chao", "{mode:?} {t:?}");
+        }
+    }
+}
+
+#[test]
+fn target_repeated_backspace_after_an_undone_mark_never_duplicates() {
+    // The live bug: `chaof` + Backspace x5 produced `chaofào`, `chaofàoao`, …
+    // Every step must only shorten the screen.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = tone(mode, BackspaceToneConfig::UnikeyWalk);
+        let (screen, _) = screen_of(mode, cfg.clone(), "chaoff\u{8}\u{8}");
+        assert_eq!(screen, "chao", "{mode:?}");
+        let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}");
+        assert_eq!(screen, "", "{mode:?}");
+    }
+}
+
+#[test]
+fn target_gate_off_keeps_the_plain_backspace() {
+    // The switch off is today's behavior byte for byte: the undone mark stays
+    // undone (`chaof` Backspace gives `chao`).
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = per_key(mode);
+        let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}");
+        assert_eq!(screen, "chao", "{mode:?}");
+    }
+}
+
+#[test]
 fn target_restore_never_resurrects_a_deleted_word() {
     // Guard: deleting into a committed word must NOT bring it back — `chào`
     // BS BS leaves `chà` and no composition.
