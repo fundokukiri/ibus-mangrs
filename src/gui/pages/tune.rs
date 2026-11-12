@@ -46,8 +46,11 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     pacing.add(&ui.post_delay);
     // The per-key display row lives with the pacing knobs: it shapes the
     // same uinput word rendering. One merged row — the switch and its delay
-    // — outside the experimental gate, like the merged rows elsewhere.
+    // — outside the experimental gate, like the merged rows elsewhere. The
+    // pinned title width puts its divider column where the Experimental
+    // tab's merged rows sit.
     pacing.add(&ui.flow_per_key_row);
+    uniform_title_width(&ui.flow_per_key_row);
     {
         // The switch saves through the central `wire_switch_saves`; the spin
         // is new here and needs its own value hook, like the pacing spins.
