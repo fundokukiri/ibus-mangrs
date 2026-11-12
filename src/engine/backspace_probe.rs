@@ -91,6 +91,7 @@ fn probe_backspace_tone_matrix() {
 struct Sim {
     e: Engine,
     buf: Vec<char>,
+    preedit: String,
 }
 
 impl Sim {
@@ -102,7 +103,11 @@ impl Sim {
         e.set_client(Some("gtk4-im:probe".into()));
         e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
         e.set_uinput_available(true);
-        Self { e, buf: Vec::new() }
+        Self {
+            e,
+            buf: Vec::new(),
+            preedit: String::new(),
+        }
     }
 
     fn apply(&mut self, actions: &[Action]) {
@@ -116,7 +121,12 @@ impl Sim {
                     self.buf
                         .truncate(self.buf.len().saturating_sub(*n as usize));
                 }
-                Action::Commit(t) | Action::CommitNow(t) => self.buf.extend(t.chars()),
+                Action::Commit(t) | Action::CommitNow(t) => {
+                    self.buf.extend(t.chars());
+                    self.preedit.clear();
+                }
+                Action::UpdatePreedit { text, .. } => self.preedit = text.clone(),
+                Action::HidePreedit => self.preedit.clear(),
                 _ => {}
             }
         }
@@ -129,7 +139,9 @@ impl Sim {
     }
 
     fn screen(&self) -> String {
-        self.buf.iter().collect()
+        let mut s: String = self.buf.iter().collect();
+        s.push_str(&self.preedit);
+        s
     }
 
     fn state(&self) -> String {
@@ -170,13 +182,27 @@ impl Sim {
     }
 
     fn flush(&mut self) {
-        if let Some((deadline, _)) = self.e.per_key_park.as_mut() {
-            *deadline = Instant::now() - Duration::from_millis(1);
+        // Wake every parked thing the engine may hold — the per-key batch and
+        // the experimental Backspace's deferred correction — and land the
+        // commit the correction parks in turn.
+        for _ in 0..3 {
+            let mut woke = false;
+            if let Some((deadline, _)) = self.e.per_key_park.as_mut() {
+                *deadline = Instant::now() - Duration::from_millis(1);
+                woke = true;
+            }
+            if let Some((deadline, _)) = self.e.deferred_fix.as_mut() {
+                *deadline = Instant::now() - Duration::from_millis(1);
+                woke = true;
+            }
+            if !woke {
+                break;
+            }
+            let actions = self.e.tick();
+            self.apply(&actions);
+            println!("  flush   {actions:?}");
+            println!("       {}", self.state());
         }
-        let actions = self.e.tick();
-        self.apply(&actions);
-        println!("  flush   {actions:?}");
-        println!("       {}", self.state());
     }
 
     /// Type `script`; `~` flushes the per-key batch, `\u{8}` is a Backspace.
@@ -188,7 +214,7 @@ impl Sim {
                 self.step("key", step);
             }
         }
-        if self.e.per_key_park.is_some() {
+        if self.e.per_key_park.is_some() || self.e.deferred_fix.is_some() {
             self.flush();
         }
     }
@@ -430,6 +456,111 @@ fn target_committed_word_comes_back_after_the_litter_is_erased() {
         assert_eq!(screen, "chào", "{mode:?}");
         assert_eq!(e.tail, "chào", "{mode:?}");
         assert!(e.wrapper.has_composition(), "{mode:?}");
+    }
+}
+
+#[test]
+fn probe_inline_reference() {
+    for tone in [
+        BackspaceToneConfig::ToneFirst,
+        BackspaceToneConfig::WholeChar,
+        BackspaceToneConfig::UnikeyWalk,
+    ] {
+        println!("\n-- inline Preedit {tone:?} --");
+        let mut sim = Sim::new(
+            Mode::Preedit,
+            Config {
+                backspace_tone: tone,
+                ..Config::default()
+            },
+        );
+        sim.run("chaoff\u{8}");
+        println!(
+            "  final screen={:?} preedit={:?}",
+            sim.screen(),
+            sim.preedit
+        );
+    }
+}
+
+#[test]
+fn target_undone_mark_matches_the_inline_modes() {
+    // The owner's requirement: for `chào` + `f` + Backspace the uinput modes
+    // must produce what Preedit / NonPreedit / Surrounding produce with the
+    // same "Backspace xóa dấu" setting — ToneFirst `chào`, WholeChar `chao`,
+    // UnikeyWalk `chào`. The correction is deferred, so the harness settles
+    // the main loop before reading the screen.
+    for t in [
+        BackspaceToneConfig::ToneFirst,
+        BackspaceToneConfig::WholeChar,
+        BackspaceToneConfig::UnikeyWalk,
+    ] {
+        let (inline, _) = screen_of(
+            Mode::Preedit,
+            Config {
+                backspace_tone: t,
+                ..Config::default()
+            },
+            "chaoff\u{8}",
+        );
+        for mode in [Mode::Flow, Mode::Turbo] {
+            let (_, cfg) = tone(mode, t);
+            let (screen, e) = screen_of(mode, cfg.clone(), "chaoff\u{8}");
+            assert_eq!(screen, inline, "{mode:?} {t:?}");
+            assert_eq!(e.tail, inline, "{mode:?} {t:?}");
+            assert!(e.deferred_fix.is_none(), "{mode:?}: fix must have landed");
+        }
+    }
+}
+
+#[test]
+fn target_undone_mark_follows_the_delete_mode() {
+    // The concrete values behind the comparison above.
+    for (t, expected) in [
+        (BackspaceToneConfig::ToneFirst, "chào"),
+        (BackspaceToneConfig::WholeChar, "chao"),
+        (BackspaceToneConfig::UnikeyWalk, "chào"),
+    ] {
+        for mode in [Mode::Flow, Mode::Turbo] {
+            let (_, cfg) = tone(mode, t);
+            let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}");
+            assert_eq!(screen, expected, "{mode:?} {t:?}");
+        }
+    }
+}
+
+#[test]
+fn target_repeated_backspace_after_an_undone_mark_never_duplicates() {
+    // The live bug: `chaof` + Backspace x5 produced `chaofào`, `chaofàoao`, …
+    // Every step must only shorten the screen.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = tone(mode, BackspaceToneConfig::UnikeyWalk);
+        let (screen, _) = screen_of(mode, cfg.clone(), "chaoff\u{8}\u{8}");
+        assert_eq!(screen, "chao", "{mode:?}");
+        let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}");
+        assert_eq!(screen, "", "{mode:?}");
+    }
+}
+
+#[test]
+fn target_typing_before_the_fix_lands_keeps_the_mark() {
+    // The correction is only deferred, not lost: a tone key typed immediately
+    // after the Backspace collapses both into one rewrite.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = tone(mode, BackspaceToneConfig::UnikeyWalk);
+        let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}s");
+        assert_eq!(screen, "cháo", "{mode:?}");
+    }
+}
+
+#[test]
+fn target_gate_off_keeps_the_plain_backspace() {
+    // The switch off is today's behavior byte for byte: the undone mark stays
+    // undone (`chaof` Backspace gives `chao`).
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = per_key(mode);
+        let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}");
+        assert_eq!(screen, "chao", "{mode:?}");
     }
 }
 
