@@ -514,7 +514,7 @@ subtitle = "Keeps the underline for XIM apps: the in-flight text shows in its ow
 
 [rows.pacing]
 title = "uinput pacing (ms)"
-subtitle = "The pauses between the virtual keys, in ms. Default: {n}"
+subtitle = "The pauses between the virtual keys. Default: {n}"
 
 [rows.commit_interval]
 title = "Typing pace"
