@@ -1,6 +1,6 @@
 [package]
 name = "ibus-mangrs"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 authors = ["fundoku"]
 description = "MăngRS - Vietnamese IBus engine built on bamboo-core (make by fundoku with agents coding)"
@@ -15,9 +15,11 @@ name = "ibus-engine-mangrs"
 path = "src/main.rs"
 
 [dependencies]
-# 0.5.4 (tag 99a02d9) carries the 08/11 hot-path perf merge plus the
-# FFI-safety audit branch; the wrapper guards it actually needs stay.
-bamboo-core = "0.5.4"
+# 0.5.5 keeps a completed syllable when a mark key is refused (the wrapper's
+# kept-composition guard now only covers the raw-revert shape) and accepts
+# f/j/w as onset consonants (the auto-restore refuses those words, which are
+# never Vietnamese syllables).
+bamboo-core = "0.5.5"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dbus = "0.9.12"
 dirs = "6"

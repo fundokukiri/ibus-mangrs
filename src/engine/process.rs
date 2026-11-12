@@ -334,6 +334,9 @@ impl Engine {
             ));
         }
         actions.push(Action::Commit(replacement));
+        // The word is gone from the screen: a stale tail made the next
+        // Backspace and word model operate on text that is no longer there.
+        self.tail.clear();
         self.note_char(':');
         Some(actions)
     }
@@ -513,7 +516,19 @@ impl Engine {
     /// in the dictionary, is never restored. Shared by the preedit display and
     /// the word end so the client commits the same string a word break would.
     fn should_auto_restore(&self, word: &str, raw: &str, valid_prefix: bool) -> bool {
-        if !self.auto_restore || word.is_empty() || word == raw || valid_prefix {
+        if !self.auto_restore || word.is_empty() || word == raw {
+            return false;
+        }
+        // bamboo-core 0.5.5 accepts f/j/w as onset consonants, so an English
+        // word starting with one (`fire` -> `fỉe`) counts as a still-valid
+        // prefix and would never go back to its raw keys. No Vietnamese
+        // syllable starts with them, so a word there that is not a real
+        // syllable is restored instead of showing marks mid-word.
+        let extended_onset = raw
+            .chars()
+            .next()
+            .is_some_and(|c| matches!(c.to_ascii_lowercase(), 'f' | 'j' | 'w'));
+        if valid_prefix && !extended_onset {
             return false;
         }
         let dict_hit = self
