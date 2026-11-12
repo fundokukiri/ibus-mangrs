@@ -676,7 +676,7 @@ fn row_texts_render_as_plain_text() {
     for markup_off in [
         !ui.bypass_url.uses_markup(),
         !ui.method.uses_markup(),
-        !ui.commit_interval.uses_markup(),
+        !ui.flow_per_key_row.uses_markup(),
         !ui.rule_preview.uses_markup(),
     ] {
         assert!(markup_off, "row titles and subtitles must be plain text");
