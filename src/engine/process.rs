@@ -16,6 +16,7 @@ pub(super) enum CandidateEnd {
 impl Engine {
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
+        self.tail_ends_word = false;
         // The idle-commit clock: only stamped while the feature is on, so
         // the default path costs nothing.
         if self.idle_commit_enabled {
@@ -334,6 +335,9 @@ impl Engine {
             ));
         }
         actions.push(Action::Commit(replacement));
+        // The word is gone from the screen: a stale tail made the next
+        // Backspace and word model operate on text that is no longer there.
+        self.tail.clear();
         self.note_char(':');
         Some(actions)
     }
@@ -513,7 +517,19 @@ impl Engine {
     /// in the dictionary, is never restored. Shared by the preedit display and
     /// the word end so the client commits the same string a word break would.
     fn should_auto_restore(&self, word: &str, raw: &str, valid_prefix: bool) -> bool {
-        if !self.auto_restore || word.is_empty() || word == raw || valid_prefix {
+        if !self.auto_restore || word.is_empty() || word == raw {
+            return false;
+        }
+        // bamboo-core 0.5.5 accepts f/j/w as onset consonants, so an English
+        // word starting with one (`fire` -> `fỉe`) counts as a still-valid
+        // prefix and would never go back to its raw keys. No Vietnamese
+        // syllable starts with them, so a word there that is not a real
+        // syllable is restored instead of showing marks mid-word.
+        let extended_onset = raw
+            .chars()
+            .next()
+            .is_some_and(|c| matches!(c.to_ascii_lowercase(), 'f' | 'j' | 'w'));
+        if valid_prefix && !extended_onset {
             return false;
         }
         let dict_hit = self
@@ -549,13 +565,37 @@ impl Engine {
                         actions.push(Action::CommitNow(text));
                     }
                     self.tail.clear();
+                    self.landed_region.clear();
+                    self.region_plain = true;
                 } else if self.per_key_park.is_none() {
-                    self.tail.clear();
+                    // The experiment remembers the region that just landed:
+                    // erasing a stray key from the new one gives it back.
+                    if self.flow_backspace_retrack {
+                        self.landed_region = std::mem::take(&mut self.tail);
+                    } else {
+                        self.tail.clear();
+                    }
+                    self.region_plain = true;
+                    self.undo_key_at = None;
                 }
             }
         }
         let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
-        match self.wrapper.process_char(c) {
+        // A key arriving before the deferred correction fires cancels it: the
+        // compose delta below is computed against the wrapper's old output,
+        // which still carries the mark, and lands on the shortened screen —
+        // the correction is folded into this key.
+        self.deferred_fix = None;
+        // The undo of a mark is one key event: remember where the raw keys
+        // stood when it happened, so only an immediate Backspace treats it as
+        // the erase to restore (`undo_in_word` itself stays set for the whole
+        // word and made every later Backspace restore instead of deleting).
+        let undo_before = self.wrapper.undo_in_word();
+        let outcome = self.wrapper.process_char(c);
+        if !undo_before && self.wrapper.undo_in_word() {
+            self.undo_key_at = Some(self.wrapper.raw().chars().count());
+        }
+        match outcome {
             Outcome::PassThrough => {
                 // The key produced no composition change (an inapplicable
                 // mark key, say) — it is still a literal on screen.
@@ -587,9 +627,15 @@ impl Engine {
                         // screen must hold the whole re-encoded tail.
                         encode(self.charset, &self.wrapper.output())
                     };
+                    // A key only keeps the region "plain" while the composition
+                    // is still the raw keys; the first real transform (a mark,
+                    // `dd` -> đ) makes it a word, and a word is never restored
+                    // over an erased region.
+                    self.region_plain &= self.wrapper.output() == self.wrapper.raw();
                     actions.extend(self.per_key_coalesce(want));
                     return actions;
                 }
+                self.region_plain = false;
                 actions.push(Action::Forward);
                 actions
             }
@@ -609,7 +655,7 @@ impl Engine {
     /// REPLACED — one commit per batch, emitted by the main-loop tick past
     /// the deadline, so deletes can never overtake it and fast typing
     /// coalesces instead of mis-ordering. An empty diff cancels the park.
-    fn per_key_coalesce(&mut self, want: String) -> Vec<Action> {
+    pub(super) fn per_key_coalesce(&mut self, want: String) -> Vec<Action> {
         let pending_len = self
             .per_key_park
             .as_ref()
@@ -663,16 +709,118 @@ impl Engine {
     /// from there, the accepted cost of dropping the injection.
     pub(super) fn backspace_per_key(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
+        // A second Backspace before the first correction fired means the user
+        // is deleting, not fixing: drop the pending rewrite (it would put back
+        // the character this key removes).
+        self.deferred_fix = None;
+        // Experimental: the last key undid a mark, so bamboo shows the raw keys
+        // again (`chào` + `f` gives `chaof`). The wrapper works out the target
+        // with the user's "Backspace xóa dấu" setting, exactly like the inline
+        // modes (ToneFirst and UnikeyWalk pop the key and the mark returns,
+        // WholeChar deletes a visible character). The user's own Backspace
+        // does the deleting; the correction that brings the mark back is
+        // deferred to the main loop, because injected Backspaces emitted while
+        // this key is being handled never reach the application (measured in
+        // the owner's log: 3 injected presses, no echo, only the commit
+        // landed, and the word duplicated).
+        if self.flow_backspace_retrack
+            && self.flow_backspace_restore
+            && self.wrapper.undo_in_word()
+            && self.undo_key_at == Some(self.wrapper.raw().chars().count())
+        {
+            self.wrapper.set_backspace_tone(self.backspace_tone);
+            if self.wrapper.backspace().is_some() {
+                self.undo_key_at = None;
+                if let Some((_, text)) = self.per_key_park.take() {
+                    actions.push(Action::CommitNow(text));
+                }
+                // What the application will hold once it applies this key.
+                self.tail = replace_tail(&self.tail, 1, "");
+                let want = encode(self.charset, &self.wrapper.output());
+                self.deferred_fix = Some((
+                    Instant::now() + Duration::from_millis(self.flow_backspace_restore_delay_ms),
+                    want,
+                ));
+                debug_log::log("per-key backspace schedules an undone-mark fix");
+                self.note_backspace_forwarded();
+                actions.push(Action::Forward);
+                return actions;
+            }
+        }
+        // Experimental: "Xóa dấu trước" (ToneFirst) on a tracked word. The
+        // inline modes drop the tone (`tùng` -> `tung`) while a plain
+        // Backspace would lose the last screen character (`tùn`), so the
+        // screen rewrite is deferred past the key release like the restore
+        // above. Without the switch the wrapper keeps the unikey walk.
+        if self.flow_backspace_retrack
+            && self.flow_backspace_restore
+            && self.backspace_tone == BackspaceToneConfig::ToneFirst
+            && !(self.url_word || self.emoji_word)
+            // Erasing a word terminator is a delete of that character: the
+            // word behind it comes back for editing, it does not lose its
+            // tone (`chào ` + Backspace must stay `chào`).
+            && !self
+                .tail
+                .chars()
+                .last()
+                .is_some_and(crate::bamboo_wrapper::is_word_terminator)
+            // A digit ends the word for the Telex-family presets but is not a
+            // terminator character, so the check above misses it: erasing the
+            // digit is a delete too (`việt` + `6` + Backspace stays `việt`).
+            && !self.tail_ends_word
+        {
+            let target = replace_tail(&self.tail, 1, "");
+            // The wrapper must still describe the screen this key deletes
+            // from. A live composition matches the pre-delete tail; a rebuilt
+            // one was just re-derived from `target`. A cancelled correction (a
+            // key arrived first) leaves it ahead, and stacking another mode
+            // rewrite on that would put text back the user is deleting — the
+            // plain path below handles that case.
+            let in_sync = if self.wrapper.has_composition() {
+                encode(self.charset, &self.wrapper.output()) == self.tail
+            } else {
+                self.wrapper.retrack_from_screen(&target)
+            };
+            if in_sync {
+                self.wrapper
+                    .set_backspace_tone(BackspaceToneConfig::ToneFirst);
+                if self.wrapper.backspace().is_some() {
+                    if let Some((_, text)) = self.per_key_park.take() {
+                        actions.push(Action::CommitNow(text));
+                    }
+                    let want = encode(self.charset, &self.wrapper.output());
+                    let differs = want != target;
+                    self.tail = target;
+                    if differs {
+                        self.deferred_fix = Some((
+                            Instant::now()
+                                + Duration::from_millis(self.flow_backspace_restore_delay_ms),
+                            want,
+                        ));
+                        debug_log::log("per-key backspace schedules a tone-first fix");
+                    }
+                    if !self.wrapper.has_composition() {
+                        self.release_word_mode();
+                    }
+                    self.note_backspace_forwarded();
+                    actions.push(Action::Forward);
+                    return actions;
+                }
+            }
+        }
         // The pass-through Backspace deletes one character of the FINAL
         // screen: land the in-flight batch first, or the key deletes a
         // character the batch was still going to add.
+        let mut ran_park = false;
         if let Some((_, text)) = self.per_key_park.take() {
             debug_log::log(&format!(
                 "per-key backspace lands the batch len={}",
                 text.chars().count()
             ));
             actions.push(Action::CommitNow(text));
+            ran_park = true;
         }
+        let region_len = self.tail.chars().count();
         let target = replace_tail(&self.tail, 1, "");
         let raw_len = self.wrapper.raw().chars().count();
         let mut matched = false;
@@ -708,6 +856,45 @@ impl Engine {
             self.tail = target;
             self.idle_committed = None;
         }
+        // Experimental: a region that never composed anything was a stray key
+        // typed over a finished word (`chào ` then `f`). Erasing it gives the
+        // word behind it back to the composition, so the next mark key edits
+        // it instead of starting a new word. The terminator the user typed
+        // after the word is retracted too, so the word ends up at the caret
+        // exactly as if the terminator had been erased by hand — the injected
+        // delete lands before the user's own Backspace, which then removes the
+        // stray key. Raw-forwarder spans never rebuild.
+        if self.flow_backspace_retrack
+            && region_len == 1
+            && self.tail.is_empty()
+            && self.region_plain
+            && !self.landed_region.is_empty()
+            && !(self.url_word || self.emoji_word)
+        {
+            let word = self
+                .landed_region
+                .trim_end_matches(|c: char| crate::bamboo_wrapper::is_word_terminator(c))
+                .to_string();
+            if !word.is_empty() && self.wrapper.retrack_from_screen(&word) {
+                let suffix = self.landed_region.chars().count() - word.chars().count();
+                if ran_park {
+                    // The stray key was still in the batch: cancel it, the
+                    // screen never showed it, and the user's own Backspace
+                    // erases the terminator instead.
+                    if matches!(actions.last(), Some(Action::CommitNow(_))) {
+                        actions.pop();
+                    }
+                } else if suffix > 0 {
+                    // The stray key is already on screen; the injected delete
+                    // and the forwarded key remove two characters (the stray
+                    // key and the terminator), so their order does not matter.
+                    actions.push(Action::InjectBackspaces(suffix as u32));
+                }
+                self.tail = word;
+                self.region_plain = false;
+                self.landed_region.clear();
+            }
+        }
         self.note_backspace_forwarded();
         actions.push(Action::Forward);
         actions
@@ -726,6 +913,12 @@ impl Engine {
         c: char,
     ) -> Vec<Action> {
         let _ = valid;
+        // The key that just arrived closed the word and is the last character
+        // of the tracked region: Backspace erases that key, not the word.
+        self.tail_ends_word = true;
+        // A word that reached its end is a word, not litter: it never gives a
+        // previous region back if the user later erases it.
+        self.region_plain = false;
         // Per-key display: `tail` is the text the application holds (the
         // progressively committed word) — the word-end rewrites below erase
         // by it, so it must survive.

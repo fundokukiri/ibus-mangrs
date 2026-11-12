@@ -183,8 +183,8 @@ title = "Nhấn “Space” hai lần thành dấu chấm"
 subtitle = "Hai dấu cách thành dấu chấm"
 
 [rows.macro_valid_words]
-title = "Gõ tắt: nở cả trên từ hợp lệ"
-subtitle = "Phím tắt trùng từ thật vẫn nở"
+title = "Gõ tắt trên từ hợp lệ"
+subtitle = "Phím tắt trùng từ thật vẫn thành công"
 
 [rows.extra_url_chars]
 title = "Thêm ký tự giữ nguyên dấu"
@@ -260,6 +260,10 @@ subtitle = "Trễ đổ chữ có dấu vào văn bản"
 [rows.flow_backspace_retrack]
 title = "Sửa dấu sau Backspace (Flow/Turbo)"
 subtitle = "Xoá một ký tự rồi gõ dấu — từ vẫn biến hoá"
+
+[rows.flow_backspace_restore]
+title = "Hoàn dấu sau Backspace (Flow/Turbo)"
+subtitle = "Xoá phím đã gỡ dấu — dấu hiện lại"
 
 [rows.macro_enabled]
 title = "Bật gõ tắt"
@@ -614,4 +618,5 @@ echo_stale = "Bảo vệ xả commit trên Wayland: chờ các phím Backspace �
 idle_commit = "Tính năng Chấp nhận từ khi nghỉ gõ: dừng tay quá lâu trên một từ đang gạch chân thì từ đó được commit luôn, như bấm dấu cách. Số ms bên phải là ngưỡng nghỉ tay.Số ms bên phải là ngưỡng nghỉ tay. 300–2000 ms."
 flow_per_key_delay = "Tính năng Hiện dấu từng bước ở Flow (công tắc nằm ở tab Tinh chỉnh): số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 60.0–500 ms, mặc định 60. Quá thấp có thể làm lệch thứ tự chữ trên Wayland."
 flow_backspace_retrack = "Tính năng Sửa dấu sau Backspace ở Flow/Turbo: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước đang bật."
+flow_backspace_restore = "Tính năng Hoàn dấu sau Backspace: gõ chào rồi gõ thêm f (dấu bị gỡ, màn hình thành chaof), bấm Backspace thì dấu quay lại (chào) — theo đúng cài đặt “Xóa dấu bằng Backspace”: Unikey và Xóa dấu trước trả lại dấu, Cả ký tự thì xoá một ký tự. Số ms bên phải là thời gian chờ sau Backspace rồi mới sửa màn hình (0–1000, mặc định 150). Cần bật cả Sửa dấu sau Backspace."
 nav_key_while_preedit = "Tính năng Phím điều hướng khi còn từ: khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên sẽ nuốt để commit trước (mặc định, nhấn hai lần mới chạy) hoặc cho caret chạy ngay lần đầu. Nếu chữ bị chèn sai chỗ thì quay lại Nuốt."

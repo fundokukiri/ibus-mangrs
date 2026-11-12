@@ -34,6 +34,8 @@ use process::CandidateEnd;
 mod surrounding;
 
 #[cfg(test)]
+mod backspace_probe;
+#[cfg(test)]
 mod digit_debug;
 #[cfg(test)]
 mod digit_probe2;
@@ -304,6 +306,41 @@ pub struct Engine {
     /// legacy plain-text behavior byte for byte; apply_config bakes the
     /// flag with the gate.
     flow_backspace_retrack: bool,
+    /// Experimental (needs the flag above): a Backspace that removes a key
+    /// which undid a mark gives the mark back. Off keeps the plain result.
+    flow_backspace_restore: bool,
+    /// How long the restore waits before rewriting the screen (ms); 0 means
+    /// the first main-loop wake. Baked with the gate like the flag.
+    flow_backspace_restore_delay_ms: u64,
+    /// The landed screen region before the current per-key word (`chào `
+    /// while a stray `f` sits after it). The same experiment uses it to give
+    /// a finished word back to the composition when the stray key is erased.
+    /// Only filled while the switch is on, and only consulted by the
+    /// Backspace path.
+    landed_region: String,
+    /// Whether the current per-key region has produced no composition change
+    /// yet — a lone key over a finished word (`f`) is litter, not a word, so
+    /// erasing it may restore the region behind it. A real word clears this
+    /// on its first composing key.
+    region_plain: bool,
+    /// Screen correction waiting for the user's Backspace to land: the text
+    /// the tracked region must read, once the main loop wakes. See
+    /// `DEFERRED_FIX_MS` for why it cannot be emitted with the key.
+    deferred_fix: Option<(Instant, String)>,
+    /// The user's Backspace is physically down. Injected Backspaces sent while
+    /// it is (the deferred fix included) never reach the application, so the
+    /// fix waits for the release — the server reports it.
+    backspace_down: bool,
+    /// Raw-key count at the moment a key undid a mark. The restore only fires
+    /// while nothing has been typed or deleted since: `undo_in_word` stays set
+    /// for the whole word (the wrapper's poison guard), so without this every
+    /// later Backspace looked like an undone-mark erase — measured live, it
+    /// re-marked the word while the user was deleting it.
+    undo_key_at: Option<usize>,
+    /// The last character in `tail` is the key that finished the word (a
+    /// digit, for the presets that end a word on one). The Backspace that
+    /// erases it deletes a character; it is not an edit of the word under it.
+    tail_ends_word: bool,
     /// How Backspace treats a tone-marked word; pushed into the wrapper per
     /// keystroke because the uinput modes force the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -424,6 +461,13 @@ impl Engine {
     /// window with margin while staying imperceptible at word end.
     pub const ECHO_APPLY_GRACE_MS: u64 = 60;
 
+    /// How long the experimental Backspace waits before correcting the screen
+    /// after the application applied the user's own Backspace. Backspaces the
+    /// engine injects while that key is still being handled never reach the
+    /// application (measured: 3 injected presses, no echo, only the commit
+    /// landed), so the rewrite must wait until the physical key is long gone.
+    pub const DEFERRED_FIX_MS: u64 = 150;
+
     pub fn new(method: Method, mode: Mode) -> Self {
         let mut engine = Self {
             wrapper: BambooWrapper::new(method, bamboo_core::Config::default()),
@@ -498,6 +542,14 @@ impl Engine {
             flow_per_key: false,
             flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
             flow_backspace_retrack: false,
+            flow_backspace_restore: false,
+            flow_backspace_restore_delay_ms: Self::DEFERRED_FIX_MS,
+            landed_region: String::new(),
+            region_plain: false,
+            deferred_fix: None,
+            backspace_down: false,
+            undo_key_at: None,
+            tail_ends_word: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
@@ -635,6 +687,18 @@ impl Engine {
             Self::ECHO_APPLY_GRACE_MS
         };
         self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
+        self.flow_backspace_restore = experimental && config.flow_backspace_restore;
+        self.flow_backspace_restore_delay_ms = if experimental {
+            config.flow_backspace_restore_delay_ms
+        } else {
+            Self::DEFERRED_FIX_MS
+        };
+        // The restore state describes one per-key word boundary; a reload can
+        // land mid-word, so it starts clean.
+        self.landed_region.clear();
+        self.region_plain = false;
+        self.deferred_fix = None;
+        self.undo_key_at = None;
         self.backspace_tone = config.backspace_tone;
         if !self.idle_commit_enabled {
             self.idle_committed = None;
@@ -1348,6 +1412,12 @@ impl Engine {
         self.word_mode = None;
     }
 
+    /// The user's Backspace went up. Injected Backspaces are only delivered
+    /// once this happened, so the deferred screen correction waits for it.
+    pub fn note_backspace_released(&mut self) {
+        self.backspace_down = false;
+    }
+
     /// The Backspace was forwarded: the application's buffer lost its last
     /// character. The per-key features keyed on `last_char` (em-dash,
     /// double space, the emoji/URL arms) must not fire on the deleted
@@ -1357,6 +1427,7 @@ impl Engine {
     /// when it holds nothing of ours the context is unknown and stays empty.
     fn note_backspace_forwarded(&mut self) {
         self.last_char = self.tail.chars().last();
+        self.tail_ends_word = false;
         self.capitalize_next = false;
         // The deleted character invalidates pending URL evidence too.
         self.scheme_pending = false;
@@ -1376,6 +1447,8 @@ impl Engine {
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
+        // The key is physically down until the server reports the release.
+        self.backspace_down = true;
         // The idle-commit clock, like process_char.
         if self.idle_commit_enabled {
             self.last_key_at = Some(Instant::now());
@@ -1581,6 +1654,10 @@ impl Engine {
             Vec::new()
         };
         self.tail.clear();
+        self.landed_region.clear();
+        self.region_plain = false;
+        self.deferred_fix = None;
+        self.undo_key_at = None;
         self.repair_delete = None;
         self.release_word_mode();
         self.url_word = false;
@@ -1664,6 +1741,22 @@ impl Engine {
         if let Some(action) = self.take_due_per_key_commit() {
             debug_log::log("timed commit flush (per-key)");
             actions.push(action);
+        }
+        // The experimental Backspace's correction: by now the user's own
+        // Backspace has landed, so injected deletes reach the application —
+        // but only once the key is UP. Injected Backspaces sent while it is
+        // still down are dropped by the input stack (measured in the owner's
+        // log: no echo, only the parked commit landed). A release the engine
+        // never sees (focus loss) must not leave the fix hanging, so a long
+        // overdue fire is allowed.
+        if let Some((deadline, want)) = self.deferred_fix.clone() {
+            let overdue =
+                Instant::now() >= deadline + Duration::from_millis(Self::DEFERRED_FIX_MS * 4);
+            if deadline <= Instant::now() && (!self.backspace_down || overdue) {
+                self.deferred_fix = None;
+                debug_log::log("deferred backspace fix: rewrite the region");
+                actions.extend(self.per_key_coalesce(want));
+            }
         }
         if self.take_stale_injection(self.echo_stale()) {
             for text in self.flush_deferred() {
@@ -1750,6 +1843,18 @@ impl Engine {
                     .as_millis()
                     .max(1) as u64,
             );
+        }
+        if let Some((deadline, _)) = &self.deferred_fix {
+            // While the Backspace is still down the fix cannot land; the
+            // release event itself wakes the loop, so do not spin on it.
+            if !self.backspace_down {
+                deadlines.push(
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis()
+                        .max(1) as u64,
+                );
+            }
         }
         deadlines.into_iter().min().map(|ms| ms.max(1))
     }

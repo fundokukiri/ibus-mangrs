@@ -81,9 +81,9 @@ kỹ. IBus phải là bộ quản lý input của hệ thống (GNOME mặc đ�
 ### Một dòng lệnh (online)
 
 Tải mã nguồn, biên dịch và cài luôn; thiếu gì trình cài tự cài thêm nên máy chỉ cần có `curl`
-(hoặc `wget`) và `sudo`. Quyền `/dev/uinput` và nhóm `input` được thiết lập sẵn, gói chỉ dùng
-để biên dịch sẽ được gỡ sau khi xong, chạy lại không cài đúp. Thêm `--demo` để chạy thử toàn
-bộ các bước mà không đụng gì vào máy:
+(hoặc `wget`) và `sudo`. Quyền `/dev/uinput` được thiết lập qua ACL của phiên đăng nhập (không
+cần nhóm), gói chỉ dùng để biên dịch sẽ được gỡ sau khi xong, chạy lại không cài đúp. Thêm
+`--demo` để chạy thử toàn bộ các bước mà không đụng gì vào máy:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
@@ -129,27 +129,47 @@ ibus restart
 ```
 
 Script copy engine vào `/usr/lib/ibus-mangrs/`, đăng ký component cho IBus, cài udev rule và
-đưa bạn vào nhóm `input` (hiệu lực từ lần đăng nhập sau). Gỡ: `sudo ./scripts/uninstall.sh`
-(giữ nguyên cấu hình). Trên Arch thì gọn hơn: `makepkg -si`.
+**gỡ bạn khỏi nhóm `input`** nếu bản cũ đã thêm (hiệu lực từ lần đăng nhập sau). Gỡ:
+`sudo ./scripts/uninstall.sh` (giữ nguyên cấu hình). Trên Arch thì gọn hơn: `makepkg -si`.
 
 ### Cấp quyền `/dev/uinput` (làm tay)
 
-Bộ gõ nhấn **phím Backspace thật** qua `/dev/uinput` với những app không xoá chữ được qua IBus;
-thiếu quyền ghi thì app đó sẽ không gõ được dấu. Tạo `/etc/udev/rules.d/80-uinput.rules`
-(mẫu có sẵn trong `data/80-uinput.rules`):
+Bộ gõ nhấn **phím thật** qua `/dev/uinput` với những app không xoá chữ được qua IBus (và cho
+các mode Flow/Turbo/Select); thiếu quyền ghi thì app đó sẽ không gõ được dấu. Quyền đến từ ACL
+của **phiên đăng nhập** (logind), không phải từ nhóm. Tạo `/etc/udev/rules.d/70-uinput.rules`
+(mẫu có sẵn trong `data/70-uinput.rules`):
 
 ```
-KERNEL=="uinput", MODE="0660", GROUP="input"
+KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
 ```
+
+Sau đó nạp lại rule và đăng nhập lại một lần (ACL chỉ được cấp khi phiên đang hoạt động):
 
 ```sh
-sudo modprobe uinput
-sudo usermod -aG input $USER                    # hiệu lực từ lần đăng nhập sau
-sudo udevadm control --reload-rules && sudo udevadm trigger /dev/uinput
+sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
 echo uinput | sudo tee /etc/modules-load.d/uinput.conf   # tự nạp mỗi lần khởi động
+getfacl -p /dev/uinput            # phải có user:<bạn>:rw-
 ```
 
-Kiểm tra: `ls -l /dev/uinput` phải hiện `crw-rw---- root input`.
+**Nếu bản cũ bảo bạn vào nhóm `input`, hãy ra khỏi nhóm đó.** Nhóm này đọc được mọi bàn phím
+của máy (`/dev/input/event*`) — một bộ gõ chỉ cần một phím không cần quyền đó:
+
+```sh
+sudo gpasswd -d $USER input       # đăng nhập lại sau đó
+```
+
+Chỉ giữ nhóm nếu công cụ khác của bạn cần đọc input thô; thêm lại bằng
+`sudo usermod -aG input $USER`.
+
+**Nếu còn `/etc/udev/rules.d/80-uinput.rules` từ bản cũ**, udev đọc cả hai file nên nó vẫn cấp
+`/dev/uinput` cho nhóm `input`. Installer tự xoá khi nhận ra file của MăngRS; nếu không, xoá tay:
+
+```sh
+sudo rm /etc/udev/rules.d/80-uinput.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
+```
+
+Chi tiết đầy đủ ở [SECURITY.md](../SECURITY.md).
 
 ## Bật bộ gõ
 
@@ -219,12 +239,29 @@ cho chúng phải cài kèm GNOME Shell extension (`data/gnome-shell-extension/R
 ~/.config/ibus-mangrs/dictionary.txt  # những từ không bao giờ bị tự sửa
 ```
 
+## Bảo mật
+
+- Bộ gõ chạy dưới quyền bạn, **không bao giờ chạy root**: không helper setuid, không mở kết nối
+  mạng, chỉ ghi trong `~/.config/ibus-mangrs/` và `~/.cache/ibus-mangrs/`.
+- `/dev/uinput` được cấp qua **ACL của phiên đăng nhập** (logind), không dùng nhóm `input`.
+  Nhóm đó đọc được mọi bàn phím của máy (`/dev/input/event*`) nên installer gỡ bạn khỏi nhóm và
+  xoá `80-uinput.rules` cũ; quyền hết hiệu lực khi phiên kết thúc.
+- Bàn phím ảo chỉ đăng ký **sáu phím**: Backspace, Delete, Left, Shift, Ctrl+V. Kernel bỏ mọi
+  keycode khác, nên một lỗi trong đường bơm phím cùng lắm là xoá/nhảy/paste, không gõ được chữ.
+- Log gỡ lỗi mặc định tắt và được tạo với quyền `0600`; chỉ chứa nội dung gõ khi bạn tự bật
+  `debug_log_text`. Kênh clipboard là tuỳ chọn và trả lại clipboard cũ sau khi dán.
+
+Ranh giới tin cậy là **tài khoản người dùng**: mã chạy cùng user vốn đã có kênh khác (đăng ký
+IBus engine rồi `SetGlobalEngine`, XTEST trên X11, AT-SPI), nên bộ gõ không cố giành quyền lớn
+hơn thế. Rủi ro còn lại, cách tự kiểm tra và cách thu hồi quyền: [SECURITY.md](../SECURITY.md).
+
 ## Lỗi thường gặp
 
 - **Không thấy bộ gõ trong danh sách Input Sources**: chạy `ibus write-cache --system` rồi
   `ibus-daemon -drx`; kiểm tra `/usr/share/ibus/component/ibus-mangrs.xml` có tồn tại.
 - **Gõ không ra dấu trong vài app** (Sublime, app XWayland): `/dev/uinput` thiếu hoặc không
-  ghi được — xem phần cấp quyền ở trên.
+  ghi được — xem phần cấp quyền ở trên. Kiểm tra ACL bằng `getfacl -p /dev/uinput`; sau khi cài
+  lần đầu hãy đăng xuất/đăng nhập lại một lần, và `ibus restart` nếu binary vừa được thay.
 - **Đổi chế độ mà chẳng ăn gì**: app đó đang có luật riêng đè lên chế độ chung.
 - **App XIM (JetBrains) hay app X11 khó tính**: thử hai công tắc *Tương thích X11/XIM* trong
   trang *Tinh chỉnh* của GUI.

@@ -85,9 +85,10 @@ it is).
 ### One line (online)
 
 Downloads the source, builds and installs; missing dependencies are installed too, so only
-`curl` (or `wget`) and `sudo` are needed up front. The `/dev/uinput` udev rule and the `input`
-group are set up, build-only packages installed by the run are removed afterwards, and
-re-running installs nothing twice. `--demo` previews the whole run without touching anything:
+`curl` (or `wget`) and `sudo` are needed up front. The `/dev/uinput` udev rule is set up (the
+session's user gets the device through logind, no group membership), build-only packages
+installed by the run are removed afterwards, and re-running installs nothing twice. `--demo`
+previews the whole run without touching anything:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/fundokukiri/ibus-mangrs/master/scripts/install-online.sh | sh
@@ -133,27 +134,49 @@ ibus restart
 ```
 
 The install script copies the engine to `/usr/lib/ibus-mangrs/`, registers the IBus component,
-installs the udev rule and adds your user to the `input` group (next login). Uninstall:
-`sudo ./scripts/uninstall.sh` (keeps your config). On Arch: `makepkg -si`.
+installs the udev rule and removes your user from the `input` group if an older version added it
+(effective at next login). Uninstall: `sudo ./scripts/uninstall.sh` (keeps your config). On
+Arch: `makepkg -si`.
 
 ### /dev/uinput permissions (manual fallback)
 
 The engine presses **real Backspace keys** through `/dev/uinput` for apps that cannot delete
-text over IBus; without write permission those apps cannot type tone marks. Create
-`/etc/udev/rules.d/80-uinput.rules` (shipped as `data/80-uinput.rules`):
+text over IBus; without write permission those apps cannot type tone marks. Access comes from
+the active session's user through logind, not from group membership. Create
+`/etc/udev/rules.d/70-uinput.rules` (shipped as `data/70-uinput.rules`):
 
 ```
-KERNEL=="uinput", MODE="0660", GROUP="input"
+KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
 ```
+
+Then reload the rules and log out/in once (the ACL is granted when the session becomes active):
 
 ```sh
-sudo modprobe uinput
-sudo usermod -aG input $USER                    # next login
-sudo udevadm control --reload-rules && sudo udevadm trigger /dev/uinput
+sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
 echo uinput | sudo tee /etc/modules-load.d/uinput.conf   # load at every boot
+getfacl -p /dev/uinput            # must list user:<you>:rw-
 ```
 
-Verify: `ls -l /dev/uinput` must show `crw-rw---- root input`.
+**If an older version told you to join the `input` group, leave it.** That group can read every
+keyboard of the machine (`/dev/input/event*`), which one key injector does not need:
+
+```sh
+sudo gpasswd -d $USER input       # log out and back in afterwards
+```
+
+Keep it only if another tool of yours needs raw input access; add it back with
+`sudo usermod -aG input $USER`.
+
+**If you still have an old `/etc/udev/rules.d/80-uinput.rules`**, udev reads it alongside the
+new one and it keeps handing `/dev/uinput` to the `input` group. The installer removes it when
+it recognizes the file as an older MăngRS rule; do it by hand otherwise:
+
+```sh
+sudo rm /etc/udev/rules.d/80-uinput.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
+```
+
+See [SECURITY.md](SECURITY.md) for what the engine can and cannot do with this access.
 
 ## Enable the input source
 
@@ -224,12 +247,28 @@ matching them by name needs the companion GNOME Shell extension
 ~/.config/ibus-mangrs/dictionary.txt  # words never auto-restored
 ```
 
+## Security
+
+- The engine runs as you, never as root: no setuid helper, no network connection.
+- `/dev/uinput` comes from `systemd-logind` as a **session-scoped ACL**; the `input` group is no
+  longer used. That group can read every keyboard of the machine (`/dev/input/event*`), so the
+  installer removes the account from it and deletes the old `80-uinput.rules`.
+- The virtual keyboard registers **six keys only** — Backspace, Delete, Left, Shift, Ctrl+V. The
+  kernel drops every other keycode, so a bug there cannot type text.
+- The debug log is off by default and created `0600`; it only contains typed text when
+  `debug_log_text` is enabled on purpose.
+
+The threat model, the residual risks, the commands that verify the access and the way to revoke
+it are in [SECURITY.md](SECURITY.md).
+
 ## Troubleshooting
 
 - **Engine not listed in Input Sources**: run `ibus write-cache --system` then `ibus-daemon -drx`;
   make sure `/usr/share/ibus/component/ibus-mangrs.xml` exists.
 - **Marks do not appear in some apps** (Sublime, XWayland clients): `/dev/uinput` is missing or
-  not writable — see the permissions section above.
+  not writable — see the permissions section above. Check the session ACL with
+  `getfacl -p /dev/uinput`; after a fresh install log out and back in once, and restart IBus
+  after the engine binary was replaced.
 - **Mode changes seem ignored**: an App Rule for the app overrides the global mode.
 - **X11/XIM apps (JetBrains) misbehave**: try the two _X11/XIM compatibility_ switches in the
   GUI _Tuning_ page.

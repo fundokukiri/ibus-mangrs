@@ -547,6 +547,8 @@ fn refresh_round_trips_every_widget() {
         flow_per_key: true,
         flow_per_key_delay_ms: 80,
         flow_backspace_retrack: true,
+        flow_backspace_restore: true,
+        flow_backspace_restore_delay_ms: 40,
         experimental_features: true,
         show_toasts: false,
         debug_log: true,
@@ -725,12 +727,13 @@ fn every_switch_triggers_save() {
     }
     // The merged "Thử nghiệm" rows carry bare GtkSwitch suffixes — same
     // wiring, different widget type.
-    let switches: [&gtk4::Switch; 5] = [
+    let switches: [&gtk4::Switch; 6] = [
         &ui.extra_url_chars_switch,
         &ui.auto_capitalize_after_switch,
         &ui.clipboard_restore_switch,
         &ui.echo_stale_switch,
         &ui.idle_commit_switch,
+        &ui.flow_backspace_restore_switch,
     ];
     for switch in switches {
         let before = saves.get();
@@ -771,6 +774,8 @@ fn experimental_gate_locks_rows_and_preserves_values() {
         echo_stale_enabled: true,
         echo_stale_ms: 250,
         flow_per_key_delay_ms: 200,
+        flow_backspace_restore: true,
+        flow_backspace_restore_delay_ms: 40,
         ..Config::default()
     };
     saved.save().expect("seed config");
@@ -781,6 +786,8 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(ui.extra_url_chars_row.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
     assert_eq!(ui.echo_stale_spin.value(), 250.0);
+    assert!(ui.flow_backspace_restore_switch.is_active());
+    assert_eq!(ui.flow_backspace_restore_spin.value(), 40.0);
 
     // Off (driven through the file, as the real funnel produces it): rows
     // locked, shipped defaults on display.
@@ -796,6 +803,8 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
     assert_eq!(ui.flow_per_key_spin.value(), 60.0);
+    assert!(!ui.flow_backspace_restore_row.is_sensitive());
+    assert_eq!(ui.flow_backspace_restore_spin.value(), 150.0);
 
     // A save with the gate off — the funnel reads the default-displaying
     // widgets — must not wipe the file's values.
@@ -805,6 +814,8 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert_eq!(closed.extra_url_chars, "`", "no wipe on save");
     assert_eq!(closed.echo_stale_ms, 250);
     assert_eq!(closed.flow_per_key_delay_ms, 200);
+    assert!(closed.flow_backspace_restore);
+    assert_eq!(closed.flow_backspace_restore_delay_ms, 40);
 
     // Reopen (what the real toggle does: flip the switch, then the
     // presentation runs in the handler's order — restore first, sensitivity
