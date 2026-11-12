@@ -355,14 +355,15 @@ fn screen_of(mode: Mode, config: Config, script: &str) -> (String, Engine) {
     (sim.screen(), sim.e)
 }
 
-/// The experiment on: per-key display plus the Backspace switch, which is what
-/// a user of the "Thử nghiệm" tab has.
+/// The experiment on: per-key display plus both Backspace switches, which is
+/// what a user of the "Thử nghiệm" tab has.
 fn tone(mode: Mode, tone: BackspaceToneConfig) -> (Mode, Config) {
     let (_, cfg) = per_key(mode);
     (
         mode,
         Config {
             flow_backspace_retrack: true,
+            flow_backspace_restore: true,
             backspace_tone: tone,
             ..cfg
         },
@@ -561,6 +562,39 @@ fn target_gate_off_keeps_the_plain_backspace() {
         let (_, cfg) = per_key(mode);
         let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}");
         assert_eq!(screen, "chao", "{mode:?}");
+    }
+}
+
+#[test]
+fn target_restore_switch_gates_the_restore() {
+    // The restore is its own switch: with it off the Backspace keeps the
+    // plain result even though the retrack experiment is on.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = per_key(mode);
+        let cfg = Config {
+            flow_backspace_retrack: true,
+            flow_backspace_restore: false,
+            backspace_tone: BackspaceToneConfig::ToneFirst,
+            ..cfg
+        };
+        let (screen, _) = screen_of(mode, cfg, "chaoff\u{8}");
+        assert_eq!(screen, "chao", "{mode:?}");
+    }
+}
+
+#[test]
+fn target_restore_runs_with_a_zero_delay() {
+    // The delay field accepts 0 (test knob): the correction still lands, on
+    // the next main-loop wake.
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = tone(mode, BackspaceToneConfig::ToneFirst);
+        let cfg = Config {
+            flow_backspace_restore_delay_ms: 0,
+            ..cfg
+        };
+        let (screen, e) = screen_of(mode, cfg, "chaoff\u{8}");
+        assert_eq!(screen, "chào", "{mode:?}");
+        assert!(e.deferred_fix.is_none(), "{mode:?}");
     }
 }
 

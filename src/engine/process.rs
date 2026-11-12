@@ -699,7 +699,8 @@ impl Engine {
         // this key is being handled never reach the application (measured in
         // the owner's log: 3 injected presses, no echo, only the commit
         // landed, and the word duplicated).
-        if self.flow_backspace_retrack && self.wrapper.undo_in_word() {
+        if self.flow_backspace_retrack && self.flow_backspace_restore && self.wrapper.undo_in_word()
+        {
             self.wrapper.set_backspace_tone(self.backspace_tone);
             if self.wrapper.backspace().is_some() {
                 if let Some((_, text)) = self.per_key_park.take() {
@@ -709,7 +710,7 @@ impl Engine {
                 self.tail = replace_tail(&self.tail, 1, "");
                 let want = encode(self.charset, &self.wrapper.output());
                 self.deferred_fix = Some((
-                    Instant::now() + Duration::from_millis(Self::DEFERRED_FIX_MS),
+                    Instant::now() + Duration::from_millis(self.flow_backspace_restore_delay_ms),
                     want,
                 ));
                 debug_log::log("per-key backspace schedules an undone-mark fix");
