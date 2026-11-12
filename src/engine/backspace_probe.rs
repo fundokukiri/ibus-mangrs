@@ -405,11 +405,10 @@ fn target_wholechar_backspace_deletes_the_character() {
 }
 
 #[test]
-#[ignore = "ToneFirst needs a rewrite (swallow or deferred delete): next stage"]
 fn target_tonefirst_backspace_drops_the_tone() {
-    // ToneFirst is the only setting that changes the screen text without a
-    // plain delete: `tùng` -> `tung`. It needs a rewrite (delete + insert),
-    // so it is the expensive row of the design.
+    // ToneFirst is the one setting that changes the screen text without a
+    // plain delete: `tùng` -> `tung`, like the inline modes. The rewrite is
+    // deferred past the key release, so the harness settles it.
     for mode in [Mode::Flow, Mode::Turbo] {
         let (_, cfg) = tone(mode, BackspaceToneConfig::ToneFirst);
         let (screen, e) = screen_of(mode, cfg, "tungf ~\u{8}");
@@ -677,11 +676,10 @@ fn probe_bamboo_055_behaviour() {
     // refused-mark syllable and the extended f/j/w onsets.
     println!("\n== probe_bamboo_055_behaviour ==");
     for (method, keys) in [
-        (Method::Vni, "hao123456"),
-        (Method::Vni, "hao1234"),
-        (Method::Vni, "hao123456x"),
+        (Method::Telex, "chaoff"),
+        (Method::Telex, "chaof"),
         (Method::Telex, "vieejtf"),
-        (Method::Telex, "fire"),
+        (Method::Vni, "hao123456"),
     ] {
         let mut w = BambooWrapper::new(
             method,
@@ -691,13 +689,12 @@ fn probe_bamboo_055_behaviour() {
         for c in keys.chars() {
             let o = w.process_char(c);
             trace.push_str(&format!(
-                "\n  {c:?} -> out={:?} raw={:?} valid={} valid_prefix={}",
+                "\n  {c:?} ({o:?}) -> out={:?} raw={:?} valid={} undo={}",
                 w.output(),
                 w.raw(),
                 w.is_valid(),
-                w.is_valid_prefix()
+                w.undo_in_word()
             ));
-            let _ = o;
         }
         println!("{method:?} {keys:?}:{trace}");
     }
