@@ -699,6 +699,28 @@ fn target_the_restore_fires_only_on_the_undo_key() {
 }
 
 #[test]
+fn target_backspace_on_a_digit_terminator_keeps_the_word() {
+    // A digit ends the word for the Telex-family presets, so the Backspace
+    // that erases it deletes a character: "Xóa dấu trước" must not read it as
+    // an edit of the word and strip the tone (owner: `việt6` + BS gave
+    // `viêt`, then one more character went with every later press).
+    for mode in [Mode::Flow, Mode::Turbo] {
+        let (_, cfg) = tone(mode, BackspaceToneConfig::ToneFirst);
+        let (screen, e) = screen_of(mode, cfg.clone(), "vieejt6\u{8}");
+        assert_eq!(screen, "việt", "{mode:?}");
+        assert_eq!(e.tail, "việt", "{mode:?}: tracking must match the screen");
+        // The reported cycle: the digit typed again and erased again.
+        let (screen, e) = screen_of(mode, cfg.clone(), "vieejt6\u{8}6\u{8}");
+        assert_eq!(screen, "việt", "{mode:?}");
+        assert_eq!(e.tail, "việt", "{mode:?}");
+        // A digit terminator behaves exactly like a space one.
+        let digit = screen_of(mode, cfg.clone(), "vieejt6\u{8}\u{8}").0;
+        let space = screen_of(mode, cfg, "vieejt \u{8}\u{8}").0;
+        assert_eq!(digit, space, "{mode:?}: {digit:?} vs {space:?}");
+    }
+}
+
+#[test]
 fn probe_bamboo_055_behaviour() {
     // What bamboo-core 0.5.5 changed, measured through the wrapper: the
     // refused-mark syllable and the extended f/j/w onsets.
