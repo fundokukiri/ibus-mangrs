@@ -757,18 +757,17 @@ impl Engine {
             && !(self.url_word || self.emoji_word)
         {
             let target = replace_tail(&self.tail, 1, "");
-            let live = if self.wrapper.has_composition() {
-                true
+            // The wrapper must still describe the screen this key deletes
+            // from. A live composition matches the pre-delete tail; a rebuilt
+            // one was just re-derived from `target`. A cancelled correction (a
+            // key arrived first) leaves it ahead, and stacking another mode
+            // rewrite on that would put text back the user is deleting — the
+            // plain path below handles that case.
+            let in_sync = if self.wrapper.has_composition() {
+                encode(self.charset, &self.wrapper.output()) == self.tail
             } else {
-                // The word end dropped the composition: rebuild it from the
-                // screen the app holds before this key.
                 self.wrapper.retrack_from_screen(&target)
             };
-            // The wrapper must still describe the screen this key deletes
-            // from. A cancelled fix (a key arrived first) leaves it ahead, and
-            // stacking another mode rewrite on that would put text back the
-            // user is deleting — the plain path below handles that case.
-            let in_sync = live && encode(self.charset, &self.wrapper.output()) == target;
             if in_sync {
                 self.wrapper
                     .set_backspace_tone(BackspaceToneConfig::ToneFirst);

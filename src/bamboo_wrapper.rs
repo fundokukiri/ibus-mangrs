@@ -446,6 +446,10 @@ impl BambooWrapper {
         }
 
         let mut new_output = self.feed_compose(c);
+        // True when the text below came from a replay of the raw keys rather
+        // than from this keystroke: the undo diff then only sees the whole
+        // word revert, never a mark removal.
+        let mut rebuilt = false;
         // The composition output can never be longer than the raw keystrokes
         // (marks combine characters, they never add). When it is, bamboo's
         // internal state is poisoned by an undone mark — "too" (undone "tô")
@@ -458,6 +462,7 @@ impl BambooWrapper {
                 new_output.chars().count(),
                 self.raw.chars().count()
             ));
+            rebuilt = true;
             self.engine.reset();
             for r in self.raw.chars() {
                 let _ = self.engine.process_key_edit(r, Mode::Vietnamese);
@@ -475,16 +480,17 @@ impl BambooWrapper {
                 "bamboo delta grows {} chars net → rebuild",
                 edit.insert.chars().count() as i64 - edit.delete_chars as i64
             ));
+            rebuilt = true;
             let app_text = self.last_output.clone();
             self.engine.reset();
             for r in self.raw.chars() {
                 let _ = self.engine.process_key_edit(r, Mode::Vietnamese);
             }
-            let rebuilt = self.engine.output_str().to_string();
-            let retry = self.delta_between(&app_text, &rebuilt);
+            let rebuilt_text = self.engine.output_str().to_string();
+            let retry = self.delta_between(&app_text, &rebuilt_text);
             if retry.insert.chars().count() as i64 - retry.delete_chars as i64 <= 1 {
-                self.last_output = rebuilt.clone();
-                self.output_override = Some(rebuilt);
+                self.last_output = rebuilt_text.clone();
+                self.output_override = Some(rebuilt_text);
                 edit = retry;
             } else {
                 let mut app = app_text;
@@ -505,7 +511,11 @@ impl BambooWrapper {
         // the flag the auto-restore would resurrect the raw keys (`ddd`)
         // over the composition, in every display mode. Bamboo's hidden
         // state then resurfaces on later keys of this word.
-        {
+        // Skipped after a rebuild: the diff then compares the applied text
+        // with the rebuilt one, and the auto_correct revert to the raw keys
+        // looks exactly like an undo — re-arming the flag made the engine
+        // treat later, ordinary Backspaces as the erase that restores.
+        if !rebuilt {
             let common = self
                 .last_output
                 .chars()
@@ -514,13 +524,31 @@ impl BambooWrapper {
                 .count();
             let deleted: Vec<char> = self.last_output.chars().skip(common).collect();
             let inserted: Vec<char> = new_output.chars().skip(common).collect();
-            if deleted.iter().any(|d| {
-                (is_marked(*d)
-                    && inserted
-                        .iter()
-                        .any(|i| base_letter(*i) == base_letter(*d) && *i != *d && !is_marked(*i)))
-                    || (matches!(*d, 'đ' | 'Đ') && inserted.iter().any(|i| matches!(*i, 'd' | 'D')))
-            }) {
+            // The segment must be exactly the deleted letters without their
+            // marks plus this key. An auto_correct revert to the raw keys also
+            // drops the marks but leaves the whole raw run instead
+            // (`tùng` + 'g' -> `tungfg`); reading that as an undo re-armed the
+            // restore, and every later ordinary Backspace injected deletes.
+            let mut expected: Vec<char> = deleted
+                .iter()
+                .map(|d| {
+                    if matches!(*d, 'đ' | 'Đ') {
+                        'd'
+                    } else {
+                        base_letter(*d)
+                    }
+                })
+                .collect();
+            expected.push(c.to_lowercase().next().unwrap_or(c));
+            let inserted_lower: Vec<char> = inserted
+                .iter()
+                .map(|i| i.to_lowercase().next().unwrap_or(*i))
+                .collect();
+            if inserted_lower == expected
+                && deleted
+                    .iter()
+                    .any(|d| is_marked(*d) || matches!(*d, 'đ' | 'Đ'))
+            {
                 debug_log::log("mark undone in word");
                 self.undo_in_word = true;
             }
