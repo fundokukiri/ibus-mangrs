@@ -69,6 +69,13 @@ pub fn constructors(kind: Kind) -> Option<Box<dyn BackendOps>> {
     }
 }
 
+/// The kinds to offer [`Injection::select`], most preferred first. A single
+/// constant until the mode layer lands: on GNOME/Wayland the uinput device
+/// is the only backend that reaches every client today.
+pub fn preference_order() -> Vec<Kind> {
+    vec![Kind::Uinput]
+}
+
 /// The selected backend plus the selection bookkeeping.
 #[derive(Default)]
 pub struct Injection {
@@ -296,7 +303,8 @@ mod tests {
         if let Some(backend) = backend {
             assert_eq!(backend.kind(), Kind::Uinput);
             assert_eq!(backend.available(), device);
-            // 0 presses is a no-op that must not touch the device.
+            // 0 presses emits no key events (the device itself cannot be
+            // proven untouched here — `available` opens it).
             assert!(backend.backspaces(0, 0));
         }
     }

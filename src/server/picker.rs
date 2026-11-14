@@ -127,7 +127,7 @@ impl EngineHandler {
         {
             let mut engine = lock_engine(&self.engine);
             let actions = engine.end_word_for_picker();
-            emit(&mut engine, &actions, out);
+            emit(&mut engine, &self.injection, &actions, out);
         }
         // The highlight starts on the mode in force: GNOME draws the
         // lookup-table cursor as the blue hover, so the current choice is
@@ -230,7 +230,7 @@ impl EngineHandler {
             let mut engine = lock_engine(&self.engine);
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
-            emit(&mut engine, &actions, out);
+            emit(&mut engine, &self.injection, &actions, out);
         }
         self.last_config_mtime = Config::path()
             .and_then(|p| std::fs::metadata(&p).ok())

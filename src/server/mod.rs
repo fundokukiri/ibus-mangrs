@@ -31,7 +31,7 @@ use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
 use crate::ibus_text::{plain_text, text_from_variant, text_variant, Attr};
 use crate::keymap;
-use crate::uinput::Uinput;
+use crate::transport::{preference_order, Injection};
 
 mod hotkey;
 mod prop;
@@ -111,6 +111,7 @@ impl Server {
         // be sent and the message claimed (return `true`) inside the filter.
         let handler = std::rc::Rc::new(std::cell::RefCell::new(EngineHandler {
             engine: Arc::clone(&engine),
+            injection: Injection::new(),
             last_config_check: Instant::now(),
             last_config_mtime: None,
             hotkeys: Vec::new(),
@@ -124,6 +125,12 @@ impl Server {
             .and_then(|m| m.modified().ok());
         let initial = Config::load();
         handler.borrow_mut().refresh_hotkey_cache(&initial);
+        // Startup: pick the injection backend before the first key; the
+        // engine's availability flag is fed from the holder's answer, not
+        // from a static device probe.
+        handler.borrow_mut().injection.select(&preference_order());
+        let selected = handler.borrow().injection.current();
+        lock_engine(&engine).set_uinput_available(selected.is_some());
         let handler_for_cb = std::rc::Rc::clone(&handler);
         conn.replace_message_callback(Some(Box::new(move |conn, msg| {
             if msg.msg_type() != MessageType::MethodCall {
@@ -161,7 +168,8 @@ impl Server {
                 let mut e = lock_engine(&self.engine);
                 let actions = e.tick();
                 let mut out = Vec::new();
-                let injected = emit(&mut e, &actions, &mut out);
+                let handler = self.handler.borrow();
+                let injected = emit(&mut e, &handler.injection, &actions, &mut out);
                 e.add_injected(injected);
                 out
             };
@@ -230,6 +238,11 @@ fn address_from_dir(dir: &std::path::Path) -> Option<String> {
 
 struct EngineHandler {
     engine: SharedEngine,
+    /// The selected injection backend: `emit`'s transports and the paste
+    /// channel route through it, and the engine's availability flag is fed
+    /// from `current()`. Selected at startup and re-selected on focus-in,
+    /// where the environment may have changed since.
+    injection: Injection,
     /// Config file hot-reload: check the mtime at most once a second, on key
     /// events, so GUI/menu edits apply without a focus change or restart.
     last_config_check: Instant,
@@ -371,7 +384,7 @@ impl EngineHandler {
         match member {
             "PropertyActivate" => {
                 if let Ok((name, state)) = msg.read2::<String, u32>() {
-                    activate_property(&mut engine, &name, state, out);
+                    activate_property(&mut engine, &self.injection, &name, state, out);
                 } else {
                     eprintln!("ibus-mangrs: PropertyActivate read2 FAILED");
                 }
@@ -396,7 +409,7 @@ impl EngineHandler {
                         // The report can resolve a deferred click-Reset
                         // (park mode): the resulting HidePreedit must go out.
                         let actions = engine.set_surrounding_with_anchor(s, cursor, anchor);
-                        emit(&mut engine, &actions, out);
+                        emit(&mut engine, &self.injection, &actions, out);
                     }
                 }
                 msg.method_return()
@@ -454,9 +467,15 @@ impl EngineHandler {
                 self.hotkeys = hotkey_registry(&config);
                 self.last_fire.clear();
                 debug_log::log(&format!("focus-in client={:?}", engine.client()));
+                // Re-select the injection backend next to the config apply:
+                // a new focus may follow an environment change (device ACL,
+                // session type), and emit's inject gate reads the flag fed
+                // from the holder's answer.
+                self.injection.select(&preference_order());
+                engine.set_uinput_available(self.injection.current().is_some());
                 let actions = engine.apply_config(&config);
                 engine.set_enabled(config.enabled);
-                emit(&mut engine, &actions, out);
+                emit(&mut engine, &self.injection, &actions, out);
                 // The panel shows the menu; rebuild it from the saved config so
                 // radio/toggle check marks survive engine restarts.
                 register_properties(&config, out);
@@ -492,7 +511,7 @@ impl EngineHandler {
                 // arrive first and wipe the word (same as ibus-bamboo's no-op
                 // FocusOut).
                 let actions = engine.focus_out();
-                emit(&mut engine, &actions, out);
+                emit(&mut engine, &self.injection, &actions, out);
                 // Only `Disable` (the panel toggle) switches the wrapper off.
                 // FocusOut must not: focus events get coalesced (a quick
                 // unfocus/refocus of one context never re-sends them — see the
@@ -537,7 +556,7 @@ impl EngineHandler {
                     out.push(signal("CommitText").append1(plain_text(&text)));
                 }
                 let actions = engine.on_client_reset();
-                let injected = emit(&mut engine, &actions, out);
+                let injected = emit(&mut engine, &self.injection, &actions, out);
                 engine.add_injected(injected);
                 msg.method_return()
             }
@@ -606,7 +625,13 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
 
 /// Handle one key event, pushing resulting signals into `out`.
 /// Returns whether the engine consumed the key.
-fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
+fn process_key(
+    engine: &mut Engine,
+    injection: &Injection,
+    keyval: u32,
+    state: u32,
+    out: &mut Vec<Message>,
+) -> bool {
     // Hottest log site (every key event, every mode): the format! would
     // allocate per keystroke even with the log off, so gate it first.
     if debug_log::enabled() {
@@ -622,12 +647,12 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         }
         return false;
     }
-    // The session ACL for `/dev/uinput` is applied by logind around login, so
-    // the open at engine start can be too early. Pick the device up as soon as
-    // it becomes available instead of keeping the startup answer for the whole
-    // session; while it stays unavailable the check is throttled inside
-    // `Uinput::available`.
-    if !engine.uinput_available() && Uinput::available() {
+    // The engine's flag is pulled mid-session when an injection fails on a
+    // delete-swallowing client; the holder still owns the backend it built,
+    // so its answer — not a static device probe — decides when to re-mark
+    // it. Backends the holder could not build stay denied (see `select`)
+    // and never reach this re-mark.
+    if !engine.uinput_available() && injection.current().is_some() {
         engine.set_uinput_available(true);
     }
     // Ctrl/Alt/Super combinations are application shortcuts.
@@ -644,7 +669,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
             }
         }
         let actions = engine.reset();
-        let injected = emit(engine, &actions, out);
+        let injected = emit(engine, injection, &actions, out);
         engine.add_injected(injected);
         return false;
     }
@@ -673,7 +698,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         }
         return match engine.backspace() {
             Some(actions) => {
-                let injected = emit(engine, &actions, out);
+                let injected = emit(engine, injection, &actions, out);
                 engine.add_injected(injected);
                 !actions.contains(&Action::Forward)
             }
@@ -727,7 +752,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
             && engine.preedit_commit_pending();
         let nav_behavior = engine.nav_key_while_preedit();
         let actions = engine.reset();
-        let injected = emit(engine, &actions, out);
+        let injected = emit(engine, injection, &actions, out);
         engine.add_injected(injected);
         if nav_pending {
             match nav_behavior {
@@ -765,7 +790,7 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     };
     let actions = engine.process_char(c);
     let consumed = !actions.contains(&Action::Forward);
-    let injected = emit(engine, &actions, out);
+    let injected = emit(engine, injection, &actions, out);
     engine.add_injected(injected);
     consumed
 }
@@ -776,12 +801,17 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
 /// `UpdatePreeditText(v u b u)`. Wrapping every argument in a variant (the
 /// old `(v...)` helper) makes ibus-daemon drop the call, which is why preedit
 /// text never appeared until the word was committed.
-fn emit(engine: &mut Engine, actions: &[Action], out: &mut Vec<Message>) -> u32 {
+fn emit(
+    engine: &mut Engine,
+    injection: &Injection,
+    actions: &[Action],
+    out: &mut Vec<Message>,
+) -> u32 {
     let transports = Transports {
-        backspaces: &|n, gap| Uinput::inject_backspaces(n, gap),
-        keys: &|keys, gap| Uinput::press_keys(keys, gap),
-        select_left: &|n, gap| Uinput::select_left(n, gap),
-        paste: &|text, delay| crate::paste::paste_and_restore(text, &|| Uinput::ctrl_v(), delay),
+        backspaces: &|n, gap| injection.backspaces(n, gap),
+        select_left: &|n, gap| injection.select_left(n, gap),
+        delete: &|n| injection.delete(n),
+        paste: &|text, delay| crate::paste::paste_and_restore(text, &|| injection.paste(), delay),
     };
     emit_with(engine, actions, out, &transports)
 }
@@ -797,18 +827,17 @@ fn park_nav_commits(engine: &mut Engine, commits: Vec<String>) {
     }
 }
 
-/// A paced key-press transport: (keycode, shift) pairs and the gap in ms.
-type PressKeys<'a> = &'a dyn Fn(&[(u16, bool)], u64) -> bool;
-
-/// Key transports so tests can exercise the injection paths without a
-/// writable `/dev/uinput`. `backspaces(n, gap)` presses Backspace `n` times
-/// `gap` ms apart; `keys` presses (keycode, shift) pairs; `select_left`
-/// Shift+Left `n` times; `paste` puts text on the clipboard (with restore)
-/// around a Ctrl+V and reports success.
+/// Key transports shaped like the selected backend's ops. Production builds
+/// them over the server's `Injection`, which forwards to the backend it
+/// holds; tests build them over stubs to exercise the injection paths
+/// without a writable `/dev/uinput`. `backspaces(n, gap)` presses Backspace
+/// `n` times `gap` ms apart; `select_left` Shift+Left `n` times; `delete`
+/// presses Delete `n` times; `paste` puts text on the clipboard (with
+/// restore) around a Ctrl+V and reports success.
 struct Transports<'a> {
     backspaces: &'a dyn Fn(u32, u64) -> bool,
-    keys: PressKeys<'a>,
     select_left: &'a dyn Fn(u32, u64) -> bool,
+    delete: &'a dyn Fn(u32) -> bool,
     paste: &'a dyn Fn(&str, u64) -> bool,
 }
 
@@ -1046,7 +1075,7 @@ fn emit_with(
                 }
             }
             Action::PressDelete => {
-                if (t.keys)(&[(crate::uinput::KEYCODE_DELETE, false)], 0) {
+                if (t.delete)(1) {
                     debug_log::log("select rewrite: delete");
                     engine.add_injected_nav(&[keymap::DELETE]);
                     nav_since_commit += 1;
@@ -1165,8 +1194,8 @@ const INTROSPECT_XML: &str = r#"<node>
 fn fake_transports<'a>(backspaces: &'a dyn Fn(u32, u64) -> bool) -> Transports<'a> {
     Transports {
         backspaces,
-        keys: &|_, _| true,
         select_left: &|_, _| true,
+        delete: &|_| true,
         paste: &|_, _| false,
     }
 }

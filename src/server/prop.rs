@@ -20,6 +20,7 @@ pub(super) fn register_properties(config: &Config, out: &mut Vec<Message>) {
 /// (`VIQR` for the method menu, `preedit` for the display menu).
 pub(super) fn activate_property(
     engine: &mut Engine,
+    injection: &Injection,
     name: &str,
     state: u32,
     out: &mut Vec<Message>,
@@ -63,7 +64,7 @@ pub(super) fn activate_property(
         }
         let actions = engine.apply_config(&config);
         engine.set_enabled(config.enabled);
-        emit(engine, &actions, out);
+        emit(engine, injection, &actions, out);
         // Radios need their whole group resent so the old one loses the check.
         update_group(&ibus_prop::properties(&config), group, out);
         return;
@@ -90,7 +91,7 @@ pub(super) fn activate_property(
     }
     let actions = engine.apply_config(&config);
     engine.set_enabled(config.enabled);
-    emit(engine, &actions, out);
+    emit(engine, injection, &actions, out);
     update_group(&ibus_prop::properties(&config), name, out);
 }
 

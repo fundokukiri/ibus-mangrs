@@ -268,7 +268,7 @@ impl EngineHandler {
         {
             let mut engine = lock_engine(&self.engine);
             let actions = engine.end_word_for_picker();
-            emit(&mut engine, &actions, out);
+            emit(&mut engine, &self.injection, &actions, out);
         }
         self.emoji_picker = Some(EmojiPickerState::new());
         self.emit_emoji_table(out);

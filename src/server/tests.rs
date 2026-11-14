@@ -3,6 +3,7 @@ use super::x11::*;
 use super::*;
 use crate::bamboo_wrapper::Method;
 use crate::engine::Mode;
+use crate::transport::{BackendOps, Injection, Kind};
 use dbus::arg::{RefArg, Variant};
 
 #[test]
@@ -220,6 +221,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
     lock_engine(&engine).set_capabilities(1);
     let mut handler = EngineHandler {
         engine: Arc::clone(&engine),
+        injection: Injection::new(),
         // Fresh clock: maybe_reload_config stays inside its 1s gate, so
         // the test never touches the real config file.
         last_config_check: Instant::now(),
@@ -294,7 +296,7 @@ fn emitted(actions: &[Action]) -> Vec<Message> {
     e.set_capabilities(32); // CAP_SURROUNDING_TEXT
     e.set_surrounding("word".into(), 4);
     let mut out = Vec::new();
-    emit(&mut e, actions, &mut out);
+    emit(&mut e, &Injection::new(), actions, &mut out);
     out
 }
 
@@ -350,6 +352,7 @@ fn hide_underline_drops_the_underline_attribute() {
     let mut out = Vec::new();
     emit(
         &mut e,
+        &Injection::new(),
         &[Action::UpdatePreedit {
             text: "tiếng".into(),
             cursor: 5,
@@ -624,7 +627,7 @@ fn failed_press_delete_falls_back_to_backspace() {
             PRESSES.fetch_add(n as usize, Ordering::SeqCst);
             true
         },
-        keys: &|_, _| false,
+        delete: &|_| false,
         select_left: &|_, _| true,
         paste: &|_, _| false,
     };
@@ -686,6 +689,186 @@ fn paste_fallback_after_injected_backspaces_is_deferred() {
         "the fallback commit must wait for the Backspace echoes"
     );
     assert!(e.has_deferred());
+}
+
+// --- emit over the selected injection backend ---
+
+/// The injected ops, recorded by [`RecordingBackend`]. One entry per call,
+/// so `Backspaces(2)` is one paced batch, not two presses.
+#[derive(Debug, PartialEq)]
+enum RecordedOp {
+    Backspaces(u32),
+    SelectLeft(u32),
+    Delete(u32),
+    Paste,
+}
+
+/// Test double for the backend the server's `Injection` selects: records
+/// every op into a log shared with the test, which cannot read the backend
+/// back out of the holder.
+struct RecordingBackend {
+    kind: Kind,
+    ops: Arc<Mutex<Vec<RecordedOp>>>,
+}
+
+impl BackendOps for RecordingBackend {
+    fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    fn available(&self) -> bool {
+        true
+    }
+
+    fn backspaces(&self, n: u32, _gap_ms: u64) -> bool {
+        self.ops.lock().unwrap().push(RecordedOp::Backspaces(n));
+        true
+    }
+
+    fn select_left(&self, n: u32, _gap_ms: u64) -> bool {
+        self.ops.lock().unwrap().push(RecordedOp::SelectLeft(n));
+        true
+    }
+
+    fn delete(&self, n: u32) -> bool {
+        self.ops.lock().unwrap().push(RecordedOp::Delete(n));
+        true
+    }
+
+    fn paste(&self) -> bool {
+        self.ops.lock().unwrap().push(RecordedOp::Paste);
+        true
+    }
+}
+
+/// An `Injection` holding a [`RecordingBackend`], built through the real
+/// `select_with` seam (the holder itself is the test setter), plus the
+/// shared op log.
+fn recorded_injection() -> (Injection, Arc<Mutex<Vec<RecordedOp>>>) {
+    let ops = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&ops);
+    let mut injection = Injection::new();
+    let stub = |kind: Kind| -> Option<Box<dyn BackendOps>> {
+        Some(Box::new(RecordingBackend {
+            kind,
+            ops: Arc::clone(&ops),
+        }))
+    };
+    assert_eq!(
+        injection.select_with(&[Kind::XTest], &stub),
+        Some(Kind::XTest)
+    );
+    (injection, log)
+}
+
+#[test]
+fn emit_uses_the_selected_backend_not_uinput_statics() {
+    // emit builds its transports over the server's Injection: a rewrite
+    // whose delete succeeds on the selected backend must reach the
+    // application as exactly that Backspace batch and never ALSO as a
+    // protocol delete of the same region (double deletion erased words).
+    let (injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut out = Vec::new();
+    let injected = emit(
+        &mut e,
+        &injection,
+        &[Action::RewriteByBackspace {
+            backspaces: 2,
+            commit: "ê".into(),
+        }],
+        &mut out,
+    );
+    assert_eq!(injected, 2, "the batch counts toward the echo deferral");
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(2)],
+        "exactly one Backspace batch through the selected backend"
+    );
+    assert!(
+        !out.iter().any(|m| m
+            .member()
+            .map(|m| m == "DeleteSurroundingText")
+            .unwrap_or(false)),
+        "the same region must not also be protocol-deleted: {:?}",
+        member_names(&out)
+    );
+}
+
+#[test]
+fn relay_context_never_attempts_injection() {
+    // Relayed Wayland clients lose injected keys; the engine bans
+    // injection there (injection_forbidden). Even with a backend selected
+    // and the availability flag fed, emit must not find a way around the
+    // ban: the record stays empty while the commit still lands.
+    let (injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_uinput_available(true);
+    let mut out = Vec::new();
+    emit(
+        &mut e,
+        &injection,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+    );
+    assert!(
+        ops.lock().unwrap().is_empty(),
+        "no injection may be attempted on a relayed client"
+    );
+    assert!(
+        out.iter()
+            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+        "the commit still lands: {:?}",
+        member_names(&out)
+    );
+}
+
+#[test]
+fn stale_echo_flushes_parked_commit() {
+    // A rewrite's echo never comes back (injection lost) and no key
+    // arrives: the main-loop tick must still deliver the parked commit
+    // through emit, without attempting another injection on the way out.
+    let (injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.apply_config(&Config {
+        experimental_features: true,
+        echo_stale_enabled: true,
+        echo_stale_ms: 1,
+        ..Config::default()
+    });
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    e.defer_commit(2, "tiếng".into());
+    e.add_injected(2);
+    assert!(e.take_injected_echo(), "the first echo arrives");
+    assert!(
+        e.note_echo_forwarded().is_empty(),
+        "the second echo never comes: the commit stays parked"
+    );
+    assert!(e.has_deferred());
+    std::thread::sleep(Duration::from_millis(5)); // past the 1ms stale window
+    let actions = e.tick();
+    assert_eq!(
+        actions,
+        vec![Action::Commit("tiếng".into())],
+        "the stale tick hands the parked commit to emit: {actions:?}"
+    );
+    let mut out = Vec::new();
+    emit(&mut e, &injection, &actions, &mut out);
+    assert!(
+        out.iter()
+            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+        "the parked commit lands: {:?}",
+        member_names(&out)
+    );
+    assert!(
+        ops.lock().unwrap().is_empty(),
+        "the flush must not inject anything"
+    );
+    assert!(!e.has_deferred() && !e.pending_echoes());
 }
 
 #[test]
@@ -919,11 +1102,11 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, c as u32, 0, &mut Vec::new());
+        process_key(&mut e, &Injection::new(), c as u32, 0, &mut Vec::new());
     }
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, 0xff51, 0, &mut out),
+        process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out),
         "Left must be consumed"
     );
     assert!(
@@ -936,7 +1119,7 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
     );
     // The composition is gone: the next arrow is forwarded normally.
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+    assert!(!process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out));
 }
 
 #[test]
@@ -949,11 +1132,17 @@ fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b100001); // PREEDIT|SURROUNDING
     for c in "tung".chars() {
-        process_key(&mut e, c as u32, 0, &mut Vec::new());
+        process_key(&mut e, &Injection::new(), c as u32, 0, &mut Vec::new());
     }
     e.set_capabilities(0b100000); // preedit bit gone, preedit still visible
     let mut out = Vec::new();
-    assert!(process_key(&mut e, 0xff51, keymap::SHIFT_MASK, &mut out));
+    assert!(process_key(
+        &mut e,
+        &Injection::new(),
+        0xff51,
+        keymap::SHIFT_MASK,
+        &mut out
+    ));
     assert!(
         out.iter()
             .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
@@ -970,7 +1159,7 @@ fn navigation_key_forwards_normally_without_pending_preedit() {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+    assert!(!process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out));
 }
 
 #[test]
@@ -981,10 +1170,10 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, c as u32, 0, &mut Vec::new());
+        process_key(&mut e, &Injection::new(), c as u32, 0, &mut Vec::new());
     }
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+    assert!(!process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out));
 }
 
 // --- experimental nav_key_while_preedit values ---
@@ -1000,7 +1189,7 @@ fn pending_preedit_engine(value: &str, experimental: bool) -> Engine {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, c as u32, 0, &mut Vec::new());
+        process_key(&mut e, &Injection::new(), c as u32, 0, &mut Vec::new());
     }
     e
 }
@@ -1018,7 +1207,7 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
     let mut e = pending_preedit_engine("forward", true);
     let mut out = Vec::new();
     assert!(
-        !process_key(&mut e, 0xff51, 0, &mut out),
+        !process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out),
         "Left must be forwarded"
     );
     let members = member_names(&out);
@@ -1028,7 +1217,7 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
     );
     // The second press is still a plain forward (nothing pending).
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+    assert!(!process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out));
 }
 
 #[test]
@@ -1039,7 +1228,7 @@ fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
     let mut e = pending_preedit_engine("replay", true);
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, 0xff51, 0, &mut out),
+        process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out),
         "Left must be consumed"
     );
     let members = member_names(&out);
@@ -1070,7 +1259,13 @@ fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
     // Shift+Left would move instead of select, so the swallow stands.
     let mut e = pending_preedit_engine("replay", true);
     let mut out = Vec::new();
-    assert!(process_key(&mut e, 0xff51, keymap::SHIFT_MASK, &mut out));
+    assert!(process_key(
+        &mut e,
+        &Injection::new(),
+        0xff51,
+        keymap::SHIFT_MASK,
+        &mut out
+    ));
     let members = member_names(&out);
     assert!(
         members.iter().all(|m| m != "ForwardKeyEvent"),
@@ -1089,7 +1284,7 @@ fn the_experimental_gate_forces_the_nav_key_swallow_back_on() {
     let mut e = pending_preedit_engine("forward", false);
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, 0xff51, 0, &mut out),
+        process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out),
         "Left must be consumed with the gate off"
     );
     let members = member_names(&out);
@@ -1407,6 +1602,7 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
     lock_engine(&engine).set_capabilities(1);
     let mut handler = EngineHandler {
         engine: Arc::clone(&engine),
+        injection: Injection::new(),
         // A stale clock: maybe_reload_config gets past its 1s gate.
         last_config_check: Instant::now() - Duration::from_secs(2),
         // Older than the real file's mtime: the first pass sees a change.
