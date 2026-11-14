@@ -19,6 +19,7 @@ use std::time::Instant;
 use crate::uinput::Uinput;
 
 mod uinput;
+mod xtest;
 
 /// An injection transport. The order of use is decided by preference lists,
 /// not by this enum.
@@ -63,7 +64,7 @@ pub fn constructors(kind: Kind) -> Option<Box<dyn BackendOps>> {
     match kind {
         Kind::Uinput if Uinput::available() => Some(Box::new(uinput::UinputBackend)),
         Kind::Uinput => None,
-        Kind::XTest => None,
+        Kind::XTest => xtest::construct(),
         Kind::WlrVirtualKeyboard => None,
         Kind::Libei => None,
     }

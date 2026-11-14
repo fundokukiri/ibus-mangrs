@@ -28,6 +28,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 signal-hook = "0.3"
 toml = "0.8"
+# XTest injection: compiled unconditionally so it must build on Wayland-only
+# machines too; it is only selected where an X server answers.
+x11rb = { version = "0.13", features = ["xtest"] }
 
 [features]
 default = []
