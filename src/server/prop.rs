@@ -52,8 +52,8 @@ pub(super) fn activate_property(
                 None => return,
             },
             "display" => match ModeConfig::from_key(value) {
-                Some(m) => config.mode = m,
-                None => return,
+                Some(m) if config.visible_modes().contains(&m) => config.mode = m,
+                _ => return,
             },
             _ => return,
         }

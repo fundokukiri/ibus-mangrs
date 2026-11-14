@@ -140,6 +140,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let display = adw::PreferencesGroup::builder()
         .title(t("groups.typing.display.title", "Hiển thị"))
         .build();
+    display.add(&ui.mode_visibility);
     display.add(&ui.hide_underline);
     page.add(&display);
 

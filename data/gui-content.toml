@@ -100,6 +100,10 @@ subtitle = "Cách gõ dấu tiếng Việt"
 title = "Chế độ gõ"
 subtitle = "Cách đưa chữ vào ứng dụng"
 
+[rows.mode_visibility]
+title = "Chế độ gõ hiển thị"
+subtitle = "{n}/10 chế độ đang hiện"
+
 [rows.charset]
 title = "Bảng mã"
 subtitle = "Unicode và 10 bảng mã cũ"
@@ -375,6 +379,7 @@ result_title = "Kết quả"
 preview_empty = "Nhập tên app ở trên để xem kết quả"
 match_result = "Khớp luật #{n}: {mode}"
 no_match = "Không khớp luật nào"
+mode_hidden = "(đang ẩn)"
 pseudo_wayland = "gnome-shell (app Wayland)"
 pseudo_none = "(app không báo tên)"
 
@@ -575,6 +580,7 @@ hotkey_settings = "Mở Cài đặt"
 enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
 method = "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
 mode = "Cách hiển thị chữ đang gõ: preedit (gạch chân) dùng được ở mọi app, các mode uinput gửi phím thật nhưng có thể lệch app. Smooth (Forward) xóa bằng phím forwarded qua IBus — không cần /dev/uinput; không dùng cho game hoặc client XIM."
+mode_visibility = "Bỏ chọn một chế độ để ẩn nó khỏi menu, phím tắt, luật theo app và bộ chọn chế độ. Chế độ đang dùng sẽ chuyển sang mục còn hiện đầu tiên."
 charset = "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
 hide_underline = "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
 modern = "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."

@@ -1287,6 +1287,65 @@ fn none_rule_targets_unnamed_clients_in_every_display_mode() {
 }
 
 #[test]
+fn hidden_modes_are_not_selectable_from_config_or_rules() {
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_client(Some("gtk4-im:game".into()));
+    e.apply_config(&Config {
+        // The global mode is hidden: the engine moves to the first visible
+        // entry instead of running a mode the user cannot see.
+        mode: ModeConfig::Turbo,
+        visible_modes: Some(vec!["preedit".into(), "off".into()]),
+        // A rule naming a hidden mode is ignored; the global mode stands.
+        app_rules: vec![crate::config::AppRule {
+            pattern: "game".into(),
+            mode: ModeConfig::Select,
+        }],
+        ..Config::default()
+    });
+    assert_eq!(e.mode(), Mode::Preedit, "hidden global mode coerced");
+    assert_eq!(e.effective_mode(), Mode::Preedit, "hidden rule ignored");
+
+    // A visible rule still wins over the global mode (a forward-transport
+    // mode, so the missing uinput device does not force a preedit fallback).
+    e.apply_config(&Config {
+        mode: ModeConfig::Preedit,
+        visible_modes: Some(vec!["preedit".into(), "forwardkeyevent".into()]),
+        app_rules: vec![crate::config::AppRule {
+            pattern: "game".into(),
+            mode: ModeConfig::ForwardKeyEvent,
+        }],
+        ..Config::default()
+    });
+    assert_eq!(
+        e.effective_mode(),
+        Mode::ForwardKeyEvent,
+        "visible rule applies"
+    );
+}
+
+#[test]
+fn hidden_mode_fallback_follows_the_visible_order() {
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        mode: ModeConfig::NonPreedit,
+        visible_modes: Some(vec!["off".into(), "preedit".into()]),
+        ..Config::default()
+    });
+    assert_eq!(e.mode(), Mode::Off, "the first visible entry wins");
+    e.apply_config(&Config {
+        mode: ModeConfig::Preedit,
+        visible_modes: Some(vec!["smoothforward".into(), "flow".into()]),
+        ..Config::default()
+    });
+    assert_eq!(
+        e.mode(),
+        Mode::SmoothForward,
+        "a visible mode is kept as configured"
+    );
+}
+
+#[test]
 fn app_name_feeds_rules_but_not_transport_decisions() {
     // A mutter-relayed client (gnome-shell) is named by the focus
     // extension: rules must now match the name, while every transport

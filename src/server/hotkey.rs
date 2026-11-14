@@ -248,21 +248,12 @@ impl EngineHandler {
         update_property_group(&config, ibus_prop::KEY_ENABLED, out);
     }
 
-    /// Cycle the display mode list: save, apply, per-item panel update.
+    /// Cycle the visible display modes in dropdown order: save, apply,
+    /// per-item panel update. Hidden modes are skipped; a hidden current
+    /// mode lands on the first visible entry.
     fn cycle_mode(&mut self, out: &mut Vec<Message>) {
         let mut config = Config::load();
-        config.mode = match config.mode {
-            ModeConfig::NonPreedit => ModeConfig::Preedit,
-            ModeConfig::Preedit => ModeConfig::Surrounding,
-            ModeConfig::Surrounding => ModeConfig::Flow,
-            ModeConfig::Flow => ModeConfig::Turbo,
-            ModeConfig::Turbo => ModeConfig::Select,
-            ModeConfig::Select => ModeConfig::SmoothForward,
-            ModeConfig::SmoothForward => ModeConfig::ForwardKeyEvent,
-            ModeConfig::ForwardKeyEvent => ModeConfig::ForwardSelect,
-            ModeConfig::ForwardSelect => ModeConfig::Off,
-            ModeConfig::Off => ModeConfig::NonPreedit,
-        };
+        config.mode = next_visible_mode(&config.visible_modes(), config.mode);
         if config.save().is_err() {
             return; // consumed anyway; do not type with a hotkey press
         }
@@ -424,6 +415,15 @@ pub(super) fn cycle_next<'a>(
 ) -> Option<&'a str> {
     let i = list.iter().position(|(k, ..)| *k == current)?;
     Some(list[(i + 1) % list.len()].0)
+}
+
+/// The next mode in the visible list, wrapping around. A current mode that
+/// is hidden lands on the first visible entry.
+pub(super) fn next_visible_mode(visible: &[ModeConfig], current: ModeConfig) -> ModeConfig {
+    match visible.iter().position(|mode| *mode == current) {
+        Some(i) => visible[(i + 1) % visible.len()],
+        None => visible.first().copied().unwrap_or(current),
+    }
 }
 
 /// Does this key event trigger the hotkey? `key == 0` marks a
