@@ -19,6 +19,7 @@ use std::time::Instant;
 use crate::uinput::Uinput;
 
 mod uinput;
+mod wlr_vk;
 mod xtest;
 
 /// An injection transport. The order of use is decided by preference lists,
@@ -65,7 +66,7 @@ pub fn constructors(kind: Kind) -> Option<Box<dyn BackendOps>> {
         Kind::Uinput if Uinput::available() => Some(Box::new(uinput::UinputBackend)),
         Kind::Uinput => None,
         Kind::XTest => xtest::construct(),
-        Kind::WlrVirtualKeyboard => None,
+        Kind::WlrVirtualKeyboard => wlr_vk::construct(),
         Kind::Libei => None,
     }
 }

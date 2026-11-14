@@ -31,6 +31,14 @@ toml = "0.8"
 # XTest injection: compiled unconditionally so it must build on Wayland-only
 # machines too; it is only selected where an X server answers.
 x11rb = { version = "0.13", features = ["xtest"] }
+# Wayland injection: compiled unconditionally so it must build on X11-only
+# machines too; it is only selected where a compositor exposes the
+# virtual-keyboard global.
+wayland-client = "0.31"
+# virtual-keyboard's bindings live in the -misc split of wayland-protocols
+# (the protocol is homeless upstream; neither wayland-protocols 0.32 nor -wlr
+# nor -plasma ship it).
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
 
 [features]
 default = []
