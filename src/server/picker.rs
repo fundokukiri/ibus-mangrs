@@ -2,13 +2,13 @@
 //! the ibus-bamboo Shift+` flow, no GTK window involved. The engine opens
 //! it on the app-rule hotkey with the rule target it resolved at press
 //! time (once the popup is up, the focused "app" would be the app itself).
-//! One flat page of the nine display modes: the highlight starts on the
+//! One flat page of the visible display modes: the highlight starts on the
 //! mode in force — GNOME draws the lookup-table cursor as the blue hover —
 //! and the auxiliary line names the app and its mode. Up/Down move the
-//! highlight, Enter picks it, a digit 1..9/0 picks that entry directly,
-//! Escape or any other key closes the menu (other keys type on). Clicking
-//! elsewhere resets the client, which closes it too. The choice updates
-//! the highest-priority rule the app currently rides on
+//! highlight, Enter picks it, a digit 1..9 picks that entry directly, 0 picks
+//! the last, Escape or any other key closes the menu (other keys type on).
+//! Clicking elsewhere resets the client, which closes it too. The choice
+//! updates the highest-priority rule the app currently rides on
 //! (`Config::set_rule_mode_for_target`).
 
 use super::hotkey::client_prgname;
@@ -17,14 +17,14 @@ use super::*;
 /// One page holds every mode: the menu is static, selection is by digit.
 pub(super) const PICKER_PAGE_SIZE: u32 = 9;
 
-/// The picker's entries: the display modes in panel-menu order, the entry
-/// currently in force for the target prefixed with a dot marker.
-pub(super) fn picker_entries(current: ModeConfig, en: bool) -> Vec<String> {
-    ibus_prop::MODES
+/// The picker's entries: the visible display modes in dropdown order, the
+/// entry currently in force for the target prefixed with a dot marker.
+pub(super) fn picker_entries(visible: &[ModeConfig], current: ModeConfig, en: bool) -> Vec<String> {
+    visible
         .iter()
-        .map(|(key, vi, en_label)| {
-            let label = if en { *en_label } else { *vi };
-            if ModeConfig::from_key(key) == Some(current) {
+        .map(|mode| {
+            let label = ibus_prop::mode_label(*mode, en);
+            if *mode == current {
                 format!("● {label}")
             } else {
                 label.to_string()
@@ -33,10 +33,27 @@ pub(super) fn picker_entries(current: ModeConfig, en: bool) -> Vec<String> {
         .collect()
 }
 
+/// The mode a picker row resolves to right now: the rule/app mode when it is
+/// still visible, else the global mode, else the first visible entry.
+fn picker_current(config: &Config, target: &str) -> ModeConfig {
+    let visible = config.visible_modes();
+    let stored =
+        crate::config::app_rule_mode(&config.app_rules, Some(target)).unwrap_or(config.mode);
+    if visible.contains(&stored) {
+        stored
+    } else if visible.contains(&config.mode) {
+        config.mode
+    } else {
+        visible[0]
+    }
+}
+
 /// Keys the picker consumes while open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PickerKey {
     Select(usize),
+    /// The `0` key: the last visible entry.
+    SelectLast,
     /// Move the highlight by this many entries (wrapping).
     Move(i32),
     Cancel,
@@ -69,7 +86,7 @@ impl PickerState {
             65362 => PickerKey::Move(-1),                    // Up
             65364 => PickerKey::Move(1),                     // Down
             k @ 0x31..=0x39 => PickerKey::Select((k - 0x31) as usize),
-            0x30 => PickerKey::Select(8), // 0 picks the last entry
+            0x30 => PickerKey::SelectLast,
             _ => PickerKey::Ignore,
         }
     }
@@ -116,11 +133,11 @@ impl EngineHandler {
         // lookup-table cursor as the blue hover, so the current choice is
         // visible the moment the menu opens.
         let config = Config::load();
-        let current =
-            crate::config::app_rule_mode(&config.app_rules, Some(&target)).unwrap_or(config.mode);
-        let cursor = ibus_prop::MODES
+        let visible = config.visible_modes();
+        let current = picker_current(&config, &target);
+        let cursor = visible
             .iter()
-            .position(|(key, ..)| ModeConfig::from_key(key) == Some(current))
+            .position(|mode| *mode == current)
             .unwrap_or(0);
         self.picker = Some(PickerState::new(target, cursor));
         self.emit_picker_table(out);
@@ -133,21 +150,10 @@ impl EngineHandler {
             return;
         };
         let config = Config::load();
-        let current = crate::config::app_rule_mode(&config.app_rules, Some(&state.target))
-            .unwrap_or(config.mode);
-        let entries = picker_entries(current, config.language == "en");
-        let current_label = ibus_prop::MODES
-            .iter()
-            .find(|(key, ..)| ModeConfig::from_key(key) == Some(current))
-            .map(|(_, vi, en_label)| {
-                if config.language == "en" {
-                    *en_label
-                } else {
-                    *vi
-                }
-                .to_string()
-            })
-            .unwrap_or_default();
+        let visible = config.visible_modes();
+        let current = picker_current(&config, &state.target);
+        let entries = picker_entries(&visible, current, config.language == "en");
+        let current_label = ibus_prop::mode_label(current, config.language == "en").to_string();
         let table =
             ibus_prop::lookup_table_variant(PICKER_PAGE_SIZE, state.cursor as u32, &entries);
         out.push(signal("UpdateLookupTable").append2(table, true));
@@ -174,10 +180,17 @@ impl EngineHandler {
                 self.apply_picker_entry(i, out);
                 true
             }
+            PickerKey::SelectLast => {
+                let len = Config::load().visible_modes().len();
+                self.apply_picker_entry(len.saturating_sub(1), out);
+                true
+            }
             PickerKey::Move(delta) => {
-                if let Some(p) = self.picker.as_mut() {
-                    p.cursor =
-                        (p.cursor as i32 + delta).rem_euclid(PICKER_PAGE_SIZE as i32) as usize;
+                let len = Config::load().visible_modes().len();
+                if len > 0 {
+                    if let Some(p) = self.picker.as_mut() {
+                        p.cursor = (p.cursor as i32 + delta).rem_euclid(len as i32) as usize;
+                    }
                 }
                 // Re-render so the popup's highlight follows the cursor.
                 self.emit_picker_table(out);
@@ -200,14 +213,13 @@ impl EngineHandler {
         let Some(state) = self.picker.take() else {
             return;
         };
-        let Some((key, ..)) = ibus_prop::MODES.get(index) else {
-            return;
-        };
-        let Some(mode) = ModeConfig::from_key(key) else {
+        let mut config = Config::load();
+        let Some(mode) = config.visible_modes().get(index).copied() else {
+            out.push(signal("HideLookupTable"));
+            out.push(signal("HideAuxiliaryText"));
             return;
         };
         debug_log::log(&format!("picker: {} → {}", state.target, mode.key()));
-        let mut config = Config::load();
         config.set_rule_mode_for_target(&state.target, mode);
         if config.save().is_err() {
             out.push(signal("HideLookupTable"));

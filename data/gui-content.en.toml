@@ -98,6 +98,10 @@ subtitle = "How Vietnamese tone marks are typed"
 title = "Display mode"
 subtitle = "How typed text reaches the app"
 
+[rows.mode_visibility]
+title = "Displayed modes"
+subtitle = "{n}/10 modes shown"
+
 [rows.charset]
 title = "Character set"
 subtitle = "Unicode and 10 legacy tables"
@@ -373,6 +377,7 @@ result_title = "Result"
 preview_empty = "Type an app name above to see the result"
 match_result = "Matches rule #{n}: {mode}"
 no_match = "No rule matches"
+mode_hidden = "(hidden)"
 pseudo_wayland = "gnome-shell (Wayland apps)"
 pseudo_none = "(app reports no name)"
 
@@ -572,6 +577,7 @@ hotkey_settings = "Open Settings"
 enabled = "Toggles the whole input method. When off, every key goes straight into the app as if MăngRS were not installed."
 method = "The typing method decides how accented text is built from the keys: Telex (ss → á), VNI (a1 → á) or VIQR."
 mode = "How the in-flight text is displayed: preedit (underlined) works in every app; the uinput modes send real keys but can drift per app. Smooth (Forward) deletes via keys forwarded over IBus — no /dev/uinput; not for games or XIM clients."
+mode_visibility = "Turn a mode off to hide it from the menu, hotkey cycle, per-app rules and mode pickers. The active mode moves to the first still-visible entry."
 charset = "The character table: Unicode for every normal use; the VNI/TCVN3 tables are only needed when reading old text files."
 hide_underline = "Hides the preedit underline for apps that draw it broken (some games, terminals)."
 modern = "The Ministry of Education's new tone standard: hòa instead of hoà, thuế instead of thuể."

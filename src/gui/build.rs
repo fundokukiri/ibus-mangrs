@@ -21,11 +21,29 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.method.subtitle", "Cách gõ dấu tiếng Việt"),
         &labels(METHODS),
     );
+    // The visible-mode list is the single source for every mode picker in
+    // the window: the main combo, the add-rule picker and the rule rows.
+    let mode_choices = Config::load().visible_modes();
     let mode = combo_row(
         &t("rows.mode.title", "Chế độ gõ"),
         &t("rows.mode.subtitle", "Cách đưa chữ vào ứng dụng"),
-        &labels(MODES),
+        &mode_labels(&mode_choices),
     );
+    // "Chế độ gõ hiển thị": an expander holding one switch per mode. The
+    // expander keeps ten rows out of the page's main flow.
+    let mode_visibility = adw::ExpanderRow::new();
+    mode_visibility.set_use_markup(false);
+    mode_visibility.set_title(&t("rows.mode_visibility.title", "Chế độ gõ hiển thị"));
+    mode_visibility.set_tooltip_text(Some(&t(
+        "tips.mode_visibility",
+        "Bỏ chọn một chế độ để ẩn nó khỏi menu, phím tắt, luật theo app và bộ chọn chế độ. Chế độ đang dùng sẽ chuyển sang mục còn hiện đầu tiên.",
+    )));
+    let mut mode_visible_switches = Vec::new();
+    for (mode, ..) in MODE_LABELS {
+        let switch = switch_row(mode_label(*mode), "");
+        mode_visibility.add_row(&switch);
+        mode_visible_switches.push(switch);
+    }
     let charset = combo_row(
         &t("rows.charset.title", "Bảng mã"),
         &t("rows.charset.subtitle", "Unicode và 10 bảng mã cũ"),
@@ -261,6 +279,20 @@ pub(super) fn widgets() -> Rc<Ui> {
     // The page's toast host: built here, returned by the page as its
     // wrapper, so toasts fired from the row editors are visible.
     let rules_overlay = adw::ToastOverlay::new();
+    // The add-rule form's mode picker; its model follows `mode_choices`.
+    let rule_add_mode_pick = gtk4::DropDown::new(
+        Some(StringList::new(&mode_labels(&mode_choices))),
+        gtk4::Expression::NONE,
+    );
+    rule_add_mode_pick.set_selected(mode_index(&mode_choices, ModeConfig::Preedit));
+    rule_add_mode_pick.set_hexpand(true);
+    rule_add_mode_pick.set_height_request(40);
+    rule_add_mode_pick.add_css_class("rule-fill");
+    rule_add_mode_pick
+        .set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
+    if let Some(label) = first_label(&rule_add_mode_pick) {
+        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    }
     // The input is a native EntryRow; the verdict is the subtitle of a
     // read-only result row underneath it, with a status icon up front.
     // EntryRow has no placeholder in this libadwaita, so the examples live
@@ -746,6 +778,10 @@ pub(super) fn widgets() -> Rc<Ui> {
         enabled,
         method,
         mode,
+        mode_choices: Rc::new(RefCell::new(mode_choices)),
+        mode_visibility,
+        mode_visible_switches,
+        mode_visibility_loading: Rc::new(RefCell::new(false)),
         charset,
         hotkey_display,
         hotkey_value,
@@ -790,6 +826,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         dictionary_enabled,
         dictionary_text,
         rules_box,
+        rule_choices: Rc::new(RefCell::new(Vec::new())),
+        rule_add_mode_pick,
         rules_overlay,
         rules_loading,
         desktop_icon,

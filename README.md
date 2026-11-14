@@ -8,8 +8,8 @@
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
 [`bamboo-core`](https://crates.io/crates/bamboo-core). 9 input methods, 11 output charsets,
-9 display modes, a GTK4 settings window, macros, an emoji picker at the caret and per-app
-rules.
+10 display modes (6 shown by default), a GTK4 settings window, macros, an emoji picker at
+the caret and per-app rules.
 
 > Developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland; X11 smoke-tested).
 > The only hard requirements are IBus ≥ 1.5 and GTK4 + libadwaita — it should work wherever
@@ -20,7 +20,9 @@ rules.
 - **9 input methods** — Telex (`tieengs` → `tiếng`), Telex 2, Telex W, Telex + VNI,
   Telex + VNI + VIQR, VNI (`tie6ng1`), VNI (French keyboard), VIQR and the Microsoft layout
   (`ti3ng8` → `tiếng`) — with **11 output charsets** (Unicode, VNI, VIQR, TCVN3, VISCII, ...).
-- **9 display modes** (table below), settable per application through **App Rules**.
+- **10 display modes** (table below), 6 shown by default — hide or show each one on the
+  _General_ page; hidden modes disappear from the menu, hotkey cycle, App Rules and pickers,
+  and are settable per application through **App Rules**.
 - **Flexible typing options**: modern tone placement (`hòa`) or traditional (`hoà`), free tone
   marking (`hoangf` → `hoàng`), auto-correction of invalid syllables, auto-restore of foreign
   words, raw-key bypass for URLs/emails/paths, `w` → `ư`, `--` → `—`, auto-capitalize,
@@ -49,12 +51,13 @@ rules.
 | Underline (preedit)  | `preedit`       | word shows inline with underline, commits at word end            | 
 | No underline         | `nonpreedit`    | every key commits, the tail is rewritten on marks                | 
 | Surrounding text     | `surrounding`   | non-preedit, verified against the app's own text report          | 
-| Flow (uinput)        | `flow`          | raw keys forwarded; real Backspaces erase the tail at word end   | 
+| Flow (uinput)        | `flow`          | raw keys forwarded; real Backspaces erase the tail at word end   |
 | Turbo (uinput)       | `turbo`         | Flow without the safety check before rewriting                   |
-| Select (uinput)      | `select`        | Shift+← selects the tail, Delete erases it, word commits         | 
-| Forward Backspace    | `forwardkeyevent` | the tail is deleted with Backspace events forwarded via IBus   | 
-| Forward Selection    | `forwardselect` | the tail is selected with Shift+← and replaced by the commit     | 
-| OFF                  | `off`           | Vietnamese off, macros and auto-capitalize still work            | 
+| Select (uinput)      | `select`        | Shift+← selects the tail, Delete erases it, word commits         |
+| Smooth (Forward)     | `smoothforward` | Flow's contract on forwarded Backspaces — no `/dev/uinput`       |
+| Forward Backspace    | `forwardkeyevent` | the tail is deleted with Backspace events forwarded via IBus   |
+| Forward Selection    | `forwardselect` | the tail is selected with Shift+← and replaced by the commit     |
+| OFF                  | `off`           | Vietnamese off, macros and auto-capitalize still work            |
 
 The labels are the ones the engine's menu and settings window show; the config value is what
 `config.toml` and App Rules accept.
@@ -63,9 +66,26 @@ Switch modes from the input-source menu, the settings window's _Display mode_ ro
 hotkey, or per app with App Rules. The three uinput modes press real keys through
 `/dev/uinput`: they need write access to that device and fall back to preedit without it
 (Select also needs a surrounding-text report from the app). They run on both X11 and GNOME
-Wayland. The two Forward modes need neither `/dev/uinput` nor a surrounding-text report —
+Wayland. The three forward modes need neither `/dev/uinput` nor a surrounding-text report —
 their delete or selection travels as forwarded key events. A config or rule still carrying
 the removed `auto` or `defaulttyping` value migrates automatically (to `preedit` and `off`).
+
+### Showing and hiding modes
+
+The settings window's _General_ page carries one switch per mode
+(_Displayed modes_). A hidden mode is not selectable anywhere: it leaves the mode row, the
+App Rules pickers, the panel menu and the cycle hotkey, and the engine ignores it as a global
+mode or a rule mode. The shipped set is `preedit`, `surrounding`, `flow`, `forwardkeyevent`,
+`smoothforward`, `off`; the four technical variants (`nonpreedit`, `turbo`, `select`,
+`forwardselect`) stay implemented but hidden until enabled. The active mode moves to the first
+still-visible entry when it is hidden. The list is saved in `config.toml`:
+
+```toml
+visible_modes = ["preedit", "surrounding", "flow", "forwardkeyevent", "smoothforward", "off"]
+```
+
+A file without the key (an upgrade) keeps every mode it already uses — the global mode and
+every App Rule mode are appended to the shipped default, so nothing changes silently.
 
 ## Requirements
 
@@ -194,7 +214,7 @@ See [SECURITY.md](SECURITY.md) for what the engine can and cannot do with this a
 | Open settings              | menu → _Settings_, or `ibus-engine-mangrs -gui`                                            |
 | Change input method        | menu → _Typing method_ (9 presets), or GUI                                                 |
 | Change charset             | menu → _Charset_ (11 charsets), or GUI                                                     |
-| Change display mode        | menu → _Display mode_, GUI (all 9), or the cycle hotkey                                    |
+| Change display mode        | menu → _Display mode_, the GUI mode row, or the cycle hotkey                              |
 | Type an emoji              | type `:name:` (enable in the GUI _Emoji_ page), or the emoji hotkey opens the picker       |
 | Pick a per-app rule        | the app-rule hotkey opens a picker at the caret: the app and its display mode              |
 | Assign a shortcut          | GUI _Shortcuts_ page (click a row, press the combo)                                        |
@@ -225,8 +245,9 @@ mode = "surrounding"
 ```
 
 Mode values: `preedit` (default), `nonpreedit`, `surrounding`, `flow`, `turbo`,
-`select` (these three press real keys through `/dev/uinput`), `forwardkeyevent`,
-`forwardselect`, `off`.
+`select` (these three press real keys through `/dev/uinput`), `smoothforward`,
+`forwardkeyevent`, `forwardselect`, `off`. A rule naming a mode hidden in
+`visible_modes` is kept in the file but ignored until that mode is shown again.
 
 No rules ship with the engine. It does carry a built-in safeguard for known
 delete-dropping clients (Chrome, Chromium, Edge, Brave, Vivaldi and Electron apps such as

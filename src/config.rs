@@ -210,6 +210,15 @@ pub struct Config {
     /// in order — keys of `ibus_prop::MODES`. Same skip-unknown contract as
     /// `quick_menu`.
     pub menu_modes: Vec<String>,
+    /// Display modes the GUI, the App Rules pickers, the panel menu and the
+    /// cycle hotkey offer, in order — keys of `ibus_prop::MODES`. A mode
+    /// outside this list is hidden everywhere and the engine refuses it as a
+    /// global mode or a rule mode; engine fallbacks for client capabilities
+    /// are exempt. `None` means an old file without the key: the shipped
+    /// default plus the configured mode and every rule's mode, so an upgrade
+    /// never hides something the user already relies on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible_modes: Option<Vec<String>>,
     /// The user-designed panel menu. `None` (or an empty list) means the
     /// menu is synthesized from `default_menu()` — the shape the engine
     /// shipped before the menu became editable — so an upgrade and a broken
@@ -785,13 +794,25 @@ fn default_quick_menu() -> Vec<String> {
 }
 
 /// Display modes the panel popup showed before the radio group became
-/// editable — the four main entries, not the uinput/technical ones.
+/// editable — the four main entries, not the technical ones.
 fn default_menu_modes() -> Vec<String> {
-    ["preedit", "nonpreedit", "surrounding", "off"]
+    ["preedit", "surrounding", "flow", "off"]
         .into_iter()
         .map(str::to_string)
         .collect()
 }
+
+/// Modes the GUI offers on a fresh install, in dropdown/cycle order. The
+/// technical variants (`nonpreedit`, `turbo`, `select`, `forwardselect`)
+/// stay implemented but hidden until the user enables them.
+pub const DEFAULT_VISIBLE_MODES: [&str; 6] = [
+    "preedit",
+    "surrounding",
+    "flow",
+    "forwardkeyevent",
+    "smoothforward",
+    "off",
+];
 
 impl Default for Config {
     fn default() -> Self {
@@ -856,6 +877,7 @@ impl Default for Config {
             custom_hotkeys: Vec::new(),
             quick_menu: default_quick_menu(),
             menu_modes: default_menu_modes(),
+            visible_modes: None,
             menu: None,
         }
     }
@@ -986,6 +1008,48 @@ impl Config {
     /// Method and display mode in the form the engine wants.
     pub fn engine_settings(&self) -> (Method, Mode) {
         (self.method.into(), self.mode.into())
+    }
+
+    /// The display modes a user may pick, in dropdown/cycle order. An absent
+    /// key (an old file) yields the shipped default plus whatever the file
+    /// already uses — the global mode and every rule's mode — so an upgrade
+    /// never hides a mode in active use. Unknown keys are skipped; an empty
+    /// result falls back to the shipped default.
+    pub fn visible_modes(&self) -> Vec<ModeConfig> {
+        let raw: Vec<String> = match &self.visible_modes {
+            Some(list) => list.clone(),
+            None => {
+                let mut keys: Vec<String> = DEFAULT_VISIBLE_MODES
+                    .iter()
+                    .map(|k| k.to_string())
+                    .collect();
+                let mut push = |mode: ModeConfig| {
+                    if !keys.iter().any(|k| ModeConfig::from_key(k) == Some(mode)) {
+                        keys.push(mode.key().to_string());
+                    }
+                };
+                push(self.mode);
+                for rule in &self.app_rules {
+                    push(rule.mode);
+                }
+                keys
+            }
+        };
+        let mut out: Vec<ModeConfig> = Vec::new();
+        for key in raw {
+            if let Some(mode) = ModeConfig::from_key(&key) {
+                if !out.contains(&mode) {
+                    out.push(mode);
+                }
+            }
+        }
+        if out.is_empty() {
+            out = DEFAULT_VISIBLE_MODES
+                .iter()
+                .filter_map(|k| ModeConfig::from_key(k))
+                .collect();
+        }
+        out
     }
 }
 
@@ -1128,8 +1192,8 @@ mod tests {
             Config::default().menu_modes,
             vec![
                 "preedit".to_string(),
-                "nonpreedit".to_string(),
                 "surrounding".to_string(),
+                "flow".to_string(),
                 "off".to_string(),
             ]
         );
@@ -1140,6 +1204,83 @@ mod tests {
         );
         let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
         assert_eq!(c.menu_modes.len(), 4);
+    }
+
+    #[test]
+    fn visible_modes_default_to_the_six_main_entries() {
+        let c = Config::default();
+        assert_eq!(
+            c.visible_modes(),
+            vec![
+                ModeConfig::Preedit,
+                ModeConfig::Surrounding,
+                ModeConfig::Flow,
+                ModeConfig::ForwardKeyEvent,
+                ModeConfig::SmoothForward,
+                ModeConfig::Off,
+            ]
+        );
+        // A fresh file without the key uses the default list as-is.
+        let parsed: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
+        assert_eq!(parsed.visible_modes, None);
+        assert_eq!(parsed.visible_modes(), c.visible_modes());
+    }
+
+    #[test]
+    fn absent_visible_modes_keep_the_configured_and_rule_modes() {
+        // Upgrade path: an old file has no key. Its global mode and every
+        // rule mode must stay selectable, or an upgrade would silently
+        // change what the user types with.
+        let c = Config {
+            mode: ModeConfig::NonPreedit,
+            app_rules: vec![
+                AppRule {
+                    pattern: "code".into(),
+                    mode: ModeConfig::Select,
+                },
+                AppRule {
+                    pattern: "game".into(),
+                    mode: ModeConfig::NonPreedit,
+                },
+            ],
+            ..Config::default()
+        };
+        let visible = c.visible_modes();
+        assert!(visible.contains(&ModeConfig::NonPreedit));
+        assert!(visible.contains(&ModeConfig::Select));
+        // The default order stays first; the extra modes are appended once.
+        assert_eq!(visible.first(), Some(&ModeConfig::Preedit));
+        assert_eq!(
+            visible
+                .iter()
+                .filter(|m| **m == ModeConfig::NonPreedit)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn explicit_visible_modes_skip_unknown_and_empty_lists() {
+        let c = Config {
+            visible_modes: Some(vec![
+                "smoothforward".into(),
+                "not_a_mode".into(),
+                "off".into(),
+                "smooth-forward".into(),
+            ]),
+            ..Config::default()
+        };
+        assert_eq!(
+            c.visible_modes(),
+            vec![ModeConfig::SmoothForward, ModeConfig::Off]
+        );
+        // An emptied list (a hand edit) falls back to the shipped default
+        // rather than hiding every mode from the engine.
+        let c = Config {
+            visible_modes: Some(Vec::new()),
+            ..Config::default()
+        };
+        assert_eq!(c.visible_modes().len(), DEFAULT_VISIBLE_MODES.len());
     }
 
     #[test]

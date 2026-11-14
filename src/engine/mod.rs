@@ -171,6 +171,10 @@ pub enum Action {
 pub struct Engine {
     wrapper: BambooWrapper,
     mode: Mode,
+    /// Modes the user may select, in GUI/cycle order. Mode resolution never
+    /// takes a hidden mode from the config or an app rule; capability
+    /// fallbacks inside `effective_mode` are exempt so typing never breaks.
+    visible_modes: Vec<Mode>,
     /// The focused application's name from sources beyond the IBus client
     /// string (the focus extension for Wayland apps, the X active window for
     /// X11) — used ONLY for rule matching. Transport decisions keep using
@@ -479,6 +483,7 @@ impl Engine {
         let mut engine = Self {
             wrapper: BambooWrapper::new(method, bamboo_core::Config::default()),
             mode,
+            visible_modes: Vec::new(),
             caps: 0,
             preedit_visible: false,
             client: None,
@@ -604,7 +609,15 @@ impl Engine {
             self.repair_delete = None;
             self.release_word_mode();
         }
-        let (method, mode) = config.engine_settings();
+        let (method, requested) = config.engine_settings();
+        // A mode hidden in the GUI cannot stay selected: move to the first
+        // mode the user still offers. Rules follow the same list (below).
+        self.visible_modes = config.visible_modes().into_iter().map(Mode::from).collect();
+        let mode = if self.visible_modes.contains(&requested) {
+            requested
+        } else {
+            self.visible_modes.first().copied().unwrap_or(Mode::Preedit)
+        };
         let mut rebuilt = self.wrapper.set_config(config.bamboo_config());
         rebuilt |= self.wrapper.set_method(method);
         if rebuilt {
@@ -1281,7 +1294,9 @@ impl Engine {
             }
         }
         let effective = self.app_name.as_deref().or(self.client.as_deref());
-        let resolved = crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from);
+        let resolved = crate::config::app_rule_mode(&self.app_rules, effective)
+            .map(Mode::from)
+            .filter(|mode| self.visible_modes.contains(mode));
         self.rule_cache = Some((self.app_name.clone(), self.client.clone(), resolved));
         resolved
     }
