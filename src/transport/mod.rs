@@ -18,6 +18,8 @@ use std::time::Instant;
 
 use crate::uinput::Uinput;
 
+mod ei_sys;
+mod libei;
 mod uinput;
 mod wlr_vk;
 mod xtest;
@@ -67,7 +69,7 @@ pub fn constructors(kind: Kind) -> Option<Box<dyn BackendOps>> {
         Kind::Uinput => None,
         Kind::XTest => xtest::construct(),
         Kind::WlrVirtualKeyboard => wlr_vk::construct(),
-        Kind::Libei => None,
+        Kind::Libei => libei::construct(),
     }
 }
 
