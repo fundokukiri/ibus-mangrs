@@ -16,6 +16,10 @@
 
 use std::time::Instant;
 
+use crate::uinput::Uinput;
+
+mod uinput;
+
 /// An injection transport. The order of use is decided by preference lists,
 /// not by this enum.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -54,9 +58,10 @@ pub trait BackendOps: Send {
 /// `Injection::select` then denies it instead of re-attempting it on every
 /// keystroke.
 pub fn constructors(kind: Kind) -> Option<Box<dyn BackendOps>> {
-    // Each backend registers itself here as its module lands; until then
-    // every kind is denied and the engine keeps the protocol path.
+    // Backends register themselves here as their modules land; a kind with
+    // no backend yet is denied and the engine keeps the protocol path.
     match kind {
+        Kind::Uinput if Uinput::available() => Some(Box::new(uinput::UinputBackend)),
         Kind::Uinput => None,
         Kind::XTest => None,
         Kind::WlrVirtualKeyboard => None,
@@ -278,6 +283,22 @@ mod tests {
             *attempts.lock().unwrap(),
             vec![Kind::WlrVirtualKeyboard, Kind::Uinput, Kind::Uinput]
         );
+    }
+
+    #[test]
+    fn uinput_constructor_registers_when_device_available() {
+        // The one test that reaches the real device: the constructor must
+        // track `Uinput::available()` exactly, so a machine without
+        // `/dev/uinput` gets `None` and keeps the protocol path.
+        let device = crate::uinput::Uinput::available();
+        let backend = constructors(Kind::Uinput);
+        assert_eq!(backend.is_some(), device);
+        if let Some(backend) = backend {
+            assert_eq!(backend.kind(), Kind::Uinput);
+            assert_eq!(backend.available(), device);
+            // 0 presses is a no-op that must not touch the device.
+            assert!(backend.backspaces(0, 0));
+        }
     }
 
     #[test]
