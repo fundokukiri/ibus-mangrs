@@ -25,4 +25,5 @@ pub mod keymap;
 pub mod macros;
 pub mod paste;
 pub mod server;
+pub mod transport;
 pub mod uinput;
