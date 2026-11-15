@@ -120,6 +120,8 @@ impl Server {
             emoji_picker: None,
             burst: BurstWatch::default(),
             burst_buffer: BurstBuffer::default(),
+            bounce_deadline: None,
+            stash: None,
             focus_ext: None,
         }));
         handler.borrow_mut().last_config_mtime = Config::path()
@@ -169,10 +171,16 @@ impl Server {
                 let handler = self.handler.borrow();
                 // The burst watchdog's deadline joins the engine's own
                 // deadlines: a lost burst must wake the loop on its own
-                // clock, not the 1s poll.
+                // clock, not the 1s poll. The bounce deadline folds the same
+                // way: an expired bounce window aborts promptly.
                 let engine_ms = e.ms_until_tick().map_or(1000, |ms| ms.min(1000));
                 let watch_ms = handler.burst.ms_until().map_or(1000, |ms| ms.min(1000));
-                engine_ms.min(watch_ms) as i32
+                let bounce_ms = handler.bounce_deadline.map_or(1000, |d| {
+                    d.saturating_duration_since(Instant::now())
+                        .as_millis()
+                        .max(1) as u64
+                });
+                (engine_ms.min(watch_ms).min(bounce_ms)) as i32
             };
             for item in self.conn.iter(timeout) {
                 if matches!(item, dbus::ffidisp::ConnectionItem::Nothing) {
@@ -183,28 +191,56 @@ impl Server {
             {
                 let mut e = lock_engine(&self.engine);
                 let mut handler = self.handler.borrow_mut();
-                // Split into disjoint field borrows: the burst state and
-                // the key buffer are separate, and a RefMut reborrow per
-                // field would trip the borrow checker.
+                // Split into disjoint field borrows: the burst state, the
+                // bounce state and the key buffer are separate, and a RefMut
+                // reborrow per field would trip the borrow checker.
                 let EngineHandler {
                     injection,
                     burst,
                     burst_buffer,
+                    bounce_deadline,
+                    stash,
                     ..
                 } = &mut *handler;
-                // The per-burst echo watchdog runs beside the tick: a
-                // burst whose echoes stopped arriving is declared lost on
-                // its deadline and its parked commits flush before the
-                // engine's own stale pass looks at the counters.
-                burst_watch_pass(&mut e, burst, &mut out);
-                let actions = e.tick();
-                let injected = emit(&mut e, injection, &actions, &mut out);
-                add_injected_batch(&mut e, burst, injected);
-                // Both burst completion routes converge on this pass: the
-                // watchdog expiry completes inside burst_watch_pass above,
-                // the echo-settle route when the tick delivers the last
-                // parked commit. One flush point replays the held keys.
-                replay_buffered_keys(&mut e, injection, burst, burst_buffer, &mut out);
+                // Bounce resolution first: an expired window aborts the
+                // deferred reset before the watchdog or the tick can deliver
+                // the parked commits (they belong to the stash now).
+                if bounce_deadline.is_some_and(|d| Instant::now() >= d) {
+                    *bounce_deadline = None;
+                    abort_deferred_focus_out(&mut e, burst, burst_buffer);
+                }
+                // Inside the bounce window the reset is deferred: neither
+                // the watchdog nor the tick may deliver anything and the
+                // held keys do not replay — every parked commit belongs to
+                // the bounce and is already copied into the stash, and a
+                // burst that completes mid-window (its echo debt settles
+                // with no parked commit left) must not send the held keys
+                // to the wire while the focus is still in flight.
+                if bounce_deadline.is_none() {
+                    // The per-burst echo watchdog runs beside the tick: a
+                    // burst whose echoes stopped arriving is declared lost on
+                    // its deadline and its parked commits flush before the
+                    // engine's own stale pass looks at the counters.
+                    burst_watch_pass(&mut e, burst, &mut out);
+                    let actions = e.tick();
+                    let injected = emit(&mut e, injection, &actions, &mut out);
+                    add_injected_batch(&mut e, burst, injected);
+                    // Both burst completion routes converge on this pass: the
+                    // watchdog expiry completes inside burst_watch_pass above,
+                    // the echo-settle route when the tick delivers the last
+                    // parked commit. One flush point replays the held keys.
+                    replay_buffered_keys(&mut e, injection, burst, burst_buffer, &mut out);
+                }
+                // The stash expires without a reconciling report: drop, log
+                // once (the drop is the gate).
+                if let Some(s) = stash {
+                    if Instant::now() >= s.deadline {
+                        debug_log::log(
+                            "stashed rewrite dropped: no report within the reconcile window",
+                        );
+                        *stash = None;
+                    }
+                }
             }
             for msg in out {
                 send(&self.conn, msg);
@@ -304,6 +340,13 @@ struct EngineHandler {
     /// Keystrokes typed while that burst was in flight, held for the
     /// ordered replay — see `BurstBuffer`.
     burst_buffer: BurstBuffer,
+    /// Deadline while a FocusOut during a burst has deferred the reset: a
+    /// FocusIn inside the window resumes the burst, expiry aborts it (see
+    /// `defer_focus_out_during_burst`).
+    bounce_deadline: Option<Instant>,
+    /// The rewrite stashed by an aborted burst, reconciled against the next
+    /// client's surrounding-text report — see `StashedRewrite`.
+    stash: Option<StashedRewrite>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
 }
@@ -448,10 +491,34 @@ impl EngineHandler {
                             brief(engine.tail()),
                             brief(&s),
                         ));
+                        // The text before the caret, taken before the report
+                        // moves into the engine: the stashed rewrite
+                        // reconciles against exactly this view.
+                        let prefix_end = s
+                            .char_indices()
+                            .nth(cursor as usize)
+                            .map_or(s.len(), |(byte, _)| byte);
+                        let actual = s[..prefix_end].to_string();
                         // The report can resolve a deferred click-Reset
                         // (park mode): the resulting HidePreedit must go out.
                         let actions = engine.set_surrounding_with_anchor(s, cursor, anchor);
                         emit(&mut engine, &self.injection, &actions, out);
+                        // The stashed rewrite reconciles against this report —
+                        // only a caret-aligned one (a selection says nothing
+                        // about the word, the same rule the engine's own
+                        // repair applies) and only after the bounce window
+                        // closed: while it is open the burst is still live
+                        // and the stash is just the abort's fallback.
+                        if anchor == cursor && self.bounce_deadline.is_none() {
+                            reconcile_stashed_rewrite(
+                                &mut engine,
+                                &self.injection,
+                                &mut self.burst,
+                                &mut self.stash,
+                                &actual,
+                                out,
+                            );
+                        }
                     }
                 }
                 msg.method_return()
@@ -460,16 +527,40 @@ impl EngineHandler {
             // FocusId property is true. `client` looks like `gtk4-im:chrome`
             // and is the only way to know which app is typing.
             "FocusIn" | "Enable" | "FocusInId" => {
+                // The incoming client id, read before set_client moves the
+                // engine's view: the bounce resume compares it against the
+                // context that left.
+                let incoming_client = if member == "FocusInId" {
+                    msg.read2::<String, String>().ok().map(|(_, client)| client)
+                } else {
+                    None
+                };
+                // Bounce resolution before any reset work: the same context
+                // back inside the window resumes the deferred burst untouched;
+                // anything else aborts it now (the stash survives for the
+                // reconcile at this focus's own ST report).
+                let resumed = resolve_focus_bounce_on_focus_in(
+                    &mut engine,
+                    &mut self.burst,
+                    &mut self.burst_buffer,
+                    &mut self.bounce_deadline,
+                    &mut self.stash,
+                    incoming_client.as_deref(),
+                );
                 if member == "FocusInId" {
-                    if let Ok((_, client)) = msg.read2::<String, String>() {
+                    if let Some(client) = incoming_client {
                         engine.set_client(Some(client));
                         note_client(msg);
                     }
                 }
                 // A new context may not support surrounding text at all; data
                 // left over from the previous client would let the engine send
-                // protocol deletes to it (mutter segfaults on those).
-                engine.clear_buffer_state();
+                // protocol deletes to it (mutter segfaults on those). Skipped
+                // when a bounce resumed the same context: its buffer state
+                // (the delete-dropped proof) survives the round trip.
+                if !resumed {
+                    engine.clear_buffer_state();
+                }
                 // Name the focused app beyond the IBus client string: the
                 // focus extension covers Wayland-native apps (they arrive as
                 // a mutter relay or unnamed), xprop covers X11 when the
@@ -549,6 +640,22 @@ impl EngineHandler {
                     out.push(signal("HideLookupTable"));
                     out.push(signal("HideAuxiliaryText"));
                 }
+                // Focus-bounce tolerance: a burst in flight defers the whole
+                // reset for the bounce window. A quick unfocus/refocus of the
+                // same context resumes it untouched in FocusIn; a real switch
+                // aborts on the loop pass with the rewrite stashed for
+                // reconcile. The branch emits nothing: the parked commits
+                // must not reach the wire while the focus is in flight.
+                if member != "Disable"
+                    && defer_focus_out_during_burst(
+                        &mut engine,
+                        &mut self.burst,
+                        &mut self.bounce_deadline,
+                        &mut self.stash,
+                    )
+                {
+                    return msg.method_return();
+                }
                 // Commits still waiting for their Backspace echoes: echoes will
                 // not follow a focus change, so deliver them now (late but not
                 // never).
@@ -573,6 +680,10 @@ impl EngineHandler {
                 // raw Latin typing until the engine is toggled or restarted.
                 if member == "Disable" {
                     engine.set_enabled(false);
+                    // A pending bounce dies with the Disable: the parks
+                    // flush below and nothing is left to defer or reconcile.
+                    self.bounce_deadline = None;
+                    self.stash = None;
                 }
                 engine.set_client(None);
                 // Drop the context's buffer data: the next focus may be a
@@ -587,7 +698,10 @@ impl EngineHandler {
                 // away: replaying them after the next FocusIn would type
                 // them into the wrong window. Disable keeps the context —
                 // the held keys still replay there, raw once the engine
-                // is off.
+                // is off. Non-Disable reaches here only with NO burst live
+                // (the bounce branch above returns first): a burst's keys
+                // drop in `abort_deferred_focus_out` when its window
+                // expires, and survive a bounced focus.
                 if member != "Disable" {
                     self.burst_buffer.clear();
                 }
@@ -1075,6 +1189,50 @@ impl BurstBuffer {
     }
 }
 
+/// How long a FocusOut during a burst waits for the context to come back
+/// before the deferred reset runs as a real switch. Quick unfocus/refocus
+/// of one context lands well inside this window (the logs show the pair
+/// 1ms apart); a user switching apps takes longer.
+const FOCUS_BOUNCE_MS: u64 = 100;
+
+/// How long the rewrite stashed by an aborted burst waits for a focus-in
+/// whose client report can reconcile it. lotus's
+/// `reconcileAbortedUinputReplacement` semantics: the report still showing
+/// the stashed state means the rewrite never landed and is re-applied;
+/// anything else means it is unsafe or pointless to rewrite.
+const RECONCILE_WINDOW: Duration = Duration::from_secs(2);
+
+/// The smallest anchor the reconcile accepts. A one-character anchor is
+/// satisfiable by a single stray keystroke in ANY context — alt-tab away
+/// mid-burst, type one matching letter, and the repair would fire its
+/// deletes and commit into the wrong document — so the match must require
+/// two ordered characters to coincide. The cost is bounded: a refused
+/// one-character rewrite stays raw (the pre-bounce outcome), never corrupts.
+const MIN_ANCHOR_CHARS: usize = 2;
+
+/// The rewrite a burst had in flight when a real focus switch aborted it:
+/// the parked commit text and the screen states needed to reconcile it
+/// against the next client report.
+struct StashedRewrite {
+    /// The rewrite text the burst still owed the screen (the parked commit).
+    text: String,
+    /// The state the client's buffer should still show for the repair to be
+    /// safe — what the application certainly held when the batch armed
+    /// (nothing landed), or the deletes-landed state when the anchor falls
+    /// back to the tail without the parked insert. The reconcile matches the
+    /// report's text before the caret against this.
+    expected_tail: String,
+    /// The believed text before the caret once the rewrite lands — the
+    /// re-anchor value for the engine's tail after the repair.
+    tail: String,
+    /// The client the burst belonged to (`FocusInId`'s string): a live
+    /// client naming a DIFFERENT context refuses the reconcile, so a
+    /// confirmed foreign report can never drive the repair.
+    client: Option<String>,
+    /// When the stash expires; the drop is the log-once gate.
+    deadline: Instant,
+}
+
 /// The burst-completion flush: when the rewrite burst has fully completed
 /// (no echoes expected, nothing parked) replay the held keys through
 /// `process_key` in arrival order, then the buffer clears. One flush point
@@ -1176,6 +1334,203 @@ fn note_burst_echo(engine: &mut Engine, burst: &mut BurstWatch) -> bool {
 fn add_injected_batch(engine: &mut Engine, burst: &mut BurstWatch, n: u32) {
     engine.add_injected(n);
     burst.arm(engine, n);
+}
+
+/// The FocusOut arm's bounce branch, called only for a non-`Disable` focus
+/// loss. A burst in flight (echoes expected or commits parked — the same
+/// pair the key buffer holds on) defers the whole reset: the engine keeps
+/// its composition, tail, buffer state and parked commits, the held keys
+/// stay in the buffer (the branch deliberately clears nothing), and the
+/// in-flight rewrite is captured for the reconcile in case this turns out
+/// to be a real switch. Returns whether the branch took the focus-out.
+fn defer_focus_out_during_burst(
+    engine: &mut Engine,
+    burst: &mut BurstWatch,
+    bounce_deadline: &mut Option<Instant>,
+    stash: &mut Option<StashedRewrite>,
+) -> bool {
+    // The burst half alone is not enough — the echo counters may already
+    // have settled while the commit is still parked behind its grace.
+    if !(engine.has_deferred() || burst.in_flight()) {
+        return false;
+    }
+    *stash = stash_in_flight_rewrite(engine);
+    *bounce_deadline = Some(Instant::now() + Duration::from_millis(FOCUS_BOUNCE_MS));
+    debug_log::log("focus-out during a burst → reset deferred for the bounce window");
+    true
+}
+
+/// Capture the rewrite a live burst owes the screen, for the reconcile
+/// after a real-switch abort. Only a single parked text is reconcilable
+/// (stacked parks from fast multi-key edits have no single rewrite text);
+/// and the anchor must carry evidence — an empty expected tail cannot
+/// distinguish the stashed state in a foreign report.
+fn stash_in_flight_rewrite(engine: &Engine) -> Option<StashedRewrite> {
+    let parked = engine.parked_commits();
+    let [insert] = parked.as_slice() else {
+        return None;
+    };
+    let tail = engine.tail().to_string();
+    // The anchor: what the client certainly holds. The per-key batch's
+    // landed state is exact while one is parked; otherwise the tail without
+    // the parked insert is the deletes-landed state of the echo-gated
+    // transports — valid only while the parked text really is the tail's
+    // suffix: a park from another producer (a macro/emoji timed park) may
+    // not be, and stripping it would manufacture a garbage anchor from an
+    // unrelated prefix.
+    let expected_tail = match engine.in_flight_landed() {
+        Some(h) => h.to_string(),
+        None if tail.ends_with(insert) => tail
+            .chars()
+            .take(tail.chars().count() - insert.chars().count())
+            .collect(),
+        None => return None,
+    };
+    // A one-character anchor cannot evidence the departed screen (see
+    // MIN_ANCHOR_CHARS).
+    if expected_tail.chars().count() < MIN_ANCHOR_CHARS {
+        return None;
+    }
+    Some(StashedRewrite {
+        text: insert.to_string(),
+        expected_tail,
+        tail,
+        client: engine.client().map(str::to_string),
+        deadline: Instant::now() + RECONCILE_WINDOW,
+    })
+}
+
+/// The FocusIn arm's bounce resolution, before any reset work. Inside the
+/// window and the same context (a `FocusInId` naming another client is a
+/// real switch; `FocusIn`/`Enable` carry no id and are indistinguishable
+/// from the bounce), the burst resumes untouched and the fallback stash
+/// drops; anything else aborts the deferred reset now — the stash survives
+/// for the reconcile at this focus's own ST report. Returns whether a
+/// pending bounce resumed.
+fn resolve_focus_bounce_on_focus_in(
+    engine: &mut Engine,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    bounce_deadline: &mut Option<Instant>,
+    stash: &mut Option<StashedRewrite>,
+    incoming_client: Option<&str>,
+) -> bool {
+    let Some(deadline) = *bounce_deadline else {
+        return false;
+    };
+    *bounce_deadline = None;
+    // The bounce belongs to the context that left: a same-client refocus
+    // resumes it. XIM names every client `xim`, so a same-string comparison
+    // cannot distinguish two XIM apps — accepted, the window is 100ms.
+    let same_client = match (incoming_client, engine.client()) {
+        (Some(incoming), Some(held)) => incoming == held,
+        _ => true,
+    };
+    if Instant::now() < deadline && same_client {
+        *stash = None;
+        debug_log::log("focus bounce: the context returned inside the window → burst resumed");
+        return true;
+    }
+    abort_deferred_focus_out(engine, burst, buffer);
+    false
+}
+
+/// The deferred FocusOut reset, run when a bounce window expired without a
+/// refocus (or a different context refocused inside it): a real switch.
+/// Emits nothing — a commit here would land in whatever context focused
+/// since; the parked commits go to the stash instead (dropped when it holds
+/// nothing reconcilable), and the held keys die with the context.
+fn abort_deferred_focus_out(engine: &mut Engine, burst: &mut BurstWatch, buffer: &mut BurstBuffer) {
+    // The echoes of the aborted batch will never come back — clear the
+    // counters the same way the watchdog's expiry does.
+    engine.take_stale_injection(Duration::ZERO);
+    // Drop the parks without emitting: the stash holds the rewrite text.
+    for _ in engine.flush_deferred() {}
+    // The deferred reset itself: focus_out emits nothing on a focus change
+    // by contract (no HidePreedit — the client owns the display).
+    let _ = engine.focus_out();
+    engine.clear_buffer_state();
+    // The departed client's identity dies with the abort: a plain-FocusIn
+    // (non-FocusInId) next client would otherwise inherit the stale string,
+    // which feeds the relay ban and app-rule resolution (the injection-
+    // onto-relay class, "xin chaà"). Safe here: the FocusIn resolution
+    // compares the incoming client BEFORE this runs, and the loop-pass
+    // expiry needs no client.
+    engine.set_client(None);
+    burst.disarm();
+    // Keys held for the burst belonged to the context going away: replaying
+    // them after the next FocusIn would type them into the wrong window.
+    // Task 12's drop moved here from the FocusOut arm when the bounce
+    // window landed: a bounced focus keeps the keys, a real switch drops
+    // them — the coordination note from Task 12's round.
+    buffer.clear();
+    debug_log::log("focus bounce closed without the context → burst aborted, rewrite stashed");
+}
+
+/// Chars of the common prefix of two strings — the same derivation
+/// `per_key_coalesce` applies to split a rewrite into an erase and an
+/// insert.
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    a.chars().zip(b.chars()).take_while(|(x, y)| x == y).count()
+}
+
+/// Reconcile the stashed rewrite against the client's report (the text
+/// before the caret). Match: the rewrite never completed — repair by
+/// re-emitting it (the deletes the batch still owes plus the stashed text)
+/// and re-anchor the engine's belief. Mismatch: unsafe or pointless to
+/// rewrite — drop, log once (the drop is the gate).
+fn reconcile_stashed_rewrite(
+    engine: &mut Engine,
+    injection: &Injection,
+    burst: &mut BurstWatch,
+    stash: &mut Option<StashedRewrite>,
+    actual: &str,
+    out: &mut Vec<Message>,
+) {
+    let Some(s) = stash else {
+        return;
+    };
+    if Instant::now() > s.deadline {
+        debug_log::log("stashed rewrite dropped: no report within the reconcile window");
+        *stash = None;
+        return;
+    }
+    // The stash belongs to the context that left: a live client naming a
+    // DIFFERENT one refuses it — the report describes a foreign buffer, and
+    // the repair would fire its deletes and commit into the wrong document.
+    if let (Some(held), Some(live)) = (&s.client, engine.client()) {
+        if held != live {
+            debug_log::log("stashed rewrite dropped: it belongs to another context");
+            *stash = None;
+            return;
+        }
+    }
+    // The report must still show the stashed state — the rewrite never
+    // completed, so re-emitting it is safe. The capture already guarantees
+    // the anchor carries evidence (MIN_ANCHOR_CHARS).
+    if actual.ends_with(&s.expected_tail) {
+        // The erase the batch still owes: the same split per_key_coalesce
+        // applies. When the deletes already landed (the anchor is the tail
+        // without the insert), the common prefix covers the anchor and this
+        // is zero — the repair is a plain commit.
+        let erase = s.expected_tail.chars().count() - common_prefix_len(&s.expected_tail, &s.tail);
+        let insert = s.text.clone();
+        let mut actions = Vec::new();
+        if erase > 0 {
+            actions.push(Action::InjectBackspaces(erase as u32));
+        }
+        actions.push(Action::Commit(insert.clone()));
+        let injected = emit(engine, injection, &actions, out);
+        add_injected_batch(engine, burst, injected);
+        // The engine's belief follows the repair: the screen will hold the
+        // stashed tail once it lands.
+        engine.reanchor_tail(s.tail.clone());
+        engine.note_committed(&insert);
+        debug_log::log("stashed rewrite reconciled: report matches → repair emitted");
+    } else {
+        debug_log::log("stashed rewrite dropped: the report does not match the stashed state");
+    }
+    *stash = None;
 }
 
 /// Turn engine actions into the signals IBus expects.

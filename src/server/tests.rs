@@ -233,6 +233,8 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
         emoji_picker: None,
         burst: BurstWatch::default(),
         burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
         focus_ext: None,
     };
     let press = |handler: &mut EngineHandler, keyval: u32| {
@@ -1039,11 +1041,42 @@ fn burst_pass(
     buffer: &mut BurstBuffer,
     out: &mut Vec<Message>,
 ) {
-    burst_watch_pass(e, burst, out);
-    let actions = e.tick();
-    let injected = emit(e, injection, &actions, out);
-    add_injected_batch(e, burst, injected);
-    replay_buffered_keys(e, injection, burst, buffer, out);
+    bounce_pass(e, injection, burst, buffer, &mut None, &mut None, out);
+}
+
+/// The full run-loop pass, bounce state included: bounce resolution (an
+/// expired window aborts before anything can deliver), the freeze while the
+/// window is open (watchdog, tick and the held-key replay all skipped — the
+/// parked commits belong to the bounce and a mid-window burst completion
+/// must not send the held keys to the wire), the burst sequence, the replay
+/// and the stash expiry. No bounce pending behaves exactly like
+/// `burst_pass`.
+fn bounce_pass(
+    e: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    bounce_deadline: &mut Option<Instant>,
+    stash: &mut Option<StashedRewrite>,
+    out: &mut Vec<Message>,
+) {
+    if bounce_deadline.is_some_and(|d| Instant::now() >= d) {
+        *bounce_deadline = None;
+        abort_deferred_focus_out(e, burst, buffer);
+    }
+    if bounce_deadline.is_none() {
+        burst_watch_pass(e, burst, out);
+        let actions = e.tick();
+        let injected = emit(e, injection, &actions, out);
+        add_injected_batch(e, burst, injected);
+        replay_buffered_keys(e, injection, burst, buffer, out);
+    }
+    if let Some(s) = stash {
+        if Instant::now() >= s.deadline {
+            debug_log::log("stashed rewrite dropped: no report within the reconcile window");
+            *stash = None;
+        }
+    }
 }
 
 /// One keystroke through the real `process_key` path.
@@ -1369,6 +1402,1053 @@ fn idle_typing_never_buffers() {
         3,
         "each key processed at once: {:?}",
         member_names(&out)
+    );
+}
+
+// --- focus-bounce tolerance during a burst ---
+
+#[test]
+fn focus_bounce_within_the_window_continues_the_burst() {
+    // FocusOut mid-burst, FocusIn inside the bounce window: the reset is
+    // deferred, not run — the composition, the parked commits and the held
+    // keys all survive, nothing reaches the wire while the focus is in
+    // flight, and the word still completes as if nothing happened.
+    let (mut injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Start the Flow word: two keys land a two-character prefix — the stash
+    // anchor must span MIN_ANCHOR_CHARS (a one-character anchor captures
+    // nothing; see stash_in_flight_rewrite).
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        't' as u32,
+        30,
+        &mut out
+    ));
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'a' as u32,
+        30,
+        &mut out
+    ));
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(!e.has_deferred(), "both parks landed");
+
+    // Arm the rewrite batch: 's' composes tá — one injected Backspace
+    // erases the landed 'a' (the common prefix is "t"), the insert "á"
+    // parks behind the echo.
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        's' as u32,
+        30,
+        &mut out
+    ));
+    assert!(burst.in_flight(), "the rewrite batch is armed");
+    assert_eq!(burst.expected_echoes(), 1);
+    let out_len = out.len();
+
+    // FocusOut mid-burst: the reset defers and the rewrite is stashed.
+    assert!(
+        defer_focus_out_during_burst(&mut e, &mut burst, &mut bounce_deadline, &mut stash,),
+        "a live burst defers the focus-out reset"
+    );
+    assert!(
+        bounce_deadline.is_some(),
+        "the reset defers for the bounce window"
+    );
+    let stashed = stash.as_ref().expect("the rewrite is stashed");
+    assert_eq!(stashed.text, "á", "the parked insert is the rewrite text");
+    assert_eq!(
+        stashed.expected_tail, "ta",
+        "the anchor is what the app certainly holds"
+    );
+    assert_eq!(
+        stashed.tail, "tá",
+        "the re-anchor value is the believed tail"
+    );
+    assert_eq!(
+        stashed.client.as_deref(),
+        Some("gtk4-im:test"),
+        "the departed client is recorded for the foreign guard"
+    );
+
+    // A key typed during the bounce: held, order preserved.
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'u' as u32,
+        30,
+        &mut out
+    ));
+    assert_eq!(buffer.keys.len(), 1, "the held key survives the bounce");
+
+    // A pass inside the window delivers nothing: the freeze holds the park
+    // (past its own deadline) and the replay — nothing may reach the wire
+    // mid-bounce.
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(10));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(
+        out.len() == out_len,
+        "no signal may fly during the bounce window: {:?}",
+        member_names(&out[out_len..])
+    );
+    assert!(e.has_deferred(), "the park stays parked through the freeze");
+    assert_eq!(
+        e.tail(),
+        "tá",
+        "the composition survives the deferred reset"
+    );
+    assert!(burst.in_flight(), "the burst itself is untouched");
+
+    // FocusIn inside the window, same client: the burst resumes untouched.
+    assert!(
+        resolve_focus_bounce_on_focus_in(
+            &mut e,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            Some("gtk4-im:test"),
+        ),
+        "the same context back inside the window resumes"
+    );
+    assert!(
+        bounce_deadline.is_none() && stash.is_none(),
+        "resumed: the deadline clears and the fallback stash drops"
+    );
+    assert_eq!(buffer.keys.len(), 1, "the held key still waits");
+    assert_eq!(e.tail(), "tá");
+    assert_eq!(
+        e.client(),
+        Some("gtk4-im:test"),
+        "the resume keeps the departed client held through the window"
+    );
+
+    // The burst continues as if nothing happened: the echo settles it, the
+    // pass lands the parked insert and replays the held key in order.
+    assert!(
+        !press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            keymap::BACKSPACE,
+            14,
+            &mut out
+        ),
+        "the echo is forwarded to the application"
+    );
+    assert!(!burst.in_flight(), "the echo settled the burst");
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(buffer.keys.is_empty(), "the held key replayed");
+    assert_eq!(e.tail(), "táu", "the word still completes: {}", e.tail());
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(!e.has_deferred(), "every insert landed");
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(1)],
+        "exactly the arming batch was injected"
+    );
+}
+
+#[test]
+fn stashed_rewrite_reconciles_within_the_window_or_drops() {
+    // FocusOut mid-burst, the window expires: the burst aborts and the
+    // stash survives RECONCILE_WINDOW. FocusIn with a matching report
+    // (the screen still shows the stashed state) repairs by rewrite; a
+    // mismatching report drops it; no report drops it at expiry — logged
+    // once per drop. Every arming word lands a two-character prefix first:
+    // the stash anchor must span MIN_ANCHOR_CHARS to carry evidence.
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let dir = std::env::temp_dir().join(format!("ibus-mangrs-bounce-log-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+
+    let (mut injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Arm "ta" -> tá exactly like the bounce test: land "ta", then 's'
+    // composes tá — one injected Backspace erases the landed 'a', the
+    // insert "á" parks behind the echo.
+    for c in ['t', 'a'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        's' as u32,
+        30,
+        &mut out
+    ));
+    assert!(burst.in_flight());
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    let stashed = stash.as_ref().expect("stash armed");
+    assert_eq!(
+        stashed.client.as_deref(),
+        Some("gtk4-im:test"),
+        "the departed client is recorded"
+    );
+    let out_len = out.len();
+
+    // The window expires without a refocus: a real switch. The abort drops
+    // the composition, disarms the burst and holds every parked commit —
+    // the stash owns the rewrite now, the wire sees nothing.
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(
+        bounce_deadline.is_none(),
+        "the expired window aborts the deferral"
+    );
+    assert!(stash.is_some(), "the stash survives the abort");
+    assert!(
+        !burst.in_flight() && !e.pending_echoes(),
+        "the burst aborted with the context"
+    );
+    assert!(!e.has_deferred(), "the parks dropped without emitting");
+    assert_eq!(
+        e.tail(),
+        "",
+        "the deferred reset ran: the composition is gone"
+    );
+    assert!(
+        out.len() == out_len,
+        "the parked rewrite must not flush to the wire on abort: {:?}",
+        member_names(&out[out_len..])
+    );
+
+    // FocusIn within the window, matching report ("ta" — the landed prefix
+    // is all the screen ever held): repair by rewrite.
+    reconcile_stashed_rewrite(&mut e, &injection, &mut burst, &mut stash, "ta", &mut out);
+    assert!(stash.is_none(), "the stash is consumed by the reconcile");
+    assert_eq!(
+        e.tail(),
+        "tá",
+        "the believed tail re-anchored to the stashed target"
+    );
+    assert!(burst.in_flight(), "the repair arms its own echo burst");
+    assert!(
+        e.has_deferred(),
+        "the repair's commit parks behind its echo"
+    );
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(1), RecordedOp::Backspaces(1)],
+        "the repair re-emits the erase batch"
+    );
+    // The repair's echo comes back; the pass delivers the rewritten word.
+    assert!(!press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        keymap::BACKSPACE,
+        14,
+        &mut out
+    ));
+    std::thread::sleep(
+        Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS) + Duration::from_millis(20),
+    );
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(!e.has_deferred(), "the repaired word landed");
+    assert!(
+        member_names(&out).iter().any(|m| m == "CommitText"),
+        "the repair reaches the wire as a commit: {:?}",
+        member_names(&out)
+    );
+
+    // Second cycle, matching report with a commit-only repair: land "ng",
+    // then 'h' parks its append — the repair is a plain commit, no erase
+    // needed.
+    for c in ['n', 'g'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'h' as u32,
+        30,
+        &mut out
+    ));
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    let stashed = stash.as_ref().expect("stash armed");
+    assert_eq!(
+        (stashed.text.as_str(), stashed.expected_tail.as_str()),
+        ("h", "ng")
+    );
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    let out_len = out.len();
+    reconcile_stashed_rewrite(&mut e, &injection, &mut burst, &mut stash, "ng", &mut out);
+    assert!(stash.is_none());
+    assert_eq!(e.tail(), "ngh", "the re-anchor carries the full word");
+    assert!(
+        !burst.in_flight(),
+        "a commit-only repair arms no echo burst"
+    );
+    assert!(
+        out.len() == out_len + 1 && member_names(&out[out_len..]) == vec!["CommitText".to_string()],
+        "the repair is exactly one commit: {:?}",
+        member_names(&out[out_len..])
+    );
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(1), RecordedOp::Backspaces(1)],
+        "no new erase batch"
+    );
+
+    // Third cycle: a mismatching report drops the stash. The abort wiped
+    // the composition, so the word needs a landed two-character prefix
+    // before the parked key for the anchor to carry evidence.
+    for c in ['x', 'y'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'z' as u32,
+        30,
+        &mut out
+    ));
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    let stashed = stash.as_ref().expect("stash armed");
+    assert_eq!(stashed.expected_tail, "xy");
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    let out_len = out.len();
+    reconcile_stashed_rewrite(&mut e, &injection, &mut burst, &mut stash, "abc", &mut out);
+    assert!(stash.is_none(), "a foreign report drops the stash");
+    assert!(
+        out.len() == out_len,
+        "nothing is rewritten on a mismatch: {:?}",
+        member_names(&out[out_len..])
+    );
+
+    // Fourth cycle: no report at all — the stash expires on the pass.
+    for c in ['b', 'o'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'n' as u32,
+        30,
+        &mut out
+    ));
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    // Expire the stash without sleeping out the 2s window.
+    let stashed = stash.as_mut().expect("stash armed");
+    stashed.deadline = Instant::now() - Duration::from_secs(1);
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(stash.is_none(), "the expired stash drops");
+
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("stashed rewrite dropped"))
+            .count(),
+        2,
+        "one drop line per drop, mismatch and expiry: {text}"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn real_switch_drops_the_held_keys_a_bounce_keeps_them() {
+    // Task 12's context-death drop, moved into the bounce machinery: a
+    // bounced focus keeps the held keys (the burst resumes and replays
+    // them); a real switch drops them with the context — and the departed
+    // client's identity dies with the abort (a plain-FocusIn next client
+    // must not inherit the stale string: it feeds the relay ban and
+    // app-rule resolution).
+    let (mut injection, _ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Land a two-character prefix, then arm the batch ('s' composes tá).
+    for c in ['t', 'a'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        's' as u32,
+        30,
+        &mut out
+    ));
+    // Two keys mid-burst, then the focus leaves: the buffer keeps them.
+    for c in ['u', 'o'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+    }
+    assert_eq!(buffer.keys.len(), 2);
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    assert_eq!(buffer.keys.len(), 2, "a bounced focus keeps the held keys");
+    assert_eq!(
+        e.client(),
+        Some("gtk4-im:test"),
+        "the deferred reset holds the client through the window"
+    );
+    // The window expires: the real-switch abort drops them.
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(
+        buffer.keys.is_empty(),
+        "a real switch drops the held keys with the context"
+    );
+    assert!(stash.is_some(), "the rewrite stays stashed for reconcile");
+    assert_eq!(
+        e.client(),
+        None,
+        "the abort ends the departed client: a plain-FocusIn next client \
+         starts with no identity, not the stale string"
+    );
+}
+
+#[test]
+fn idle_focus_out_never_defers_or_stashes() {
+    // Focus changes without a burst behave exactly as today: the branch
+    // declines, no deadline arms, no stash is captured.
+    let mut injection = Injection::new();
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(1);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        't' as u32,
+        30,
+        &mut out
+    ));
+    assert!(!e.has_deferred() && !burst.in_flight(), "idle typing");
+    assert!(
+        !defer_focus_out_during_burst(&mut e, &mut burst, &mut bounce_deadline, &mut stash,),
+        "an idle focus-out takes today's path"
+    );
+    assert!(
+        bounce_deadline.is_none() && stash.is_none(),
+        "no deferral, no stash"
+    );
+    // The engine-level FocusOut pin (enabled stays on, keys still compose)
+    // lives in focus_out_keeps_the_engine_enabled_only_disable_turns_it_off,
+    // which drives the real arm with an idle engine.
+}
+
+#[test]
+fn focus_out_arm_defers_the_reset_for_a_live_burst() {
+    // The arm wiring: an engine_call FocusOut with a burst live takes the
+    // bounce branch — no flush reaches the wire, the parks and composition
+    // stay, the deadline and the stash arm on the handler.
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Flow)));
+    let mut handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        injection: Injection::new(),
+        last_config_check: Instant::now(),
+        last_config_mtime: None,
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
+        focus_ext: None,
+    };
+    // A live burst, constructed directly: one echo expected, one commit
+    // parked behind it, the tail believing "chaò" (the parked "ò" is its
+    // suffix — the anchor falls back to the deletes-landed state "cha").
+    {
+        let mut e = lock_engine(&engine);
+        e.reanchor_tail("chaò".into());
+        e.defer_commit(1, "ò".into());
+        handler.burst.expected = 1;
+        handler.burst.deadline = Some(Instant::now() + Duration::from_secs(10));
+    }
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+    assert!(
+        handler.bounce_deadline.is_some(),
+        "the arm defers the reset for the bounce window"
+    );
+    let stashed = handler.stash.as_ref().expect("the rewrite is stashed");
+    assert_eq!(stashed.text, "ò");
+    assert_eq!(stashed.expected_tail, "cha");
+    assert!(
+        out.is_empty(),
+        "the arm must not flush the parked commit: {:?}",
+        member_names(&out)
+    );
+    let e = lock_engine(&engine);
+    assert!(e.has_deferred(), "the park stays with the bounce");
+    assert_eq!(e.tail(), "chaò", "the composition stays with the bounce");
+}
+
+#[test]
+fn the_freeze_holds_the_replay_until_the_window_resolves() {
+    // The replay sits INSIDE the freeze gate: a burst that completes
+    // mid-window — echo debt settles while no parked commit remains (the
+    // per-key retract shape: the empty insert cancelled the park while the
+    // InjectBackspaces were still out) — must not send the held keys to the
+    // wire while the focus is still in flight. A genuine bounce is exactly
+    // when the old app's echoes arrive, so the settle-inside-the-window
+    // order is the realistic one; the resume replays them.
+    let (mut injection, _ops) = recorded_injection();
+    // Off mode makes the replayed letters pass through, so the delivery is
+    // observable on the wire (the machinery is mode independent).
+    let mut e = Engine::new(Method::Telex, Mode::Off);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Echo debt, no parked commit: the retract batch's shape.
+    let injected = emit(&mut e, &injection, &[Action::DeleteBefore(1)], &mut out);
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert_eq!(injected, 1);
+    assert!(burst.in_flight() && !e.has_deferred());
+
+    // A key mid-burst: held.
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'u' as u32,
+        30,
+        &mut out
+    ));
+    assert_eq!(buffer.keys.len(), 1);
+
+    // FocusOut mid-burst: the reset defers.
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    // The echo arrives — a genuine bounce is exactly when echoes come back —
+    // and settles the burst with no parked commit behind it.
+    assert!(!press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        keymap::BACKSPACE,
+        14,
+        &mut out
+    ));
+    assert!(!burst.in_flight() && !e.has_deferred());
+
+    // The next pass, window still open: the replay must NOT run.
+    let out_len = out.len();
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(
+        out.len() == out_len,
+        "the freeze holds the replay: {:?}",
+        member_names(&out[out_len..])
+    );
+    assert_eq!(buffer.keys.len(), 1, "the held key waits for the window");
+
+    // FocusIn resumes: the deadline clears and the replay goes.
+    assert!(resolve_focus_bounce_on_focus_in(
+        &mut e,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        Some("gtk4-im:test"),
+    ));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(
+        buffer.keys.is_empty(),
+        "the held key replayed after the resume"
+    );
+    let forwards: Vec<(u32, u32, u32)> = out[out_len..]
+        .iter()
+        .filter(|m| m.member().map(|m| m == "ForwardKeyEvent").unwrap_or(false))
+        .filter_map(|m| m.read3::<u32, u32, u32>().ok())
+        .filter(|(_, _, state)| state & keymap::RELEASE_MASK == 0)
+        .collect();
+    assert_eq!(
+        forwards,
+        vec![('u' as u32, 30, 0)],
+        "the held key lands exactly once, after the resume: {forwards:?}"
+    );
+}
+
+#[test]
+fn foreign_client_refuses_the_stashed_rewrite() {
+    // The stash records the departed client: a live client naming a
+    // DIFFERENT context refuses the reconcile — the report describes a
+    // foreign buffer, and the repair would fire its deletes and commit
+    // into the wrong document. Drop, logged once.
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let dir = std::env::temp_dir().join(format!("ibus-mangrs-foreign-log-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+
+    let (mut injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Land "ta", arm "tá", FocusOut, window expires: the stash is armed.
+    for c in ['t', 'a'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        's' as u32,
+        30,
+        &mut out
+    ));
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(stash.is_some(), "the stash survives the abort");
+
+    // The next focus names a different app (a confirmed-different client):
+    // even a matching report must not drive the repair.
+    e.set_client(Some("gtk4-im:other".into()));
+    let out_len = out.len();
+    reconcile_stashed_rewrite(&mut e, &injection, &mut burst, &mut stash, "ta", &mut out);
+    assert!(stash.is_none(), "the foreign context drops the stash");
+    assert!(
+        out.len() == out_len,
+        "no repair may reach the wire for a foreign context: {:?}",
+        member_names(&out[out_len..])
+    );
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(1)],
+        "no repair batch through the backend"
+    );
+
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("stashed rewrite dropped"))
+            .count(),
+        1,
+        "the foreign refusal logs once: {text}"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn weak_or_garbage_anchors_arm_no_stash() {
+    // A one-character anchor cannot evidence the departed screen: a single
+    // stray keystroke in ANY context satisfies the suffix match, so the
+    // capture refuses it (MIN_ANCHOR_CHARS). And a parked text that is not
+    // the tail's suffix (a macro/emoji timed park) must not manufacture a
+    // garbage anchor by stripping. Both deferrals still arm — only the
+    // reconcile fallback is declined.
+    let (mut injection, _ops) = recorded_injection();
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Weak anchor: the landed prefix is one character.
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        't' as u32,
+        30,
+        &mut out
+    ));
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'a' as u32,
+        30,
+        &mut out
+    ));
+    assert!(
+        defer_focus_out_during_burst(&mut e, &mut burst, &mut bounce_deadline, &mut stash,),
+        "the deferral itself still arms"
+    );
+    assert!(stash.is_none(), "a one-character anchor captures nothing");
+    assert!(
+        bounce_deadline.is_some(),
+        "the deferral stands without the stash"
+    );
+
+    // Garbage anchor: the parked text is not the tail's suffix — stripping
+    // it would leave an unrelated prefix as the anchor.
+    let mut e2 = Engine::new(Method::Telex, Mode::Flow);
+    e2.set_client(Some("gtk4-im:test".into()));
+    e2.set_uinput_available(true);
+    e2.reanchor_tail("abcdef".into());
+    e2.defer_commit(1, "xyz".into());
+    let mut burst2 = BurstWatch::default();
+    burst2.arm(&e2, 1);
+    let mut bounce_deadline2 = None;
+    let mut stash2 = None;
+    assert!(
+        defer_focus_out_during_burst(&mut e2, &mut burst2, &mut bounce_deadline2, &mut stash2,),
+        "the echo debt still defers the reset"
+    );
+    assert!(
+        stash2.is_none(),
+        "a non-suffix parked text manufactures no anchor"
     );
 }
 
@@ -2207,6 +3287,8 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
         emoji_picker: None,
         burst: BurstWatch::default(),
         burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
         focus_ext: None,
     };
     let mut out = Vec::new();

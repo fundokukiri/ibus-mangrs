@@ -631,6 +631,9 @@ impl Engine {
             .map_or(0, |(_, t)| t.chars().count());
         let h_len = self.tail.chars().count().saturating_sub(pending_len);
         let h: String = self.tail.chars().take(h_len).collect();
+        // The pre-batch screen state, re-derived at every coalesce — the
+        // focus-bounce stash reads it while the batch is parked.
+        self.in_flight_landed = h.clone();
         let common = h
             .chars()
             .zip(want.chars())

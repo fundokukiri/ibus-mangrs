@@ -246,6 +246,12 @@ pub struct Engine {
     /// never be clobbered by a per-key replace. `None` = no batch in
     /// flight; the next key starts one.
     per_key_park: Option<(Instant, String)>,
+    /// What the application certainly holds while that batch is in flight:
+    /// the tail minus the pending insert, as `per_key_coalesce` computed it
+    /// when the batch armed (the screen state before the batch's deletes
+    /// land). Read by the server's focus-bounce stash; meaningful only while
+    /// `per_key_park` is `Some` (the getter gates on it).
+    in_flight_landed: String,
     // --- settings, mirrors of the config file ---
     app_rules: Vec<AppRule>,
     auto_restore: bool,
@@ -498,6 +504,7 @@ impl Engine {
             last_inject: None,
             timed_commits: Vec::new(),
             per_key_park: None,
+            in_flight_landed: String::new(),
             word_mode: None,
             url_word: false,
             url_span: false,
@@ -941,6 +948,35 @@ impl Engine {
 
     pub fn has_deferred(&self) -> bool {
         !self.deferred.is_empty() || !self.timed_commits.is_empty() || self.per_key_park.is_some()
+    }
+
+    /// The commit texts still parked (deferred behind echoes, timed parks,
+    /// the per-key insert), in park order. Read-only: the server's
+    /// focus-bounce stash captures them without disturbing the delivery.
+    pub fn parked_commits(&self) -> Vec<&str> {
+        let mut texts: Vec<&str> = self.deferred.iter().map(|(_, t)| t.as_str()).collect();
+        texts.extend(self.timed_commits.iter().map(|(_, t)| t.as_str()));
+        if let Some((_, t)) = &self.per_key_park {
+            texts.push(t);
+        }
+        texts
+    }
+
+    /// What the application certainly holds while the per-key batch is in
+    /// flight — the state the focus-bounce stash anchors its reconcile on.
+    /// `None` whenever no per-key batch is parked, so a value left over from
+    /// a landed batch can never be read.
+    pub fn in_flight_landed(&self) -> Option<&str> {
+        self.per_key_park
+            .is_some()
+            .then_some(self.in_flight_landed.as_str())
+    }
+
+    /// Re-anchor the believed tail after the server repaired the screen
+    /// outside the key path (the focus-bounce reconcile): the next word's
+    /// coalesce diffs against this belief.
+    pub fn reanchor_tail(&mut self, tail: String) {
+        self.tail = tail;
     }
 
     /// Hold `text` back for `delay` before it may be emitted: the relay
