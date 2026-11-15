@@ -1,5 +1,5 @@
 //! The main key path: `process_char`, the Off path, the uinput
-//! (Flow/Turbo/Select) paths, and the word-end macro/auto-restore/rewrite machinery.
+//! (Flow/Select) paths, and the word-end macro/auto-restore/rewrite machinery.
 
 use super::*;
 
@@ -123,10 +123,7 @@ impl Engine {
         // (em-dash, double space) stay off here — these modes are for
         // terminals and games, where rewriting before the word ends cannot
         // work anyway.
-        if matches!(
-            mode,
-            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
-        ) {
+        if matches!(mode, Mode::Flow | Mode::Select | Mode::SmoothForward) {
             return self.process_char_uinput(mode, c);
         }
 
@@ -282,7 +279,7 @@ impl Engine {
             )
             .or_else(|| self.emojis.lookup(&name).map(str::to_string))?;
         debug_log::log("emoji shortcode: matched");
-        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo | Mode::SmoothForward) {
+        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::SmoothForward) {
             // None: the closing ':' is part of the shortcode and must not
             // reach the application. Land the in-flight batch first: the
             // erase must count against the screen the tail models. The
@@ -315,10 +312,7 @@ impl Engine {
             }
             return Some(actions);
         }
-        if matches!(
-            mode,
-            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
-        ) {
+        if matches!(mode, Mode::Flow | Mode::Select | Mode::SmoothForward) {
             // Per-key off (plain display: the screen holds the raw keys) or
             // Select (its own erase shape): the ':' is covered by erasing
             // one more key than the name.
@@ -549,7 +543,7 @@ impl Engine {
         !dict_hit && !self.wrapper.undo_in_word()
     }
 
-    /// The uinput modes (Flow / Turbo / Select): the application
+    /// The uinput modes (Flow / Select): the application
     /// keeps the raw keystroke; bamboo transforms internally. The rewrite
     /// happens once, at word end — unless the per-key display is on, where
     /// every composition-changing key applies immediately.
@@ -590,8 +584,7 @@ impl Engine {
                 }
             }
         }
-        let per_key =
-            self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo | Mode::SmoothForward);
+        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::SmoothForward);
         // A key arriving before the deferred correction fires cancels it: the
         // compose delta below is computed against the wrapper's old output,
         // which still carries the mark, and lands on the shortened screen —
@@ -953,8 +946,7 @@ impl Engine {
         // Per-key display: `tail` is the text the application holds (the
         // progressively committed word) — the word-end rewrites below erase
         // by it, so it must survive.
-        let per_key =
-            self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo | Mode::SmoothForward);
+        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::SmoothForward);
         let candidate = self.emoji_word;
         self.emoji_word = false;
         if candidate && c == ':' {
@@ -1029,11 +1021,11 @@ impl Engine {
             return self.uinput_rewrite(mode, &raw, &text, Some(c));
         }
 
-        // Flow (unlike Turbo) defers to app autofill: the app
-        // appended suggestion text after the caret, and a rewrite would eat
-        // it. Turbo rewrites regardless — minimum latency, the owner
-        // accepted the risk. Per-key rewrites are backward-only (the
-        // suggestion sits after the caret), so the hold-back is moot.
+        // Flow defers to app autofill: the app appended suggestion text
+        // after the caret, and a rewrite would eat it. (The removed Turbo
+        // rewrote regardless; its users get this hold-back.) Per-key
+        // rewrites are backward-only (the suggestion sits after the caret),
+        // so the hold-back is moot.
         if mode == Mode::Flow && self.suggestions && !per_key {
             self.wrapper.reset();
             return vec![Action::Forward];
@@ -1062,7 +1054,7 @@ impl Engine {
         // batch — the diff against what the app certainly holds becomes
         // extra Backspaces and the pending commit's text is replaced. The
         // terminator joins the batch too (a forwarded key would race it).
-        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo | Mode::SmoothForward) {
+        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::SmoothForward) {
             let want = match terminator {
                 Some(c) => format!("{text}{c}"),
                 None => text.to_string(),

@@ -1105,7 +1105,6 @@ mod matrix {
             Mode::Surrounding,
             Mode::Off,
             Mode::Flow,
-            Mode::Turbo,
             Mode::Select,
             Mode::SmoothForward,
         ];

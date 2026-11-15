@@ -1,5 +1,5 @@
 //! Page "Tinh chỉnh": the technical knobs most users never touch — the
-//! uinput pacing (Flow / Turbo / Select only), the delivery
+//! uinput pacing (Flow / Select only), the delivery
 //! channel and the X11/XIM workarounds. The rows themselves come from
 //! `build`; this page groups them and keeps subtitles to two lines.
 
@@ -14,7 +14,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .title(t("groups.tune.pacing.title", "Cấu hình uinput"))
         .description(t(
             "groups.tune.pacing.description",
-            "Chỉ áp dụng cho Flow, Turbo và Select.",
+            "Chỉ áp dụng cho Flow và Select.",
         ))
         .build();
     pacing.add(&ui.pacing_row);

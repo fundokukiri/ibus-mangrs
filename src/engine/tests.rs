@@ -1187,7 +1187,7 @@ fn smoothforward_mode_rewrites_at_word_end_with_forwarded_backspaces() {
 #[test]
 fn smoothforward_mode_does_not_fall_back_without_uinput() {
     // The whole point of the mode: it never needs /dev/uinput, so the
-    // device fallback that stands preedit in for Flow/Turbo/Select must
+    // device fallback that stands preedit in for Flow/Select must
     // not engage.
     let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
     e.set_client(Some("gnome-shell".into()));
@@ -1337,7 +1337,7 @@ fn hidden_modes_are_not_selectable_from_config_or_rules() {
     e.apply_config(&Config {
         // The global mode is hidden: the engine moves to the first visible
         // entry instead of running a mode the user cannot see.
-        mode: ModeConfig::Turbo,
+        mode: ModeConfig::ForwardSelect,
         visible_modes: Some(vec!["preedit".into(), "off".into()]),
         // A rule naming a hidden mode is ignored; the global mode stands.
         app_rules: vec![crate::config::AppRule {
@@ -2992,13 +2992,13 @@ fn per_key_delay_clamps_out_of_range_values() {
 
 #[test]
 fn flow_backspace_retrack_lets_a_mark_key_keep_editing() {
-    // The shipped Flow/Turbo look (per-key display on): `tungf` ␣ commits
+    // The shipped Flow look (per-key display on): `tungf` ␣ commits
     // `tùng `; Backspace deletes the last screen character — the experiment
     // re-tracks the shortened screen when the pop search cannot (a tone
     // outliving its key), and the next tone key keeps editing the word:
     // `tùn` + `s` lands `tún ` at word end, not the literal `tùns`.
     let mut e = engine(
-        Mode::Turbo,
+        Mode::Flow,
         Config {
             experimental_features: true,
             flow_backspace_retrack: true,
@@ -3041,7 +3041,7 @@ fn flow_backspace_retrack_lets_a_mark_key_keep_editing() {
 fn flow_backspace_retrack_off_keeps_the_legacy_plain_text() {
     // The experiment off: today's behavior byte for byte — the word stays
     // dead after the Backspace and the tone key starts a fresh plain word.
-    let mut e = engine(Mode::Turbo, Config::default());
+    let mut e = engine(Mode::Flow, Config::default());
     e.set_uinput_available(true);
     type_str(&mut e, "tungf ");
     flush_per_key(&mut e);
@@ -3067,7 +3067,7 @@ fn flow_backspace_retrack_needs_the_gate() {
     // Like every experimental feature: gate off forces the legacy path
     // whatever the switch says (the switch state stays saved).
     let mut e = engine(
-        Mode::Turbo,
+        Mode::Flow,
         Config {
             flow_backspace_retrack: true,
             experimental_features: false,
@@ -3792,7 +3792,7 @@ fn flow_leaves_english_words_alone() {
 
 #[test]
 fn flow_modes_auto_capitalize_at_sentence_start() {
-    for mode in [Mode::Flow, Mode::Turbo, Mode::Select] {
+    for mode in [Mode::Flow, Mode::Select] {
         let mut e = engine(
             mode,
             Config {
@@ -3861,24 +3861,6 @@ fn select_uses_selection_then_delete() {
             .any(|a| matches!(a, Action::InjectBackspaces(_))),
         "Select must not press Backspaces: {actions:?}"
     );
-}
-
-#[test]
-fn super_uinput_rewrites_even_with_app_suggestions() {
-    let mut e = Engine::new(Method::Telex, Mode::Turbo);
-    e.flow_per_key = false;
-    e.set_uinput_available(true);
-    // Prime the client first: set_client clears the suggestion flag and
-    // type_str sets the client when it is None.
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_suggestions(true);
-    let actions = type_str(&mut e, "vieetj ");
-    assert!(actions
-        .iter()
-        .any(|a| matches!(a, Action::InjectBackspaces(6))));
-    assert!(actions
-        .iter()
-        .any(|a| matches!(a, Action::Commit(t) if t == "việt ")));
 }
 
 #[test]
@@ -4367,34 +4349,32 @@ fn emoji_candidate_composes_live_in_per_key_modes() {
     // flow_per_key ON (the default): the candidate word joins the per-key
     // display — the marks appear while typing (`:tungf` shows `:tùng`
     // before any space) and the word end only appends the terminator.
-    for mode in [Mode::Flow, Mode::Turbo] {
-        let mut e = with_emoji(
-            mode,
-            Config {
-                emoji_enabled: true,
-                ..Config::default()
-            },
-        );
-        e.set_uinput_available(true);
-        type_str(&mut e, "x:tungf");
-        assert_eq!(e.tail, "tùng", "{mode:?}: the word must show live");
-        let actions = type_str(&mut e, " ");
-        assert_eq!(e.tail, "tùng ", "{mode:?}");
-        assert!(
-            !actions
-                .iter()
-                .any(|a| matches!(a, Action::InjectBackspaces(_))),
-            "{mode:?}: no erase is needed at the word end: {actions:?}"
-        );
-        let flushed = flush_per_key(&mut e);
-        assert!(
-            flushed.iter().any(|a| matches!(
-                a,
-                Action::Commit(t) | Action::CommitNow(t) if t == "tùng "
-            )),
-            "{mode:?}: {flushed:?}"
-        );
-    }
+    let mut e = with_emoji(
+        Mode::Flow,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, "x:tungf");
+    assert_eq!(e.tail, "tùng", "the word must show live");
+    let actions = type_str(&mut e, " ");
+    assert_eq!(e.tail, "tùng ");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(_))),
+        "no erase is needed at the word end: {actions:?}"
+    );
+    let flushed = flush_per_key(&mut e);
+    assert!(
+        flushed.iter().any(|a| matches!(
+            a,
+            Action::Commit(t) | Action::CommitNow(t) if t == "tùng "
+        )),
+        "{flushed:?}"
+    );
 }
 
 #[test]
@@ -4402,52 +4382,48 @@ fn emoji_close_rewrites_with_the_colon_in_per_key_modes() {
     // flow_per_key ON: the committed ':' sits one char before the
     // candidate's region — the close lands the in-flight batch and erases
     // both, or the emoji would keep the leading colon (`:😀`).
-    for mode in [Mode::Flow, Mode::Turbo] {
-        let mut e = with_emoji(
-            mode,
-            Config {
-                emoji_enabled: true,
-                ..Config::default()
-            },
-        );
-        e.set_uinput_available(true);
-        e.emojis
-            .set_entries([("cuoi".to_string(), "😀".to_string())].into_iter());
-        let actions = type_str(&mut e, ":cuoi:");
-        assert!(
-            actions
-                .iter()
-                .any(|a| matches!(a, Action::Commit(t) if t == "😀")),
-            "{mode:?}: {actions:?}"
-        );
-        assert_eq!(e.tail, "😀", "{mode:?}");
-    }
+    let mut e = with_emoji(
+        Mode::Flow,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    e.emojis
+        .set_entries([("cuoi".to_string(), "😀".to_string())].into_iter());
+    let actions = type_str(&mut e, ":cuoi:");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "😀")),
+        "{actions:?}"
+    );
+    assert_eq!(e.tail, "😀");
 }
 
 #[test]
 fn emoji_miss_restores_the_raw_keys_in_per_key_modes() {
     // flow_per_key ON: a name that matches nothing types back out of the
     // composed display through the batch (`:tungf:` stays literal).
-    for mode in [Mode::Flow, Mode::Turbo] {
-        let mut e = with_emoji(
-            mode,
-            Config {
-                emoji_enabled: true,
-                ..Config::default()
-            },
-        );
-        e.set_uinput_available(true);
-        type_str(&mut e, ":tungf:");
-        assert_eq!(e.tail, "tungf:", "{mode:?}");
-        let flushed = flush_per_key(&mut e);
-        assert!(
-            flushed.iter().any(|a| matches!(
-                a,
-                Action::Commit(t) | Action::CommitNow(t) if t == "tungf:"
-            )),
-            "{mode:?}: {flushed:?}"
-        );
-    }
+    let mut e = with_emoji(
+        Mode::Flow,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, ":tungf:");
+    assert_eq!(e.tail, "tungf:");
+    let flushed = flush_per_key(&mut e);
+    assert!(
+        flushed.iter().any(|a| matches!(
+            a,
+            Action::Commit(t) | Action::CommitNow(t) if t == "tungf:"
+        )),
+        "{flushed:?}"
+    );
 }
 
 #[test]

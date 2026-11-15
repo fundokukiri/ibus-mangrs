@@ -127,7 +127,7 @@ pub struct Config {
     /// is the behavior users know.
     pub idle_commit_enabled: bool,
     pub idle_commit_ms: u64,
-    /// Show the composed word progressively in the Flow/Turbo modes: every
+    /// Show the composed word progressively in the Flow mode: every
     /// key that changes the composition erases the committed tail and
     /// commits the new one through the injected transport (`ee` shows
     /// `ê` immediately, marks are editable mid-word) instead of holding
@@ -512,10 +512,13 @@ pub enum ModeConfig {
     /// Flow (uinput): raw keys are forwarded while typing; at word end the
     /// latin tail is erased with real Backspace keys and the Vietnamese word
     /// is committed. Falls back to Preedit where injection is impossible.
+    /// The removed Turbo mode (this without the app-autofill hold-back)
+    /// migrates here — the hold-back stays, one rewrite behavior instead
+    /// of two.
+    // The alias carries the removed mode name's spelling, so an existing
+    // config.toml or app rule keeps loading after the merge.
+    #[serde(alias = "turbo")]
     Flow,
-    /// Turbo (uinput): Flow without the pre-rewrite verification (minimum
-    /// latency).
-    Turbo,
     /// Select (uinput): Shift+Left selects the typed tail, Delete erases it,
     /// then the Vietnamese word is committed. Needs a surrounding-text report.
     Select,
@@ -634,7 +637,6 @@ impl From<ModeConfig> for Mode {
             ModeConfig::Preedit => Mode::Preedit,
             ModeConfig::Surrounding => Mode::Surrounding,
             ModeConfig::Flow => Mode::Flow,
-            ModeConfig::Turbo => Mode::Turbo,
             ModeConfig::Select => Mode::Select,
             ModeConfig::SmoothForward => Mode::SmoothForward,
             ModeConfig::ForwardBackspace => Mode::ForwardBackspace,
@@ -650,7 +652,6 @@ impl From<Mode> for ModeConfig {
             Mode::Preedit => ModeConfig::Preedit,
             Mode::Surrounding => ModeConfig::Surrounding,
             Mode::Flow => ModeConfig::Flow,
-            Mode::Turbo => ModeConfig::Turbo,
             Mode::Select => ModeConfig::Select,
             Mode::SmoothForward => ModeConfig::SmoothForward,
             Mode::ForwardBackspace => ModeConfig::ForwardBackspace,
@@ -740,7 +741,6 @@ impl ModeConfig {
             ModeConfig::Preedit => "preedit",
             ModeConfig::Surrounding => "surrounding",
             ModeConfig::Flow => "flow",
-            ModeConfig::Turbo => "turbo",
             ModeConfig::Select => "select",
             ModeConfig::SmoothForward => "smoothforward",
             ModeConfig::ForwardBackspace => "forwardbackspace",
@@ -758,7 +758,10 @@ impl ModeConfig {
             "preedit" => ModeConfig::Preedit,
             "surrounding" => ModeConfig::Surrounding,
             "flow" => ModeConfig::Flow,
-            "turbo" => ModeConfig::Turbo,
+            // The removed Turbo mode migrates to Flow (both here and
+            // through the serde alias on the enum, for old config files
+            // and app rules).
+            "turbo" => ModeConfig::Flow,
             "select" => ModeConfig::Select,
             "smoothforward" | "smooth-forward" => ModeConfig::SmoothForward,
             "forwardbackspace" | "forwardkeyevent" | "forwardkey" | "forward-key-event"
@@ -814,8 +817,8 @@ fn default_menu_modes() -> Vec<String> {
 }
 
 /// Modes the GUI offers on a fresh install, in dropdown/cycle order. The
-/// technical variants (`turbo`, `select`, `forwardselect`) stay implemented
-/// but hidden until the user enables them.
+/// technical variants (`select`, `forwardselect`) stay implemented but
+/// hidden until the user enables them.
 pub const DEFAULT_VISIBLE_MODES: [&str; 6] = [
     "preedit",
     "surrounding",
@@ -1145,6 +1148,23 @@ mod tests {
     }
 
     #[test]
+    fn turbo_key_migrates_to_flow() {
+        // Turbo merged into Flow: the old key keeps loading, in the global
+        // mode, an app rule and the visible list. `key()` stays "flow" —
+        // one mode must not gain a second canonical name.
+        assert_eq!(ModeConfig::from_key("turbo"), Some(ModeConfig::Flow));
+        // The serde alias carries the same spelling for config.toml.
+        let c: Config = toml::from_str("mode = \"turbo\"\n").unwrap();
+        assert_eq!(c.mode, ModeConfig::Flow);
+        assert_eq!(ModeConfig::Flow.key(), "flow");
+        let c: Config =
+            toml::from_str("[[app_rules]]\npattern = \"gedit\"\nmode = \"turbo\"\n").unwrap();
+        assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
+        let c: Config = toml::from_str("visible_modes = [\"turbo\"]\n").unwrap();
+        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow]);
+    }
+
+    #[test]
     fn forward_key_event_mode_key_round_trips() {
         let c: Config = toml::from_str("mode = \"forwardkeyevent\"").unwrap();
         assert_eq!(c.mode, ModeConfig::ForwardBackspace);
@@ -1280,10 +1300,10 @@ mod tests {
     fn absent_visible_modes_keep_the_configured_and_rule_modes() {
         // Upgrade path: an old file has no key. Its global mode and every
         // rule mode must stay selectable, or an upgrade would silently
-        // change what the user types with. Turbo stands in for any mode
-        // outside the shipped default list.
+        // change what the user types with. Select and ForwardSelect stand
+        // in for any mode outside the shipped default list.
         let c = Config {
-            mode: ModeConfig::Turbo,
+            mode: ModeConfig::ForwardSelect,
             app_rules: vec![
                 AppRule {
                     pattern: "code".into(),
@@ -1291,18 +1311,21 @@ mod tests {
                 },
                 AppRule {
                     pattern: "game".into(),
-                    mode: ModeConfig::Turbo,
+                    mode: ModeConfig::ForwardSelect,
                 },
             ],
             ..Config::default()
         };
         let visible = c.visible_modes();
-        assert!(visible.contains(&ModeConfig::Turbo));
+        assert!(visible.contains(&ModeConfig::ForwardSelect));
         assert!(visible.contains(&ModeConfig::Select));
         // The default order stays first; the extra modes are appended once.
         assert_eq!(visible.first(), Some(&ModeConfig::Preedit));
         assert_eq!(
-            visible.iter().filter(|m| **m == ModeConfig::Turbo).count(),
+            visible
+                .iter()
+                .filter(|m| **m == ModeConfig::ForwardSelect)
+                .count(),
             1
         );
     }

@@ -104,7 +104,6 @@ const MODE_LABELS: &[(ModeConfig, &str, &str)] = &[
         "Surrounding text",
     ),
     (ModeConfig::Flow, "Flow (uinput)", "Flow (uinput)"),
-    (ModeConfig::Turbo, "Turbo (uinput)", "Turbo (uinput)"),
     (ModeConfig::Select, "Select (uinput)", "Select (uinput)"),
     (
         ModeConfig::SmoothForward,

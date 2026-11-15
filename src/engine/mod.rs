@@ -64,9 +64,9 @@ pub enum Mode {
     Surrounding,
     /// Raw keys are forwarded while typing; the latin tail is erased with
     /// real Backspaces at word end and the Vietnamese word is committed.
+    /// The removed Turbo mode (this without the app-autofill hold-back)
+    /// shared this arm.
     Flow,
-    /// Flow without the pre-rewrite verification.
-    Turbo,
     /// Shift+Left selects the typed tail, Delete erases it, then the word is
     /// committed. Needs a surrounding-text report.
     Select,
@@ -75,7 +75,7 @@ pub enum Mode {
     /// events plus the commit — the same ordered IBus channel, no
     /// `/dev/uinput` and no echo bookkeeping. Raw-key apps (games) ignore
     /// the IM channel and XIM clients mishandle the forwarded Backspace:
-    /// pin Flow/Turbo or ForwardSelect there instead.
+    /// pin Flow or ForwardSelect there instead.
     SmoothForward,
     /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
     /// events through IBus instead of `DeleteSurroundingText` — works in
@@ -1404,13 +1404,11 @@ impl Engine {
         if requested == Mode::Off {
             return Mode::Off;
         }
-        // Transitional passthrough, removed with the modes (Tasks 5-8):
-        // Turbo without a backend and Select without the report it sizes
-        // its selection from keep today's preedit stand-in; the forward
-        // modes carry their own delete transport, no walk arm applies.
-        if matches!(requested, Mode::Turbo | Mode::Select)
-            && (!self.uinput_available || (requested == Mode::Select && self.surrounding.is_none()))
-        {
+        // Transitional passthrough, removed with the mode (Task 6):
+        // Select without the report it sizes its selection from keeps
+        // today's preedit stand-in; the forward modes carry their own
+        // delete transport, no walk arm applies.
+        if requested == Mode::Select && (!self.uinput_available || self.surrounding.is_none()) {
             return Mode::Preedit;
         }
         if forwards_delete(requested) {
@@ -1460,9 +1458,9 @@ impl Engine {
             }
             // Terminal: carries its own delete transport, walks nowhere.
             Mode::ForwardBackspace => Mode::ForwardBackspace,
-            // Transitional modes (Tasks 5-6 delete them): their fallback
-            // conditions were checked above, the request stands.
-            Mode::Turbo | Mode::Select => requested,
+            // Transitional mode (Task 6 deletes it): its fallback condition
+            // was checked above, the request stands.
+            Mode::Select => requested,
             // Unreachable: Off returned first, the forward modes through the
             // transitional passthrough above. Kept for exhaustiveness.
             Mode::Off | Mode::SmoothForward | Mode::ForwardSelect => requested,
@@ -1572,10 +1570,7 @@ impl Engine {
         // modes show the raw keys, and a skipped tone would desync the
         // screen from the wrapper. They keep the unikey undo.
         self.wrapper.set_backspace_tone(
-            if matches!(
-                mode,
-                Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
-            ) {
+            if matches!(mode, Mode::Flow | Mode::Select | Mode::SmoothForward) {
                 BackspaceToneConfig::UnikeyWalk
             } else {
                 self.backspace_tone
@@ -1585,10 +1580,7 @@ impl Engine {
         // Backspace is forwarded so it deletes the raw key shown there, and
         // bamboo follows so the composition stays aligned (unikey
         // convention: Backspace undoes the last raw key).
-        if matches!(
-            mode,
-            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
-        ) {
+        if matches!(mode, Mode::Flow | Mode::Select | Mode::SmoothForward) {
             // Per-key display: the app holds the composed word, so the
             // Backspace passes through with a reverse-mapped raw buffer —
             // the user's real key, the one transport the relay never drops.
@@ -1639,7 +1631,7 @@ impl Engine {
             }
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
-            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward => None,
+            Mode::Flow | Mode::Select | Mode::SmoothForward => None,
             Mode::Surrounding | Mode::ForwardBackspace | Mode::ForwardSelect => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the

@@ -91,7 +91,6 @@ pub const MODES: &[(&str, &str, &str)] = &[
     ("preedit", "Gạch chân (preedit)", "Underline (preedit)"),
     ("surrounding", "Surrounding text", "Surrounding text"),
     ("flow", "Flow (uinput)", "Flow (uinput)"),
-    ("turbo", "Turbo (uinput)", "Turbo (uinput)"),
     ("select", "Select (uinput)", "Select (uinput)"),
     ("smoothforward", "Smooth (Forward)", "Smooth (Forward)"),
     ("forwardkeyevent", "Forward Backspace", "Forward Backspace"),
@@ -709,7 +708,7 @@ mod tests {
         // A design that lists only hidden modes renders no empty submenu.
         let config = Config {
             visible_modes: Some(vec!["preedit".into(), "off".into()]),
-            menu_modes: vec!["turbo".into()],
+            menu_modes: vec!["forwardselect".into()],
             ..Config::default()
         };
         assert!(

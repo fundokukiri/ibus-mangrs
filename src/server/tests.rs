@@ -131,7 +131,7 @@ fn visible_cycle_skips_hidden_modes_and_wraps() {
         "wraps to the first"
     );
     assert_eq!(
-        next_visible_mode(&visible, ModeConfig::Turbo),
+        next_visible_mode(&visible, ModeConfig::Select),
         ModeConfig::Preedit,
         "a hidden current mode lands on the first visible entry"
     );

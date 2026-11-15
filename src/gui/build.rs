@@ -519,14 +519,14 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.flow_per_key.title", "Hiện dấu từng bước ở Flow"),
         &t(
             "rows.flow_per_key.subtitle",
-            "Chữ có dấu hiện ngay trong lúc gõ ở Flow/Turbo",
+            "Chữ có dấu hiện ngay trong lúc gõ ở Flow",
         ),
         &flow_per_key_spin,
     );
     let flow_backspace_retrack = switch_row(
         &t(
             "rows.flow_backspace_retrack.title",
-            "Sửa dấu sau Backspace (Flow/Turbo)",
+            "Sửa dấu sau Backspace (Flow)",
         ),
         &t(
             "rows.flow_backspace_retrack.subtitle",
@@ -538,7 +538,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     let (flow_backspace_restore_row, flow_backspace_restore_switch) = switch_value_row(
         &t(
             "rows.flow_backspace_restore.title",
-            "Hoàn dấu sau Backspace (Flow/Turbo)",
+            "Hoàn dấu sau Backspace (Flow)",
         ),
         &t(
             "rows.flow_backspace_restore.subtitle",
@@ -756,12 +756,12 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         flow_per_key_row,
         "tips.flow_per_key",
-        "Tính năng Hiện dấu từng bước ở Flow: Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland. Select không đổi."
+        "Tính năng Hiện dấu từng bước ở Flow: Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland. Select không đổi."
     );
     tip!(
         flow_backspace_retrack,
         "tips.flow_backspace_retrack",
-        "Tính năng Sửa dấu sau Backspace ở Flow/Turbo: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước đang bật."
+        "Tính năng Sửa dấu sau Backspace ở Flow: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước đang bật."
     );
     tip!(
         flow_backspace_restore_row,
