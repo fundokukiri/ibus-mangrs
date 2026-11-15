@@ -580,7 +580,7 @@ fn refresh_round_trips_every_widget() {
             "turbo".into(),
             "select".into(),
             "smoothforward".into(),
-            "forwardkeyevent".into(),
+            "forwardbackspace".into(),
             "forwardselect".into(),
             "off".into(),
         ]),
@@ -634,7 +634,7 @@ fn refresh_round_trips_every_widget() {
         ModeConfig::Turbo,
         ModeConfig::Select,
         ModeConfig::SmoothForward,
-        ModeConfig::ForwardKeyEvent,
+        ModeConfig::ForwardBackspace,
         ModeConfig::ForwardSelect,
         ModeConfig::Off,
     ];

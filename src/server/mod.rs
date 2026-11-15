@@ -1046,12 +1046,12 @@ fn emit_with(
                     ));
                 }
             }
-            // ForwardKeyEvent mode's delete transport: Backspace key events
+            // ForwardBackspace mode's delete transport: Backspace key events
             // sent through IBus, so the client's own IM context applies them
             // like real presses. They ride the same connection as the Commit
             // that follows, which keeps them ordered; no echo comes back
             // (the key goes to the application, not to the engine).
-            // ForwardKeyEvent (mode I) commits with its deletes in one
+            // ForwardBackspace (mode I) commits with its deletes in one
             // batch, as shipped: pacing here made JetBrains' XIM bridge
             // apply the commit into a stale view (the mark-coded vowel
             // vanished from screen yet Backspace revealed it — the buffer

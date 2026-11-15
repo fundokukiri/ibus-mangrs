@@ -591,7 +591,7 @@ impl FakeClient {
                     self.buf.drain(start..self.caret);
                     self.caret = start;
                 }
-                // ForwardKeyEvent mode: Backspace key events handled by the
+                // ForwardBackspace mode: Backspace key events handled by the
                 // client's own IM context — real deletions, never protocol
                 // ones, so the drop_delete fault does not apply.
                 Action::ForwardBackspaces(n) => {
@@ -871,7 +871,7 @@ mod matrix {
             Mode::Preedit,
             Mode::Surrounding,
             Mode::SmoothForward,
-            Mode::ForwardKeyEvent,
+            Mode::ForwardBackspace,
         ] {
             for (method, keys, _) in SEQUENCES {
                 let method = method_of(method);
@@ -969,7 +969,7 @@ mod matrix {
             Mode::Preedit,
             Mode::Surrounding,
             Mode::SmoothForward,
-            Mode::ForwardKeyEvent,
+            Mode::ForwardBackspace,
         ] {
             for (name, faults) in fault_rows {
                 for (method, keys, _) in SEQUENCES {
@@ -1043,7 +1043,7 @@ mod matrix {
         // Backspace key events forwarded through IBus, not the protocol.
         let got = run_session(
             Method::Telex,
-            Mode::ForwardKeyEvent,
+            Mode::ForwardBackspace,
             Faults {
                 drop_delete: true,
                 ..Faults::default()
@@ -1053,7 +1053,7 @@ mod matrix {
         );
         assert_eq!(
             got, "â tiếng ",
-            "ForwardKeyEvent must not rely on the protocol delete"
+            "ForwardBackspace must not rely on the protocol delete"
         );
     }
 

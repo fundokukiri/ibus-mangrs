@@ -77,7 +77,7 @@ pub enum Mode {
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
     /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent I.
-    ForwardKeyEvent,
+    ForwardBackspace,
     /// The same, but the tail is selected with forwarded Shift+Left and the
     /// commit replaces the selection — for apps that mishandle a forwarded
     /// Backspace. ibus-bamboo's ForwardKeyEvent II.
@@ -143,7 +143,7 @@ pub enum Action {
     /// protocol delete if the device died mid-session.
     InjectBackspaces(u32),
     /// Press Backspace `n` times by forwarding the key events through IBus
-    /// (`ForwardKeyEvent`) — the ForwardKeyEvent mode's delete transport.
+    /// (`ForwardKeyEvent`) — the ForwardBackspace mode's delete transport.
     /// Unlike `/dev/uinput` this reaches every client, including
     /// mutter-relayed Wayland contexts; unlike the protocol delete it works
     /// in clients that drop `DeleteSurroundingText`.
@@ -1375,7 +1375,7 @@ impl Engine {
         {
             return Mode::Preedit;
         }
-        // ForwardKeyEvent carries its own delete transport (Backspace key
+        // ForwardBackspace carries its own delete transport (Backspace key
         // events through IBus), so none of the delete-transport heuristics
         // below apply — falling back to preedit would defeat the mode, which
         // exists for apps where preedit is unusable.
@@ -1557,7 +1557,7 @@ impl Engine {
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
             Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward => None,
-            Mode::NonPreedit | Mode::Surrounding | Mode::ForwardKeyEvent | Mode::ForwardSelect => {
+            Mode::NonPreedit | Mode::Surrounding | Mode::ForwardBackspace | Mode::ForwardSelect => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
                     // Backspace so the app deletes the last character itself.

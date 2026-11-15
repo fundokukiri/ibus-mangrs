@@ -61,7 +61,7 @@ fn replay(actions: &[Action]) -> String {
     for a in actions {
         match a {
             Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
-            // ForwardKeyEvent mode: real Backspace key events, same net effect on
+            // ForwardBackspace mode: real Backspace key events, same net effect on
             // the buffer as a protocol delete.
             Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
             // IBus semantics: delete n chars starting at cursor+offset.
@@ -167,7 +167,7 @@ fn type_replay_with_reports(e: &mut Engine, s: &str, reports: bool) -> String {
         for a in &actions {
             match a {
                 Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
-                // ForwardKeyEvent mode: real Backspace key events, same net effect on
+                // ForwardBackspace mode: real Backspace key events, same net effect on
                 // the buffer as a protocol delete.
                 Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
                 // IBus semantics: delete n chars starting at cursor+offset.
@@ -309,7 +309,7 @@ fn replay_from(prefix: &str, actions: &[Action]) -> String {
     for a in actions {
         match a {
             Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
-            // ForwardKeyEvent mode: real Backspace key events, same net effect on
+            // ForwardBackspace mode: real Backspace key events, same net effect on
             // the buffer as a protocol delete.
             Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
             // IBus semantics: delete n chars starting at cursor+offset.
@@ -778,7 +778,7 @@ fn raw_forward_resyncs_to_raw_keys_toool() {
         for a in &actions {
             match a {
                 Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
-                // ForwardKeyEvent mode: real Backspace key events, same net effect on
+                // ForwardBackspace mode: real Backspace key events, same net effect on
                 // the buffer as a protocol delete.
                 Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
                 Action::Commit(t) => buf.extend(t.chars()),
@@ -1013,7 +1013,7 @@ fn forward_key_event_mode_deletes_by_forwarding_backspaces() {
     // The mode's point: a mutter-relayed client with no surrounding-text
     // report and no usable /dev/uinput path still rewrites correctly,
     // because the deletes are Backspace key events sent through IBus.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT); // no ST capability at all
     let actions = type_str(&mut e, "tieengs");
@@ -1022,7 +1022,7 @@ fn forward_key_event_mode_deletes_by_forwarding_backspaces() {
             a,
             Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
         )),
-        "no protocol delete in ForwardKeyEvent mode: {actions:?}"
+        "no protocol delete in ForwardBackspace mode: {actions:?}"
     );
     assert!(
         actions
@@ -1039,7 +1039,7 @@ fn forward_key_event_mode_survives_the_preedit_heuristics() {
     // (inline suggestions, the known-client list, a proven swallowed
     // delete) must not apply: this mode was chosen precisely because
     // preedit is unusable in the app.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     e.set_client(Some("gnome-shell".into()));
     e.set_suggestions(true);
@@ -1048,7 +1048,7 @@ fn forward_key_event_mode_survives_the_preedit_heuristics() {
         !actions
             .iter()
             .any(|a| matches!(a, Action::UpdatePreedit { .. })),
-        "ForwardKeyEvent never falls back to preedit: {actions:?}"
+        "ForwardBackspace never falls back to preedit: {actions:?}"
     );
     assert_eq!(replay(&actions), "tiếng");
 }
@@ -1102,7 +1102,7 @@ fn xim_clients_report_no_usable_application_name() {
 
 #[test]
 fn forward_key_event_backspace_never_deletes_by_protocol() {
-    let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT);
     type_str(&mut e, "tiee");
@@ -1313,13 +1313,13 @@ fn hidden_modes_are_not_selectable_from_config_or_rules() {
         visible_modes: Some(vec!["preedit".into(), "forwardkeyevent".into()]),
         app_rules: vec![crate::config::AppRule {
             pattern: "game".into(),
-            mode: ModeConfig::ForwardKeyEvent,
+            mode: ModeConfig::ForwardBackspace,
         }],
         ..Config::default()
     });
     assert_eq!(
         e.effective_mode(),
-        Mode::ForwardKeyEvent,
+        Mode::ForwardBackspace,
         "visible rule applies"
     );
 }

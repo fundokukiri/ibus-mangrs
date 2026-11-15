@@ -14,7 +14,7 @@ use super::Mode;
 pub(super) fn forwards_delete(mode: Mode) -> bool {
     matches!(
         mode,
-        Mode::ForwardKeyEvent | Mode::ForwardSelect | Mode::SmoothForward
+        Mode::ForwardBackspace | Mode::ForwardSelect | Mode::SmoothForward
     )
 }
 

@@ -882,7 +882,7 @@ fn forward_key_event_emits_backspace_press_and_release() {
     // keycode themselves, so it must be the evdev scancode 14 — sending
     // the X keycode 22 made them use evdev KEY_U and type a `u` per
     // forwarded Backspace.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_client(Some("gnome-shell".into()));
     let mut out = Vec::new();
     emit_with(

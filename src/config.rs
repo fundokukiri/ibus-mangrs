@@ -526,7 +526,15 @@ pub enum ModeConfig {
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
     /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent I.
-    ForwardKeyEvent,
+    // The aliases carry the old mode name's spellings, so an existing
+    // config.toml or app rule keeps loading after the rename.
+    #[serde(
+        alias = "forwardkeyevent",
+        alias = "forwardkey",
+        alias = "forward-key-event",
+        alias = "forward_key_event"
+    )]
+    ForwardBackspace,
     /// The same, but the tail is selected with forwarded Shift+Left and the
     /// commit replaces the selection — for apps that mishandle a forwarded
     /// Backspace. ibus-bamboo's ForwardKeyEvent II.
@@ -626,7 +634,7 @@ impl From<ModeConfig> for Mode {
             ModeConfig::Turbo => Mode::Turbo,
             ModeConfig::Select => Mode::Select,
             ModeConfig::SmoothForward => Mode::SmoothForward,
-            ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
+            ModeConfig::ForwardBackspace => Mode::ForwardBackspace,
             ModeConfig::ForwardSelect => Mode::ForwardSelect,
             ModeConfig::Off => Mode::Off,
         }
@@ -643,7 +651,7 @@ impl From<Mode> for ModeConfig {
             Mode::Turbo => ModeConfig::Turbo,
             Mode::Select => ModeConfig::Select,
             Mode::SmoothForward => ModeConfig::SmoothForward,
-            Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
+            Mode::ForwardBackspace => ModeConfig::ForwardBackspace,
             Mode::ForwardSelect => ModeConfig::ForwardSelect,
             Mode::Off => ModeConfig::Off,
         }
@@ -734,7 +742,7 @@ impl ModeConfig {
             ModeConfig::Turbo => "turbo",
             ModeConfig::Select => "select",
             ModeConfig::SmoothForward => "smoothforward",
-            ModeConfig::ForwardKeyEvent => "forwardkeyevent",
+            ModeConfig::ForwardBackspace => "forwardbackspace",
             ModeConfig::ForwardSelect => "forwardselect",
             ModeConfig::Off => "off",
         }
@@ -749,9 +757,8 @@ impl ModeConfig {
             "turbo" => ModeConfig::Turbo,
             "select" => ModeConfig::Select,
             "smoothforward" | "smooth-forward" => ModeConfig::SmoothForward,
-            "forwardkeyevent" | "forwardkey" | "forward-key-event" | "forward_key_event" => {
-                ModeConfig::ForwardKeyEvent
-            }
+            "forwardbackspace" | "forwardkeyevent" | "forwardkey" | "forward-key-event"
+            | "forward_key_event" => ModeConfig::ForwardBackspace,
             "forwardselect"
             | "forwardkeyevent2"
             | "forwardkeyeventii"
@@ -1095,13 +1102,32 @@ mod tests {
     }
 
     #[test]
+    fn forwardkeyevent_key_and_aliases_parse_as_forwardbackspace() {
+        for key in [
+            "forwardbackspace",
+            "forwardkeyevent",
+            "forwardkey",
+            "forward-key-event",
+            "forward_key_event",
+        ] {
+            assert_eq!(
+                ModeConfig::from_key(key),
+                Some(ModeConfig::ForwardBackspace)
+            );
+        }
+        let c: Config = toml::from_str("mode = \"forwardkeyevent\"\n").unwrap();
+        assert_eq!(c.mode, ModeConfig::ForwardBackspace);
+        assert_eq!(c.mode.key(), "forwardbackspace");
+    }
+
+    #[test]
     fn forward_key_event_mode_key_round_trips() {
         let c: Config = toml::from_str("mode = \"forwardkeyevent\"").unwrap();
-        assert_eq!(c.mode, ModeConfig::ForwardKeyEvent);
-        assert_eq!(c.mode.key(), "forwardkeyevent");
+        assert_eq!(c.mode, ModeConfig::ForwardBackspace);
+        assert_eq!(c.mode.key(), "forwardbackspace");
         assert_eq!(
             ModeConfig::from_key("forwardkey"),
-            Some(ModeConfig::ForwardKeyEvent),
+            Some(ModeConfig::ForwardBackspace),
             "the short alias must keep working"
         );
         // Both compatibility switches ship off: an old config keeps today's
@@ -1215,7 +1241,7 @@ mod tests {
                 ModeConfig::Preedit,
                 ModeConfig::Surrounding,
                 ModeConfig::Flow,
-                ModeConfig::ForwardKeyEvent,
+                ModeConfig::ForwardBackspace,
                 ModeConfig::SmoothForward,
                 ModeConfig::Off,
             ]

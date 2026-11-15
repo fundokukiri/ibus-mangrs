@@ -113,7 +113,7 @@ const MODE_LABELS: &[(ModeConfig, &str, &str)] = &[
         "Smooth (Forward)",
     ),
     (
-        ModeConfig::ForwardKeyEvent,
+        ModeConfig::ForwardBackspace,
         "Forward Backspace",
         "Forward Backspace",
     ),
