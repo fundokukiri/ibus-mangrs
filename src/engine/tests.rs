@@ -2719,7 +2719,10 @@ fn off_mode_backspace_belongs_to_the_app() {
 fn flow_without_backend_types_through_forward_backspace() {
     // Flow without /dev/uinput: the walk downgrades to the forwarded
     // transport — commit-as-you-type with the tone rewrites erasing
-    // through forwarded Backspaces; preedit never stands in.
+    // through forwarded Backspaces; preedit never stands in. The guard
+    // keeps this test's own fallback log line out of the counting test's
+    // redirected log file (they share the process-wide log globals).
+    let _guard = crate::debug_log::test_guard();
     let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_uinput_available(false);
     e.set_capabilities(CAP_PREEDIT_TEXT);
@@ -3568,7 +3571,10 @@ fn url_bypass_releases_when_backspace_erases_the_word() {
 fn url_bypass_releases_after_backspace_in_flow() {
     // The per-key tail spans whole words, so the release cannot key on an
     // empty tail — the bypass span is measured from its arm point. The next
-    // key must compose, not forward raw.
+    // key must compose, not forward raw. The guard keeps this test's own
+    // fallback log line (Flow without a backend, resolved per keystroke
+    // here) out of the counting test's redirected log file.
+    let _guard = crate::debug_log::test_guard();
     let mut e = engine(Mode::Flow, Config::default());
     let _ = type_replay_backspaces(&mut e, "https://abc\u{8}\u{8}\u{8}\u{8}\u{8}");
     let actions = e.process_char('v');

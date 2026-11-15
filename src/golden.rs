@@ -1087,9 +1087,12 @@ mod matrix {
     /// interleaved, over all fault combinations. Nothing may panic, the
     /// safety invariants must hold on every batch, and every focus change
     /// must leave the engine clean. Seed 0xC0FFEE — fixed so a failure
-    /// replays deterministically.
+    /// replays deterministically. The guard keeps this test's own
+    /// flow-fallback log lines (Flow runs here without a backend) out of
+    /// the counting test's redirected log file.
     #[test]
     fn fuzz_random_keystrokes_hold_the_invariants() {
+        let _guard = crate::debug_log::test_guard();
         const SEED: u64 = 0xC0FFEE;
         let letters: Vec<char> = "aaeeoouuddwwssffjjxxrrz6789^~`'+*(.[{t i e n g h o l }"
             .chars()

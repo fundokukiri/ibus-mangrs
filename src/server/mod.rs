@@ -925,8 +925,8 @@ fn emit_with(
                     // opened once) and the client swallows the protocol
                     // delete: neither transport works. Keep the raw text,
                     // suppress the paired commit, and let the engine know —
-                    // its mode resolution moves the following words to
-                    // preedit, which needs no delete.
+                    // the mode walk serves the following words through the
+                    // forwarded-Backspace transport.
                     debug_log::log(
                         "delete-before inject FAILED on a delete-dropping client → keep raw",
                     );

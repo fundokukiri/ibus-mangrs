@@ -219,10 +219,11 @@ pub struct Engine {
     /// Whether /dev/uinput is usable — deletions for clients without
     /// surrounding-text data go through key injection instead.
     uinput_available: bool,
-    /// True while the resolution walk has downgraded a Flow request to
-    /// ForwardBackspace for lack of an injection backend; the paced
-    /// backend re-request reads it. Cleared by every resolution that
-    /// finds a backend.
+    /// True from the moment the resolution walk downgrades a Flow request
+    /// to ForwardBackspace for lack of an injection backend. Every
+    /// `effective_mode` run clears it first and re-sets it on a Flow
+    /// downgrade, so it always describes the last resolution; the paced
+    /// backend re-request reads it.
     flow_needs_backend: bool,
     /// One-time gate for the Flow fallback log line: once per session,
     /// not per resolution.
@@ -1148,8 +1149,10 @@ impl Engine {
         self.uinput_available
     }
 
-    /// Whether the resolution walk has downgraded Flow for lack of an
-    /// injection backend (the paced backend re-request reads it).
+    /// Whether the last resolution downgraded Flow for lack of an
+    /// injection backend: every `effective_mode` run clears the flag
+    /// first and re-sets it on a Flow downgrade (the paced backend
+    /// re-request reads it).
     pub fn flow_needs_backend(&self) -> bool {
         self.flow_needs_backend
     }
