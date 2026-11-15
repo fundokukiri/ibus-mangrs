@@ -292,22 +292,15 @@ pub struct Engine {
     /// config: the delay row stands alone in the Tuning tab, outside the
     /// experimental gate.
     flow_per_key_delay_ms: u64,
-    /// Experimental: a Backspace on a committed uinput word re-tracks the
-    /// shortened screen so the next mark key keeps editing. Off keeps the
-    /// legacy plain-text behavior byte for byte; apply_config bakes the
-    /// flag with the gate.
-    flow_backspace_retrack: bool,
-    /// Experimental (needs the flag above): a Backspace that removes a key
-    /// which undid a mark gives the mark back. Off keeps the plain result.
-    flow_backspace_restore: bool,
-    /// How long the restore waits before rewriting the screen (ms); 0 means
-    /// the first main-loop wake. Baked with the gate like the flag.
+    /// How long the Backspace correction waits before rewriting the screen
+    /// (ms); 0 means the first main-loop wake. Plain config: the delay row
+    /// stands alone in the Tuning tab, outside the experimental gate.
     flow_backspace_restore_delay_ms: u64,
     /// The landed screen region before the current per-key word (`chào `
-    /// while a stray `f` sits after it). The same experiment uses it to give
-    /// a finished word back to the composition when the stray key is erased.
-    /// Only filled while the switch is on, and only consulted by the
-    /// Backspace path.
+    /// while a stray `f` sits after it). The Backspace restore uses it to
+    /// give a finished word back to the composition when the stray key is
+    /// erased. Filled at every per-key word start, and only consulted by
+    /// the Backspace path.
     landed_region: String,
     /// Whether the current per-key region has produced no composition change
     /// yet — a lone key over a finished word (`f`) is litter, not a word, so
@@ -452,11 +445,12 @@ impl Engine {
     /// window with margin while staying imperceptible at word end.
     pub const ECHO_APPLY_GRACE_MS: u64 = 60;
 
-    /// How long the experimental Backspace waits before correcting the screen
-    /// after the application applied the user's own Backspace. Backspaces the
-    /// engine injects while that key is still being handled never reach the
-    /// application (measured: 3 injected presses, no echo, only the commit
-    /// landed), so the rewrite must wait until the physical key is long gone.
+    /// How long the Flow Backspace correction waits before rewriting the
+    /// screen after the application applied the user's own Backspace.
+    /// Backspaces the engine injects while that key is still being handled
+    /// never reach the application (measured: 3 injected presses, no echo,
+    /// only the commit landed), so the rewrite must wait until the physical
+    /// key is long gone. Also the engine-side default of the config knob.
     pub const DEFERRED_FIX_MS: u64 = 150;
 
     pub fn new(method: Method, mode: Mode) -> Self {
@@ -529,8 +523,6 @@ impl Engine {
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
-            flow_backspace_retrack: false,
-            flow_backspace_restore: false,
             flow_backspace_restore_delay_ms: Self::DEFERRED_FIX_MS,
             landed_region: String::new(),
             region_plain: false,
@@ -670,13 +662,9 @@ impl Engine {
         self.idle_commit_ms = config.idle_commit_ms;
         // The per-key park delay: plain config, no gate bake-in.
         self.flow_per_key_delay_ms = config.flow_per_key_delay_ms;
-        self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
-        self.flow_backspace_restore = experimental && config.flow_backspace_restore;
-        self.flow_backspace_restore_delay_ms = if experimental {
-            config.flow_backspace_restore_delay_ms
-        } else {
-            Self::DEFERRED_FIX_MS
-        };
+        // The Backspace correction's wait: plain config too — the retrack
+        // and mark-restore it paces are standard behavior, not experiments.
+        self.flow_backspace_restore_delay_ms = config.flow_backspace_restore_delay_ms;
         // The restore state describes one per-key word boundary; a reload can
         // land mid-word, so it starts clean.
         self.landed_region.clear();
@@ -1659,7 +1647,7 @@ impl Engine {
             debug_log::log("timed commit flush (per-key)");
             actions.push(action);
         }
-        // The experimental Backspace's correction: by now the user's own
+        // The Flow Backspace's correction: by now the user's own
         // Backspace has landed, so injected deletes reach the application —
         // but only once the key is UP. Injected Backspaces sent while it is
         // still down are dropped by the input stack (measured in the owner's

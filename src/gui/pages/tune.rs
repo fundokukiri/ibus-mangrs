@@ -18,14 +18,24 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // The per-key display's park delay lives with the pacing knobs: it
     // paces the same uinput word rendering, outside the experimental gate.
     pacing.add(&ui.flow_per_key_delay_row);
+    // The Backspace correction's wait paces the same screen rewriting: the
+    // deleted mark comes back after this many ms.
+    pacing.add(&ui.flow_backspace_restore_delay_row);
     {
-        // The spin needs its own value hook, like the pacing spins.
+        // The spins need their own value hooks, like the pacing spins.
         let s = ui.save_cb.clone();
         ui.flow_per_key_spin.connect_value_notify(move |_| {
             if let Some(save) = s.borrow().as_ref() {
                 save();
             }
         });
+        let s = ui.save_cb.clone();
+        ui.flow_backspace_restore_spin
+            .connect_value_notify(move |_| {
+                if let Some(save) = s.borrow().as_ref() {
+                    save();
+                }
+            });
     }
     for spin in [&ui.commit_interval, &ui.backspace_interval, &ui.post_delay] {
         let s = ui.save_cb.clone();

@@ -130,21 +130,11 @@ pub struct Config {
     /// rewrite parks stay on the engine's built-in grace constant, so a
     /// mistuned value here cannot reintroduce the relay ordering bug.
     pub flow_per_key_delay_ms: u64,
-    /// Experimental: a Backspace on a committed word in the uinput modes
-    /// re-tracks the shortened screen (the composition is rebuilt from the
-    /// re-encoded keys), so the next mark key keeps editing the word
-    /// (`tùn` + `s` -> `tún`) instead of landing as a literal letter. Off
-    /// keeps today's plain-text behavior byte for byte.
-    pub flow_backspace_retrack: bool,
-    /// Experimental: a Backspace that removes a key which undid a mark gives
-    /// the mark back (`chào` + `f` -> `chaof`, Backspace -> `chào`) with the
-    /// user's "Backspace xóa dấu" setting, like the inline modes. Needs
-    /// `flow_backspace_retrack`; off keeps today's plain result.
-    pub flow_backspace_restore: bool,
-    /// How long the restore waits after the user's Backspace before rewriting
-    /// the screen (ms). Injected Backspaces sent while that key is handled
-    /// never reach the application, so 0 only means "as soon as the main loop
-    /// wakes", not "during the key".
+    /// How long the Flow Backspace correction waits after the user's
+    /// Backspace before rewriting the screen (ms) — a deleted mark comes
+    /// back, a shortened word stays editable. Injected Backspaces sent while
+    /// that key is handled never reach the application, so 0 only means "as
+    /// soon as the main loop wakes", not "during the key".
     pub flow_backspace_restore_delay_ms: u64,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
@@ -857,8 +847,6 @@ impl Default for Config {
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             flow_per_key_delay_ms: 20,
-            flow_backspace_retrack: false,
-            flow_backspace_restore: false,
             flow_backspace_restore_delay_ms: 150,
             experimental_features: false,
             show_toasts: true,
@@ -1587,21 +1575,39 @@ children = ["preedit", "flow"]
     }
 
     #[test]
-    fn flow_backspace_retrack_round_trips_and_defaults_off() {
-        let c: Config = toml::from_str("flow_backspace_retrack = true").unwrap();
-        assert!(c.flow_backspace_retrack);
-        assert!(!Config::default().flow_backspace_retrack);
+    fn flow_backspace_retrack_is_gone_but_old_files_still_load() {
+        // The experimental switch died: the Backspace retrack is standard
+        // Flow behavior. The default no longer carries the key, and an old
+        // file that still lists it parses with the key ignored (either
+        // value) — the live delay beside it survives.
+        let default = toml::Value::try_from(Config::default()).unwrap();
+        assert!(
+            default.get("flow_backspace_retrack").is_none(),
+            "the removed switch must not come back through the default"
+        );
+        let c: Config =
+            toml::from_str("flow_backspace_retrack = true\nflow_backspace_restore_delay_ms = 45")
+                .unwrap();
+        assert_eq!(c.flow_backspace_restore_delay_ms, 45);
+        let c: Config = toml::from_str("flow_backspace_retrack = false").unwrap();
+        assert_eq!(c.flow_backspace_restore_delay_ms, 150);
     }
 
     #[test]
-    fn flow_backspace_restore_round_trips_and_defaults_off() {
+    fn flow_backspace_restore_is_gone_but_old_files_still_load() {
+        // Same removal for the restore switch: both values take the same
+        // ignored-key path, the pacing value stays live.
+        let default = toml::Value::try_from(Config::default()).unwrap();
+        assert!(
+            default.get("flow_backspace_restore").is_none(),
+            "the removed switch must not come back through the default"
+        );
         let c: Config =
             toml::from_str("flow_backspace_restore = true\nflow_backspace_restore_delay_ms = 0")
                 .unwrap();
-        assert!(c.flow_backspace_restore);
         assert_eq!(c.flow_backspace_restore_delay_ms, 0);
-        assert!(!Config::default().flow_backspace_restore);
-        assert_eq!(Config::default().flow_backspace_restore_delay_ms, 150);
+        let c: Config = toml::from_str("flow_backspace_restore = false").unwrap();
+        assert_eq!(c.flow_backspace_restore_delay_ms, 150);
     }
 
     /// The old mode names are gone for good: an old file resets the mode to

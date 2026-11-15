@@ -53,6 +53,7 @@ fn gtk_widget_scenarios() {
     external_reload_refreshes_without_saving();
     row_texts_render_as_plain_text();
     flow_per_key_delay_row_stands_alone();
+    flow_backspace_restore_delay_row_stands_alone();
     rules_add_group_merges_the_focus_chip();
     rule_rows_and_preview_track_the_engine_match();
     macro_page_helpers_count_and_preview();
@@ -545,8 +546,6 @@ fn refresh_round_trips_every_widget() {
         idle_commit_enabled: true,
         idle_commit_ms: 800,
         flow_per_key_delay_ms: 80,
-        flow_backspace_retrack: true,
-        flow_backspace_restore: true,
         flow_backspace_restore_delay_ms: 40,
         experimental_features: true,
         show_toasts: false,
@@ -746,6 +745,51 @@ fn flow_per_key_delay_row_stands_alone() {
     );
 }
 
+/// Both experimental Backspace switches died (the retrack and the mark
+/// restore are standard Flow behavior): the correction delay spin must
+/// survive as its own always-active Tuning row, still wired to the
+/// `flow_backspace_restore_delay_ms` config key.
+fn flow_backspace_restore_delay_row_stands_alone() {
+    let ui = widgets();
+    assert!(
+        !ui.flow_backspace_restore_delay_row.uses_markup(),
+        "row titles and subtitles must be plain text"
+    );
+    assert!(
+        ui.flow_backspace_restore_delay_row.is_sensitive()
+            && ui.flow_backspace_restore_spin.is_sensitive(),
+        "the delay row has no switch left to lock it"
+    );
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("restore delay row save");
+        }));
+    }
+    ui.refresh(
+        &Config {
+            flow_backspace_restore_delay_ms: 40,
+            ..Config::default()
+        },
+        &macros,
+        &dictionary,
+    );
+    assert_eq!(
+        ui.flow_backspace_restore_spin.value(),
+        40.0,
+        "refresh shows the file value"
+    );
+    ui.flow_backspace_restore_spin.set_value(250.0);
+    ui.fire_save();
+    let saved = Config::load();
+    assert_eq!(
+        saved.flow_backspace_restore_delay_ms, 250,
+        "the detached spin still saves the delay key"
+    );
+}
+
 /// The visibility switches drive one shared list: hiding a mode removes it
 /// from the main combo and the rule pickers, the active hidden mode moves to
 /// the first visible entry, and the last visible mode cannot be turned off.
@@ -887,12 +931,11 @@ fn every_switch_triggers_save() {
     }
     // The merged "Thử nghiệm" rows carry bare GtkSwitch suffixes — same
     // wiring, different widget type.
-    let switches: [&gtk4::Switch; 5] = [
+    let switches: [&gtk4::Switch; 4] = [
         &ui.extra_url_chars_switch,
         &ui.auto_capitalize_after_switch,
         &ui.echo_stale_switch,
         &ui.idle_commit_switch,
-        &ui.flow_backspace_restore_switch,
     ];
     for switch in switches {
         let before = saves.get();
@@ -933,8 +976,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
         echo_stale_enabled: true,
         echo_stale_ms: 250,
         flow_per_key_delay_ms: 200,
-        flow_backspace_restore: true,
-        flow_backspace_restore_delay_ms: 40,
         ..Config::default()
     };
     saved.save().expect("seed config");
@@ -945,8 +986,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(ui.extra_url_chars_row.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
     assert_eq!(ui.echo_stale_spin.value(), 250.0);
-    assert!(ui.flow_backspace_restore_switch.is_active());
-    assert_eq!(ui.flow_backspace_restore_spin.value(), 40.0);
 
     // Off (driven through the file, as the real funnel produces it): rows
     // locked, shipped defaults on display.
@@ -960,8 +999,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(!ui.extra_url_chars_entry.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
-    assert!(!ui.flow_backspace_restore_row.is_sensitive());
-    assert_eq!(ui.flow_backspace_restore_spin.value(), 150.0);
 
     // A save with the gate off — the funnel reads the default-displaying
     // widgets — must not wipe the file's values.
@@ -971,8 +1008,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert_eq!(closed.extra_url_chars, "`", "no wipe on save");
     assert_eq!(closed.echo_stale_ms, 250);
     assert_eq!(closed.flow_per_key_delay_ms, 200);
-    assert!(closed.flow_backspace_restore);
-    assert_eq!(closed.flow_backspace_restore_delay_ms, 40);
 
     // Reopen (what the real toggle does: flip the switch, then the
     // presentation runs in the handler's order — restore first, sensitivity

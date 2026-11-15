@@ -505,29 +505,22 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     flow_per_key_delay_row.add_suffix(&flow_per_key_spin);
-    let flow_backspace_retrack = switch_row(
-        &t(
-            "rows.flow_backspace_retrack.title",
-            "Sửa dấu sau Backspace (Flow)",
-        ),
-        &t(
-            "rows.flow_backspace_retrack.subtitle",
-            "Xoá một ký tự rồi gõ dấu — từ vẫn biến hoá",
-        ),
-    );
     let flow_backspace_restore_spin = spin_button(0.0, 1000.0, 10.0);
-    flow_backspace_restore_spin.set_sensitive(false);
-    let (flow_backspace_restore_row, flow_backspace_restore_switch) = switch_value_row(
+    // Its own plain row: both Backspace switches died (the retrack and the
+    // mark restore are standard Flow behavior) and the correction delay
+    // stays tunable, outside the experimental gate like the pacing knobs it
+    // sits with.
+    let flow_backspace_restore_delay_row = action_row(
         &t(
-            "rows.flow_backspace_restore.title",
-            "Hoàn dấu sau Backspace (Flow)",
+            "rows.flow_backspace_restore_delay.title",
+            "Trễ hoàn dấu sau Backspace (ms)",
         ),
         &t(
-            "rows.flow_backspace_restore.subtitle",
-            "Xoá phím đã gỡ dấu — dấu hiện lại",
+            "rows.flow_backspace_restore_delay.subtitle",
+            "Thời gian đợi sau Backspace rồi mới sửa lại màn hình ở Flow. Mặc định: 150.",
         ),
-        &flow_backspace_restore_spin,
     );
+    flow_backspace_restore_delay_row.add_suffix(&flow_backspace_restore_spin);
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
@@ -731,12 +724,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Tính năng Hiện dấu từng bước ở Flow: Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland."
     );
     tip!(
-        flow_backspace_retrack,
-        "tips.flow_backspace_retrack",
-        "Tính năng Sửa dấu sau Backspace ở Flow: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước đang bật."
-    );
-    tip!(
-        flow_backspace_restore_row,
+        flow_backspace_restore_delay_row,
         "tips.flow_backspace_restore",
         "Tính năng Hoàn dấu sau Backspace: gõ chào rồi gõ thêm f (dấu bị gỡ, màn hình thành chaof), bấm Backspace thì dấu quay lại (chào) — theo đúng cài đặt “Xóa dấu bằng Backspace”: Unikey và Xóa dấu trước trả lại dấu, Cả ký tự thì xoá một ký tự. Số ms bên phải là thời gian chờ sau Backspace rồi mới sửa màn hình (0–1000, mặc định 150); cần bật cả Sửa dấu sau Backspace."
     );
@@ -834,9 +822,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         idle_commit_spin,
         flow_per_key_delay_row,
         flow_per_key_spin,
-        flow_backspace_retrack,
-        flow_backspace_restore_row,
-        flow_backspace_restore_switch,
+        flow_backspace_restore_delay_row,
         flow_backspace_restore_spin,
         experimental_features,
         menu,

@@ -187,7 +187,7 @@ impl Sim {
 
     fn flush(&mut self) {
         // Wake every parked thing the engine may hold — the per-key batch and
-        // the experimental Backspace's deferred correction — and land the
+        // the Flow Backspace's deferred correction — and land the
         // commit the correction parks in turn.
         for _ in 0..3 {
             let mut woke = false;
@@ -291,31 +291,10 @@ fn probe_flow_backspace_screen_model() {
         "vi-mangrs.com ~\u{8}",
     );
     probe_case(
-        "v1 retrack ON",
-        Mode::Flow,
-        Config {
-            experimental_features: true,
-            flow_backspace_retrack: true,
-            ..Config::default()
-        },
-        "tungf ~\u{8}~s",
-    );
-    probe_case(
-        "v1 retrack OFF",
-        Mode::Flow,
-        Config {
-            experimental_features: true,
-            flow_backspace_retrack: false,
-            ..Config::default()
-        },
-        "tungf ~\u{8}~s",
-    );
-    probe_case(
         "restore then letter",
         Mode::Flow,
         Config {
             experimental_features: true,
-            flow_backspace_retrack: true,
             ..Config::default()
         },
         "chaof ~f\u{8}q",
@@ -325,21 +304,18 @@ fn probe_flow_backspace_screen_model() {
         Mode::Flow,
         Config {
             experimental_features: true,
-            flow_backspace_retrack: true,
             ..Config::default()
         },
         "chaof ~tungf ~\u{8}\u{8}\u{8}\u{8}\u{8}",
     );
 }
 
-// --- target semantics of the experimental feature --------------------------
+// --- target semantics of the Flow Backspace --------------------------------
 //
-// These pin what the Flow Backspace must do with the existing
-// experimental switch on (`flow_backspace_retrack`, gate-baked, default off):
-// delete a mark, keep editing a mark, and restore a word's mark after a stray
-// key is erased — like the inline modes. They read the SCREEN, not the action
-// list, so the transport stays free. The ToneFirst row is still the target of
-// a later stage and stays ignored.
+// These pin what the Flow Backspace must do (standard code since the
+// experimental switches died): delete a mark, keep editing a mark, and
+// restore a word's mark after a stray key is erased — like the inline modes.
+// They read the SCREEN, not the action list, so the transport stays free.
 
 fn screen_of(mode: Mode, config: Config, script: &str) -> (String, Engine) {
     let mut sim = Sim::new(mode, config);
@@ -347,15 +323,13 @@ fn screen_of(mode: Mode, config: Config, script: &str) -> (String, Engine) {
     (sim.screen(), sim.e)
 }
 
-/// The experiment on: per-key display plus both Backspace switches, which is
-/// what a user of the "Thử nghiệm" tab has.
+/// Per-key display plus the user's "Backspace xóa dấu" setting — the
+/// standard Flow Backspace behavior.
 fn tone(mode: Mode, tone: BackspaceToneConfig) -> (Mode, Config) {
     let (_, cfg) = per_key(mode);
     (
         mode,
         Config {
-            flow_backspace_retrack: true,
-            flow_backspace_restore: true,
             backspace_tone: tone,
             ..cfg
         },
@@ -446,10 +420,6 @@ fn target_committed_word_comes_back_after_the_litter_is_erased() {
     // composition, and the terminator is retracted with it so the word sits at
     // the caret; `s` then turns it into `cháo`.
     let (_, cfg) = per_key(Mode::Flow);
-    let cfg = Config {
-        flow_backspace_retrack: true,
-        ..cfg
-    };
     let (screen, e) = screen_of(Mode::Flow, cfg.clone(), "chaof ~f\u{8}");
     assert_eq!(screen, "chào");
     assert_eq!(e.tail, "chào");
@@ -551,30 +521,6 @@ fn target_typing_before_the_fix_lands_keeps_the_mark() {
 }
 
 #[test]
-fn target_gate_off_keeps_the_plain_backspace() {
-    // The switch off is today's behavior byte for byte: the undone mark stays
-    // undone (`chaof` Backspace gives `chao`).
-    let (_, cfg) = per_key(Mode::Flow);
-    let (screen, _) = screen_of(Mode::Flow, cfg, "chaoff\u{8}");
-    assert_eq!(screen, "chao");
-}
-
-#[test]
-fn target_restore_switch_gates_the_restore() {
-    // The restore is its own switch: with it off the Backspace keeps the
-    // plain result even though the retrack experiment is on.
-    let (_, cfg) = per_key(Mode::Flow);
-    let cfg = Config {
-        flow_backspace_retrack: true,
-        flow_backspace_restore: false,
-        backspace_tone: BackspaceToneConfig::ToneFirst,
-        ..cfg
-    };
-    let (screen, _) = screen_of(Mode::Flow, cfg, "chaoff\u{8}");
-    assert_eq!(screen, "chao");
-}
-
-#[test]
 fn target_restore_runs_with_a_zero_delay() {
     // The delay field accepts 0 (test knob): the correction still lands, on
     // the next main-loop wake.
@@ -596,8 +542,6 @@ fn target_the_fix_waits_for_the_backspace_release() {
     let mut e = Engine::new(Method::Telex, Mode::Flow);
     let cfg = Config {
         experimental_features: true,
-        flow_backspace_retrack: true,
-        flow_backspace_restore: true,
         backspace_tone: BackspaceToneConfig::ToneFirst,
         mode: Mode::Flow.into(),
         ..Config::default()
@@ -706,19 +650,13 @@ fn probe_bamboo_055_behaviour() {
 
 #[test]
 fn target_restore_never_resurrects_a_deleted_word() {
-    // Guard: deleting into a committed word must NOT bring it back — `chào`
-    // BS BS leaves `chà` and no composition.
+    // Guard: deleting into a committed word must NOT bring it back — with
+    // the standard ToneFirst handling `chào` BS BS drops the tone (`chao`,
+    // the inline result), never resurrects `chào`.
     let (_, cfg) = per_key(Mode::Flow);
-    let cfg = Config {
-        flow_backspace_retrack: true,
-        ..cfg
-    };
     let (screen, e) = screen_of(Mode::Flow, cfg.clone(), "chaof ~\u{8}\u{8}");
-    assert_eq!(screen, "chà");
-    assert_eq!(e.tail, "chà");
-    // The screen model may keep `chà` editable (the experiment re-tracks
-    // every shortened screen), but the erased characters must never come
-    // back.
+    assert_eq!(screen, "chao");
+    assert_eq!(e.tail, "chao");
     assert_ne!(e.tail, "chào", "no resurrection");
     // Erasing a whole real word must not restore the region before it
     // either: the deleted region composed, so it was not litter.

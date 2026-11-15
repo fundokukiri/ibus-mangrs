@@ -555,13 +555,10 @@ impl Engine {
                 self.landed_region.clear();
                 self.region_plain = true;
             } else if self.per_key_park.is_none() {
-                // The experiment remembers the region that just landed:
-                // erasing a stray key from the new one gives it back.
-                if self.flow_backspace_retrack {
-                    self.landed_region = std::mem::take(&mut self.tail);
-                } else {
-                    self.tail.clear();
-                }
+                // Remember the region that just landed: erasing a stray key
+                // from the new one gives the finished word back to the
+                // composition.
+                self.landed_region = std::mem::take(&mut self.tail);
                 self.region_plain = true;
                 self.undo_key_at = None;
             }
@@ -685,7 +682,7 @@ impl Engine {
         // is deleting, not fixing: drop the pending rewrite (it would put back
         // the character this key removes).
         self.deferred_fix = None;
-        // Experimental: the last key undid a mark, so bamboo shows the raw keys
+        // The last key undid a mark, so bamboo shows the raw keys
         // again (`chào` + `f` gives `chaof`). The wrapper works out the target
         // with the user's "Backspace xóa dấu" setting, exactly like the inline
         // modes (ToneFirst and UnikeyWalk pop the key and the mark returns,
@@ -695,9 +692,7 @@ impl Engine {
         // this key is being handled never reach the application (measured in
         // the owner's log: 3 injected presses, no echo, only the commit
         // landed, and the word duplicated).
-        if self.flow_backspace_retrack
-            && self.flow_backspace_restore
-            && self.wrapper.undo_in_word()
+        if self.wrapper.undo_in_word()
             && self.undo_key_at == Some(self.wrapper.raw().chars().count())
         {
             self.wrapper.set_backspace_tone(self.backspace_tone);
@@ -719,14 +714,13 @@ impl Engine {
                 return actions;
             }
         }
-        // Experimental: "Xóa dấu trước" (ToneFirst) on a tracked word. The
+        // "Xóa dấu trước" (ToneFirst) on a tracked word. The
         // inline modes drop the tone (`tùng` -> `tung`) while a plain
         // Backspace would lose the last screen character (`tùn`), so the
         // screen rewrite is deferred past the key release like the restore
-        // above. Without the switch the wrapper keeps the unikey walk.
-        if self.flow_backspace_retrack
-            && self.flow_backspace_restore
-            && self.backspace_tone == BackspaceToneConfig::ToneFirst
+        // above.
+        let region_len = self.tail.chars().count();
+        if self.backspace_tone == BackspaceToneConfig::ToneFirst
             && !(self.url_word || self.emoji_word)
             // Erasing a word terminator is a delete of that character: the
             // word behind it comes back for editing, it does not lose its
@@ -740,6 +734,13 @@ impl Engine {
             // terminator character, so the check above misses it: erasing the
             // digit is a delete too (`việt` + `6` + Backspace stays `việt`).
             && !self.tail_ends_word
+            // A one-key plain region over a finished word is the litter-erase
+            // case: the region restore below gives the word back, and this
+            // rewrite must not swallow it (`chào ` + stray `f` + Backspace
+            // stays `chào`).
+            && !(region_len == 1
+                && self.region_plain
+                && !self.landed_region.is_empty())
         {
             let target = replace_tail(&self.tail, 1, "");
             // The wrapper must still describe the screen this key deletes
@@ -792,7 +793,6 @@ impl Engine {
             actions.push(Action::CommitNow(text));
             ran_park = true;
         }
-        let region_len = self.tail.chars().count();
         let target = replace_tail(&self.tail, 1, "");
         let raw_len = self.wrapper.raw().chars().count();
         let mut matched = false;
@@ -805,7 +805,7 @@ impl Engine {
                 break;
             }
         }
-        if !matched && self.flow_backspace_retrack {
+        if !matched {
             // The pop search only deletes whole raw keys — a screen whose
             // tone outlives its key (`tùng` -> `tùn`) never matches. The
             // re-encoder rebuilds a live composition for it instead, so the
@@ -828,7 +828,7 @@ impl Engine {
             self.tail = target;
             self.idle_committed = None;
         }
-        // Experimental: a region that never composed anything was a stray key
+        // A region that never composed anything was a stray key
         // typed over a finished word (`chào ` then `f`). Erasing it gives the
         // word behind it back to the composition, so the next mark key edits
         // it instead of starting a new word. The terminator the user typed
@@ -836,8 +836,7 @@ impl Engine {
         // exactly as if the terminator had been erased by hand — the injected
         // delete lands before the user's own Backspace, which then removes the
         // stray key. Raw-forwarder spans never rebuild.
-        if self.flow_backspace_retrack
-            && region_len == 1
+        if region_len == 1
             && self.tail.is_empty()
             && self.region_plain
             && !self.landed_region.is_empty()

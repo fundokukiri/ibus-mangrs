@@ -2773,17 +2773,19 @@ fn per_key_delay_clamps_out_of_range_values() {
 }
 
 #[test]
-fn flow_backspace_retrack_lets_a_mark_key_keep_editing() {
-    // The shipped Flow look (per-key display on): `tungf` ␣ commits
-    // `tùng `; Backspace deletes the last screen character — the experiment
-    // re-tracks the shortened screen when the pop search cannot (a tone
-    // outliving its key), and the next tone key keeps editing the word:
-    // `tùn` + `s` lands `tún ` at word end, not the literal `tùns`.
+fn flow_backspace_retrack_works_without_the_switch() {
+    // Retrack is standard Flow code, not an experiment: `tungf` ␣ commits
+    // `tùng `; Backspace deletes the last screen character — the shortened
+    // screen is re-tracked when the pop search cannot (a tone outliving its
+    // key), and the next tone key keeps editing the word: `tùn` + `s` lands
+    // `tún ` at word end, not the literal `tùns`. No experimental switch
+    // involved (default config, gate closed). UnikeyWalk is the setting
+    // whose Backspace reaches that shortened screen: ToneFirst drops the
+    // tone first (`tùng` -> `tung`, pinned by the probe suite).
     let mut e = engine(
         Mode::Flow,
         Config {
-            experimental_features: true,
-            flow_backspace_retrack: true,
+            backspace_tone: BackspaceToneConfig::UnikeyWalk,
             ..Config::default()
         },
     );
@@ -2820,46 +2822,43 @@ fn flow_backspace_retrack_lets_a_mark_key_keep_editing() {
 }
 
 #[test]
-fn flow_backspace_retrack_off_keeps_the_legacy_plain_text() {
-    // The experiment off: today's behavior byte for byte — the word stays
-    // dead after the Backspace and the tone key starts a fresh plain word.
+fn flow_backspace_restores_the_undone_mark_without_the_switch() {
+    // The restore is standard code too: `chào` + `f` undoes the mark (the
+    // screen shows the raw `chaof`); Backspace pops that key and the
+    // deferred correction gives the mark back with the user's "Backspace
+    // xóa dấu" setting — `chào` returns, like the inline modes. No
+    // experimental switch involved (default config, gate closed).
     let mut e = engine(Mode::Flow, Config::default());
     e.set_uinput_available(true);
-    type_str(&mut e, "tungf ");
+    type_str(&mut e, "chaoff");
     flush_per_key(&mut e);
-    assert_eq!(e.tail, "tùng ");
-    e.backspace();
-    assert_eq!(e.tail, "tùng");
+    assert_eq!(e.tail, "chaof");
+    let actions = e.backspace().expect("backspace");
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
     assert!(
-        !e.wrapper.has_composition(),
-        "the legacy path never re-tracks"
+        e.deferred_fix.is_some(),
+        "the mark restore must be scheduled"
     );
-    type_str(&mut e, "s ");
+    // The correction waits for the key release, then lands on the main
+    // loop: the rewrite erases the raw key and re-commits the marked word.
+    e.note_backspace_released();
+    if let Some((deadline, _)) = e.deferred_fix.as_mut() {
+        *deadline = Instant::now() - Duration::from_millis(1);
+    }
+    let actions = e.tick();
+    assert!(e.deferred_fix.is_none(), "the fix must have landed");
+    assert_eq!(
+        actions,
+        vec![Action::InjectBackspaces(2)],
+        "the fix erases the raw key's screen chars: {actions:?}"
+    );
+    assert_eq!(e.tail, "chào");
+    assert!(
+        e.wrapper.has_composition(),
+        "the word is live again, ready for the next mark key"
+    );
     let actions = flush_per_key(&mut e);
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::CommitNow(t) if t.starts_with("tún"))),
-        "no mark editing without the experiment: {actions:?}"
-    );
-}
-
-#[test]
-fn flow_backspace_retrack_needs_the_gate() {
-    // Like every experimental feature: gate off forces the legacy path
-    // whatever the switch says (the switch state stays saved).
-    let mut e = engine(
-        Mode::Flow,
-        Config {
-            flow_backspace_retrack: true,
-            experimental_features: false,
-            ..Config::default()
-        },
-    );
-    e.set_uinput_available(true);
-    type_str(&mut e, "tungf ");
-    e.backspace();
-    assert!(!e.wrapper.has_composition());
+    assert_eq!(actions, vec![Action::CommitNow("ào".into())], "{actions:?}");
 }
 
 #[test]
@@ -2889,7 +2888,15 @@ fn flow_per_key_backspace_forwards_and_keeps_tracking() {
     // its last character through the pass-through path — zero injections,
     // the transport that loses echo presses on a relay is gone entirely.
     // The reverse-map pops the mark key so the word stays tracked.
-    let mut e = per_key_engine(Mode::Flow);
+    // WholeChar is the setting whose Backspace IS that screen-character
+    // delete; under ToneFirst the Backspace undoes the raw key instead and
+    // the screen correction lands deferred (the probe suite pins it).
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::Flow,
+        BackspaceToneConfig::WholeChar,
+    );
+    e.set_uinput_available(true);
     type_str(&mut e, "tie");
     flush_per_key(&mut e); // "tie" lands
     let actions = type_str(&mut e, "e"); // the mark: erase the landed `e`
