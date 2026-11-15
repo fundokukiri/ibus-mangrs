@@ -801,6 +801,13 @@ impl Engine {
         })
     }
 
+    /// Whether the user enabled a custom lost-echo window: the server's
+    /// burst watchdog derives its deadline from that window instead of
+    /// the built-in grace.
+    pub fn echo_stale_custom(&self) -> bool {
+        self.echo_stale_enabled
+    }
+
     /// The per-key display's park delay: the user value clamped to a
     /// sane ceiling. Zero is allowed by owner decision — a too-low value
     /// can only reorder text for the user who set it; the two server-side

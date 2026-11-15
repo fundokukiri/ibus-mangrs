@@ -118,6 +118,7 @@ impl Server {
             last_fire: Vec::new(),
             picker: None,
             emoji_picker: None,
+            burst: BurstWatch::default(),
             focus_ext: None,
         }));
         handler.borrow_mut().last_config_mtime = Config::path()
@@ -162,23 +163,34 @@ impl Server {
             // instead of sleeping a fixed second past it. lock_engine, not
             // .ok(): a poisoned mutex must degrade one keystroke, not stop
             // the loop's stale-echo flushes for the rest of the session.
-            let timeout = lock_engine(&self.engine)
-                .ms_until_tick()
-                .map_or(1000, |ms| ms.min(1000)) as i32;
+            let timeout = {
+                let e = lock_engine(&self.engine);
+                let handler = self.handler.borrow();
+                // The burst watchdog's deadline joins the engine's own
+                // deadlines: a lost burst must wake the loop on its own
+                // clock, not the 1s poll.
+                let engine_ms = e.ms_until_tick().map_or(1000, |ms| ms.min(1000));
+                let watch_ms = handler.burst.ms_until().map_or(1000, |ms| ms.min(1000));
+                engine_ms.min(watch_ms) as i32
+            };
             for item in self.conn.iter(timeout) {
                 if matches!(item, dbus::ffidisp::ConnectionItem::Nothing) {
                     break;
                 }
             }
-            let out = {
+            let mut out = Vec::new();
+            {
                 let mut e = lock_engine(&self.engine);
+                let mut handler = self.handler.borrow_mut();
+                // The per-burst echo watchdog runs beside the tick: a
+                // burst whose echoes stopped arriving is declared lost on
+                // its deadline and its parked commits flush before the
+                // engine's own stale pass looks at the counters.
+                burst_watch_pass(&mut e, &mut handler.burst, &mut out);
                 let actions = e.tick();
-                let mut out = Vec::new();
-                let handler = self.handler.borrow();
                 let injected = emit(&mut e, &handler.injection, &actions, &mut out);
-                e.add_injected(injected);
-                out
-            };
+                add_injected_batch(&mut e, &mut handler.burst, injected);
+            }
             for msg in out {
                 send(&self.conn, msg);
             }
@@ -269,6 +281,11 @@ struct EngineHandler {
     /// caret; see emoji_picker.rs) — the same menu shape, digits pick,
     /// typing searches.
     emoji_picker: Option<EmojiPickerState>,
+    /// Per-burst echo watchdog: the server's view of the rewrite burst in
+    /// flight (expected echoes + their deadline). Armed beside every
+    /// `add_injected`, re-armed per forwarded echo, expired on the tick
+    /// path — see `BurstWatch`.
+    burst: BurstWatch,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
 }
@@ -575,7 +592,7 @@ impl EngineHandler {
                 }
                 let actions = engine.on_client_reset();
                 let injected = emit(&mut engine, &self.injection, &actions, out);
-                engine.add_injected(injected);
+                add_injected_batch(&mut engine, &mut self.burst, injected);
                 msg.method_return()
             }
             "SetCapabilities" => {
@@ -658,6 +675,7 @@ fn refresh_backend_flags(engine: &mut Engine, injection: &Injection) {
 fn process_key(
     engine: &mut Engine,
     injection: &mut Injection,
+    burst: &mut BurstWatch,
     keyval: u32,
     state: u32,
     out: &mut Vec<Message>,
@@ -710,7 +728,7 @@ fn process_key(
         }
         let actions = engine.reset();
         let injected = emit(engine, injection, &actions, out);
-        engine.add_injected(injected);
+        add_injected_batch(engine, burst, injected);
         return false;
     }
 
@@ -725,21 +743,13 @@ fn process_key(
         // An echo of a Backspace we injected ourselves: pass it to the
         // application — that key press IS the deletion mechanism. Once the
         // last echo of a rewrite is forwarded, its deferred commit can go.
-        if engine.take_injected_echo() {
-            // The reply carries the forwarded key out immediately; the
-            // commit must NOT ride the same dispatch — on a mutter relay
-            // the commit channel beats the key events and the commit
-            // overtook the last deletes ("titiến"). Park it for the main
-            // loop to emit after the app has applied the deletes.
-            for text in engine.note_echo_forwarded() {
-                engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
-            }
+        if note_burst_echo(engine, burst) {
             return false;
         }
         return match engine.backspace() {
             Some(actions) => {
                 let injected = emit(engine, injection, &actions, out);
-                engine.add_injected(injected);
+                add_injected_batch(engine, burst, injected);
                 !actions.contains(&Action::Forward)
             }
             None => false,
@@ -776,7 +786,7 @@ fn process_key(
         let nav_behavior = engine.nav_key_while_preedit();
         let actions = engine.reset();
         let injected = emit(engine, injection, &actions, out);
-        engine.add_injected(injected);
+        add_injected_batch(engine, burst, injected);
         if nav_pending {
             match nav_behavior {
                 NavKeyWhilePreedit::Forward => {
@@ -814,7 +824,7 @@ fn process_key(
     let actions = engine.process_char(c);
     let consumed = !actions.contains(&Action::Forward);
     let injected = emit(engine, injection, &actions, out);
-    engine.add_injected(injected);
+    add_injected_batch(engine, burst, injected);
     // Char path only, after the actions are emitted: a backend arriving
     // must not disturb the word in flight (its lock serves the rest of it;
     // the next word resolves through the walk) — a downgraded Flow word
@@ -834,6 +844,164 @@ fn flow_fallback_re_request(engine: &mut Engine, injection: &mut Injection) {
         injection.select(&preference_order());
         refresh_backend_flags(engine, injection);
     }
+}
+
+/// Built-in grace of the per-burst echo watchdog: after the burst arms
+/// (or its latest echo), the remaining echoes get this long before the
+/// burst is declared lost. The engine's built-in lost-echo window
+/// (`DEFAULT_ECHO_STALE_MS`) carries the same value, so the watchdog and
+/// the stale flush agree when no custom window is set.
+pub const ECHO_WATCHDOG_GRACE_MS: u64 = 150;
+
+/// The watchdog window: how long the remaining echoes of an injected
+/// burst survive past the burst arming or its latest echo. The next echo
+/// of a batch paced `backspace_interval_ms` apart should arrive within
+/// one gap, so the window is the gap plus a grace; a custom lost-echo
+/// window (`echo_stale_enabled`) replaces the grace with the user's
+/// value — the same fold `Engine::echo_stale` applies to the stale
+/// flushes.
+fn burst_watch_window(engine: &Engine) -> Duration {
+    let grace = if engine.echo_stale_custom() {
+        engine.echo_stale()
+    } else {
+        Duration::from_millis(ECHO_WATCHDOG_GRACE_MS)
+    };
+    Duration::from_millis(engine.backspace_interval_ms()) + grace
+}
+
+/// Per-burst echo watchdog: the server's view of the rewrite burst in
+/// flight — how many echoes it still expects and when they are declared
+/// lost. The engine counts the same echoes (`pending_injected`); the
+/// deadline is the server's addition, re-armed by every arriving echo,
+/// so an app that echoes slowly keeps its burst alive while one that
+/// stops echoing gets its burst aborted on the tick path (the engine's
+/// stale window measures from the batch arming, not from the last echo).
+#[derive(Default)]
+struct BurstWatch {
+    /// Echoes still expected from the armed burst(s).
+    expected: u32,
+    /// When the remaining echoes are declared lost; `None` = no burst
+    /// armed.
+    deadline: Option<Instant>,
+}
+
+impl BurstWatch {
+    /// Arm/extend the watchdog for a batch that injected `n` keys.
+    fn arm(&mut self, engine: &Engine, n: u32) {
+        if n > 0 {
+            self.expected += n;
+            self.deadline = Some(Instant::now() + burst_watch_window(engine));
+        }
+    }
+
+    /// One echo was forwarded: the burst shrinks and its deadline moves
+    /// out; the last echo settles the burst.
+    fn note_echo(&mut self, engine: &Engine) {
+        self.expected = self.expected.saturating_sub(1);
+        self.deadline = if self.expected > 0 {
+            Some(Instant::now() + burst_watch_window(engine))
+        } else {
+            None
+        };
+    }
+
+    /// Whether a rewrite burst is still in flight — echoes are still
+    /// expected. The key-buffering consumer reads this alongside the
+    /// engine's `has_deferred()` (parked commits are the other in-flight
+    /// half).
+    fn in_flight(&self) -> bool {
+        self.expected > 0
+    }
+
+    /// Echoes the armed burst still expects — the readable count for the
+    /// key-buffering consumer.
+    fn expected_echoes(&self) -> u32 {
+        self.expected
+    }
+
+    /// Whether the armed burst's echoes are declared lost.
+    fn expired(&self) -> bool {
+        self.in_flight() && self.deadline.is_some_and(|d| Instant::now() >= d)
+    }
+
+    /// Milliseconds until the watchdog deadline — folded into the main
+    /// loop's wake timeout so a lost burst is its own wake-up, not a 1 s
+    /// poll away.
+    fn ms_until(&self) -> Option<u64> {
+        self.deadline.map(|d| {
+            d.saturating_duration_since(Instant::now())
+                .as_millis()
+                .max(1) as u64
+        })
+    }
+
+    fn disarm(&mut self) {
+        self.expected = 0;
+        self.deadline = None;
+    }
+}
+
+/// One pass of the per-burst echo watchdog on the tick path. A burst
+/// whose echoes stopped arriving is declared lost on its deadline: the
+/// parked commits flush through the same path the stale windows use
+/// (`flush_deferred` — the mutter-safe parked order), the burst counters
+/// clear through the stale machinery, and the expiry logs once (the
+/// disarm is the gate — a deadline cannot fire twice). The pass also
+/// reconciles a burst the engine's own stale flush already ended on a
+/// key path or an earlier tick, keeping the in-flight view honest for
+/// the key-buffering consumer.
+fn burst_watch_pass(engine: &mut Engine, burst: &mut BurstWatch, out: &mut Vec<Message>) {
+    // Reconcile first: the engine's stale pass may have consumed the
+    // burst already — a flush here would be empty, but the state must
+    // settle.
+    if burst.in_flight() && !engine.pending_echoes() {
+        burst.disarm();
+        return;
+    }
+    if !burst.expired() {
+        return;
+    }
+    debug_log::log(&format!(
+        "echo watchdog: burst lost, {} echoes never came back → flush parked commits",
+        burst.expected_echoes()
+    ));
+    // Clear the burst counters through the existing stale machinery and
+    // deliver what the burst parked — the same flush FocusOut and Reset
+    // run.
+    engine.take_stale_injection(Duration::ZERO);
+    for text in engine.flush_deferred() {
+        out.push(signal("CommitText").append1(plain_text(&text)));
+    }
+    burst.disarm();
+}
+
+/// One injected-backspace echo arriving through ProcessKeyEvent: the key
+/// goes to the application untouched (that key press IS the deletion
+/// mechanism) and the burst watchdog re-arms. Once the last echo of a
+/// rewrite is forwarded, its deferred commit can go — but the reply
+/// carrying the forwarded key must not also carry the commit: on a
+/// mutter relay the commit channel beats the key events and the commit
+/// overtook the last deletes ("titiến"). Park it for the main loop to
+/// emit after the app has applied the deletes. Returns whether the key
+/// was an echo.
+fn note_burst_echo(engine: &mut Engine, burst: &mut BurstWatch) -> bool {
+    if !engine.take_injected_echo() {
+        return false;
+    }
+    burst.note_echo(engine);
+    for text in engine.note_echo_forwarded() {
+        engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
+    }
+    true
+}
+
+/// Account one injected batch: the engine counts the echoes it must
+/// forward (they arrive as ProcessKeyEvent and must be forwarded, not
+/// processed) and the burst watchdog arms its deadline beside it — the
+/// two counters must never drift apart.
+fn add_injected_batch(engine: &mut Engine, burst: &mut BurstWatch, n: u32) {
+    engine.add_injected(n);
+    burst.arm(engine, n);
 }
 
 /// Turn engine actions into the signals IBus expects.

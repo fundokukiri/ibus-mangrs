@@ -231,6 +231,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
         last_fire: Vec::new(),
         picker: None,
         emoji_picker: None,
+        burst: BurstWatch::default(),
         focus_ext: None,
     };
     let press = |handler: &mut EngineHandler, keyval: u32| {
@@ -808,6 +809,224 @@ fn stale_echo_flushes_parked_commit() {
 }
 
 #[test]
+fn watchdog_flushes_a_lost_burst_after_the_deadline() {
+    // A rewrite burst on a client without surrounding data: the deletes
+    // are injected and the commit parks behind their echoes. When the
+    // echoes never come back (the relay ate the batch), the burst
+    // watchdog declares the burst lost on its deadline — the parked
+    // commit flushes and the counters clear — while a burst whose echoes
+    // keep arriving is never tripped: each echo re-arms the deadline.
+    let _guard = crate::debug_log::test_guard();
+    // Clear the log globals first: LOG_FILE caches the open handle for
+    // the process lifetime, and a handle left over from a parallel test
+    // (opened against the real cache file) would swallow every line this
+    // test's machinery writes — the override is only consulted on open.
+    crate::debug_log::test_reset();
+    let dir = std::env::temp_dir().join(format!("ibus-mangrs-watchdog-log-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true); // no surrounding data → injection
+    let bs = |_: u32, _: u64| true;
+    let t = fake_transports(&bs);
+    let mut burst = BurstWatch::default();
+
+    // Lost burst: the batch is injected, no echo ever arrives.
+    let mut out = Vec::new();
+    let injected = emit_with(
+        &mut e,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+        &t,
+    );
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert_eq!(injected, 2);
+    assert!(burst.in_flight(), "the burst is armed");
+    assert!(
+        !out.iter()
+            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+        "the commit parks behind the echoes: {:?}",
+        member_names(&out)
+    );
+    assert!(e.has_deferred());
+    // Well past the deadline (one pacing gap + the grace).
+    std::thread::sleep(Duration::from_millis(190));
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(
+        out.iter()
+            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+        "the parked commit lands: {:?}",
+        member_names(&out)
+    );
+    assert!(!burst.in_flight(), "the burst is settled");
+    assert!(!e.pending_echoes(), "counters cleared");
+    assert!(!e.has_deferred());
+    // A pass after settling emits nothing and logs nothing: the disarm
+    // is the log-once gate.
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(out.is_empty());
+
+    // Healthy burst: the echoes arrive, each re-arms the deadline.
+    let mut out = Vec::new();
+    let injected = emit_with(
+        &mut e,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+        &t,
+    );
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert_eq!(injected, 2);
+    // The first echo arrives near the end of the original window: the
+    // deadline moves out and the burst survives its old deadline.
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        note_burst_echo(&mut e, &mut burst),
+        "the first echo arrives"
+    );
+    std::thread::sleep(Duration::from_millis(60)); // past the old deadline
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(
+        out.is_empty(),
+        "the re-armed deadline holds: {:?}",
+        member_names(&out)
+    );
+    assert!(burst.in_flight(), "one echo is still expected");
+    // The second echo settles the burst; nothing flushes behind it.
+    assert!(note_burst_echo(&mut e, &mut burst));
+    assert!(!burst.in_flight());
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(out.is_empty());
+
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines().filter(|l| l.contains("echo watchdog")).count(),
+        1,
+        "one watchdog line for one lost burst: {text}"
+    );
+}
+
+#[test]
+fn watchdog_rearms_the_deadline_on_each_arriving_echo() {
+    // The deadline is echo-anchored, not arming-anchored: an echo
+    // arriving near the end of the window moves it out and the burst
+    // survives its old deadline; only a window that passes with echoes
+    // still expected aborts the burst.
+    // The expiry logs: hold the debug-log guard so parallel tests that
+    // assert log lines never see this test's lines (process-wide state),
+    // and start from cleared globals so this test's own lines can never
+    // land in a handle a previous test left open.
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let bs = |_: u32, _: u64| true;
+    let t = fake_transports(&bs);
+    let mut burst = BurstWatch::default();
+    let mut out = Vec::new();
+    let injected = emit_with(
+        &mut e,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+        &t,
+    );
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert!(burst.in_flight());
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(note_burst_echo(&mut e, &mut burst), "the echo arrives");
+    std::thread::sleep(Duration::from_millis(80)); // past the old deadline
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(
+        out.is_empty(),
+        "the re-armed deadline holds: {:?}",
+        member_names(&out)
+    );
+    assert!(burst.in_flight(), "one echo is still expected");
+    // No further echo: the re-armed deadline passes and the burst is
+    // declared lost after all.
+    std::thread::sleep(Duration::from_millis(100));
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(
+        out.iter()
+            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+        "the parked commit still lands once the re-armed window passes: {:?}",
+        member_names(&out)
+    );
+    assert!(!burst.in_flight());
+    assert!(!e.pending_echoes() && !e.has_deferred());
+}
+
+#[test]
+fn watchdog_window_follows_the_custom_stale_window() {
+    // Built-in: one pacing gap plus the grace constant. A custom
+    // lost-echo window (experimental gate) replaces the grace with the
+    // user's value — the same fold `Engine::echo_stale` applies.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    assert_eq!(
+        burst_watch_window(&e),
+        Duration::from_millis(e.backspace_interval_ms() + ECHO_WATCHDOG_GRACE_MS)
+    );
+    e.apply_config(&Config {
+        experimental_features: true,
+        echo_stale_enabled: true,
+        echo_stale_ms: 900,
+        ..Config::default()
+    });
+    assert_eq!(
+        burst_watch_window(&e),
+        Duration::from_millis(e.backspace_interval_ms() + 900)
+    );
+}
+
+#[test]
+fn watchdog_pass_settles_a_burst_the_stale_flush_already_ended() {
+    // The engine's arm-anchored stale pass (inside tick, and on the key
+    // paths) can drop the pending echoes before the watchdog deadline;
+    // the watchdog pass must reconcile instead of flushing a second time.
+    // The machinery logs: hold the debug-log guard (see the re-arm test).
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let bs = |_: u32, _: u64| true;
+    let t = fake_transports(&bs);
+    let mut burst = BurstWatch::default();
+    let mut out = Vec::new();
+    let injected = emit_with(
+        &mut e,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+        &t,
+    );
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert!(burst.in_flight());
+    // The stale window elapsed: tick's stale block drops the pending
+    // echoes and flushes the parked commits (replicated here).
+    std::thread::sleep(Duration::from_millis(190));
+    assert!(e.take_stale_injection(e.echo_stale()));
+    assert!(e.flush_deferred().len() == 1, "tick's flush delivered it");
+    // The watchdog pass sees the burst already ended: disarm, no output.
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(out.is_empty(), "no double flush: {:?}", member_names(&out));
+    assert!(!burst.in_flight());
+    assert!(!e.pending_echoes());
+}
+
+#[test]
 fn forward_key_event_emits_backspace_press_and_release() {
     // The wire contract every ibus client expects: clients add 8 to the
     // keycode themselves, so it must be the evdev scancode 14 — sending
@@ -985,11 +1204,25 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, &mut Injection::new(), c as u32, 0, &mut Vec::new());
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            c as u32,
+            0,
+            &mut Vec::new(),
+        );
     }
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, &mut Injection::new(), 0xff51, 0, &mut out),
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            0xff51,
+            0,
+            &mut out,
+        ),
         "Left must be consumed"
     );
     assert!(
@@ -1005,6 +1238,7 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
     assert!(!process_key(
         &mut e,
         &mut Injection::new(),
+        &mut BurstWatch::default(),
         0xff51,
         0,
         &mut out
@@ -1021,13 +1255,21 @@ fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b100001); // PREEDIT|SURROUNDING
     for c in "tung".chars() {
-        process_key(&mut e, &mut Injection::new(), c as u32, 0, &mut Vec::new());
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            c as u32,
+            0,
+            &mut Vec::new(),
+        );
     }
     e.set_capabilities(0b100000); // preedit bit gone, preedit still visible
     let mut out = Vec::new();
     assert!(process_key(
         &mut e,
         &mut Injection::new(),
+        &mut BurstWatch::default(),
         0xff51,
         keymap::SHIFT_MASK,
         &mut out
@@ -1051,6 +1293,7 @@ fn navigation_key_forwards_normally_without_pending_preedit() {
     assert!(!process_key(
         &mut e,
         &mut Injection::new(),
+        &mut BurstWatch::default(),
         0xff51,
         0,
         &mut out
@@ -1065,12 +1308,20 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, &mut Injection::new(), c as u32, 0, &mut Vec::new());
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            c as u32,
+            0,
+            &mut Vec::new(),
+        );
     }
     let mut out = Vec::new();
     assert!(!process_key(
         &mut e,
         &mut Injection::new(),
+        &mut BurstWatch::default(),
         0xff51,
         0,
         &mut out
@@ -1090,7 +1341,14 @@ fn pending_preedit_engine(value: &str, experimental: bool) -> Engine {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, &mut Injection::new(), c as u32, 0, &mut Vec::new());
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            c as u32,
+            0,
+            &mut Vec::new(),
+        );
     }
     e
 }
@@ -1108,7 +1366,14 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
     let mut e = pending_preedit_engine("forward", true);
     let mut out = Vec::new();
     assert!(
-        !process_key(&mut e, &mut Injection::new(), 0xff51, 0, &mut out),
+        !process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            0xff51,
+            0,
+            &mut out,
+        ),
         "Left must be forwarded"
     );
     let members = member_names(&out);
@@ -1121,6 +1386,7 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
     assert!(!process_key(
         &mut e,
         &mut Injection::new(),
+        &mut BurstWatch::default(),
         0xff51,
         0,
         &mut out
@@ -1135,7 +1401,14 @@ fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
     let mut e = pending_preedit_engine("replay", true);
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, &mut Injection::new(), 0xff51, 0, &mut out),
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            0xff51,
+            0,
+            &mut out,
+        ),
         "Left must be consumed"
     );
     let members = member_names(&out);
@@ -1169,6 +1442,7 @@ fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
     assert!(process_key(
         &mut e,
         &mut Injection::new(),
+        &mut BurstWatch::default(),
         0xff51,
         keymap::SHIFT_MASK,
         &mut out
@@ -1191,7 +1465,14 @@ fn the_experimental_gate_forces_the_nav_key_swallow_back_on() {
     let mut e = pending_preedit_engine("forward", false);
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, &mut Injection::new(), 0xff51, 0, &mut out),
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            0xff51,
+            0,
+            &mut out,
+        ),
         "Left must be consumed with the gate off"
     );
     let members = member_names(&out);
@@ -1505,6 +1786,10 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
         eprintln!("server: SKIP (no config.toml to watch)");
         return;
     }
+    // maybe_reload_config flips the process-wide debug-log state (it
+    // mirrors the config): hold the same guard the log-asserting tests
+    // hold, or a parallel test's log capture gets clobbered mid-flight.
+    let _guard = crate::debug_log::test_guard();
     let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
     lock_engine(&engine).set_capabilities(1);
     let mut handler = EngineHandler {
@@ -1518,6 +1803,7 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
         last_fire: Vec::new(),
         picker: None,
         emoji_picker: None,
+        burst: BurstWatch::default(),
         focus_ext: None,
     };
     let mut out = Vec::new();
@@ -1565,6 +1851,7 @@ fn self_heal_picks_uinput_up_mid_session() {
     assert!(super::process_key(
         &mut engine,
         &mut injection,
+        &mut BurstWatch::default(),
         0x61,
         0,
         &mut out
