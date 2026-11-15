@@ -232,6 +232,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
         picker: None,
         emoji_picker: None,
         burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
         focus_ext: None,
     };
     let press = |handler: &mut EngineHandler, keyval: u32| {
@@ -1026,6 +1027,351 @@ fn watchdog_pass_settles_a_burst_the_stale_flush_already_ended() {
     assert!(!e.pending_echoes());
 }
 
+// --- keys held during a burst, replayed on completion ---
+
+/// One run-loop pass over the burst state, mirroring `run`: the watchdog
+/// pass, the tick, the emit and the replay. The tests drive the same
+/// sequence the live loop executes (the loop itself needs a bus).
+fn burst_pass(
+    e: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    out: &mut Vec<Message>,
+) {
+    burst_watch_pass(e, burst, out);
+    let actions = e.tick();
+    let injected = emit(e, injection, &actions, out);
+    add_injected_batch(e, burst, injected);
+    replay_buffered_keys(e, injection, burst, buffer, out);
+}
+
+/// One keystroke through the real `process_key` path.
+fn press_key(
+    e: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    keyval: u32,
+    keycode: u32,
+    out: &mut Vec<Message>,
+) -> bool {
+    process_key(
+        e,
+        injection,
+        burst,
+        buffer,
+        KeyEvent {
+            keyval,
+            keycode,
+            state: 0,
+        },
+        out,
+    )
+}
+
+#[test]
+fn keys_during_a_burst_replay_in_order_after_it() {
+    // Keys typed while a rewrite burst is in flight must not process
+    // against the mid-rewrite screen: they hold in the burst buffer and
+    // replay through process_key in arrival order once the burst fully
+    // completes (echo settled, parked insert delivered). The replayed
+    // keys join the locked Flow word — the word-mode lock outlives the
+    // burst, so u, o, c compose onto đ instead of starting new words.
+    let (mut injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut out = Vec::new();
+
+    // Start the Flow word: 'd' parks its per-key insert, no batch yet.
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'd' as u32,
+        30,
+        &mut out
+    ));
+    assert!(
+        buffer.keys.is_empty(),
+        "idle typing never holds: {:?}",
+        buffer.keys
+    );
+    // The pass lands the park: the arming 'd' can only inject once the
+    // screen holds the landed 'd' (a pending park is swapped, not deleted).
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    burst_pass(&mut e, &mut injection, &mut burst, &mut buffer, &mut out);
+    assert!(!e.has_deferred(), "the park landed");
+
+    // Arm the rewrite batch: the second 'd' composes đ — one injected
+    // Backspace erases the landed 'd', the insert parks behind the echo.
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'd' as u32,
+        30,
+        &mut out
+    ));
+    assert!(burst.in_flight(), "the rewrite batch is armed");
+    assert_eq!(burst.expected_echoes(), 1);
+
+    // Three keys typed mid-burst: held in order, nothing processed.
+    for c in ['u', 'o', 'c'] {
+        assert!(
+            press_key(
+                &mut e,
+                &mut injection,
+                &mut burst,
+                &mut buffer,
+                c as u32,
+                30,
+                &mut out
+            ),
+            "a held key is swallowed"
+        );
+    }
+    assert_eq!(
+        buffer.keys,
+        vec![
+            ('u' as u32, 30, 0),
+            ('o' as u32, 30, 0),
+            ('c' as u32, 30, 0)
+        ],
+        "the three keys hold in arrival order"
+    );
+    assert_eq!(e.tail(), "đ", "nothing may process mid-burst: {}", e.tail());
+
+    // Settle: the injected Backspace's echo comes back through
+    // ProcessKeyEvent and is forwarded untouched — never held.
+    assert!(
+        !press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            keymap::BACKSPACE,
+            14,
+            &mut out
+        ),
+        "the echo is forwarded to the application"
+    );
+    assert!(!burst.in_flight(), "the echo settled the burst");
+    assert_eq!(buffer.keys.len(), 3, "the echo is not a keystroke");
+
+    // The burst completes when the parked insert lands: the pass delivers
+    // "đ" and the buffer replays in one sweep, in order.
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    burst_pass(&mut e, &mut injection, &mut burst, &mut buffer, &mut out);
+    assert!(buffer.keys.is_empty(), "the buffer cleared");
+    assert_eq!(
+        e.tail(),
+        "đuoc",
+        "the three keys composed onto the word in order: {}",
+        e.tail()
+    );
+
+    // The final insert lands on the next pass: the word is complete and
+    // the replay armed no new batch (u, o, c were plain appends).
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    burst_pass(&mut e, &mut injection, &mut burst, &mut buffer, &mut out);
+    assert!(
+        !e.has_deferred(),
+        "every insert landed: {:?}",
+        member_names(&out)
+    );
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(1)],
+        "exactly the arming batch was injected"
+    );
+}
+
+#[test]
+fn keys_buffered_during_a_burst_replay_after_the_watchdog_expiry() {
+    // The second completion route: the echoes never come back, the
+    // watchdog declares the burst lost and flushes the parked commit —
+    // the held keys then replay in the same pass. Keys the engine passes
+    // through are forwarded explicitly: the replay rides the tick path,
+    // so there is no ProcessKeyEvent reply to hand them over. The burst
+    // state is constructed directly here (the machinery is mode
+    // independent); Off mode makes the replayed letters pass through, so
+    // their arrival order is visible on the wire.
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let (mut injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Off);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut out = Vec::new();
+
+    // Arm a rewrite batch: deletes injected, commit parked behind echoes.
+    let injected = emit(
+        &mut e,
+        &injection,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+    );
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert_eq!(injected, 2);
+    assert!(burst.in_flight());
+
+    // Three keys mid-burst: held in order, no processing.
+    for (keyval, keycode) in [('u' as u32, 30), ('o' as u32, 32), ('c' as u32, 33)] {
+        assert!(
+            press_key(
+                &mut e,
+                &mut injection,
+                &mut burst,
+                &mut buffer,
+                keyval,
+                keycode,
+                &mut out
+            ),
+            "a held key is swallowed"
+        );
+    }
+    assert_eq!(buffer.keys.len(), 3);
+
+    // The watchdog window passes with no echo: the expiry pass completes
+    // the burst (parked commit flushed) and the replay follows in it.
+    std::thread::sleep(Duration::from_millis(190));
+    burst_pass(&mut e, &mut injection, &mut burst, &mut buffer, &mut out);
+    assert!(buffer.keys.is_empty(), "the buffer cleared");
+    assert!(!burst.in_flight() && !e.pending_echoes() && !e.has_deferred());
+    let members = member_names(&out);
+    assert!(
+        members.iter().any(|m| m == "CommitText"),
+        "the parked commit landed on the expiry: {members:?}"
+    );
+    let forwards: Vec<(u32, u32, u32)> = out
+        .iter()
+        .filter(|m| m.member().map(|m| m == "ForwardKeyEvent").unwrap_or(false))
+        .filter_map(|m| m.read3::<u32, u32, u32>().ok())
+        .filter(|(_, _, state)| state & keymap::RELEASE_MASK == 0)
+        .collect();
+    assert_eq!(
+        forwards,
+        vec![
+            ('u' as u32, 30, 0),
+            ('o' as u32, 32, 0),
+            ('c' as u32, 33, 0)
+        ],
+        "the held keys land in original order: {forwards:?}"
+    );
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(2)],
+        "the replay armed no new batch"
+    );
+}
+
+#[test]
+fn burst_buffer_cap_drops_the_newest_and_logs_once() {
+    // A stuck burst must not accumulate without limit: past the cap the
+    // newest key drops and the overflow logs ONCE per episode — the gate
+    // resets when the buffer drains, so a fresh episode logs again.
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let dir = std::env::temp_dir().join(format!(
+        "ibus-mangrs-burst-buffer-log-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+
+    let mut buffer = BurstBuffer::default();
+    for i in 0..BURST_BUFFER_CAP as u32 {
+        buffer.push(0x61 + i, 30, 0);
+    }
+    assert_eq!(buffer.keys.len(), BURST_BUFFER_CAP);
+    buffer.push(0x99, 31, 0);
+    assert_eq!(
+        buffer.keys.len(),
+        BURST_BUFFER_CAP,
+        "the newest key is the drop"
+    );
+    assert_eq!(
+        buffer.keys.last().map(|k| k.0),
+        Some(0x60 + BURST_BUFFER_CAP as u32),
+        "the earliest keys survive"
+    );
+    for _ in 0..10 {
+        buffer.push(0x99, 31, 0);
+    }
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("burst buffer full"))
+            .count(),
+        1,
+        "one line per overflow episode: {text}"
+    );
+
+    // The drain resets the gate: a fresh overflow logs again.
+    buffer.take();
+    for i in 0..=BURST_BUFFER_CAP as u32 {
+        buffer.push(0x61 + i, 30, 0);
+    }
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("burst buffer full"))
+            .count(),
+        2,
+        "a fresh episode logs again: {text}"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn idle_typing_never_buffers() {
+    // No burst armed, nothing parked: every key processes immediately —
+    // the hold check is the hot path's only cost when nothing is armed.
+    let mut injection = Injection::new();
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(1);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut out = Vec::new();
+    for c in ['t', 'i', 'e'] {
+        assert!(
+            press_key(
+                &mut e,
+                &mut injection,
+                &mut burst,
+                &mut buffer,
+                c as u32,
+                30,
+                &mut out
+            ),
+            "the key composes the preedit"
+        );
+    }
+    assert!(buffer.keys.is_empty(), "nothing held");
+    assert!(!burst.in_flight() && !e.has_deferred());
+    assert_eq!(
+        member_names(&out)
+            .iter()
+            .filter(|m| *m == "UpdatePreeditText")
+            .count(),
+        3,
+        "each key processed at once: {:?}",
+        member_names(&out)
+    );
+}
+
 #[test]
 fn forward_key_event_emits_backspace_press_and_release() {
     // The wire contract every ibus client expects: clients add 8 to the
@@ -1208,8 +1554,12 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
             &mut e,
             &mut Injection::new(),
             &mut BurstWatch::default(),
-            c as u32,
-            0,
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: c as u32,
+                keycode: 0,
+                state: 0,
+            },
             &mut Vec::new(),
         );
     }
@@ -1219,8 +1569,12 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
             &mut e,
             &mut Injection::new(),
             &mut BurstWatch::default(),
-            0xff51,
-            0,
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: 0xff51,
+                keycode: 0,
+                state: 0,
+            },
             &mut out,
         ),
         "Left must be consumed"
@@ -1239,8 +1593,12 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
         &mut e,
         &mut Injection::new(),
         &mut BurstWatch::default(),
-        0xff51,
-        0,
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: 0,
+        },
         &mut out
     ));
 }
@@ -1259,8 +1617,12 @@ fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
             &mut e,
             &mut Injection::new(),
             &mut BurstWatch::default(),
-            c as u32,
-            0,
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: c as u32,
+                keycode: 0,
+                state: 0,
+            },
             &mut Vec::new(),
         );
     }
@@ -1270,8 +1632,12 @@ fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
         &mut e,
         &mut Injection::new(),
         &mut BurstWatch::default(),
-        0xff51,
-        keymap::SHIFT_MASK,
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: keymap::SHIFT_MASK,
+        },
         &mut out
     ));
     assert!(
@@ -1294,8 +1660,12 @@ fn navigation_key_forwards_normally_without_pending_preedit() {
         &mut e,
         &mut Injection::new(),
         &mut BurstWatch::default(),
-        0xff51,
-        0,
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: 0,
+        },
         &mut out
     ));
 }
@@ -1312,8 +1682,12 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
             &mut e,
             &mut Injection::new(),
             &mut BurstWatch::default(),
-            c as u32,
-            0,
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: c as u32,
+                keycode: 0,
+                state: 0,
+            },
             &mut Vec::new(),
         );
     }
@@ -1322,8 +1696,12 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
         &mut e,
         &mut Injection::new(),
         &mut BurstWatch::default(),
-        0xff51,
-        0,
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: 0,
+        },
         &mut out
     ));
 }
@@ -1345,8 +1723,12 @@ fn pending_preedit_engine(value: &str, experimental: bool) -> Engine {
             &mut e,
             &mut Injection::new(),
             &mut BurstWatch::default(),
-            c as u32,
-            0,
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: c as u32,
+                keycode: 0,
+                state: 0,
+            },
             &mut Vec::new(),
         );
     }
@@ -1370,8 +1752,12 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
             &mut e,
             &mut Injection::new(),
             &mut BurstWatch::default(),
-            0xff51,
-            0,
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: 0xff51,
+                keycode: 0,
+                state: 0,
+            },
             &mut out,
         ),
         "Left must be forwarded"
@@ -1387,8 +1773,12 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
         &mut e,
         &mut Injection::new(),
         &mut BurstWatch::default(),
-        0xff51,
-        0,
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: 0,
+        },
         &mut out
     ));
 }
@@ -1405,8 +1795,12 @@ fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
             &mut e,
             &mut Injection::new(),
             &mut BurstWatch::default(),
-            0xff51,
-            0,
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: 0xff51,
+                keycode: 0,
+                state: 0,
+            },
             &mut out,
         ),
         "Left must be consumed"
@@ -1443,8 +1837,12 @@ fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
         &mut e,
         &mut Injection::new(),
         &mut BurstWatch::default(),
-        0xff51,
-        keymap::SHIFT_MASK,
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: keymap::SHIFT_MASK,
+        },
         &mut out
     ));
     let members = member_names(&out);
@@ -1469,8 +1867,12 @@ fn the_experimental_gate_forces_the_nav_key_swallow_back_on() {
             &mut e,
             &mut Injection::new(),
             &mut BurstWatch::default(),
-            0xff51,
-            0,
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: 0xff51,
+                keycode: 0,
+                state: 0,
+            },
             &mut out,
         ),
         "Left must be consumed with the gate off"
@@ -1804,6 +2206,7 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
         picker: None,
         emoji_picker: None,
         burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
         focus_ext: None,
     };
     let mut out = Vec::new();
@@ -1852,8 +2255,12 @@ fn self_heal_picks_uinput_up_mid_session() {
         &mut engine,
         &mut injection,
         &mut BurstWatch::default(),
-        0x61,
-        0,
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0x61,
+            keycode: 0,
+            state: 0,
+        },
         &mut out
     ));
     assert_eq!(injection.current(), Some(Kind::Uinput));

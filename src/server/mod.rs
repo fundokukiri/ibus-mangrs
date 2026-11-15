@@ -119,6 +119,7 @@ impl Server {
             picker: None,
             emoji_picker: None,
             burst: BurstWatch::default(),
+            burst_buffer: BurstBuffer::default(),
             focus_ext: None,
         }));
         handler.borrow_mut().last_config_mtime = Config::path()
@@ -182,14 +183,28 @@ impl Server {
             {
                 let mut e = lock_engine(&self.engine);
                 let mut handler = self.handler.borrow_mut();
+                // Split into disjoint field borrows: the burst state and
+                // the key buffer are separate, and a RefMut reborrow per
+                // field would trip the borrow checker.
+                let EngineHandler {
+                    injection,
+                    burst,
+                    burst_buffer,
+                    ..
+                } = &mut *handler;
                 // The per-burst echo watchdog runs beside the tick: a
                 // burst whose echoes stopped arriving is declared lost on
                 // its deadline and its parked commits flush before the
                 // engine's own stale pass looks at the counters.
-                burst_watch_pass(&mut e, &mut handler.burst, &mut out);
+                burst_watch_pass(&mut e, burst, &mut out);
                 let actions = e.tick();
-                let injected = emit(&mut e, &handler.injection, &actions, &mut out);
-                add_injected_batch(&mut e, &mut handler.burst, injected);
+                let injected = emit(&mut e, injection, &actions, &mut out);
+                add_injected_batch(&mut e, burst, injected);
+                // Both burst completion routes converge on this pass: the
+                // watchdog expiry completes inside burst_watch_pass above,
+                // the echo-settle route when the tick delivers the last
+                // parked commit. One flush point replays the held keys.
+                replay_buffered_keys(&mut e, injection, burst, burst_buffer, &mut out);
             }
             for msg in out {
                 send(&self.conn, msg);
@@ -286,6 +301,9 @@ struct EngineHandler {
     /// `add_injected`, re-armed per forwarded echo, expired on the tick
     /// path — see `BurstWatch`.
     burst: BurstWatch,
+    /// Keystrokes typed while that burst was in flight, held for the
+    /// ordered replay — see `BurstBuffer`.
+    burst_buffer: BurstBuffer,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
 }
@@ -565,6 +583,14 @@ impl EngineHandler {
                 // them here made every later rewrite take the broken
                 // injection path ("xin chaà" session).
                 engine.clear_buffer_state();
+                // Keys held for the burst belonged to the context going
+                // away: replaying them after the next FocusIn would type
+                // them into the wrong window. Disable keeps the context —
+                // the held keys still replay there, raw once the engine
+                // is off.
+                if member != "Disable" {
+                    self.burst_buffer.clear();
+                }
                 debug_log::log(if member == "Disable" {
                     "disable"
                 } else {
@@ -590,6 +616,11 @@ impl EngineHandler {
                 for text in engine.flush_deferred() {
                     out.push(signal("CommitText").append1(plain_text(&text)));
                 }
+                // A click repositioned the caret (and the client already
+                // committed the word): the held keys belonged to the
+                // pre-click word — replaying them would type at the new
+                // caret.
+                self.burst_buffer.clear();
                 let actions = engine.on_client_reset();
                 let injected = emit(&mut engine, &self.injection, &actions, out);
                 add_injected_batch(&mut engine, &mut self.burst, injected);
@@ -670,16 +701,30 @@ fn refresh_backend_flags(engine: &mut Engine, injection: &Injection) {
     ));
 }
 
+/// One key event as `ProcessKeyEvent` carries it: keysym, evdev keycode,
+/// modifier state. The burst buffer stores the same triple, so a replayed
+/// key reconstructs the event the user actually made.
+struct KeyEvent {
+    keyval: u32,
+    keycode: u32,
+    state: u32,
+}
+
 /// Handle one key event, pushing resulting signals into `out`.
 /// Returns whether the engine consumed the key.
 fn process_key(
     engine: &mut Engine,
     injection: &mut Injection,
     burst: &mut BurstWatch,
-    keyval: u32,
-    state: u32,
+    buffer: &mut BurstBuffer,
+    ev: KeyEvent,
     out: &mut Vec<Message>,
 ) -> bool {
+    let KeyEvent {
+        keyval,
+        keycode,
+        state,
+    } = ev;
     // Hottest log site (every key event, every mode): the format! would
     // allocate per keystroke even with the log off, so gate it first.
     if debug_log::enabled() {
@@ -721,6 +766,14 @@ fn process_key(
     }
     // Ctrl/Alt/Super combinations are application shortcuts.
     if state & keymap::SHORTCUT_MASK != 0 {
+        // Held like any keystroke: replaying the shortcut after the keys
+        // already held keeps the user's sequence — resetting the engine
+        // now would orphan them past the caret move the shortcut makes.
+        // Echoes never reach this branch (they carry no modifier mask).
+        if buffer.holds_keystroke(engine, burst) {
+            buffer.push(keyval, keycode, state);
+            return true;
+        }
         if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
                 out.push(signal("CommitText").append1(plain_text(&text)));
@@ -746,6 +799,13 @@ fn process_key(
         if note_burst_echo(engine, burst) {
             return false;
         }
+        // A real Backspace typed mid-burst: held like any keystroke. The
+        // check sits after the echo test on purpose — an echo must never
+        // hold, or the burst would never settle.
+        if buffer.holds_keystroke(engine, burst) {
+            buffer.push(keyval, keycode, state);
+            return true;
+        }
         return match engine.backspace() {
             Some(actions) => {
                 let injected = emit(engine, injection, &actions, out);
@@ -756,10 +816,17 @@ fn process_key(
         };
     }
 
-    // A real key (never an echo): deliver deferred commits whose Backspace
-    // echoes are all in, or whose echoes have gone stale (apps that receive
-    // injected keys without routing them through ibus would otherwise eat
-    // every later Backspace and never see the commit).
+    // A real key (never an echo): while the burst is in flight it must not
+    // process against the mid-rewrite screen — hold it for the replay. The
+    // check is the hot path's only cost when nothing is armed.
+    if buffer.holds_keystroke(engine, burst) {
+        buffer.push(keyval, keycode, state);
+        return true;
+    }
+    // Deliver deferred commits whose Backspace echoes are all in, or whose
+    // echoes have gone stale (apps that receive injected keys without
+    // routing them through ibus would otherwise eat every later Backspace
+    // and never see the commit).
     if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
         for text in engine.flush_deferred() {
             out.push(signal("CommitText").append1(plain_text(&text)));
@@ -848,10 +915,10 @@ fn flow_fallback_re_request(engine: &mut Engine, injection: &mut Injection) {
 
 /// Built-in grace of the per-burst echo watchdog: after the burst arms
 /// (or its latest echo), the remaining echoes get this long before the
-/// burst is declared lost. The engine's built-in lost-echo window
-/// (`DEFAULT_ECHO_STALE_MS`) carries the same value, so the watchdog and
-/// the stale flush agree when no custom window is set.
-pub const ECHO_WATCHDOG_GRACE_MS: u64 = 150;
+/// burst is declared lost. Derived from the engine's built-in lost-echo
+/// window so the watchdog and the stale flush cannot drift; a custom
+/// window (`echo_stale_enabled`) replaces it with the user's value.
+pub const ECHO_WATCHDOG_GRACE_MS: u64 = Engine::DEFAULT_ECHO_STALE_MS;
 
 /// The watchdog window: how long the remaining echoes of an injected
 /// burst survive past the burst arming or its latest echo. The next echo
@@ -939,6 +1006,113 @@ impl BurstWatch {
         self.expected = 0;
         self.deadline = None;
     }
+}
+
+/// Capacity of the per-burst key buffer. A burst whose echoes never come
+/// back holds keys only until the watchdog aborts it (about one window), so
+/// 64 is far past anything real typing produces in that time; the bound
+/// keeps a stuck state from accumulating without limit.
+const BURST_BUFFER_CAP: usize = 64;
+
+/// Keystrokes held while a rewrite burst was in flight, replayed in order
+/// once it completes (see `replay_buffered_keys`). Presses only: releases
+/// carry no composition ("key releases are never ours") and keep flowing,
+/// so the application's key-state tracking stays live during the burst.
+#[derive(Default)]
+struct BurstBuffer {
+    /// `(keyval, keycode, state)` of each held press, arrival order.
+    keys: Vec<(u32, u32, u32)>,
+    /// Log-once gate for the overflow: one line per overflow episode,
+    /// reset when the buffer drains.
+    overflow_logged: bool,
+    /// Set while `replay_buffered_keys` drains: the replayed keys are
+    /// consecutive user keystrokes and must process even though each one
+    /// parks its own commit (the parked half of the in-flight state) —
+    /// re-holding them here would stall the drain to one key per
+    /// completion pass.
+    replaying: bool,
+}
+
+impl BurstBuffer {
+    /// Hold one key press. Past the cap the NEWEST key is the drop: the
+    /// first keys are the ones the engine's word state was built around,
+    /// so the replay must keep them and lose the latest presses instead.
+    fn push(&mut self, keyval: u32, keycode: u32, state: u32) {
+        if self.keys.len() >= BURST_BUFFER_CAP {
+            if !self.overflow_logged {
+                self.overflow_logged = true;
+                debug_log::log(&format!(
+                    "burst buffer full ({BURST_BUFFER_CAP}): dropping keys typed during the rewrite burst"
+                ));
+            }
+            return;
+        }
+        self.keys.push((keyval, keycode, state));
+    }
+
+    /// Whether a keystroke must wait for the rewrite burst: echoes of the
+    /// injected batch are still in flight, a parked commit has not landed
+    /// yet (the parked half of the in-flight state), or keys are already
+    /// held — they must replay first, order being the point of the buffer.
+    /// Idle typing pays a few field reads and never holds.
+    fn holds_keystroke(&self, engine: &Engine, burst: &BurstWatch) -> bool {
+        !self.replaying && (burst.in_flight() || engine.has_deferred() || !self.keys.is_empty())
+    }
+
+    /// Drain in arrival order for the replay; the overflow gate resets so
+    /// a fresh episode logs again.
+    fn take(&mut self) -> Vec<(u32, u32, u32)> {
+        self.overflow_logged = false;
+        std::mem::take(&mut self.keys)
+    }
+
+    /// Drop everything: the held keys belonged to a context or a word that
+    /// is going away (focus out, client reset) — replaying them would type
+    /// into the wrong place.
+    fn clear(&mut self) {
+        self.overflow_logged = false;
+        self.keys.clear();
+    }
+}
+
+/// The burst-completion flush: when the rewrite burst has fully completed
+/// (no echoes expected, nothing parked) replay the held keys through
+/// `process_key` in arrival order, then the buffer clears. One flush point
+/// for both completion routes — the watchdog expiry completes inside
+/// `burst_watch_pass` (its flush delivers the parked commits), the
+/// echo-settle route when the tick delivers the last parked commit — and
+/// the run loop's post-tick pass reaches both.
+///
+/// The replay respects the engine's word-mode lock: `key_mode()` returns
+/// the locked mode for the whole word and only a word end, a reset or a
+/// focus drop releases it (the burst flushes never do), so replayed
+/// character keys continue the same word the burst was rewriting.
+fn replay_buffered_keys(
+    engine: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    out: &mut Vec<Message>,
+) {
+    if buffer.replaying || buffer.keys.is_empty() || burst.in_flight() || engine.has_deferred() {
+        return;
+    }
+    buffer.replaying = true;
+    for (keyval, keycode, state) in buffer.take() {
+        let ev = KeyEvent {
+            keyval,
+            keycode,
+            state,
+        };
+        if !process_key(engine, injection, burst, buffer, ev, out) {
+            // The engine passed the key through (an editing key, a disabled
+            // engine, plain Latin): the original ProcessKeyEvent reply would
+            // have handed it to the application, but the replay rides the
+            // tick path — forward it explicitly.
+            push_forward_keys(out, keyval, keycode, state);
+        }
+    }
+    buffer.replaying = false;
 }
 
 /// One pass of the per-burst echo watchdog on the tick path. A burst

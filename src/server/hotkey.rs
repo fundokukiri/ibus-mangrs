@@ -79,7 +79,7 @@ impl EngineHandler {
     /// `ProcessKeyEvent`: hot-reload the config, check the shortcut
     /// registry, then feed the key to the engine. Signals go into `out`.
     pub(super) fn process_key_call(&mut self, msg: &Message, out: &mut Vec<Message>) -> Message {
-        let Ok((keyval, _keycode, state)) = msg.read3::<u32, u32, u32>() else {
+        let Ok((keyval, keycode, state)) = msg.read3::<u32, u32, u32>() else {
             return msg.method_return().append1(false);
         };
 
@@ -114,8 +114,12 @@ impl EngineHandler {
             &mut engine,
             &mut self.injection,
             &mut self.burst,
-            keyval,
-            state,
+            &mut self.burst_buffer,
+            KeyEvent {
+                keyval,
+                keycode,
+                state,
+            },
             out,
         );
         msg.method_return().append1(consumed)
