@@ -123,7 +123,10 @@ impl Engine {
         // (em-dash, double space) stay off here — these modes are for
         // terminals and games, where rewriting before the word ends cannot
         // work anyway.
-        if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
+        if matches!(
+            mode,
+            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
+        ) {
             return self.process_char_uinput(mode, c);
         }
 
@@ -279,7 +282,7 @@ impl Engine {
             )
             .or_else(|| self.emojis.lookup(&name).map(str::to_string))?;
         debug_log::log("emoji shortcode: matched");
-        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) {
+        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo | Mode::SmoothForward) {
             // None: the closing ':' is part of the shortcode and must not
             // reach the application. Land the in-flight batch first: the
             // erase must count against the screen the tail models. The
@@ -293,13 +296,17 @@ impl Engine {
             }
             let n = (1 + self.tail.chars().count()) as u32;
             if n > 1 {
-                actions.push(Action::InjectBackspaces(n));
+                if mode == Mode::SmoothForward {
+                    actions.push(Action::ForwardBackspaces(n));
+                } else {
+                    actions.push(Action::InjectBackspaces(n));
+                }
             }
             match self.unicode_channel {
                 UnicodeChannel::Commit => actions.push(Action::Commit(replacement.clone())),
                 UnicodeChannel::Clipboard => actions.push(Action::Paste(replacement.clone())),
             }
-            if self.post_delay_ms > 0 {
+            if self.post_delay_ms > 0 && mode != Mode::SmoothForward {
                 actions.push(Action::PostDelay(self.post_delay_ms));
             }
             self.tail = replacement;
@@ -308,7 +315,10 @@ impl Engine {
             }
             return Some(actions);
         }
-        if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
+        if matches!(
+            mode,
+            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
+        ) {
             // Per-key off (plain display: the screen holds the raw keys) or
             // Select (its own erase shape): the ':' is covered by erasing
             // one more key than the name.
@@ -580,7 +590,8 @@ impl Engine {
                 }
             }
         }
-        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
+        let per_key =
+            self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo | Mode::SmoothForward);
         // A key arriving before the deferred correction fires cancels it: the
         // compose delta below is computed against the wrapper's old output,
         // which still carries the mark, and lands on the shortened screen —
@@ -606,7 +617,7 @@ impl Engine {
                     // coalescing with the tail already grown would look
                     // like "no change" and cancel the pending insert.
                     let want = format!("{}{}", self.tail, c);
-                    actions.extend(self.per_key_coalesce(want));
+                    actions.extend(self.per_key_coalesce(mode, want));
                     return actions;
                 }
                 self.tail.push(c);
@@ -632,7 +643,7 @@ impl Engine {
                     // `dd` -> đ) makes it a word, and a word is never restored
                     // over an erased region.
                     self.region_plain &= self.wrapper.output() == self.wrapper.raw();
-                    actions.extend(self.per_key_coalesce(want));
+                    actions.extend(self.per_key_coalesce(mode, want));
                     return actions;
                 }
                 self.region_plain = false;
@@ -655,7 +666,7 @@ impl Engine {
     /// REPLACED — one commit per batch, emitted by the main-loop tick past
     /// the deadline, so deletes can never overtake it and fast typing
     /// coalesces instead of mis-ordering. An empty diff cancels the park.
-    pub(super) fn per_key_coalesce(&mut self, want: String) -> Vec<Action> {
+    pub(super) fn per_key_coalesce(&mut self, mode: Mode, want: String) -> Vec<Action> {
         let pending_len = self
             .per_key_park
             .as_ref()
@@ -669,6 +680,22 @@ impl Engine {
             .count();
         let d = h.chars().count() - common;
         let insert: String = want.chars().skip(common).collect();
+        if mode == Mode::SmoothForward {
+            // The forward transport needs no park: deletes and commit ride
+            // one ordered channel, so every batch lands in emission order.
+            let mut actions = Vec::new();
+            if d > 0 {
+                actions.push(Action::ForwardBackspaces(d as u32));
+            }
+            if !insert.is_empty() {
+                actions.push(Action::Commit(insert));
+            }
+            self.tail = want;
+            if let Some(c) = self.tail.chars().last() {
+                self.note_char(c);
+            }
+            return actions;
+        }
         let mut actions = Vec::new();
         if d > 0 {
             actions.push(Action::InjectBackspaces(d as u32));
@@ -707,7 +734,7 @@ impl Engine {
     /// reproduces (no raw keys at all — the rebuild repair path — or an
     /// encoding that changes character counts) is released — plain text
     /// from there, the accepted cost of dropping the injection.
-    pub(super) fn backspace_per_key(&mut self) -> Vec<Action> {
+    pub(super) fn backspace_per_key(&mut self, mode: Mode) -> Vec<Action> {
         let mut actions = Vec::new();
         // A second Backspace before the first correction fired means the user
         // is deleting, not fixing: drop the pending rewrite (it would put back
@@ -888,7 +915,11 @@ impl Engine {
                     // The stray key is already on screen; the injected delete
                     // and the forwarded key remove two characters (the stray
                     // key and the terminator), so their order does not matter.
-                    actions.push(Action::InjectBackspaces(suffix as u32));
+                    if mode == Mode::SmoothForward {
+                        actions.push(Action::ForwardBackspaces(suffix as u32));
+                    } else {
+                        actions.push(Action::InjectBackspaces(suffix as u32));
+                    }
                 }
                 self.tail = word;
                 self.region_plain = false;
@@ -922,7 +953,8 @@ impl Engine {
         // Per-key display: `tail` is the text the application holds (the
         // progressively committed word) — the word-end rewrites below erase
         // by it, so it must survive.
-        let per_key = self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo);
+        let per_key =
+            self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo | Mode::SmoothForward);
         let candidate = self.emoji_word;
         self.emoji_word = false;
         if candidate && c == ':' {
@@ -1030,12 +1062,12 @@ impl Engine {
         // batch — the diff against what the app certainly holds becomes
         // extra Backspaces and the pending commit's text is replaced. The
         // terminator joins the batch too (a forwarded key would race it).
-        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo) {
+        if self.flow_per_key && matches!(mode, Mode::Flow | Mode::Turbo | Mode::SmoothForward) {
             let want = match terminator {
                 Some(c) => format!("{text}{c}"),
                 None => text.to_string(),
             };
-            return self.per_key_coalesce(want);
+            return self.per_key_coalesce(mode, want);
         }
         let mut actions = Vec::new();
         match mode {
@@ -1046,6 +1078,17 @@ impl Engine {
                 if n > 0 {
                     actions.push(Action::SelectLeft(n));
                     actions.push(Action::PressDelete);
+                }
+            }
+            Mode::SmoothForward => {
+                // The erase rides ForwardKeyEvent — the same ordered
+                // engine→daemon connection the commit below takes, so the
+                // batch lands in emission order with no park and no echoes.
+                // No pacing either: mode I ships without it (pacing there
+                // desynced JetBrains' XIM bridge).
+                let n = raw.chars().count() as u32;
+                if n > 0 {
+                    actions.push(Action::ForwardBackspaces(n));
                 }
             }
             _ => {
@@ -1066,7 +1109,7 @@ impl Engine {
                 None => encoded,
             })),
         }
-        if self.post_delay_ms > 0 {
+        if self.post_delay_ms > 0 && mode != Mode::SmoothForward {
             actions.push(Action::PostDelay(self.post_delay_ms));
         }
         self.tail = text.to_string();

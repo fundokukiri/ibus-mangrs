@@ -1,39 +1,15 @@
 //! Page "Tinh chỉnh": the technical knobs most users never touch — the
 //! uinput pacing (Flow / Turbo / Select only), the delivery
 //! channel and the X11/XIM workarounds. The rows themselves come from
-//! `build`; this page groups them, keeps subtitles to two lines and prints
-//! the real defaults from `Config::default()` in the pacing subtitles.
+//! `build`; this page groups them and keeps subtitles to two lines.
 
 use super::*;
-
-/// AdwSpinRow has no public API for the spin width: find the inner
-/// GtkSpinButton and widen its character box, like the reference mockup.
-fn widen_spin(row: &adw::SpinRow, chars: i32) {
-    fn walk(w: &gtk4::Widget, chars: i32) -> bool {
-        if let Some(spin) = w.downcast_ref::<gtk4::SpinButton>() {
-            spin.set_width_chars(chars);
-            return true;
-        }
-        let mut child = w.first_child();
-        while let Some(c) = child {
-            if walk(&c, chars) {
-                return true;
-            }
-            child = c.next_sibling();
-        }
-        false
-    }
-    walk(row.upcast_ref(), chars);
-}
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
     // uinput pacing plus the per-key display switch: everything only the
-    // uinput modes use. The "Mặc định: N" numbers come from the config's
-    // own defaults, so the text never drifts from what a fresh config
-    // actually does.
-    let defaults = crate::config::Config::default();
+    // uinput modes use.
     let pacing = adw::PreferencesGroup::builder()
         .title(t("groups.tune.pacing.title", "Cấu hình uinput"))
         .description(t(
@@ -41,52 +17,27 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             "Chỉ áp dụng cho Flow, Turbo và Select.",
         ))
         .build();
-    pacing.add(&ui.commit_interval);
-    pacing.add(&ui.backspace_interval);
-    pacing.add(&ui.post_delay);
-    // The per-key display switch lives with the pacing knobs: it shapes the
-    // same uinput word rendering, and it is no longer gated as experimental.
-    pacing.add(&ui.flow_per_key_switch);
-    for (row, subtitle) in [
-        (
-            &ui.commit_interval,
-            t(
-                "rows.commit_interval.subtitle",
-                "Khoảng cách giữa hai lần gửi chữ, tính bằng ms. Mặc định: {n}",
-            )
-            .replace("{n}", &defaults.commit_interval_ms.to_string()),
-        ),
-        (
-            &ui.backspace_interval,
-            t(
-                "rows.backspace_interval.subtitle",
-                "Khoảng cách giữa hai lần Backspace, tính bằng ms. Mặc định: {n}",
-            )
-            .replace("{n}", &defaults.backspace_interval_ms.to_string()),
-        ),
-        (
-            &ui.post_delay,
-            t(
-                "rows.post_delay.subtitle",
-                "Chờ sau khi viết lại từ, trước khi gõ tiếp, tính bằng ms. Mặc định: {n}",
-            )
-            .replace("{n}", &defaults.post_delay_ms.to_string()),
-        ),
-    ] {
-        widen_spin(row, 18);
-        row.set_subtitle(&subtitle);
-        row.set_tooltip_text(Some(&t(
-            "tips.commit_interval",
-            "Nhịp gửi từng chữ ở mode uinput — giảm nếu app bị mất chữ, tăng nếu bị đơ.",
-        )));
-        row.update_property(&[gtk4::accessible::Property::Label(&format!(
-            "{} (ms)",
-            row.title()
-        ))]);
-    }
-    for row in [&ui.commit_interval, &ui.backspace_interval, &ui.post_delay] {
+    pacing.add(&ui.pacing_row);
+    // The per-key display row lives with the pacing knobs: it shapes the
+    // same uinput word rendering. One merged row — the switch and its delay
+    // — outside the experimental gate, like the merged rows elsewhere. The
+    // pinned title width puts its divider column where the Experimental
+    // tab's merged rows sit.
+    pacing.add(&ui.flow_per_key_row);
+    uniform_title_width(&ui.flow_per_key_row);
+    {
+        // The switch saves through the central `wire_switch_saves`; the spin
+        // is new here and needs its own value hook, like the pacing spins.
         let s = ui.save_cb.clone();
-        row.connect_value_notify(move |_| {
+        ui.flow_per_key_spin.connect_value_notify(move |_| {
+            if let Some(save) = s.borrow().as_ref() {
+                save();
+            }
+        });
+    }
+    for spin in [&ui.commit_interval, &ui.backspace_interval, &ui.post_delay] {
+        let s = ui.save_cb.clone();
+        spin.connect_value_notify(move |_| {
             if let Some(save) = s.borrow().as_ref() {
                 save();
             }

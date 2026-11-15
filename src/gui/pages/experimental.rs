@@ -54,7 +54,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     tuning.add(&ui.clipboard_restore_row);
     tuning.add(&ui.echo_stale_row);
     tuning.add(&ui.idle_commit_row);
-    tuning.add(&ui.flow_per_key_spin);
     tuning.add(&ui.flow_backspace_retrack);
     tuning.add(&ui.flow_backspace_restore_row);
     tuning.add(&ui.nav_key_while_preedit);
@@ -70,10 +69,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.idle_commit_row);
     // A combo-only feature: the combo is its own primary row.
     decorate_experimental(&ui.nav_key_while_preedit);
-    // The per-key delay knob is experimental on its own: its switch lives on
-    // the Tuning page and is not gated, so the spin is this feature's only
-    // experimental row and carries the badge itself.
-    decorate_experimental(&ui.flow_per_key_spin);
     decorate_experimental(&ui.flow_backspace_retrack);
     decorate_experimental(&ui.flow_backspace_restore_row);
     // The switches themselves glow the same warning amber as the badge and
@@ -107,8 +102,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     }
 
     // The switch-gates-value pairs keep their lock behavior: off locks the
-    // input, the typed value stays saved for when the switch returns. The
-    // flow pair keeps its own row types — its switch lives on the Tune tab.
+    // input, the typed value stays saved for when the switch returns.
     for (switch, value) in [
         (
             &ui.extra_url_chars_switch,
@@ -143,14 +137,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             value.set_sensitive(sw.is_active() && ui.experimental_features.is_active());
         });
     }
-    {
-        let ui = Rc::clone(ui);
-        let switch = ui.flow_per_key_switch.clone();
-        let value = ui.flow_per_key_spin.upcast_ref::<gtk4::Widget>().clone();
-        switch.connect_active_notify(move |sw| {
-            value.set_sensitive(sw.is_active() && ui.experimental_features.is_active());
-        });
-    }
     for entry in [&ui.extra_url_chars_entry, &ui.auto_capitalize_after_entry] {
         let ui = Rc::clone(ui);
         entry.connect_changed(move |_| ui.fire_save());
@@ -162,11 +148,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         &ui.flow_backspace_restore_spin,
     ] {
         let ui = Rc::clone(ui);
-        spin.connect_value_notify(move |_| ui.fire_save());
-    }
-    {
-        let ui = Rc::clone(ui);
-        let spin = ui.flow_per_key_spin.clone();
         spin.connect_value_notify(move |_| ui.fire_save());
     }
 

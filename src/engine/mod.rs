@@ -66,6 +66,13 @@ pub enum Mode {
     /// Shift+Left selects the typed tail, Delete erases it, then the word is
     /// committed. Needs a surrounding-text report.
     Select,
+    /// The Smooth contract (raw keys forwarded while typing, one rewrite at
+    /// word end) with the rewrite delivered through forwarded Backspace key
+    /// events plus the commit — the same ordered IBus channel, no
+    /// `/dev/uinput` and no echo bookkeeping. Raw-key apps (games) ignore
+    /// the IM channel and XIM clients mishandle the forwarded Backspace:
+    /// pin Flow/Turbo or ForwardSelect there instead.
+    SmoothForward,
     /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
@@ -164,6 +171,10 @@ pub enum Action {
 pub struct Engine {
     wrapper: BambooWrapper,
     mode: Mode,
+    /// Modes the user may select, in GUI/cycle order. Mode resolution never
+    /// takes a hidden mode from the config or an app rule; capability
+    /// fallbacks inside `effective_mode` are exempt so typing never breaks.
+    visible_modes: Vec<Mode>,
     /// The focused application's name from sources beyond the IBus client
     /// string (the focus extension for Wayland apps, the X active window for
     /// X11) — used ONLY for rule matching. Transport decisions keep using
@@ -297,9 +308,9 @@ pub struct Engine {
     /// `config.flow_per_key`, on by default and outside the
     /// experimental gate.
     flow_per_key: bool,
-    /// How long the per-key batch stays parked before it lands. Experimental:
-    /// apply_config bakes the built-in grace in while the gate is off, so the
-    /// shipped behavior cannot drift from the file.
+    /// How long the per-key batch stays parked before it lands. Plain config:
+    /// the delay row shares the switch's Tuning-tab row, outside the
+    /// experimental gate.
     flow_per_key_delay_ms: u64,
     /// Experimental: a Backspace on a committed uinput word re-tracks the
     /// shortened screen so the next mark key keeps editing. Off keeps the
@@ -472,6 +483,7 @@ impl Engine {
         let mut engine = Self {
             wrapper: BambooWrapper::new(method, bamboo_core::Config::default()),
             mode,
+            visible_modes: Vec::new(),
             caps: 0,
             preedit_visible: false,
             client: None,
@@ -597,7 +609,15 @@ impl Engine {
             self.repair_delete = None;
             self.release_word_mode();
         }
-        let (method, mode) = config.engine_settings();
+        let (method, requested) = config.engine_settings();
+        // A mode hidden in the GUI cannot stay selected: move to the first
+        // mode the user still offers. Rules follow the same list (below).
+        self.visible_modes = config.visible_modes().into_iter().map(Mode::from).collect();
+        let mode = if self.visible_modes.contains(&requested) {
+            requested
+        } else {
+            self.visible_modes.first().copied().unwrap_or(Mode::Preedit)
+        };
         let mut rebuilt = self.wrapper.set_config(config.bamboo_config());
         rebuilt |= self.wrapper.set_method(method);
         if rebuilt {
@@ -679,13 +699,9 @@ impl Engine {
         // Not part of the experimental set anymore: the gate must not force
         // it off or the always-visible switch would silently do nothing.
         self.flow_per_key = config.flow_per_key;
-        // The delay knob is experimental: gate off applies the built-in 60 ms
-        // whatever the file says; the value stays saved for when the gate reopens.
-        self.flow_per_key_delay_ms = if experimental {
-            config.flow_per_key_delay_ms
-        } else {
-            Self::ECHO_APPLY_GRACE_MS
-        };
+        // The delay shares the switch's Tuning-tab row: plain config, no
+        // gate bake-in.
+        self.flow_per_key_delay_ms = config.flow_per_key_delay_ms;
         self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
         self.flow_backspace_restore = experimental && config.flow_backspace_restore;
         self.flow_backspace_restore_delay_ms = if experimental {
@@ -1278,7 +1294,9 @@ impl Engine {
             }
         }
         let effective = self.app_name.as_deref().or(self.client.as_deref());
-        let resolved = crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from);
+        let resolved = crate::config::app_rule_mode(&self.app_rules, effective)
+            .map(Mode::from)
+            .filter(|mode| self.visible_modes.contains(mode));
         self.rule_cache = Some((self.app_name.clone(), self.client.clone(), resolved));
         resolved
     }
@@ -1471,7 +1489,10 @@ impl Engine {
         // modes show the raw keys, and a skipped tone would desync the
         // screen from the wrapper. They keep the unikey undo.
         self.wrapper.set_backspace_tone(
-            if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
+            if matches!(
+                mode,
+                Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
+            ) {
                 BackspaceToneConfig::UnikeyWalk
             } else {
                 self.backspace_tone
@@ -1481,12 +1502,15 @@ impl Engine {
         // Backspace is forwarded so it deletes the raw key shown there, and
         // bamboo follows so the composition stays aligned (unikey
         // convention: Backspace undoes the last raw key).
-        if matches!(mode, Mode::Flow | Mode::Turbo | Mode::Select) {
+        if matches!(
+            mode,
+            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
+        ) {
             // Per-key display: the app holds the composed word, so the
             // Backspace passes through with a reverse-mapped raw buffer —
             // the user's real key, the one transport the relay never drops.
             if self.flow_per_key && !matches!(mode, Mode::Select) {
-                return Some(self.backspace_per_key());
+                return Some(self.backspace_per_key(mode));
             }
             self.wrapper.backspace();
             if !self.wrapper.has_composition() {
@@ -1532,7 +1556,7 @@ impl Engine {
             }
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
-            Mode::Flow | Mode::Turbo | Mode::Select => None,
+            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward => None,
             Mode::NonPreedit | Mode::Surrounding | Mode::ForwardKeyEvent | Mode::ForwardSelect => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
@@ -1755,7 +1779,8 @@ impl Engine {
             if deadline <= Instant::now() && (!self.backspace_down || overdue) {
                 self.deferred_fix = None;
                 debug_log::log("deferred backspace fix: rewrite the region");
-                actions.extend(self.per_key_coalesce(want));
+                let mode = self.effective_mode();
+                actions.extend(self.per_key_coalesce(mode, want));
             }
         }
         if self.take_stale_injection(self.echo_stale()) {

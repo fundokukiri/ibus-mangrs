@@ -302,23 +302,24 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     custom_group.add(&ui.custom_box);
     page.add(&custom_group);
 
-    // The mode-cycle order, data not decoration: derived from the shared
-    // `MODES` list, whose order is the engine's cycle.
+    // The mode-cycle order, data not decoration: derived from the same
+    // visible list the engine cycles, so hiding a mode updates this text.
+    let visible_modes = crate::config::Config::load().visible_modes();
     let order_group = adw::PreferencesGroup::new();
     let expander = adw::ExpanderRow::builder()
         .title(t("groups.hotkeys.cycle.title", "Thứ tự khi đổi chế độ"))
         .subtitle(
             t("groups.hotkeys.cycle.subtitle", "{n} chế độ, xoay vòng")
-                .replace("{n}", &MODES.len().to_string()),
+                .replace("{n}", &visible_modes.len().to_string()),
         )
         .use_markup(false)
         .build();
     let sequence = adw::ActionRow::builder()
         .use_markup(false)
         .activatable(false)
-        .subtitle(labels(MODES).join(" → "))
+        .subtitle(mode_labels(&visible_modes).join(" → "))
         .build();
-    // The ten mode names do not fit one line at the default width.
+    // The mode names do not fit one line at the default width.
     sequence.set_subtitle_lines(3);
     expander.add_row(&sequence);
     order_group.add(&expander);

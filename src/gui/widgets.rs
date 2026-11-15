@@ -114,17 +114,6 @@ pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::Com
     row
 }
 
-/// A boxed-list number row; `step` is both the arrow increment and the
-/// page increment (x10).
-pub(super) fn spin_row(title: &str, subtitle: &str, min: f64, max: f64, step: f64) -> adw::SpinRow {
-    let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
-    let row = adw::SpinRow::new(Some(&adjustment), 0.0, 0);
-    row.set_use_markup(false);
-    row.set_title(title);
-    row.set_subtitle(subtitle);
-    row
-}
-
 /// An info row for a boxed list (title + dim subtitle, no control). Not
 /// activatable — the hover highlight on an activation-shaped row that does
 /// nothing reads as a broken button.

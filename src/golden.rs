@@ -665,7 +665,18 @@ impl FakeClient {
                 self.caret = start;
             }
             Some(actions) => {
+                // A Forward here means the engine handed the real key back —
+                // the server forwards it and the application deletes one
+                // character itself (the smooth modes' per-key path works
+                // exactly like that). Without the pop the golden model
+                // desynced from the wire ("tien" instead of "tin").
+                let forwards_key = actions.iter().any(|a| matches!(a, Action::Forward));
                 self.apply(&actions, None);
+                if forwards_key {
+                    let start = self.caret.saturating_sub(1);
+                    self.buf.drain(start..self.caret);
+                    self.caret = start;
+                }
             }
         }
         self.send_report(e);
@@ -859,6 +870,7 @@ mod matrix {
             Mode::NonPreedit,
             Mode::Preedit,
             Mode::Surrounding,
+            Mode::SmoothForward,
             Mode::ForwardKeyEvent,
         ] {
             for (method, keys, _) in SEQUENCES {
@@ -956,6 +968,7 @@ mod matrix {
             Mode::NonPreedit,
             Mode::Preedit,
             Mode::Surrounding,
+            Mode::SmoothForward,
             Mode::ForwardKeyEvent,
         ] {
             for (name, faults) in fault_rows {
@@ -1082,6 +1095,7 @@ mod matrix {
             Mode::Flow,
             Mode::Turbo,
             Mode::Select,
+            Mode::SmoothForward,
         ];
         let fault_sets: Vec<Faults> = vec![
             Faults::default(),
