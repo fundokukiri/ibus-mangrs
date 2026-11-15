@@ -6,7 +6,9 @@
 //! `Start()` -> `ConnectToEIS()` -> EI socket fd -> event-driven device
 //! discovery. The backend holds both the D-Bus connection (the mutter session
 //! dies when it drops) and the EI context for its lifetime, so dropping the
-//! backend tears the whole session down.
+//! backend tears the whole session down. The libei symbols load at runtime
+//! (see `ei_sys`): a machine without `libei.so.1` denies the kind before any
+//! D-Bus traffic, through the same `None` path as every other check here.
 //!
 //! NOT unit-tested here: the key-emission ops against a live mutter (the
 //! libei send calls return void and need a desktop to observe; the spike
@@ -60,6 +62,9 @@ pub struct LibeiBackend {
     // backend must be Send for `BackendOps`.
     #[allow(dead_code)]
     conn: SyncConnection,
+    // The runtime-resolved libei symbols; `&'static` because the
+    // process-wide table in `ei_sys` outlives the backend.
+    sys: &'static ei_sys::Table,
     // EI context and the ref'd keyboard device. AtomicPtr rather than raw
     // pointers so the backend is Send for `BackendOps`; libei itself is
     // driven only from the server's single key-path thread. The device
@@ -72,7 +77,10 @@ pub struct LibeiBackend {
 /// RemoteDesktop, the EIS socket or libei device discovery fails within the
 /// 5 s budget, so the kind is denied instead of failing per keystroke.
 pub fn construct() -> Option<Box<dyn BackendOps>> {
-    Some(Box::new(LibeiBackend::acquire()?))
+    // The runtime dlopen first: a machine without libei denies the kind
+    // before any D-Bus traffic, like every other environment check here.
+    let sys = ei_sys::table()?;
+    Some(Box::new(LibeiBackend::acquire(sys)?))
 }
 
 /// A method-call message; every name is a constant at the call sites, so a
@@ -112,7 +120,7 @@ fn poll_readable(fd: i32, timeout_ms: i32) -> bool {
 impl LibeiBackend {
     /// The mutter-direct round-trip from the Task 6 spike. Failure at any
     /// step returns None; the kind is denied by the caller.
-    fn acquire() -> Option<Self> {
+    fn acquire(sys: &'static ei_sys::Table) -> Option<Self> {
         let deadline = Instant::now() + ACQUIRE_TIMEOUT;
         let conn = SyncConnection::new_session().ok()?;
 
@@ -172,26 +180,32 @@ impl LibeiBackend {
 
         // SAFETY: ei_new returns a fresh sender context or NULL, checked
         // before any further use.
-        let ei = unsafe { ei_sys::ei_new(ptr::null_mut()) };
+        let ei = unsafe { (sys.ei_new)(ptr::null_mut()) };
         if ei.is_null() {
+            // into_fd() detached the fd from the dbus wrapper above and it
+            // never reached libei, so close it here or every denial leaks
+            // one. SAFETY: the fd is owned only by this function at this
+            // point (libei never took it).
+            unsafe { libc::close(fd) };
             return None;
         }
         // SAFETY: ei is valid; the name must be configured before backend
         // setup (header contract).
-        unsafe { ei_sys::ei_configure_name(ei, c"ibus-engine-mangrs".as_ptr()) };
+        unsafe { (sys.ei_configure_name)(ei, c"ibus-engine-mangrs".as_ptr()) };
         // SAFETY: ei is valid; the fd ownership moves to libei per the header.
-        if unsafe { ei_sys::ei_setup_backend_fd(ei, fd) } < 0 {
+        if unsafe { (sys.ei_setup_backend_fd)(ei, fd) } < 0 {
             // libei took the fd even on failure (header: ownership transfers
             // at the call), so releasing the context is the whole cleanup.
             // SAFETY: ei was never wired to a backend; no other refs exist.
-            unsafe { ei_sys::ei_unref(ei) };
+            unsafe { (sys.ei_unref)(ei) };
             return None;
         }
         // SAFETY: ei is valid; the fd is only polled, never read or closed.
-        let ei_fd = unsafe { ei_sys::ei_get_fd(ei) };
+        let ei_fd = unsafe { (sys.ei_get_fd)(ei) };
 
         let backend = Self {
             conn,
+            sys,
             ei: AtomicPtr::new(ei),
             keyboard: AtomicPtr::new(ptr::null_mut()),
         };
@@ -210,7 +224,9 @@ impl LibeiBackend {
     /// kind is denied and never re-attempted by `Injection::select`).
     fn discover(&self, ei_fd: i32, deadline: Instant) -> bool {
         loop {
-            if self.pump() {
+            // A device resumed and removed inside one pump must not count as
+            // success: the end state is a live claimed device.
+            if self.pump() && !self.keyboard.load(Ordering::Relaxed).is_null() {
                 return true;
             }
             if Instant::now() >= deadline {
@@ -230,56 +246,62 @@ impl LibeiBackend {
         let ei = self.ei.load(Ordering::Relaxed);
         // SAFETY: ei is a live context; dispatch drains what the socket has
         // already delivered and never blocks.
-        unsafe { ei_sys::ei_dispatch(ei) };
+        unsafe { (self.sys.ei_dispatch)(ei) };
         loop {
             // SAFETY: ei is live; the returned event is unref'd before the
             // next get_event (header: one event ref held at a time).
-            let ev = unsafe { ei_sys::ei_get_event(ei) };
+            let ev = unsafe { (self.sys.ei_get_event)(ei) };
             if ev.is_null() {
                 break;
             }
             // SAFETY: ev is valid until its unref below.
-            let ev_type = unsafe { ei_sys::ei_event_get_type(ev) };
+            let ev_type = unsafe { (self.sys.ei_event_get_type)(ev) };
             match ev_type {
                 ei_sys::EI_EVENT_SEAT_ADDED => {
-                    // SAFETY: the seat is borrowed from ev. The vararg list
-                    // ends in a NULL sentinel per the header attribute.
-                    let seat = unsafe { ei_sys::ei_event_get_seat(ev) };
+                    // SAFETY: the seat is borrowed from ev.
+                    let seat = unsafe { (self.sys.ei_event_get_seat)(ev) };
+                    // SAFETY: the bind entry is the real
+                    // ei_seat_bind_capabilities called through the fixed
+                    // arity documented on the Table field, terminated by the
+                    // NULL sentinel.
                     unsafe {
-                        ei_sys::ei_seat_bind_capabilities(
+                        (self.sys.ei_seat_bind_keyboard)(
                             seat,
                             ei_sys::EI_DEVICE_CAP_KEYBOARD,
-                            ptr::null::<c_void>(),
+                            ptr::null_mut::<c_void>(),
                         )
                     };
                 }
                 ei_sys::EI_EVENT_DEVICE_ADDED => {
                     // SAFETY: the device is borrowed from ev.
-                    let dev = unsafe { ei_sys::ei_event_get_device(ev) };
+                    let dev = unsafe { (self.sys.ei_event_get_device)(ev) };
                     // Claim only when our slot is free: a device swap must
                     // not double-ref the same object.
                     if self.keyboard.load(Ordering::Relaxed).is_null()
                         // SAFETY: dev is valid until the event's unref below.
                         && unsafe {
-                            ei_sys::ei_device_has_capability(dev, ei_sys::EI_DEVICE_CAP_KEYBOARD)
+                            (self.sys.ei_device_has_capability)(
+                                dev,
+                                ei_sys::EI_DEVICE_CAP_KEYBOARD,
+                            )
                         }
                     {
                         // SAFETY: dev is valid; our own ref keeps it alive
                         // past this event's unref.
-                        let claimed = unsafe { ei_sys::ei_device_ref(dev) };
+                        let claimed = unsafe { (self.sys.ei_device_ref)(dev) };
                         self.keyboard.store(claimed, Ordering::Relaxed);
                     }
                 }
                 ei_sys::EI_EVENT_DEVICE_RESUMED => {
                     // SAFETY: the device is borrowed from ev.
-                    let dev = unsafe { ei_sys::ei_event_get_device(ev) };
+                    let dev = unsafe { (self.sys.ei_event_get_device)(ev) };
                     if dev == self.keyboard.load(Ordering::Relaxed) {
                         resumed = true;
                     }
                 }
                 ei_sys::EI_EVENT_DEVICE_REMOVED => {
                     // SAFETY: the device is borrowed from ev.
-                    let dev = unsafe { ei_sys::ei_event_get_device(ev) };
+                    let dev = unsafe { (self.sys.ei_event_get_device)(ev) };
                     if dev == self.keyboard.load(Ordering::Relaxed) {
                         self.release_device();
                     }
@@ -293,7 +315,7 @@ impl LibeiBackend {
                 _ => {}
             }
             // SAFETY: event ownership returns to libei (header contract).
-            unsafe { ei_sys::ei_event_unref(ev) };
+            unsafe { (self.sys.ei_event_unref)(ev) };
         }
         resumed
     }
@@ -305,7 +327,7 @@ impl LibeiBackend {
         // the header directs clients to unref it after DEVICE_REMOVED or
         // disconnect.
         if !keyboard.is_null() {
-            unsafe { ei_sys::ei_device_unref(keyboard) };
+            unsafe { (self.sys.ei_device_unref)(keyboard) };
         }
     }
 
@@ -320,8 +342,8 @@ impl LibeiBackend {
         // by op_begin); ei is its live context providing the monotonic frame
         // timestamp. No call unwinds.
         unsafe {
-            ei_sys::ei_device_keyboard_key(keyboard, keycode, press);
-            ei_sys::ei_device_frame(keyboard, ei_sys::ei_now(ei));
+            (self.sys.ei_device_keyboard_key)(keyboard, keycode, press);
+            (self.sys.ei_device_frame)(keyboard, (self.sys.ei_now)(ei));
         }
     }
 
@@ -335,7 +357,7 @@ impl LibeiBackend {
         }
         // SAFETY: keyboard is a claimed, resumed device; sending outside an
         // emulation transaction is a client bug per the header.
-        unsafe { ei_sys::ei_device_start_emulating(keyboard, 1) };
+        unsafe { (self.sys.ei_device_start_emulating)(keyboard, 1) };
         true
     }
 
@@ -345,7 +367,7 @@ impl LibeiBackend {
         // SAFETY: matches the start_emulating in op_begin; the pointer is
         // cleared to null before any release, so a live value is valid.
         if !keyboard.is_null() {
-            unsafe { ei_sys::ei_device_stop_emulating(keyboard) };
+            unsafe { (self.sys.ei_device_stop_emulating)(keyboard) };
         }
     }
 }
@@ -427,9 +449,9 @@ impl Drop for LibeiBackend {
         // libei owns — never closed from Rust. No unwinding crosses FFI.
         unsafe {
             if !keyboard.is_null() {
-                ei_sys::ei_device_unref(keyboard);
+                (self.sys.ei_device_unref)(keyboard);
             }
-            ei_sys::ei_unref(ei);
+            (self.sys.ei_unref)(ei);
         }
         // conn drops after this body: the mutter session dies with it.
     }
@@ -457,45 +479,57 @@ fn mutter_reachable() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, MutexGuard};
-
     use crate::transport::{constructors, Kind};
 
-    /// Serializes the tests below: they both resolve the session bus through
-    /// DBUS_SESSION_BUS_ADDRESS, and the deny test points it at a dead socket
-    /// for the duration of its constructor call.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn env_lock() -> MutexGuard<'static, ()> {
-        // A panicked sibling test must not cascade into false failures here.
-        ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
+    /// Marker telling the re-spawned copy of this test binary to run the
+    /// deny probe below instead of skipping it.
+    const DENY_CHILD_ENV: &str = "MANGRS_EI_DENY_CHILD_PROBE";
+    /// A unix socket nothing listens on: libdbus fails the connect inside
+    /// the 5 s acquisition budget instead of hanging.
+    const DEAD_BUS_ADDRESS: &str = "unix:path=/tmp/ibus-mangrs-test-no-bus";
 
     #[test]
     fn constructor_denies_without_mutter() {
-        let _guard = env_lock();
-        // An address whose unix socket nothing listens on: libdbus fails the
-        // connect inside the 5 s acquisition budget instead of hanging.
-        let saved = std::env::var_os("DBUS_SESSION_BUS_ADDRESS");
-        std::env::set_var(
-            "DBUS_SESSION_BUS_ADDRESS",
-            "unix:path=/tmp/ibus-mangrs-test-no-bus",
-        );
-        let backend = constructors(Kind::Libei);
-        match saved {
-            Some(value) => std::env::set_var("DBUS_SESSION_BUS_ADDRESS", value),
-            None => std::env::remove_var("DBUS_SESSION_BUS_ADDRESS"),
+        // The probe must run in a FRESH process: libdbus resolves the
+        // well-known bus address once per process and caches the result for
+        // its whole lifetime (measured: after any prior new_session, a
+        // second one succeeds even with a nonexistent-socket address), so an
+        // in-process env fixture would depend on test scheduling. The
+        // engine's constructor always runs in its own fresh process, which
+        // is exactly the shape the probe re-creates. No test in this process
+        // mutates the environment, so sibling tests cannot be poisoned by a
+        // failed restore.
+        let exe = std::env::current_exe().expect("test binary path");
+        let status = std::process::Command::new(exe)
+            .args([
+                "--quiet",
+                "--exact",
+                "transport::libei::tests::deny_child_probe",
+            ])
+            .env(DENY_CHILD_ENV, "1")
+            .env("DBUS_SESSION_BUS_ADDRESS", DEAD_BUS_ADDRESS)
+            .status()
+            .expect("spawn deny probe child");
+        assert!(status.success(), "deny probe child failed: {status}");
+    }
+
+    #[test]
+    fn deny_child_probe() {
+        // Skipped in the normal suite (no marker): the parent above runs it
+        // as a separate process against the dead bus address.
+        if std::env::var_os(DENY_CHILD_ENV).is_none() {
+            return;
         }
-        assert!(backend.is_none());
+        assert!(
+            constructors(Kind::Libei).is_none(),
+            "constructor connected despite an unreachable session bus address"
+        );
     }
 
     #[test]
     fn constructor_succeeds_on_this_machine() {
-        let _guard = env_lock();
         // This GNOME machine runs mutter RemoteDesktop; machines without it
-        // (wlroots, headless CI) skip rather than fail — the deny test above
+        // (wlroots, headless CI) skip rather than fail — the deny probe above
         // covers their None shape. No key is sent: the mutter session dies
         // with the backend drop.
         if !super::mutter_reachable() {
