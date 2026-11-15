@@ -52,6 +52,7 @@ fn gtk_widget_scenarios() {
     shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
     row_texts_render_as_plain_text();
+    flow_per_key_delay_row_stands_alone();
     rules_add_group_merges_the_focus_chip();
     rule_rows_and_preview_track_the_engine_match();
     macro_page_helpers_count_and_preview();
@@ -543,7 +544,6 @@ fn refresh_round_trips_every_widget() {
         echo_stale_ms: 250,
         idle_commit_enabled: true,
         idle_commit_ms: 800,
-        flow_per_key: true,
         flow_per_key_delay_ms: 80,
         flow_backspace_retrack: true,
         flow_backspace_restore: true,
@@ -692,7 +692,7 @@ fn row_texts_render_as_plain_text() {
     for markup_off in [
         !ui.bypass_url.uses_markup(),
         !ui.method.uses_markup(),
-        !ui.flow_per_key_row.uses_markup(),
+        !ui.echo_stale_row.uses_markup(),
         !ui.rule_preview.uses_markup(),
     ] {
         assert!(markup_off, "row titles and subtitles must be plain text");
@@ -700,6 +700,49 @@ fn row_texts_render_as_plain_text() {
     assert_eq!(
         ui.bypass_url.subtitle().as_deref(),
         Some("URL thật (https://, www.) giữ nguyên cả vùng tới dấu cách hoặc dấu câu")
+    );
+}
+
+/// The per-key display switch died (the per-key look is the only Flow
+/// path): the delay spin must survive as its own always-active Tuning row,
+/// still wired to the `flow_per_key_delay_ms` config key.
+fn flow_per_key_delay_row_stands_alone() {
+    let ui = widgets();
+    assert!(
+        !ui.flow_per_key_delay_row.uses_markup(),
+        "row titles and subtitles must be plain text"
+    );
+    assert!(
+        ui.flow_per_key_delay_row.is_sensitive() && ui.flow_per_key_spin.is_sensitive(),
+        "the delay row has no switch left to lock it"
+    );
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("delay row save");
+        }));
+    }
+    ui.refresh(
+        &Config {
+            flow_per_key_delay_ms: 80,
+            ..Config::default()
+        },
+        &macros,
+        &dictionary,
+    );
+    assert_eq!(
+        ui.flow_per_key_spin.value(),
+        80.0,
+        "refresh shows the file value"
+    );
+    ui.flow_per_key_spin.set_value(200.0);
+    ui.fire_save();
+    let saved = Config::load();
+    assert_eq!(
+        saved.flow_per_key_delay_ms, 200,
+        "the detached spin still saves the delay key"
     );
 }
 

@@ -288,14 +288,8 @@ pub struct Engine {
     /// Commit a paused preedit word after `idle_commit_ms` of no keys.
     idle_commit_enabled: bool,
     idle_commit_ms: u64,
-    /// The uinput modes show the composed word progressively: every
-    /// composition-changing key erases the committed tail and commits the
-    /// new one through the injected transport. Mirror of
-    /// `config.flow_per_key`, on by default and outside the
-    /// experimental gate.
-    flow_per_key: bool,
-    /// How long the per-key batch stays parked before it lands. Plain config:
-    /// the delay row shares the switch's Tuning-tab row, outside the
+    /// How long the per-key batch stays parked before it lands. Plain
+    /// config: the delay row stands alone in the Tuning tab, outside the
     /// experimental gate.
     flow_per_key_delay_ms: u64,
     /// Experimental: a Backspace on a committed uinput word re-tracks the
@@ -534,7 +528,6 @@ impl Engine {
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            flow_per_key: false,
             flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
             flow_backspace_retrack: false,
             flow_backspace_restore: false,
@@ -675,11 +668,7 @@ impl Engine {
         self.echo_stale_ms = config.echo_stale_ms;
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;
         self.idle_commit_ms = config.idle_commit_ms;
-        // Not part of the experimental set anymore: the gate must not force
-        // it off or the always-visible switch would silently do nothing.
-        self.flow_per_key = config.flow_per_key;
-        // The delay shares the switch's Tuning-tab row: plain config, no
-        // gate bake-in.
+        // The per-key park delay: plain config, no gate bake-in.
         self.flow_per_key_delay_ms = config.flow_per_key_delay_ms;
         self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
         self.flow_backspace_restore = experimental && config.flow_backspace_restore;
@@ -825,10 +814,9 @@ impl Engine {
     }
 
     /// The per-key display's park delay: the user value clamped to a
-    /// sane ceiling. Zero is allowed by owner decision — the knob is
-    /// experimental and gate-hidden, and a too-low value can only reorder
-    /// text for the user who set it; the two server-side rewrite parks
-    /// stay on the built-in constant and are not tunable.
+    /// sane ceiling. Zero is allowed by owner decision — a too-low value
+    /// can only reorder text for the user who set it; the two server-side
+    /// rewrite parks stay on the built-in constant and are not tunable.
     pub fn per_key_delay(&self) -> Duration {
         Duration::from_millis(self.flow_per_key_delay_ms.clamp(0, 500))
     }
@@ -1423,30 +1411,13 @@ impl Engine {
         } else {
             self.backspace_tone
         });
-        // uinput modes: the application owns the on-screen text — the
-        // Backspace is forwarded so it deletes the raw key shown there, and
-        // bamboo follows so the composition stays aligned (unikey
-        // convention: Backspace undoes the last raw key).
+        // Flow: the application owns the on-screen text under the per-key
+        // display, so the Backspace passes through with a reverse-mapped
+        // raw buffer — the user's real key, the one transport the relay
+        // never drops — and bamboo follows so the composition stays
+        // tracked (unikey convention: Backspace undoes the last raw key).
         if mode == Mode::Flow {
-            // Per-key display: the app holds the composed word, so the
-            // Backspace passes through with a reverse-mapped raw buffer —
-            // the user's real key, the one transport the relay never drops.
-            if self.flow_per_key {
-                return Some(self.backspace_per_key());
-            }
-            self.wrapper.backspace();
-            if !self.wrapper.has_composition() {
-                self.release_word_mode();
-                // Nothing composed: the application deletes one of its own
-                // characters — the raw forwarders (URL bypass) track the
-                // screen in `tail`, so it has to shrink with the text.
-                self.tail = replace_tail(&self.tail, 1, "");
-                self.note_backspace_forwarded();
-                // Erasing the whole candidate word drops the shortcode flag
-                // — the next word is no longer a `:name:` lookup.
-                self.emoji_word = false;
-            }
-            return None;
+            return Some(self.backspace_per_key());
         }
         let Some(edit) = self.wrapper.backspace() else {
             // Nothing composed: the application deletes one of its own

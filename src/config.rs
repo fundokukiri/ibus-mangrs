@@ -125,18 +125,10 @@ pub struct Config {
     /// is the behavior users know.
     pub idle_commit_enabled: bool,
     pub idle_commit_ms: u64,
-    /// Show the composed word progressively in the Flow mode: every
-    /// key that changes the composition erases the committed tail and
-    /// commits the new one through the injected transport (`ee` shows
-    /// `ê` immediately, marks are editable mid-word) instead of holding
-    /// the raw keys until the word ends. On by default: the owner ships
-    /// the per-key display as the standard look; the word-end rewrite
-    /// stays one switch away and the per-key commit costs ~60 ms per key.
-    pub flow_per_key: bool,
-    /// How long the per-key display parks each keystroke's commit before
-    /// it lands (ms). Per-key pacing only: the two server-side rewrite
-    /// parks stay on the engine's built-in grace constant, so a mistuned
-    /// value here cannot reintroduce the relay ordering bug.
+    /// How long the per-key Flow display parks each keystroke's commit
+    /// before it lands (ms). Per-key pacing only: the two server-side
+    /// rewrite parks stay on the engine's built-in grace constant, so a
+    /// mistuned value here cannot reintroduce the relay ordering bug.
     pub flow_per_key_delay_ms: u64,
     /// Experimental: a Backspace on a committed word in the uinput modes
     /// re-tracks the shortened screen (the composition is rebuilt from the
@@ -864,7 +856,6 @@ impl Default for Config {
             echo_stale_ms: 150,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            flow_per_key: true,
             flow_per_key_delay_ms: 20,
             flow_backspace_retrack: false,
             flow_backspace_restore: false,
@@ -1571,10 +1562,21 @@ children = ["preedit", "flow"]
     }
 
     #[test]
-    fn flow_per_key_round_trips_and_defaults_on() {
-        let c: Config = toml::from_str("flow_per_key = false").unwrap();
-        assert!(!c.flow_per_key);
-        assert!(Config::default().flow_per_key);
+    fn flow_per_key_is_gone_but_old_files_still_load() {
+        // The word-end-only switch died: the per-key display is the only
+        // Flow path. The default no longer carries the key, and an old file
+        // that still lists it parses with the key ignored — the live
+        // setting beside it survives.
+        let default = toml::Value::try_from(Config::default()).unwrap();
+        assert!(
+            default.get("flow_per_key").is_none(),
+            "the removed toggle must not come back through the default"
+        );
+        let c: Config = toml::from_str("flow_per_key = false\nflow_per_key_delay_ms = 45").unwrap();
+        assert_eq!(c.flow_per_key_delay_ms, 45);
+        // Both spellings of the removed key take the same ignored-key path.
+        let c: Config = toml::from_str("flow_per_key = true").unwrap();
+        assert_eq!(c.flow_per_key_delay_ms, 20);
     }
 
     #[test]

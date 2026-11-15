@@ -8,23 +8,18 @@ use super::*;
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
-    // uinput pacing plus the per-key display switch: everything only the
+    // uinput pacing plus the per-key park delay: everything only the
     // uinput modes use.
     let pacing = adw::PreferencesGroup::builder()
         .title(t("groups.tune.pacing.title", "Cấu hình uinput"))
         .description(t("groups.tune.pacing.description", "Chỉ áp dụng cho Flow."))
         .build();
     pacing.add(&ui.pacing_row);
-    // The per-key display row lives with the pacing knobs: it shapes the
-    // same uinput word rendering. One merged row — the switch and its delay
-    // — outside the experimental gate, like the merged rows elsewhere. The
-    // pinned title width puts its divider column where the Experimental
-    // tab's merged rows sit.
-    pacing.add(&ui.flow_per_key_row);
-    uniform_title_width(&ui.flow_per_key_row);
+    // The per-key display's park delay lives with the pacing knobs: it
+    // paces the same uinput word rendering, outside the experimental gate.
+    pacing.add(&ui.flow_per_key_delay_row);
     {
-        // The switch saves through the central `wire_switch_saves`; the spin
-        // is new here and needs its own value hook, like the pacing spins.
+        // The spin needs its own value hook, like the pacing spins.
         let s = ui.save_cb.clone();
         ui.flow_per_key_spin.connect_value_notify(move |_| {
             if let Some(save) = s.borrow().as_ref() {

@@ -494,14 +494,17 @@ pub(super) fn widgets() -> Rc<Ui> {
         &idle_commit_spin,
     );
     let flow_per_key_spin = spin_button(0.0, 500.0, 5.0);
-    let (flow_per_key_row, flow_per_key_switch) = switch_value_row(
-        &t("rows.flow_per_key.title", "Hiện dấu từng bước ở Flow"),
+    // Its own plain row: the display switch died (the per-key look is the
+    // only Flow path) and the park delay stays tunable, outside the
+    // experimental gate like the pacing knobs it sits with.
+    let flow_per_key_delay_row = action_row(
+        &t("rows.flow_per_key_delay.title", "Trễ đổ dấu từng bước (ms)"),
         &t(
-            "rows.flow_per_key.subtitle",
-            "Chữ có dấu hiện ngay trong lúc gõ ở Flow",
+            "rows.flow_per_key_delay.subtitle",
+            "Thời gian chữ có dấu đợi trước khi đổ vào app ở Flow. Mặc định: 20.",
         ),
-        &flow_per_key_spin,
     );
+    flow_per_key_delay_row.add_suffix(&flow_per_key_spin);
     let flow_backspace_retrack = switch_row(
         &t(
             "rows.flow_backspace_retrack.title",
@@ -723,7 +726,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Tính năng Chấp nhận từ khi nghỉ gõ: dừng tay quá lâu trên một từ đang gạch chân thì từ đó được commit luôn, như bấm dấu cách. Số ms bên phải là ngưỡng nghỉ tay."
     );
     tip!(
-        flow_per_key_row,
+        flow_per_key_delay_row,
         "tips.flow_per_key",
         "Tính năng Hiện dấu từng bước ở Flow: Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland."
     );
@@ -829,8 +832,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         idle_commit_row,
         idle_commit_switch,
         idle_commit_spin,
-        flow_per_key_row,
-        flow_per_key_switch,
+        flow_per_key_delay_row,
         flow_per_key_spin,
         flow_backspace_retrack,
         flow_backspace_restore_row,

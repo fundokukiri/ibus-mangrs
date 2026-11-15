@@ -2561,62 +2561,33 @@ fn flow_runs_on_the_relay() {
     // The 31/10 belief ("injection never reaches a relayed app") was
     // refuted by the 08/11 re-measurement: injection, echoes, deletes and
     // commits all land on a mutter relay — what raced was the ordering,
-    // fixed by the parked commit and the batch-carried terminator. A
-    // relayed context now types through the uinput modes like a direct
-    // one.
+    // fixed by the parked batch. A relayed context now types through the
+    // uinput mode like a direct one.
     let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.flow_per_key = false;
     e.set_uinput_available(true);
     // A mutter-owned IBus context (type_str would replace None).
     e.set_client(Some("gnome-shell:gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT);
     let actions = type_str(&mut e, "vieetj ");
     assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(6))),
-        "the relay must run the flow rewrite: {actions:?}"
-    );
-    assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "việt ")),
-        "the terminator rides the parked commit: {actions:?}"
-    );
-    assert!(
         !actions
             .iter()
             .any(|a| matches!(a, Action::UpdatePreedit { .. })),
         "{actions:?}"
     );
-}
-
-#[test]
-fn flow_word_end_carries_the_terminator_in_the_commit() {
-    // The terminator travels inside the parked commit so it is applied
-    // strictly after the deletes; a forwarded key raced ahead of the
-    // Backspaces on the relay, the erase ate it and one raw letter
-    // survived ("ttiếng"), and the terminator's own injected-key echo
-    // never returned through the relay's ibus path at all. No key may be
-    // forwarded past the rewrite.
-    let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.flow_per_key = false;
-    e.set_uinput_available(true);
-    let actions = type_str(&mut e, "vieetj.");
-    let inject = actions
-        .iter()
-        .position(|a| matches!(a, Action::InjectBackspaces(_)))
-        .expect("the rewrite must inject Backspaces");
-    let commit = actions
-        .iter()
-        .position(|a| matches!(a, Action::Commit(t) if t == "việt."))
-        .expect("the commit must carry the word and the terminator: {actions:?}");
-    assert!(commit > inject, "{actions:?}");
-    let last_forward = actions
-        .iter()
-        .rposition(|a| matches!(a, Action::Forward))
-        .expect("the raw keys are forwarded while typing");
-    assert!(last_forward < inject, "{actions:?}");
+    let batch = e
+        .per_key_park
+        .as_ref()
+        .map(|(_, t)| t.clone())
+        .expect("the relay must run the per-key rewrite");
+    assert_eq!(
+        batch, "việt ",
+        "the word and its terminator coalesce into the parked batch"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::Forward)),
+        "no forwarded key races the parked batch: {actions:?}"
+    );
 }
 
 #[test]
@@ -2670,7 +2641,6 @@ fn per_key_engine(mode: Mode) -> Engine {
         mode,
         Config {
             experimental_features: true,
-            flow_per_key: true,
             ..Config::default()
         },
     );
@@ -2760,7 +2730,6 @@ fn per_key_delay_follows_the_configured_value() {
         Mode::Flow,
         Config {
             experimental_features: true,
-            flow_per_key: true,
             flow_per_key_delay_ms: 200,
             ..Config::default()
         },
@@ -2783,7 +2752,6 @@ fn per_key_delay_clamps_out_of_range_values() {
     let e = engine(
         Mode::Flow,
         Config {
-            flow_per_key: true,
             flow_per_key_delay_ms: 0,
             ..Config::default()
         },
@@ -2792,7 +2760,6 @@ fn per_key_delay_clamps_out_of_range_values() {
     let e = engine(
         Mode::Flow,
         Config {
-            flow_per_key: true,
             flow_per_key_delay_ms: 700,
             ..Config::default()
         },
@@ -3088,15 +3055,9 @@ fn flow_per_key_backspace_releases_words_it_cannot_remap() {
 
 #[test]
 fn flow_per_key_applies_without_the_experimental_gate() {
-    // The switch graduated from the experimental set: it shapes the typing
-    // even with the master gate closed.
-    let mut e = engine(
-        Mode::Flow,
-        Config {
-            flow_per_key: true,
-            ..Config::default()
-        },
-    );
+    // The display is not part of the experimental set: the master gate
+    // closed must not force it off (it shapes the typing either way).
+    let mut e = engine(Mode::Flow, Config::default());
     e.set_uinput_available(true);
     let _ = type_str(&mut e, "vie");
     let actions = flush_per_key(&mut e);
@@ -3458,24 +3419,26 @@ fn digits_before_the_scheme_do_not_open_the_span() {
 
 #[test]
 fn url_span_in_flow_holds_the_query_raw() {
-    // The span forwards raw in the uinput modes too: no rewrite batch for
-    // the address, and the word after the span composes.
+    // The span forwards raw in the uinput mode too: no rewrite batch for
+    // the address, and the word after the span composes through the
+    // per-key batch.
     let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.flow_per_key = false;
     e.set_uinput_available(true);
     let url_actions = type_str(&mut e, "https://x.com?taikhoanf=1 ");
     assert!(
-        !url_actions
-            .iter()
-            .any(|a| matches!(a, Action::Commit(_) | Action::InjectBackspaces(_))),
+        !url_actions.iter().any(|a| matches!(
+            a,
+            Action::Commit(_) | Action::CommitNow(_) | Action::InjectBackspaces(_)
+        )),
         "{url_actions:?}"
     );
-    let word_actions = type_str(&mut e, "nhieeuf ");
+    type_str(&mut e, "nhieeuf ");
+    let flushed = flush_per_key(&mut e);
     assert!(
-        word_actions
+        flushed
             .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "nhiều ")),
-        "{word_actions:?}"
+            .any(|a| matches!(a, Action::CommitNow(t) if t == "nhiều ")),
+        "the word after the span still composes: {flushed:?}"
     );
 }
 
@@ -3505,39 +3468,6 @@ fn macro_still_expands_nonvietnamese_keys_in_off_mode() {
 }
 
 #[test]
-fn flow_forwards_raw_keys_and_rewrites_at_word_end() {
-    let mut e = Engine::new(Method::Telex, Mode::Flow);
-    // The word-end rewrite contract: pin the non-per-key display, which the
-    // per-key default replaced.
-    e.flow_per_key = false;
-    e.set_uinput_available(true);
-    let actions = type_str(&mut e, "vieetj ");
-    // Mid-word: nothing but forwards — the app shows the raw keys.
-    let word_end = actions
-        .iter()
-        .position(|a| matches!(a, Action::InjectBackspaces(_)))
-        .unwrap();
-    assert!(
-        actions[..word_end]
-            .iter()
-            .all(|a| matches!(a, Action::Forward | Action::Consumed)),
-        "raw keys must be forwarded while typing: {:?}",
-        &actions[..word_end]
-    );
-    // Word end: erase the 6 raw keys, commit the Vietnamese word.
-    assert!(actions
-        .iter()
-        .any(|a| matches!(a, Action::InjectBackspaces(6))));
-    assert!(actions
-        .iter()
-        .any(|a| matches!(a, Action::Commit(t) if t == "việt ")));
-    assert!(actions.iter().any(|a| matches!(a, Action::PostDelay(_))));
-    assert!(!actions
-        .iter()
-        .any(|a| matches!(a, Action::UpdatePreedit { .. })));
-}
-
-#[test]
 fn flow_leaves_english_words_alone() {
     let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_uinput_available(true);
@@ -3556,55 +3486,77 @@ fn flow_auto_capitalizes_at_sentence_start() {
         Mode::Flow,
         Config {
             auto_capitalize: true,
-            flow_per_key: false,
             ..Config::default()
         },
     );
     e.set_uinput_available(true);
-    let actions = type_str(&mut e, "xin chao. tieengs ");
+    type_str(&mut e, "xin chao. ");
+    flush_per_key(&mut e); // the first sentence lands
+    type_str(&mut e, "tieengs ");
+    let flushed = flush_per_key(&mut e);
     assert!(
-        actions
+        flushed
             .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "Tiếng ")),
-        "the sentence must start capitalized: {actions:?}"
+            .any(|a| matches!(a, Action::CommitNow(t) if t == "Tiếng ")),
+        "the sentence must start capitalized: {flushed:?}"
     );
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "tiếng")),
-        "lowercase word committed: {actions:?}"
-    );
-}
-
-#[test]
-fn flow_backspace_forwards_and_pops_the_raw_key() {
-    let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.flow_per_key = false;
-    e.set_uinput_available(true);
-    type_str(&mut e, "vieetj");
-    assert!(e.backspace().is_none(), "the app deletes its own key");
-    let actions = type_str(&mut e, " ");
-    // raw after the pop is "vieet" (5 keys), not "vieetj".
-    assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(5))),
-        "{actions:?}"
+    assert_eq!(
+        e.tail, "Tiếng ",
+        "the capital only exists in the landed batch, never the live tail"
     );
 }
 
 #[test]
-fn flow_holds_back_when_the_app_autofills() {
+fn flow_types_through_app_autofill() {
+    // No app-autofill hold-back: the per-key rewrites are backward-only (a
+    // suggestion sits after the caret), so with the app appending suggestion
+    // text the word still composes and lands through the parked batch — and
+    // every rewrite delete derives from the tail diff, never past it.
     let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_uinput_available(true);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_suggestions(true);
-    let actions = type_str(&mut e, "vieetj ");
+    let all = type_str(&mut e, "vieetj ");
     assert!(
-        !actions
+        !all.iter().any(|a| matches!(a, Action::Forward)),
+        "no forwarded key races the batch: {all:?}"
+    );
+    let batch = e
+        .per_key_park
+        .as_ref()
+        .map(|(_, t)| t.clone())
+        .expect("the batch is pending");
+    assert_eq!(batch, "việt ", "the word and its terminator ride the batch");
+    // The deletes derive only from the tail diff: the burst landed nothing
+    // of ours, so the diff needed no delete at all.
+    let deletes: Vec<u32> = all
+        .iter()
+        .filter_map(|a| match a {
+            Action::InjectBackspaces(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        deletes.is_empty(),
+        "the app held nothing of ours while the burst typed: {deletes:?} in {all:?}"
+    );
+    let flushed = flush_per_key(&mut e);
+    assert!(
+        flushed
             .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(_))),
-        "rewriting would eat the suggestion text: {actions:?}"
+            .any(|a| matches!(a, Action::CommitNow(t) if t == "việt ")),
+        "{flushed:?}"
+    );
+    // With the batch landed, the next rewrite deletes exactly the landed
+    // diff — inside the tracked tail, never reaching past it (the
+    // suggestion after the caret is out of reach by construction).
+    type_str(&mut e, "cam");
+    flush_per_key(&mut e); // "cam" lands
+    let actions = type_str(&mut e, "r");
+    assert_eq!(
+        actions,
+        vec![Action::InjectBackspaces(2)],
+        "the mark delete erases the landed diff inside the tail: {actions:?}"
     );
 }
 
@@ -3919,7 +3871,6 @@ fn emoji_rewrite_in_flow_injects_backspaces_without_the_closing_colon() {
         Mode::Flow,
         Config {
             emoji_enabled: true,
-            flow_per_key: false,
             ..Config::default()
         },
     );
@@ -4055,32 +4006,10 @@ fn emoji_miss_keeps_the_shortcode_as_typed() {
 }
 
 #[test]
-fn emoji_candidate_composes_in_flow() {
-    // The candidate keeps the plain raw-forward display in the uinput modes
-    // (per-key coalescing off for it) and the word-end rewrite composes it.
-    let mut e = with_emoji(
-        Mode::Flow,
-        Config {
-            emoji_enabled: true,
-            ..Config::default()
-        },
-    );
-    e.flow_per_key = false;
-    e.set_uinput_available(true);
-    let actions = type_str(&mut e, "x:phats ");
-    assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "phát ")),
-        "{actions:?}"
-    );
-}
-
-#[test]
 fn emoji_candidate_composes_live_in_per_key_modes() {
-    // flow_per_key ON (the default): the candidate word joins the per-key
-    // display — the marks appear while typing (`:tungf` shows `:tùng`
-    // before any space) and the word end only appends the terminator.
+    // The candidate word joins the per-key display — the marks appear
+    // while typing (`:tungf` shows `:tùng` before any space) and the word
+    // end only appends the terminator.
     let mut e = with_emoji(
         Mode::Flow,
         Config {
@@ -4111,9 +4040,9 @@ fn emoji_candidate_composes_live_in_per_key_modes() {
 
 #[test]
 fn emoji_close_rewrites_with_the_colon_in_per_key_modes() {
-    // flow_per_key ON: the committed ':' sits one char before the
-    // candidate's region — the close lands the in-flight batch and erases
-    // both, or the emoji would keep the leading colon (`:😀`).
+    // The committed ':' sits one char before the candidate's region — the
+    // close lands the in-flight batch and erases both, or the emoji would
+    // keep the leading colon (`:😀`).
     let mut e = with_emoji(
         Mode::Flow,
         Config {
@@ -4136,8 +4065,8 @@ fn emoji_close_rewrites_with_the_colon_in_per_key_modes() {
 
 #[test]
 fn emoji_miss_restores_the_raw_keys_in_per_key_modes() {
-    // flow_per_key ON: a name that matches nothing types back out of the
-    // composed display through the batch (`:tungf:` stays literal).
+    // A name that matches nothing types back out of the composed display
+    // through the batch (`:tungf:` stays literal).
     let mut e = with_emoji(
         Mode::Flow,
         Config {
@@ -4203,7 +4132,6 @@ fn tone_engine(method: MethodConfig, mode: Mode, tone: BackspaceToneConfig) -> E
         mode: mode.into(),
         method,
         backspace_tone: tone,
-        flow_per_key: false,
         ..Config::default()
     });
     e.set_client(Some("gtk4-im:test".into()));
@@ -4380,22 +4308,8 @@ fn backspace_tone_skip_leaves_kept_compositions_alone() {
 }
 
 #[test]
-fn uinput_modes_keep_the_unikey_undo_under_tone_skip() {
-    // The uinput modes show the raw keys: the wrapper must pop exactly one
-    // key per Backspace, whatever the dropdown says.
-    let mut e = tone_engine(
-        MethodConfig::Telex,
-        Mode::Flow,
-        BackspaceToneConfig::WholeChar,
-    );
-    e.set_uinput_available(true);
-    let _ = type_replay_backspaces(&mut e, "hasfxjr\u{8}");
-    assert_eq!(e.wrapper.raw(), "hasfxj");
-}
-
-#[test]
 fn per_key_backspace_ignores_the_tone_skip() {
-    // flow_per_key keeps the reverse-map pass-through regardless of the
+    // The per-key reverse-map pass-through runs regardless of the
     // dropdown: the real Backspace deletes the screen's last character.
     let mut e = tone_engine(
         MethodConfig::Telex,
@@ -4406,7 +4320,6 @@ fn per_key_backspace_ignores_the_tone_skip() {
     e.apply_config(&Config {
         mode: Mode::Flow.into(),
         experimental_features: true,
-        flow_per_key: true,
         backspace_tone: BackspaceToneConfig::WholeChar,
         ..Config::default()
     });
@@ -4471,21 +4384,19 @@ fn dd_undo_keeps_the_composition_at_word_end() {
 
 #[test]
 fn dd_undo_rewrites_flowat_word_end() {
-    // Flow shows the raw keys while typing; the word end rewrites them to
-    // the composition `dd` — the undone đ must not keep `ddd` on screen.
-    let mut e = engine(
-        Mode::Flow,
-        Config {
-            flow_per_key: false,
-            ..Config::default()
-        },
-    );
+    // The per-key display shows the composition live; the word end parks
+    // it with the terminator — the undone đ must not keep `ddd` on screen.
+    let mut e = engine(Mode::Flow, Config::default());
     e.set_uinput_available(true);
-    let mut actions = type_str(&mut e, "ddd");
-    actions.extend(e.process_char(' '));
-    // The word-end terminator travels inside the parked commit.
+    type_str(&mut e, "ddd");
+    let _ = e.process_char(' ');
+    // The word-end terminator travels inside the parked batch.
+    let flushed = flush_per_key(&mut e);
     assert!(
-        actions.contains(&Action::Commit("dd ".into())),
-        "{actions:?}"
+        flushed
+            .iter()
+            .any(|a| matches!(a, Action::CommitNow(t) if t == "dd ")),
+        "{flushed:?}"
     );
+    assert_eq!(e.tail, "dd ", "the composition replaced the raw keys");
 }

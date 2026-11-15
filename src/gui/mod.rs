@@ -375,8 +375,7 @@ struct Ui {
     idle_commit_row: adw::ActionRow,
     idle_commit_switch: gtk4::Switch,
     idle_commit_spin: gtk4::SpinButton,
-    flow_per_key_row: adw::ActionRow,
-    flow_per_key_switch: gtk4::Switch,
+    flow_per_key_delay_row: adw::ActionRow,
     flow_per_key_spin: gtk4::SpinButton,
     flow_backspace_retrack: adw::SwitchRow,
     flow_backspace_restore_row: adw::ActionRow,
@@ -641,10 +640,6 @@ impl Ui {
             .set_sensitive(config.idle_commit_enabled);
         self.idle_commit_spin
             .set_value(config.idle_commit_ms as f64);
-        self.flow_per_key_switch.set_active(config.flow_per_key);
-        // Same shape as the other switch+spin pairs: the stored value stays
-        // visible and locked while the switch is off.
-        self.flow_per_key_spin.set_sensitive(config.flow_per_key);
         self.flow_per_key_spin
             .set_value(config.flow_per_key_delay_ms as f64);
         self.flow_backspace_retrack
@@ -801,7 +796,6 @@ impl Ui {
         config.echo_stale_ms = self.echo_stale_spin.value() as u64;
         config.idle_commit_enabled = self.idle_commit_switch.is_active();
         config.idle_commit_ms = self.idle_commit_spin.value() as u64;
-        config.flow_per_key = self.flow_per_key_switch.is_active();
         config.flow_per_key_delay_ms = self.flow_per_key_spin.value() as u64;
         config.flow_backspace_retrack = self.flow_backspace_retrack.is_active();
         config.flow_backspace_restore = self.flow_backspace_restore_switch.is_active();

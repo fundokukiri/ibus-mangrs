@@ -235,7 +235,6 @@ fn per_key(mode: Mode) -> (Mode, Config) {
         mode,
         Config {
             experimental_features: true,
-            flow_per_key: true,
             ..Config::default()
         },
     )
@@ -292,21 +291,10 @@ fn probe_flow_backspace_screen_model() {
         "vi-mangrs.com ~\u{8}",
     );
     probe_case(
-        "per-key off",
-        Mode::Flow,
-        Config {
-            experimental_features: true,
-            flow_per_key: false,
-            ..Config::default()
-        },
-        "tungf ~\u{8}s",
-    );
-    probe_case(
         "v1 retrack ON",
         Mode::Flow,
         Config {
             experimental_features: true,
-            flow_per_key: true,
             flow_backspace_retrack: true,
             ..Config::default()
         },
@@ -317,7 +305,6 @@ fn probe_flow_backspace_screen_model() {
         Mode::Flow,
         Config {
             experimental_features: true,
-            flow_per_key: true,
             flow_backspace_retrack: false,
             ..Config::default()
         },
@@ -328,7 +315,6 @@ fn probe_flow_backspace_screen_model() {
         Mode::Flow,
         Config {
             experimental_features: true,
-            flow_per_key: true,
             flow_backspace_retrack: true,
             ..Config::default()
         },
@@ -339,7 +325,6 @@ fn probe_flow_backspace_screen_model() {
         Mode::Flow,
         Config {
             experimental_features: true,
-            flow_per_key: true,
             flow_backspace_retrack: true,
             ..Config::default()
         },
@@ -611,7 +596,6 @@ fn target_the_fix_waits_for_the_backspace_release() {
     let mut e = Engine::new(Method::Telex, Mode::Flow);
     let cfg = Config {
         experimental_features: true,
-        flow_per_key: true,
         flow_backspace_retrack: true,
         flow_backspace_restore: true,
         backspace_tone: BackspaceToneConfig::ToneFirst,

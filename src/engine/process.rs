@@ -260,11 +260,11 @@ impl Engine {
     /// macros first, then the emoji tables — and rewrite the shown
     /// `:<shown>` text through the same delete+commit machinery as the
     /// macro expansion. `shown` is the text between the colons as the
-    /// application holds it (the composed word in the inline modes, the raw
-    /// keys in the uinput and Off paths); `raw` is what the user typed, and
-    /// what the lookup uses. `None` = no match (or no delete transport):
-    /// the caller leaves the text as typed and lets the ':' close it.
-    /// Nothing about the typed text is logged (engine rule).
+    /// application holds it (the composed word in the inline modes; Flow
+    /// erases by the tracked tail instead); `raw` is what the user typed,
+    /// and what the lookup uses. `None` = no match (or no delete
+    /// transport): the caller leaves the text as typed and lets the ':'
+    /// close it. Nothing about the typed text is logged (engine rule).
     fn emoji_close_rewrite(&mut self, mode: Mode, shown: &str, raw: &str) -> Option<Vec<Action>> {
         let name = raw.to_lowercase();
         // A user macro keyed ":name:" wins over the emoji table, the
@@ -279,7 +279,7 @@ impl Engine {
             )
             .or_else(|| self.emojis.lookup(&name).map(str::to_string))?;
         debug_log::log("emoji shortcode: matched");
-        if self.flow_per_key && mode == Mode::Flow {
+        if mode == Mode::Flow {
             // None: the closing ':' is part of the shortcode and must not
             // reach the application. Land the in-flight batch first: the
             // erase must count against the screen the tail models. The
@@ -303,13 +303,6 @@ impl Engine {
             if let Some(ch) = self.tail.chars().last() {
                 self.note_char(ch);
             }
-            return Some(actions);
-        }
-        if mode == Mode::Flow {
-            // Per-key off (plain display: the screen holds the raw keys):
-            // the ':' is covered by erasing one more key than the name.
-            let mut actions = Vec::new();
-            actions.extend(self.uinput_rewrite(&format!(":{shown}"), &replacement, None));
             return Some(actions);
         }
         if !(self.deletes_allowed() || forwards_delete(mode)) {
@@ -534,10 +527,10 @@ impl Engine {
         !dict_hit && !self.wrapper.undo_in_word()
     }
 
-    /// The uinput modes (Flow): the application
-    /// keeps the raw keystroke; bamboo transforms internally. The rewrite
-    /// happens once, at word end — unless the per-key display is on, where
-    /// every composition-changing key applies immediately.
+    /// The uinput mode (Flow): the application keeps the raw keystroke;
+    /// bamboo transforms internally. The per-key display applies every
+    /// composition-changing key immediately through the injected transport;
+    /// the word end only lands the terminator.
     fn process_char_uinput(&mut self, mode: Mode, c: char) -> Vec<Action> {
         let mut actions = Vec::new();
         // Auto-capitalize: the application keeps the raw key, so the capital
@@ -546,36 +539,33 @@ impl Engine {
         // the word starts.
         if !self.wrapper.has_composition() {
             self.cap_word = self.auto_capitalize && self.capitalize_next && c.is_alphabetic();
-            // Per-key display: the previous word's region has landed (its
-            // own commit or the batch's) — this word's region starts empty,
-            // so the coalesce diffs and erases stay INSIDE the word and can
-            // never touch what came before it. A batch still in flight
-            // spans the boundary: keep coalescing onto it — EXCEPT for a
-            // shortcode candidate: its closing-':' erase must cover the
-            // committed ':' one char before the region, so a spanning batch
-            // is landed now and the region starts at the word.
-            if self.flow_per_key {
-                if self.emoji_word {
-                    if let Some((_, text)) = self.per_key_park.take() {
-                        actions.push(Action::CommitNow(text));
-                    }
-                    self.tail.clear();
-                    self.landed_region.clear();
-                    self.region_plain = true;
-                } else if self.per_key_park.is_none() {
-                    // The experiment remembers the region that just landed:
-                    // erasing a stray key from the new one gives it back.
-                    if self.flow_backspace_retrack {
-                        self.landed_region = std::mem::take(&mut self.tail);
-                    } else {
-                        self.tail.clear();
-                    }
-                    self.region_plain = true;
-                    self.undo_key_at = None;
+            // The previous word's region has landed (its own commit or the
+            // batch's) — this word's region starts empty, so the coalesce
+            // diffs and erases stay INSIDE the word and can never touch
+            // what came before it. A batch still in flight spans the
+            // boundary: keep coalescing onto it — EXCEPT for a shortcode
+            // candidate: its closing-':' erase must cover the committed ':'
+            // one char before the region, so a spanning batch is landed now
+            // and the region starts at the word.
+            if self.emoji_word {
+                if let Some((_, text)) = self.per_key_park.take() {
+                    actions.push(Action::CommitNow(text));
                 }
+                self.tail.clear();
+                self.landed_region.clear();
+                self.region_plain = true;
+            } else if self.per_key_park.is_none() {
+                // The experiment remembers the region that just landed:
+                // erasing a stray key from the new one gives it back.
+                if self.flow_backspace_retrack {
+                    self.landed_region = std::mem::take(&mut self.tail);
+                } else {
+                    self.tail.clear();
+                }
+                self.region_plain = true;
+                self.undo_key_at = None;
             }
         }
-        let per_key = self.flow_per_key;
         // A key arriving before the deferred correction fires cancels it: the
         // compose delta below is computed against the wrapper's old output,
         // which still carries the mark, and lands on the shortened screen —
@@ -593,45 +583,32 @@ impl Engine {
         match outcome {
             Outcome::PassThrough => {
                 // The key produced no composition change (an inapplicable
-                // mark key, say) — it is still a literal on screen.
-                if per_key {
-                    // The literal joins the coalesced batch; the wrapper
-                    // re-syncs its own delta tracking to the raw keys on
-                    // this path. `want` is built from the pre-key tail —
-                    // coalescing with the tail already grown would look
-                    // like "no change" and cancel the pending insert.
-                    let want = format!("{}{}", self.tail, c);
-                    actions.extend(self.per_key_coalesce(want));
-                    return actions;
-                }
-                self.tail.push(c);
-                self.note_char(c);
-                actions.push(Action::Forward);
+                // mark key, say) — it is still a literal on screen. The
+                // literal joins the coalesced batch; the wrapper re-syncs
+                // its own delta tracking to the raw keys on this path.
+                // `want` is built from the pre-key tail — coalescing with
+                // the tail already grown would look like "no change" and
+                // cancel the pending insert.
+                let want = format!("{}{}", self.tail, c);
+                actions.extend(self.per_key_coalesce(want));
                 actions
             }
             Outcome::Edit(edit) => {
-                // The transformed output stays internal; the application
-                // shows the raw key until the word ends. With the per-key
-                // display the composed delta applies immediately through
-                // the injected transport.
-                if per_key {
-                    let want = if self.charset == Charset::Unicode {
-                        replace_tail(&self.tail, edit.delete_chars, &edit.insert)
-                    } else {
-                        // Legacy encodings change the character count: the
-                        // screen must hold the whole re-encoded tail.
-                        encode(self.charset, &self.wrapper.output())
-                    };
-                    // A key only keeps the region "plain" while the composition
-                    // is still the raw keys; the first real transform (a mark,
-                    // `dd` -> đ) makes it a word, and a word is never restored
-                    // over an erased region.
-                    self.region_plain &= self.wrapper.output() == self.wrapper.raw();
-                    actions.extend(self.per_key_coalesce(want));
-                    return actions;
-                }
-                self.region_plain = false;
-                actions.push(Action::Forward);
+                // The transformed output stays internal; the composed delta
+                // applies immediately through the injected transport.
+                let want = if self.charset == Charset::Unicode {
+                    replace_tail(&self.tail, edit.delete_chars, &edit.insert)
+                } else {
+                    // Legacy encodings change the character count: the
+                    // screen must hold the whole re-encoded tail.
+                    encode(self.charset, &self.wrapper.output())
+                };
+                // A key only keeps the region "plain" while the composition
+                // is still the raw keys; the first real transform (a mark,
+                // `dd` -> đ) makes it a word, and a word is never restored
+                // over an erased region.
+                self.region_plain &= self.wrapper.output() == self.wrapper.raw();
+                actions.extend(self.per_key_coalesce(want));
                 actions
             }
             Outcome::Finish {
@@ -896,10 +873,10 @@ impl Engine {
         actions
     }
 
-    /// Word end in a uinput mode: erase the latin tail with real keys and
-    /// deliver the Vietnamese word. When the word equals the raw keys
-    /// (English text, auto-restored words) nothing is touched — the keys
-    /// already sit in the application.
+    /// Word end in the uinput mode: coalesce the Vietnamese word plus the
+    /// terminator into the per-key batch (the screen diff lands it). When
+    /// the word equals the raw keys (English text, auto-restored words)
+    /// nothing is transformed — the batch only appends the terminator.
     fn on_finish_uinput(
         &mut self,
         mode: Mode,
@@ -915,10 +892,9 @@ impl Engine {
         // A word that reached its end is a word, not litter: it never gives a
         // previous region back if the user later erases it.
         self.region_plain = false;
-        // Per-key display: `tail` is the text the application holds (the
-        // progressively committed word) — the word-end rewrites below erase
-        // by it, so it must survive.
-        let per_key = self.flow_per_key;
+        // `tail` is the text the application holds (the progressively
+        // committed word) — the word-end rewrites below erase by it, so it
+        // must survive.
         let candidate = self.emoji_word;
         self.emoji_word = false;
         if candidate && c == ':' {
@@ -928,14 +904,9 @@ impl Engine {
             if let Some(actions) = self.emoji_close_rewrite(mode, &raw, &raw) {
                 return actions;
             }
-            // Miss: the shortcode stays as typed. Per-key: the composed
-            // name is on screen, so the raw keys + ':' go through the batch.
-            // Plain: the raw keys are already there — forward the ':'.
-            if per_key {
-                return self.uinput_rewrite(&raw, &raw, Some(c));
-            }
-            self.note_char(c);
-            return vec![Action::Forward];
+            // Miss: the shortcode stays as typed — the composed name is on
+            // screen, so the raw keys + ':' go through the batch.
+            return self.uinput_rewrite(&raw, Some(c));
         }
         // The word just ended on this terminator: record URL evidence
         // (`://` scheme, `www.`) before the state is cleared.
@@ -943,9 +914,6 @@ impl Engine {
         // Taken before `note_char` below updates the flag for the next word.
         let cap = std::mem::take(&mut self.cap_word);
         self.release_word_mode();
-        if !per_key {
-            self.tail.clear();
-        }
         self.note_char(c);
 
         // Macros win, as in every mode: the expansion replaces the raw keys.
@@ -953,19 +921,16 @@ impl Engine {
         // key is the emoji path's own lookup.
         if !raw.is_empty() && !candidate {
             if let Some(exp) = self.expand_macro(&raw, valid) {
-                return self.uinput_rewrite(&raw, &exp, Some(c));
+                return self.uinput_rewrite(&exp, Some(c));
             }
         }
 
         let word = if cap { capitalize_first(&word) } else { word };
         if word == raw || word.is_empty() {
-            // Nothing was transformed: no rewrite, no flash. Per-key: the
-            // terminator still joins the in-flight batch — a forwarded key
-            // would race the pending commit.
-            if per_key {
-                return self.uinput_rewrite(&raw, &word, Some(c));
-            }
-            return vec![Action::Forward];
+            // Nothing was transformed: no rewrite, no flash. The terminator
+            // still joins the in-flight batch — a forwarded key would race
+            // the pending commit.
+            return self.uinput_rewrite(&word, Some(c));
         }
 
         // Auto Non-VN restore: bamboo "corrected" a word that is not a
@@ -978,73 +943,41 @@ impl Engine {
             .is_some_and(|d| d.contains(&word.to_lowercase()));
         if self.auto_restore && !valid && !dict_hit && !self.wrapper.undo_in_word() {
             self.wrapper.reset();
-            // The app holds the raw keys, so auto-capitalize still needs the
-            // rewrite — otherwise the sentence starts lowercase. Per-key: the
-            // app holds the composed word, so even an unchanged `text` needs
-            // the rewrite (the coalesce diffs against what really landed).
+            // Auto-capitalize still needs the rewrite — otherwise the
+            // sentence starts lowercase. The app holds the composed word,
+            // so even an unchanged `text` needs it (the coalesce diffs
+            // against what really landed).
             let text = if cap {
                 capitalize_first(&raw)
             } else {
                 raw.clone()
             };
-            if text == raw && !per_key {
-                return vec![Action::Forward];
-            }
-            return self.uinput_rewrite(&raw, &text, Some(c));
+            return self.uinput_rewrite(&text, Some(c));
         }
 
-        // Flow defers to app autofill: the app appended suggestion text
-        // after the caret, and a rewrite would eat it. (The removed Turbo
-        // rewrote regardless; its users get this hold-back.) Per-key
-        // rewrites are backward-only (the suggestion sits after the caret),
-        // so the hold-back is moot.
-        if mode == Mode::Flow && self.suggestions && !per_key {
-            self.wrapper.reset();
-            return vec![Action::Forward];
-        }
-
-        self.uinput_rewrite(&raw, &word, Some(c))
+        // No app-autofill hold-back here: the per-key rewrites are
+        // backward-only (the suggestion sits after the caret), so a rewrite
+        // cannot eat the text the app appended.
+        self.uinput_rewrite(&word, Some(c))
     }
 
-    /// The shared word-end rewrite: erase `raw` with real keys, deliver
-    /// `text` over the configured Unicode channel. `terminator` is the key
-    /// that ended the word; it travels inside the parked commit so it is
-    /// applied strictly after the deletes on every display server (a
-    /// mutter relay delivered a forwarded terminator ahead of the
-    /// Backspaces, the erase ate it and one raw letter survived — and the
-    /// terminator's own injected-key echo never returned through the
-    /// relay's ibus path at all, so a key-event terminator is unusable
-    /// there).
-    fn uinput_rewrite(&mut self, raw: &str, text: &str, terminator: Option<char>) -> Vec<Action> {
-        // Per-key display: the whole rewrite coalesces into the in-flight
-        // batch — the diff against what the app certainly holds becomes
-        // extra Backspaces and the pending commit's text is replaced. The
-        // terminator joins the batch too (a forwarded key would race it).
-        if self.flow_per_key {
-            let want = match terminator {
-                Some(c) => format!("{text}{c}"),
-                None => text.to_string(),
-            };
-            return self.per_key_coalesce(want);
-        }
-        let mut actions = Vec::new();
-        let n = raw.chars().count() as u32;
-        if n > 0 {
-            actions.push(Action::InjectBackspaces(n));
-        }
-        let encoded = encode(self.charset, text);
-        actions.push(Action::Commit(match terminator {
-            Some(c) => format!("{encoded}{c}"),
-            None => encoded,
-        }));
-        if self.post_delay_ms > 0 {
-            actions.push(Action::PostDelay(self.post_delay_ms));
-        }
-        self.tail = text.to_string();
-        // The application's last character is the terminator, not the
-        // word's — the per-key features read it from there.
-        self.note_char(terminator.unwrap_or_else(|| text.chars().last().unwrap_or(' ')));
-        actions
+    /// The word-end delivery: coalesce `text` plus `terminator` (the key
+    /// that ended the word) into the per-key batch. The terminator travels
+    /// inside the parked commit so it is applied strictly after the
+    /// deletes on every display server (a mutter relay delivered a
+    /// forwarded terminator ahead of the Backspaces, the erase ate it and
+    /// one raw letter survived — and the terminator's own injected-key
+    /// echo never returned through the relay's ibus path at all, so a
+    /// key-event terminator is unusable there).
+    fn uinput_rewrite(&mut self, text: &str, terminator: Option<char>) -> Vec<Action> {
+        // The whole rewrite coalesces into the in-flight batch — the diff
+        // against what the app certainly holds becomes extra Backspaces
+        // and the pending commit's text is replaced.
+        let want = match terminator {
+            Some(c) => format!("{text}{c}"),
+            None => text.to_string(),
+        };
+        self.per_key_coalesce(want)
     }
 
     /// Word end: macros and auto-restore replace the committed word, preedit
