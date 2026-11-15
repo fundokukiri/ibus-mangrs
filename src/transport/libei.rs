@@ -220,8 +220,10 @@ impl LibeiBackend {
 
     /// Event-driven device discovery until the keyboard device is resumed;
     /// the events may already be queued, so pump before waiting. False on
-    /// timeout (mutter disconnects burn the rest of the budget once — the
-    /// kind is denied and never re-attempted by `Injection::select`).
+    /// timeout (the kind is denied, but FocusIn's `re_request` re-attempts
+    /// it — since Task 8 every re-selection retries every kind. Libei must
+    /// not re-enter the preference list while acquisition can block: this
+    /// path burns up to the full budget synchronously on startup/FocusIn).
     fn discover(&self, ei_fd: i32, deadline: Instant) -> bool {
         loop {
             // A device resumed and removed inside one pump must not count as
@@ -516,7 +518,10 @@ mod tests {
     #[test]
     fn deny_child_probe() {
         // Skipped in the normal suite (no marker): the parent above runs it
-        // as a separate process against the dead bus address.
+        // as a separate process against the dead bus address. Run directly
+        // it passes vacuously, and on a libei-less machine it exercises the
+        // dlopen denial rather than the dbus denial — the parent's process
+        // re-spawn is what makes the dbus-cache rationale hold.
         if std::env::var_os(DENY_CHILD_ENV).is_none() {
             return;
         }
