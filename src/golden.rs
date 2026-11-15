@@ -508,7 +508,7 @@ struct FakeClient {
     /// Deletes the client swallowed (drop_delete).
     deletes_swallowed: u32,
     /// Characters selected from the caret to the right (Shift+Left); the next
-    /// commit replaces them, which is how the Select rewrites delete.
+    /// commit replaces them, which is how the ForwardSelect rewrite deletes.
     selection: usize,
 }
 
@@ -605,14 +605,11 @@ impl FakeClient {
                     self.buf.drain(start..self.caret);
                     self.caret = start;
                 }
-                Action::SelectLeft(n) | Action::ForwardSelectLeft(n) => {
+                Action::ForwardSelectLeft(n) => {
                     // Shift+Left in the application: the caret moves left over
                     // the tail and leaves it selected for the next commit.
                     self.caret = self.caret.saturating_sub(*n as usize);
                     self.selection += *n as usize;
-                }
-                Action::PressDelete => {
-                    self.buf.drain(self.caret..self.caret);
                 }
                 Action::Paste(t) => {
                     self.buf
@@ -1105,7 +1102,6 @@ mod matrix {
             Mode::Surrounding,
             Mode::Off,
             Mode::Flow,
-            Mode::Select,
             Mode::SmoothForward,
         ];
         let fault_sets: Vec<Faults> = vec![

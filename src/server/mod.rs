@@ -772,11 +772,11 @@ fn process_key(
 
     // Arrows, Tab, Escape, Delete... end the word and belong to the app.
     if keymap::is_editing_key(keyval) {
-        // Echoes of keys the uinput modes injected (Select's Shift+Left and
-        // Delete): forward them so the selection/erase actually happens.
-        // Their commits park like the Backspace path's — an inline commit
-        // overtook the selection+delete on the relay and the word erased
-        // itself right after landing ("xin chaofchào " → "xin chaof").
+        // Echoes of keys the injection transports pressed outside the
+        // Backspace set (the clipboard channel's Ctrl+V): forward them so
+        // the paste actually happens. Their commits park like the Backspace
+        // path's — an inline commit overtook the injected key on the relay
+        // and landed before the paste it belongs to.
         if let Some(commits) = engine.take_nav_echo(keyval) {
             park_nav_commits(engine, commits);
             return false;
@@ -873,8 +873,6 @@ fn emit(
 ) -> u32 {
     let transports = Transports {
         backspaces: &|n, gap| injection.backspaces(n, gap),
-        select_left: &|n, gap| injection.select_left(n, gap),
-        delete: &|n| injection.delete(n),
         paste: &|text, delay| crate::paste::paste_and_restore(text, &|| injection.paste(), delay),
     };
     emit_with(engine, actions, out, &transports)
@@ -882,9 +880,8 @@ fn emit(
 
 /// Park the commits a nav-echo flush just made deliverable — the same
 /// grace as the Backspace path. On a mutter relay the app applies the
-/// forwarded keys a beat behind the commit channel, and an inline commit
-/// landed before the selection+erase that clears the raw tail (the
-/// Select rewrite's word deleted itself right after landing).
+/// injected keys a beat behind the commit channel, so a commit emitted
+/// with the last echo can land before the key it belongs to.
 fn park_nav_commits(engine: &mut Engine, commits: Vec<String>) {
     for text in commits {
         engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
@@ -895,13 +892,10 @@ fn park_nav_commits(engine: &mut Engine, commits: Vec<String>) {
 /// them over the server's `Injection`, which forwards to the backend it
 /// holds; tests build them over stubs to exercise the injection paths
 /// without a writable `/dev/uinput`. `backspaces(n, gap)` presses Backspace
-/// `n` times `gap` ms apart; `select_left` Shift+Left `n` times; `delete`
-/// presses Delete `n` times; `paste` puts text on the clipboard (with
+/// `n` times `gap` ms apart; `paste` puts text on the clipboard (with
 /// restore) around a Ctrl+V and reports success.
 struct Transports<'a> {
     backspaces: &'a dyn Fn(u32, u64) -> bool,
-    select_left: &'a dyn Fn(u32, u64) -> bool,
-    delete: &'a dyn Fn(u32) -> bool,
     paste: &'a dyn Fn(&str, u64) -> bool,
 }
 
@@ -1098,8 +1092,8 @@ fn emit_with(
             // batch, as shipped: pacing here made JetBrains' XIM bridge
             // apply the commit into a stale view (the mark-coded vowel
             // vanished from screen yet Backspace revealed it — the buffer
-            // and the display desynced). The pacing stays on the
-            // select-and-erase mode only.
+            // and the display desynced). The pacing stays on the injected
+            // Backspace transport only.
             Action::ForwardBackspaces(n) => {
                 debug_log::log(&format!("forward-backspaces n={n}"));
                 for _ in 0..*n {
@@ -1120,39 +1114,6 @@ fn emit_with(
                     push_forward_keys(out, keymap::LEFT, LEFT_KEYCODE, keymap::SHIFT_MASK);
                 }
                 push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
-            }
-            Action::SelectLeft(n) => {
-                if (t.select_left)(*n, bs_gap) {
-                    debug_log::log(&format!("select rewrite: shift+left n={n}"));
-                    let echoes = vec![keymap::LEFT; *n as usize];
-                    engine.add_injected_nav(&echoes);
-                    nav_since_commit += *n as usize;
-                } else if engine.surrounding_data_ok() {
-                    debug_log::log(&format!("select-left inject FAILED → protocol -{n}"));
-                    let mut m = signal("DeleteSurroundingText");
-                    m = m.append1(-(*n as i32)).append1(*n);
-                    out.push(m);
-                } else {
-                    debug_log::log(&format!(
-                        "select-left inject FAILED and no report: deletion dropped n={n}"
-                    ));
-                }
-            }
-            Action::PressDelete => {
-                if (t.delete)(1) {
-                    debug_log::log("select rewrite: delete");
-                    engine.add_injected_nav(&[keymap::DELETE]);
-                    nav_since_commit += 1;
-                } else if (t.backspaces)(1, bs_gap) {
-                    // Every toolkit deletes the current selection on
-                    // Backspace, which is exactly what the Delete was for.
-                    // The paired commit still has to wait for this key.
-                    debug_log::log("press-delete FAILED → backspace over the selection");
-                    injected_since_commit += 1;
-                    injected_total += 1;
-                } else {
-                    debug_log::log("press-delete FAILED: selection stays selected");
-                }
             }
             // The per-key batch's parked commit: its deletes were injected
             // and their echoes accounted when the batch armed, so the
@@ -1216,8 +1177,8 @@ fn push_commit(
     if std::mem::take(delete_failed) {
         debug_log::log("commit suppressed: its rewrite delete was not deliverable");
     } else if *nav_since_commit > 0 {
-        // A commit right after injected selection keys can land before the
-        // app erased the selection.
+        // A commit right after an injected nav key (the paste channel's
+        // Ctrl+V) can land before the app applied the key.
         engine.defer_nav_commit(*nav_since_commit, text);
         *nav_since_commit = 0;
     } else if *injected_since_commit > 0 {
@@ -1258,8 +1219,6 @@ const INTROSPECT_XML: &str = r#"<node>
 fn fake_transports<'a>(backspaces: &'a dyn Fn(u32, u64) -> bool) -> Transports<'a> {
     Transports {
         backspaces,
-        select_left: &|_, _| true,
-        delete: &|_| true,
         paste: &|_, _| false,
     }
 }

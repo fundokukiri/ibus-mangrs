@@ -1,5 +1,5 @@
 //! The main key path: `process_char`, the Off path, the uinput
-//! (Flow/Select) paths, and the word-end macro/auto-restore/rewrite machinery.
+//! (Flow) paths, and the word-end macro/auto-restore/rewrite machinery.
 
 use super::*;
 
@@ -123,7 +123,7 @@ impl Engine {
         // (em-dash, double space) stay off here — these modes are for
         // terminals and games, where rewriting before the word ends cannot
         // work anyway.
-        if matches!(mode, Mode::Flow | Mode::Select | Mode::SmoothForward) {
+        if matches!(mode, Mode::Flow | Mode::SmoothForward) {
             return self.process_char_uinput(mode, c);
         }
 
@@ -312,10 +312,9 @@ impl Engine {
             }
             return Some(actions);
         }
-        if matches!(mode, Mode::Flow | Mode::Select | Mode::SmoothForward) {
-            // Per-key off (plain display: the screen holds the raw keys) or
-            // Select (its own erase shape): the ':' is covered by erasing
-            // one more key than the name.
+        if matches!(mode, Mode::Flow | Mode::SmoothForward) {
+            // Per-key off (plain display: the screen holds the raw keys):
+            // the ':' is covered by erasing one more key than the name.
             let mut actions = Vec::new();
             actions.extend(self.uinput_rewrite(mode, &format!(":{shown}"), &replacement, None));
             return Some(actions);
@@ -543,7 +542,7 @@ impl Engine {
         !dict_hit && !self.wrapper.undo_in_word()
     }
 
-    /// The uinput modes (Flow / Select): the application
+    /// The uinput modes (Flow): the application
     /// keeps the raw keystroke; bamboo transforms internally. The rewrite
     /// happens once, at word end — unless the per-key display is on, where
     /// every composition-changing key applies immediately.
@@ -1063,15 +1062,6 @@ impl Engine {
         }
         let mut actions = Vec::new();
         match mode {
-            Mode::Select => {
-                // No text report -> mode resolution fell back to Preedit, so
-                // the report is here. Select the tail, erase it, then commit.
-                let n = raw.chars().count() as u32;
-                if n > 0 {
-                    actions.push(Action::SelectLeft(n));
-                    actions.push(Action::PressDelete);
-                }
-            }
             Mode::SmoothForward => {
                 // The erase rides ForwardKeyEvent — the same ordered
                 // engine→daemon connection the commit below takes, so the

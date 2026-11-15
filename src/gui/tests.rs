@@ -500,7 +500,7 @@ fn refresh_round_trips_every_widget() {
     let config = Config {
         enabled: false,
         method: MethodConfig::Vni,
-        mode: ModeConfig::Select,
+        mode: ModeConfig::ForwardSelect,
         charset: CharsetConfig::Tcvn3,
         modern_tone_style: false,
         free_tone_marking: true,
@@ -570,13 +570,13 @@ fn refresh_round_trips_every_widget() {
         // Passes through read() untouched (see baseline above).
         quick_menu: baseline.quick_menu,
         menu_modes: baseline.menu_modes,
-        // The scenario exercises a hidden-by-default mode (Select), so its
-        // list shows every mode; refresh/read must preserve that order.
+        // The scenario exercises a hidden-by-default mode (ForwardSelect),
+        // so its list shows every mode; refresh/read must preserve that
+        // order.
         visible_modes: Some(vec![
             "preedit".into(),
             "surrounding".into(),
             "flow".into(),
-            "select".into(),
             "smoothforward".into(),
             "forwardbackspace".into(),
             "forwardselect".into(),
@@ -628,7 +628,6 @@ fn refresh_round_trips_every_widget() {
         ModeConfig::Preedit,
         ModeConfig::Surrounding,
         ModeConfig::Flow,
-        ModeConfig::Select,
         ModeConfig::SmoothForward,
         ModeConfig::ForwardBackspace,
         ModeConfig::ForwardSelect,
@@ -643,13 +642,13 @@ fn refresh_round_trips_every_widget() {
             "index round-trip for {m:?}"
         );
     }
-    // SmoothForward sits between Select and Forward Backspace in the fixed
+    // SmoothForward sits between Flow and Forward Backspace in the fixed
     // table — by neighbors, so removing a row does not shift the claim.
     let smooth = MODE_LABELS
         .iter()
         .position(|(m, ..)| *m == ModeConfig::SmoothForward)
         .expect("SmoothForward row");
-    assert_eq!(MODE_LABELS[smooth - 1].0, ModeConfig::Select);
+    assert_eq!(MODE_LABELS[smooth - 1].0, ModeConfig::Flow);
     assert_eq!(MODE_LABELS[smooth + 1].0, ModeConfig::ForwardBackspace);
     // The mode's limits (design §9) must be discoverable: the mode-row tip
     // names the transport and the game/XIM exclusions, in both content files.
@@ -663,7 +662,7 @@ fn refresh_round_trips_every_widget() {
     );
     assert_eq!(
         ui.mode.selected(),
-        mode_index(&all_modes, ModeConfig::Select),
+        mode_index(&all_modes, ModeConfig::ForwardSelect),
         "refresh must place the config's mode at the right list position"
     );
 
@@ -760,11 +759,14 @@ fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
             .position(|(m, ..)| *m == mode)
             .expect("mode in table")
     };
-    ui.mode_visible_switches[index_of(ModeConfig::Select)].set_active(true);
-    assert!(ui.mode_choices.borrow().contains(&ModeConfig::Select));
+    ui.mode_visible_switches[index_of(ModeConfig::ForwardSelect)].set_active(true);
+    assert!(ui
+        .mode_choices
+        .borrow()
+        .contains(&ModeConfig::ForwardSelect));
     assert_eq!(
         ui.mode_choices.borrow().last(),
-        Some(&ModeConfig::Select),
+        Some(&ModeConfig::ForwardSelect),
         "a newly enabled mode is appended"
     );
 
@@ -774,7 +776,10 @@ fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
     assert!(!ui.mode_choices.borrow().contains(&ModeConfig::Preedit));
     assert_eq!(saved.borrow().mode, ModeConfig::Surrounding);
     let visible = saved.borrow().visible_modes.clone().unwrap();
-    assert!(visible.contains(&"select".to_string()), "new mode saved");
+    assert!(
+        visible.contains(&"forwardselect".to_string()),
+        "new mode saved"
+    );
     assert!(
         !visible.contains(&"preedit".to_string()),
         "hidden mode dropped"

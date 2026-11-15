@@ -37,8 +37,6 @@ use super::{BackendOps, Kind};
 // +8. Identical whitelist: no op can reach a keycode beyond these.
 const KEY_BACKSPACE: u32 = 14;
 const KEY_DELETE: u32 = 111;
-const KEY_LEFT: u32 = 105;
-const KEY_SHIFT: u32 = 42;
 const KEY_V: u32 = 47;
 const KEY_CTRL: u32 = 29;
 
@@ -399,23 +397,6 @@ impl BackendOps for LibeiBackend {
         true
     }
 
-    fn select_left(&self, n: u32, gap_ms: u64) -> bool {
-        if !self.op_begin() {
-            return false;
-        }
-        self.key(KEY_SHIFT, true);
-        for _ in 0..n {
-            self.key(KEY_LEFT, true);
-            self.key(KEY_LEFT, false);
-            if gap_ms > 0 {
-                sleep(Duration::from_millis(gap_ms));
-            }
-        }
-        self.key(KEY_SHIFT, false);
-        self.op_end();
-        true
-    }
-
     fn delete(&self, n: u32) -> bool {
         if !self.op_begin() {
             return false;
@@ -554,8 +535,6 @@ mod tests {
         // internally — unlike the XTest/wlr_vk tables, which carry the +8.
         assert_eq!(super::KEY_BACKSPACE, 14);
         assert_eq!(super::KEY_DELETE, 111);
-        assert_eq!(super::KEY_LEFT, 105);
-        assert_eq!(super::KEY_SHIFT, 42);
         assert_eq!(super::KEY_V, 47);
         assert_eq!(super::KEY_CTRL, 29);
     }

@@ -131,7 +131,7 @@ fn visible_cycle_skips_hidden_modes_and_wraps() {
         "wraps to the first"
     );
     assert_eq!(
-        next_visible_mode(&visible, ModeConfig::Select),
+        next_visible_mode(&visible, ModeConfig::ForwardSelect),
         ModeConfig::Preedit,
         "a hidden current mode lands on the first visible entry"
     );
@@ -473,49 +473,6 @@ fn commit_after_injection_waits_for_backspace_echoes() {
 }
 
 #[test]
-fn commit_after_selection_waits_for_nav_echoes() {
-    // The Select rewrite injects Shift+Left presses and a Delete; a
-    // synchronous commit would land before the app erased the selection.
-    // The commit must wait until every injected nav-key echo has been
-    // forwarded, then flush.
-    let mut e = Engine::new(Method::Telex, Mode::Select);
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_uinput_available(true);
-    e.set_surrounding(String::new(), 0);
-    let mut out = Vec::new();
-    let bs = |_: u32, _: u64| true;
-    let t = fake_transports(&bs);
-    emit_with(
-        &mut e,
-        &[
-            Action::SelectLeft(3),
-            Action::PressDelete,
-            Action::Commit("việt".into()),
-        ],
-        &mut out,
-        &t,
-    );
-    assert!(
-        !out.iter()
-            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
-        "commit must be deferred, got {:?}",
-        out.iter()
-            .map(|m| m.member().map(|m| m.to_string()))
-            .collect::<Vec<_>>()
-    );
-    assert!(e.has_deferred());
-    assert!(e.pending_nav_echoes());
-    // The three Left echoes come back, then the Delete echo: the commit
-    // is only ready after the last one.
-    for _ in 0..3 {
-        assert!(e.take_nav_echo(keymap::LEFT).unwrap().is_empty());
-    }
-    assert!(e.take_nav_echo(keymap::DELETE).unwrap() == vec!["việt".to_string()]);
-    assert!(!e.has_deferred());
-    assert!(!e.pending_nav_echoes());
-}
-
-#[test]
 fn active_window_id_and_class_parse_xprop_output() {
     assert_eq!(
         active_window_id("_NET_ACTIVE_WINDOW(WINDOW): window id # 0x2c00007\n"),
@@ -615,38 +572,6 @@ fn registry_uses_the_newest_file() {
 }
 
 #[test]
-fn failed_press_delete_falls_back_to_backspace() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static PRESSES: AtomicUsize = AtomicUsize::new(0);
-    PRESSES.store(0, Ordering::SeqCst);
-    let mut e = Engine::new(Method::Telex, Mode::Select);
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_uinput_available(true);
-    let mut out = Vec::new();
-    let t = Transports {
-        backspaces: &|n, _| {
-            PRESSES.fetch_add(n as usize, Ordering::SeqCst);
-            true
-        },
-        delete: &|_| false,
-        select_left: &|_, _| true,
-        paste: &|_, _| false,
-    };
-    // No SelectLeft: the only pending injection is the fallback key.
-    emit_with(
-        &mut e,
-        &[Action::PressDelete, Action::Commit("việt".into())],
-        &mut out,
-        &t,
-    );
-    assert_eq!(PRESSES.load(Ordering::SeqCst), 1, "one backspace");
-    assert!(
-        e.has_deferred(),
-        "the commit must wait for the fallback key"
-    );
-}
-
-#[test]
 fn paste_failure_falls_back_to_commit() {
     // Without a clipboard tool the Paste transport fails; the word must
     // still reach the application (CommitText fallback).
@@ -699,8 +624,6 @@ fn paste_fallback_after_injected_backspaces_is_deferred() {
 #[derive(Debug, PartialEq)]
 enum RecordedOp {
     Backspaces(u32),
-    SelectLeft(u32),
-    Delete(u32),
     Paste,
 }
 
@@ -726,13 +649,9 @@ impl BackendOps for RecordingBackend {
         true
     }
 
-    fn select_left(&self, n: u32, _gap_ms: u64) -> bool {
-        self.ops.lock().unwrap().push(RecordedOp::SelectLeft(n));
-        true
-    }
-
-    fn delete(&self, n: u32) -> bool {
-        self.ops.lock().unwrap().push(RecordedOp::Delete(n));
+    // Whitelist surface: Delete stays a backend op, but no engine action
+    // reaches it anymore, so there is nothing to record.
+    fn delete(&self, _n: u32) -> bool {
         true
     }
 

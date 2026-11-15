@@ -65,11 +65,9 @@ pub enum Mode {
     /// Raw keys are forwarded while typing; the latin tail is erased with
     /// real Backspaces at word end and the Vietnamese word is committed.
     /// The removed Turbo mode (this without the app-autofill hold-back)
-    /// shared this arm.
+    /// shared this arm, and the removed Select mode (whose Shift+Left
+    /// select-and-erase became this Backspace erase) too.
     Flow,
-    /// Shift+Left selects the typed tail, Delete erases it, then the word is
-    /// committed. Needs a surrounding-text report.
-    Select,
     /// The Smooth contract (raw keys forwarded while typing, one rewrite at
     /// word end) with the rewrite delivered through forwarded Backspace key
     /// events plus the commit — the same ordered IBus channel, no
@@ -156,10 +154,6 @@ pub enum Action {
     /// IBus (ForwardSelect mode); the commit that follows replaces the
     /// selection. Same wire shape as `ForwardBackspaces`, no `/dev/uinput`.
     ForwardSelectLeft(u32),
-    /// Select `n` characters to the left with Shift+Left (uinput, paced).
-    SelectLeft(u32),
-    /// Press the Delete key once (erases a selection made by `SelectLeft`).
-    PressDelete,
     /// Set the clipboard to `text`, paste with injected Ctrl+V, restore the
     /// clipboard — the clipboard Unicode channel of the uinput modes.
     Paste(String),
@@ -252,8 +246,8 @@ pub struct Engine {
     /// When the last batch of injections happened — echoes that have not
     /// come back within the stale window are treated as lost.
     last_inject: Option<Instant>,
-    /// Injected non-Backspace keys (arrows, Delete, V) whose echoes are
-    /// still expected, in press order.
+    /// Injected non-Backspace keys (the clipboard channel's Ctrl+V) whose
+    /// echoes are still expected, in press order.
     pending_nav: Vec<u32>,
     /// When the last non-Backspace injection happened (stale window).
     last_nav_inject: Option<Instant>,
@@ -961,8 +955,9 @@ impl Engine {
         self.pending_injected > 0 || !self.pending_nav.is_empty()
     }
 
-    /// Record that non-Backspace keys (arrows, Delete, V) were injected; their
-    /// echoes must be forwarded in press order, not processed.
+    /// Record that non-Backspace keys (the clipboard channel's Ctrl+V) were
+    /// injected; their echoes must be forwarded in press order, not
+    /// processed.
     pub fn add_injected_nav(&mut self, keyvals: &[u32]) {
         if keyvals.is_empty() {
             return;
@@ -1404,13 +1399,6 @@ impl Engine {
         if requested == Mode::Off {
             return Mode::Off;
         }
-        // Transitional passthrough, removed with the mode (Task 6):
-        // Select without the report it sizes its selection from keeps
-        // today's preedit stand-in; the forward modes carry their own
-        // delete transport, no walk arm applies.
-        if requested == Mode::Select && (!self.uinput_available || self.surrounding.is_none()) {
-            return Mode::Preedit;
-        }
         if forwards_delete(requested) {
             return requested;
         }
@@ -1458,11 +1446,8 @@ impl Engine {
             }
             // Terminal: carries its own delete transport, walks nowhere.
             Mode::ForwardBackspace => Mode::ForwardBackspace,
-            // Transitional mode (Task 6 deletes it): its fallback condition
-            // was checked above, the request stands.
-            Mode::Select => requested,
-            // Unreachable: Off returned first, the forward modes through the
-            // transitional passthrough above. Kept for exhaustiveness.
+            // Unreachable: Off returned first, the forward modes through
+            // `forwards_delete` above. Kept for exhaustiveness.
             Mode::Off | Mode::SmoothForward | Mode::ForwardSelect => requested,
         }
     }
@@ -1569,22 +1554,21 @@ impl Engine {
         // The tone-skip belongs to committed-text transports: the uinput
         // modes show the raw keys, and a skipped tone would desync the
         // screen from the wrapper. They keep the unikey undo.
-        self.wrapper.set_backspace_tone(
-            if matches!(mode, Mode::Flow | Mode::Select | Mode::SmoothForward) {
+        self.wrapper
+            .set_backspace_tone(if matches!(mode, Mode::Flow | Mode::SmoothForward) {
                 BackspaceToneConfig::UnikeyWalk
             } else {
                 self.backspace_tone
-            },
-        );
+            });
         // uinput modes: the application owns the on-screen text — the
         // Backspace is forwarded so it deletes the raw key shown there, and
         // bamboo follows so the composition stays aligned (unikey
         // convention: Backspace undoes the last raw key).
-        if matches!(mode, Mode::Flow | Mode::Select | Mode::SmoothForward) {
+        if matches!(mode, Mode::Flow | Mode::SmoothForward) {
             // Per-key display: the app holds the composed word, so the
             // Backspace passes through with a reverse-mapped raw buffer —
             // the user's real key, the one transport the relay never drops.
-            if self.flow_per_key && !matches!(mode, Mode::Select) {
+            if self.flow_per_key {
                 return Some(self.backspace_per_key(mode));
             }
             self.wrapper.backspace();
@@ -1631,7 +1615,7 @@ impl Engine {
             }
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
-            Mode::Flow | Mode::Select | Mode::SmoothForward => None,
+            Mode::Flow | Mode::SmoothForward => None,
             Mode::Surrounding | Mode::ForwardBackspace | Mode::ForwardSelect => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the

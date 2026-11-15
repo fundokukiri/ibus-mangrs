@@ -7,10 +7,10 @@
 //! When that is detected, the server falls back to injecting real Backspace
 //! key events through a virtual keyboard, which every toolkit honours.
 //!
-//! The uinput display modes (Flow, Select) use the same device for more:
-//! paced key presses, Shift+Left selection and Ctrl+V. Vietnamese glyphs have
-//! no keycodes, so text is injected per ASCII character only — everything
-//! else travels over IBus (CommitText or the clipboard, see `paste.rs`).
+//! The uinput display modes (Flow) use the same device for more: paced key
+//! presses and Ctrl+V. Vietnamese glyphs have no keycodes, so text is
+//! injected per ASCII character only — everything else travels over IBus
+//! (CommitText or the clipboard, see `paste.rs`).
 //!
 //! The device is opened lazily and kept for the engine's lifetime; a failed
 //! attempt is retried every couple of seconds, because the session ACL that
@@ -37,9 +37,7 @@ const SYN_REPORT: u16 = 0;
 // Linux keycodes (input-event-codes.h) — the AT set-1 numbers are wrong here.
 const KEY_BACKSPACE: u16 = 14;
 const KEY_LEFTCTRL: u16 = 29;
-const KEY_LEFTSHIFT: u16 = 42;
-const KEY_LEFT: u16 = 105;
-/// Public so the server can press Delete for the Select mode rewrite.
+/// Public so the transport backend can press Delete.
 pub const KEYCODE_DELETE: u16 = 111;
 
 /// `struct input_event` on 64-bit Linux: timeval (16 bytes) + type + code + value.
@@ -53,18 +51,11 @@ struct InputEvent {
 }
 
 /// The only keycodes the virtual keyboard registers. The kernel drops events
-/// for unregistered codes, so a bug in the injection path can press these six
-/// keys and nothing else — no letters, so it cannot type text. Keep the list in
-/// sync with the calls in `Uinput` (`backspace`, `select_left`, `ctrl_v`) and
-/// with `KEYCODE_DELETE` pressed by the server.
-const KEYCODES: [u16; 6] = [
-    KEY_BACKSPACE,
-    KEYCODE_DELETE,
-    KEY_LEFT,
-    KEY_LEFTSHIFT,
-    KEY_LEFTCTRL,
-    KEY_V_CODE,
-];
+/// for unregistered codes, so a bug in the injection path can press these four
+/// keys and nothing else — no letters (`V` appears only inside Ctrl+V, the
+/// clipboard channel), so it cannot type text. Keep the list in sync with the
+/// calls in `Uinput` (`backspace`, `press_keys`, `ctrl_v`).
+const KEYCODES: [u16; 4] = [KEY_BACKSPACE, KEYCODE_DELETE, KEY_LEFTCTRL, KEY_V_CODE];
 
 pub struct Uinput {
     file: File,
@@ -138,36 +129,17 @@ impl Uinput {
         }
     }
 
-    /// Press a sequence of (keycode, shift) keys, `interval_ms` apart.
-    /// Returns false when the device is unavailable.
-    pub fn press_keys(keys: &[(u16, bool)], interval_ms: u64) -> bool {
+    /// Press a sequence of keycodes, `interval_ms` apart. Returns false when
+    /// the device is unavailable.
+    pub fn press_keys(keys: &[u16], interval_ms: u64) -> bool {
         match Self::device() {
             Some(dev) => {
-                for &(code, shift) in keys {
-                    dev.press(code, shift);
+                for &code in keys {
+                    dev.press(code);
                     if interval_ms > 0 {
                         sleep(Duration::from_millis(interval_ms));
                     }
                 }
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// Select `n` characters to the left with Shift+Left, paced. Returns
-    /// false when the device is unavailable.
-    pub fn select_left(n: u32, gap_ms: u64) -> bool {
-        match Self::device() {
-            Some(dev) => {
-                dev.key_event(KEY_LEFTSHIFT, 1);
-                for _ in 0..n {
-                    dev.press(KEY_LEFT, false);
-                    if gap_ms > 0 {
-                        sleep(Duration::from_millis(gap_ms));
-                    }
-                }
-                dev.key_event(KEY_LEFTSHIFT, 0);
                 true
             }
             None => false,
@@ -179,7 +151,7 @@ impl Uinput {
         match Self::device() {
             Some(dev) => {
                 dev.key_event(KEY_LEFTCTRL, 1);
-                dev.press(KEY_V_CODE, false);
+                dev.press(KEY_V_CODE);
                 dev.key_event(KEY_LEFTCTRL, 0);
                 true
             }
@@ -246,16 +218,10 @@ impl Uinput {
         Some(Self { file })
     }
 
-    /// Press and release one key (with Shift held when `shift`).
-    fn press(&self, code: u16, shift: bool) {
-        if shift {
-            self.key_event(KEY_LEFTSHIFT, 1);
-        }
+    /// Press and release one key.
+    fn press(&self, code: u16) {
         self.key_event(code, 1);
         self.key_event(code, 0);
-        if shift {
-            self.key_event(KEY_LEFTSHIFT, 0);
-        }
     }
 
     /// Emit one raw key event.
@@ -366,14 +332,7 @@ mod tests {
         // appears only as Ctrl+V (the clipboard channel).
         assert_eq!(
             KEYCODES,
-            [
-                KEY_BACKSPACE,
-                KEYCODE_DELETE,
-                KEY_LEFT,
-                KEY_LEFTSHIFT,
-                KEY_LEFTCTRL,
-                KEY_V_CODE,
-            ]
+            [KEY_BACKSPACE, KEYCODE_DELETE, KEY_LEFTCTRL, KEY_V_CODE]
         );
     }
 

@@ -1187,8 +1187,7 @@ fn smoothforward_mode_rewrites_at_word_end_with_forwarded_backspaces() {
 #[test]
 fn smoothforward_mode_does_not_fall_back_without_uinput() {
     // The whole point of the mode: it never needs /dev/uinput, so the
-    // device fallback that stands preedit in for Flow/Select must
-    // not engage.
+    // device fallback that stands preedit in for Flow must not engage.
     let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT);
@@ -1342,7 +1341,7 @@ fn hidden_modes_are_not_selectable_from_config_or_rules() {
         // A rule naming a hidden mode is ignored; the global mode stands.
         app_rules: vec![crate::config::AppRule {
             pattern: "game".into(),
-            mode: ModeConfig::Select,
+            mode: ModeConfig::ForwardSelect,
         }],
         ..Config::default()
     });
@@ -3316,37 +3315,6 @@ fn flow_per_key_applies_without_the_experimental_gate() {
     );
 }
 
-#[test]
-fn select_falls_back_to_preedit_without_surrounding_report() {
-    let mut e = Engine::new(Method::Telex, Mode::Select);
-    e.set_uinput_available(true);
-    e.set_client(Some("gtk4-im:test".into()));
-    // No surrounding-text capability: Select cannot know the tail length.
-    e.set_capabilities(CAP_PREEDIT_TEXT);
-    assert_eq!(e.effective_mode(), Mode::Preedit);
-    // type_raw keeps this client report-less (a Select client without the
-    // ST capability never reports), so the transitional passthrough
-    // stands in with preedit.
-    let actions = type_raw(&mut e, "vieetj");
-    assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
-        "no text report -> must render as preedit: {actions:?}"
-    );
-}
-
-#[test]
-fn select_stays_select_with_a_text_report() {
-    let mut e = Engine::new(Method::Telex, Mode::Select);
-    e.set_uinput_available(true);
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-    // The fallback checks the actual report, not just the capability.
-    e.set_surrounding(String::new(), 0);
-    assert_eq!(e.effective_mode(), Mode::Select);
-}
-
 // --- Mode resolution walk (replaces the effective_mode heuristic chain) ---
 
 #[test]
@@ -3791,36 +3759,29 @@ fn flow_leaves_english_words_alone() {
 }
 
 #[test]
-fn flow_modes_auto_capitalize_at_sentence_start() {
-    for mode in [Mode::Flow, Mode::Select] {
-        let mut e = engine(
-            mode,
-            Config {
-                auto_capitalize: true,
-                flow_per_key: false,
-                ..Config::default()
-            },
-        );
-        e.set_uinput_available(true);
-        // Select only resolves with a surrounding report before the
-        // first key.
-        e.set_client(Some("gtk4-im:test".into()));
-        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-        e.set_surrounding(String::new(), 0);
-        let actions = type_str(&mut e, "xin chao. tieengs ");
-        assert!(
-            actions
-                .iter()
-                .any(|a| matches!(a, Action::Commit(t) if t == "Tiếng ")),
-            "{mode:?}: the sentence must start capitalized: {actions:?}"
-        );
-        assert!(
-            !actions
-                .iter()
-                .any(|a| matches!(a, Action::Commit(t) if t == "tiếng")),
-            "{mode:?}: lowercase word committed: {actions:?}"
-        );
-    }
+fn flow_auto_capitalizes_at_sentence_start() {
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            auto_capitalize: true,
+            flow_per_key: false,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let actions = type_str(&mut e, "xin chao. tieengs ");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "Tiếng ")),
+        "the sentence must start capitalized: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "tiếng")),
+        "lowercase word committed: {actions:?}"
+    );
 }
 
 #[test]
@@ -3837,29 +3798,6 @@ fn flow_backspace_forwards_and_pops_the_raw_key() {
             .iter()
             .any(|a| matches!(a, Action::InjectBackspaces(5))),
         "{actions:?}"
-    );
-}
-
-#[test]
-fn select_uses_selection_then_delete() {
-    let mut e = Engine::new(Method::Telex, Mode::Select);
-    e.set_uinput_available(true);
-    // Prime the client and a text report BEFORE the first key: the word
-    // mode locks at word start, and only a report makes Select resolve.
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-    e.set_surrounding(String::new(), 0);
-    let actions = type_str(&mut e, "vieetj ");
-    assert!(actions.iter().any(|a| matches!(a, Action::SelectLeft(6))));
-    assert!(actions.iter().any(|a| matches!(a, Action::PressDelete)));
-    assert!(actions
-        .iter()
-        .any(|a| matches!(a, Action::Commit(t) if t == "việt ")));
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(_))),
-        "Select must not press Backspaces: {actions:?}"
     );
 }
 

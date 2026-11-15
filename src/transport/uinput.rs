@@ -21,14 +21,10 @@ impl BackendOps for UinputBackend {
         Uinput::inject_backspaces(n, gap_ms)
     }
 
-    fn select_left(&self, n: u32, gap_ms: u64) -> bool {
-        Uinput::select_left(n, gap_ms)
-    }
-
     fn delete(&self, n: u32) -> bool {
         // Whitelist in action: Delete is the only keycode this op can send.
         for _ in 0..n {
-            if !Uinput::press_keys(&[(KEYCODE_DELETE, false)], 0) {
+            if !Uinput::press_keys(&[KEYCODE_DELETE], 0) {
                 return false;
             }
         }

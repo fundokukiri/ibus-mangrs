@@ -1,12 +1,12 @@
 //! Injection backends: pressing real keys outside the IM channel.
 //!
 //! Every backend implements [`BackendOps`], whose method set is a hard
-//! whitelist: Backspace, Shift+Left (selection), Delete and Ctrl+V (paste).
-//! Injected keys enter the input pipeline like the user's own keystrokes, so
-//! a bug in an injection path could type text desktop-wide; the whitelist
-//! keeps that damage structural — no op presses a letter or a digit (`V`
-//! appears only inside Ctrl+V, the clipboard channel). Text travels over
-//! IBus instead (CommitText or the clipboard, see `paste.rs`).
+//! whitelist: Backspace, Delete and Ctrl+V (paste). Injected keys enter the
+//! input pipeline like the user's own keystrokes, so a bug in an injection
+//! path could type text desktop-wide; the whitelist keeps that damage
+//! structural — no op presses a letter or a digit (`V` appears only inside
+//! Ctrl+V, the clipboard channel). Text travels over IBus instead
+//! (CommitText or the clipboard, see `paste.rs`).
 //!
 //! [`Injection`] holds the selected backend. [`Injection::select`] walks a
 //! preference list through [`constructors`]; a kind whose construction fails
@@ -64,8 +64,6 @@ pub trait BackendOps: Send {
     fn available(&self) -> bool;
     /// Press Backspace `n` times, `gap_ms` apart.
     fn backspaces(&self, n: u32, gap_ms: u64) -> bool;
-    /// Select `n` characters to the left with Shift+Left, `gap_ms` apart.
-    fn select_left(&self, n: u32, gap_ms: u64) -> bool;
     /// Press Delete `n` times.
     fn delete(&self, n: u32) -> bool;
     /// Press Ctrl+V (paste the clipboard).
@@ -251,13 +249,6 @@ impl Injection {
         }
     }
 
-    pub fn select_left(&self, n: u32, gap_ms: u64) -> bool {
-        match &self.inner {
-            Some(backend) => backend.select_left(n, gap_ms),
-            None => false,
-        }
-    }
-
     pub fn delete(&self, n: u32) -> bool {
         match &self.inner {
             Some(backend) => backend.delete(n),
@@ -327,12 +318,11 @@ mod tests {
     use std::sync::Mutex;
 
     /// The injected actions, recorded by [`FakeBackend`]. `BackendOps` has
-    /// no default methods, so a method added to the trait beyond these four
+    /// no default methods, so a method added to the trait beyond these three
     /// fails to compile here — this enum is the whitelist in data form.
     #[derive(Debug, PartialEq)]
     enum RecordedOp {
         Backspace,
-        ShiftLeft,
         Delete,
         Paste,
     }
@@ -366,11 +356,6 @@ mod tests {
             true
         }
 
-        fn select_left(&self, _n: u32, _gap_ms: u64) -> bool {
-            self.ops.lock().unwrap().push(RecordedOp::ShiftLeft);
-            true
-        }
-
         fn delete(&self, _n: u32) -> bool {
             self.ops.lock().unwrap().push(RecordedOp::Delete);
             true
@@ -384,22 +369,16 @@ mod tests {
 
     #[test]
     fn trait_surface_is_the_whitelist() {
-        // One call per trait method: the record must hold exactly the four
+        // One call per trait method: the record must hold exactly the three
         // whitelisted ops, in trait order, and nothing else.
         let backend = FakeBackend::new(Kind::XTest);
         assert!(backend.available());
         assert!(backend.backspaces(2, 10));
-        assert!(backend.select_left(3, 10));
         assert!(backend.delete(1));
         assert!(backend.paste());
         assert_eq!(
             *backend.ops.lock().unwrap(),
-            vec![
-                RecordedOp::Backspace,
-                RecordedOp::ShiftLeft,
-                RecordedOp::Delete,
-                RecordedOp::Paste,
-            ]
+            vec![RecordedOp::Backspace, RecordedOp::Delete, RecordedOp::Paste,]
         );
     }
 
@@ -408,7 +387,6 @@ mod tests {
         let injection = Injection::new();
         assert_eq!(injection.current(), None);
         assert!(!injection.backspaces(3, 10));
-        assert!(!injection.select_left(3, 10));
         assert!(!injection.delete(3));
         assert!(!injection.paste());
     }
@@ -701,10 +679,6 @@ mod tests {
         }
 
         fn backspaces(&self, _n: u32, _gap_ms: u64) -> bool {
-            true
-        }
-
-        fn select_left(&self, _n: u32, _gap_ms: u64) -> bool {
             true
         }
 

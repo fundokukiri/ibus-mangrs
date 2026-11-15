@@ -15,11 +15,9 @@ use x11rb::rust_connection::RustConnection;
 
 use super::{BackendOps, Kind};
 
-// X keycodes = Linux evdev + 8: BACKSPACE 14->22, DELETE 111->119, LEFT 105->113, SHIFT 42->50, CTRL 29->37, V 47->55.
+// X keycodes = Linux evdev + 8: BACKSPACE 14->22, DELETE 111->119, CTRL 29->37, V 47->55.
 const KEYCODE_BACKSPACE: u8 = 22;
 const KEYCODE_DELETE: u8 = 119;
-const KEYCODE_LEFT: u8 = 113;
-const KEYCODE_SHIFT: u8 = 50;
 const KEYCODE_CTRL: u8 = 37;
 const KEYCODE_V: u8 = 55;
 
@@ -89,22 +87,6 @@ impl BackendOps for XtestBackend {
             }
         }
         true
-    }
-
-    fn select_left(&self, n: u32, gap_ms: u64) -> bool {
-        if !self.fake_key(KEY_PRESS, KEYCODE_SHIFT) {
-            return false;
-        }
-        for _ in 0..n {
-            if !self.fake_key(KEY_PRESS, KEYCODE_LEFT) || !self.fake_key(KEY_RELEASE, KEYCODE_LEFT)
-            {
-                return false;
-            }
-            if gap_ms > 0 {
-                sleep(Duration::from_millis(gap_ms));
-            }
-        }
-        self.fake_key(KEY_RELEASE, KEYCODE_SHIFT)
     }
 
     fn delete(&self, n: u32) -> bool {

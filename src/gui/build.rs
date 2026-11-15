@@ -756,7 +756,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         flow_per_key_row,
         "tips.flow_per_key",
-        "Tính năng Hiện dấu từng bước ở Flow: Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland. Select không đổi."
+        "Tính năng Hiện dấu từng bước ở Flow: Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland."
     );
     tip!(
         flow_backspace_retrack,
