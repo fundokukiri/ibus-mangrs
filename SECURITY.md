@@ -33,8 +33,11 @@ The engine opens no network connections.
 
 ## libei on GNOME
 
-On GNOME Wayland the preferred backend speaks EI (Emulated Input) to mutter through the
-compositor's own `org.gnome.Mutter.RemoteDesktop` session API. Measured on GNOME 51: that
+On GNOME Wayland the EI (Emulated Input) backend speaks to mutter through the compositor's
+own `org.gnome.Mutter.RemoteDesktop` session API; it is registered but never auto-selected
+there until an indicator-free acquisition exists and mutter stops segfaulting on EI client
+vanish (15/11: the engine-held session keeps the screen-sharing indicator on and twice
+crashed the shell). Measured on GNOME 51: that
 API grants input injection to any session-bus client without a consent dialog — the
 compositor trusts processes of the session, which is exactly the trust boundary this file
 already assumes (the engine runs as the logged-in user, and such a process could use

@@ -93,10 +93,14 @@ pub fn constructors(kind: Kind) -> Option<Box<dyn BackendOps>> {
 pub fn preference_order() -> Vec<Kind> {
     if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         if on_mutter() {
-            // libei rides mutter's direct RemoteDesktop API: no device node,
-            // no udev rule, no consent dialog; the kernel device stays as
-            // the fallback (e.g. EI denied).
-            vec![Kind::Libei, Kind::Uinput]
+            // GNOME: an engine-held EI session shows the screen-sharing
+            // indicator for its whole lifetime, and mutter 51 segfaults
+            // (libeis NULL fn pointer) when an EI client vanishes — both
+            // measured live on 15/11, twice logging the session out. Libei
+            // stays registered for explicit testing and returns here only
+            // once an indicator-free acquisition exists and the crash is
+            // fixed; the kernel device covers GNOME fully.
+            vec![Kind::Uinput]
         } else {
             // wlroots-family compositors (Hyprland, sway, ...) expose the
             // virtual-keyboard protocol without any device node. Mutter
@@ -160,6 +164,16 @@ impl Injection {
         prefer: &[Kind],
         ctor: &dyn Fn(Kind) -> Option<Box<dyn BackendOps>>,
     ) -> Option<Kind> {
+        // Re-selection runs per focus-in and config apply; rebuilding a
+        // healthy held backend of the top-preferred kind pays the full
+        // acquisition and abandons the live one behind the caller's back
+        // (15/11: one mutter session dropped per focus change segfaulted
+        // mutter). A dead backend or a changed preference still walks.
+        if let Some(backend) = &self.inner {
+            if backend.available() && prefer.first() == Some(&backend.kind()) {
+                return Some(backend.kind());
+            }
+        }
         for &kind in prefer {
             if self.denied.contains(&kind) {
                 continue;
@@ -221,6 +235,54 @@ impl Injection {
         match &self.inner {
             Some(backend) => backend.paste(),
             None => false,
+        }
+    }
+}
+
+/// Shared test fixture for the sibling backend test modules: `std::env` is
+/// process-global and the runner threads tests together, so every test that
+/// touches the session variables must hold this lock or a parallel restore
+/// re-sets a variable mid-test (15/11: DISPLAY came back between an unset
+/// and a probe and the XTest constructor reached the live display).
+#[cfg(test)]
+pub(crate) mod test_env {
+    use std::sync::Mutex;
+
+    /// Poison recovery keeps a panicking assert from blocking the suite.
+    pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Restores every touched variable on drop, so a failing assert cannot
+    /// leak session state into sibling tests.
+    pub(crate) struct EnvGuard(Vec<(String, Option<String>)>);
+
+    impl EnvGuard {
+        /// Saves the current value of each named variable.
+        pub(crate) fn save(names: &[&str]) -> Self {
+            Self(
+                names
+                    .iter()
+                    .map(|n| ((*n).to_string(), std::env::var(n).ok()))
+                    .collect(),
+            )
+        }
+
+        pub(crate) fn set(&self, name: &str, value: &str) {
+            std::env::set_var(name, value);
+        }
+
+        pub(crate) fn unset(&self, name: &str) {
+            std::env::remove_var(name);
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (name, value) in &self.0 {
+                match value {
+                    Some(v) => std::env::set_var(name, v),
+                    None => std::env::remove_var(name),
+                }
+            }
         }
     }
 }
@@ -398,45 +460,7 @@ mod tests {
         assert_eq!(injection.current(), Some(Kind::Libei));
     }
 
-    /// Serializes the env-mutating preference tests: `std::env` is
-    /// process-global and the runner threads tests together. Poison recovery
-    /// keeps a panicking assert from blocking the rest of the suite.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    /// Restores every touched variable on drop, so a failing assert cannot
-    /// leak session state into sibling tests.
-    struct EnvGuard(Vec<(String, Option<String>)>);
-
-    impl EnvGuard {
-        /// Saves the current value of each named variable.
-        fn save(names: &[&str]) -> Self {
-            Self(
-                names
-                    .iter()
-                    .map(|n| ((*n).to_string(), std::env::var(n).ok()))
-                    .collect(),
-            )
-        }
-
-        fn set(&self, name: &str, value: &str) {
-            std::env::set_var(name, value);
-        }
-
-        fn unset(&self, name: &str) {
-            std::env::remove_var(name);
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            for (name, value) in &self.0 {
-                match value {
-                    Some(v) => std::env::set_var(name, v),
-                    None => std::env::remove_var(name),
-                }
-            }
-        }
-    }
+    use super::test_env::{EnvGuard, ENV_LOCK};
 
     #[test]
     fn x11_session_prefers_uinput_then_xtest() {
@@ -462,15 +486,19 @@ mod tests {
     }
 
     #[test]
-    fn gnome_wayland_order_follows_the_spike_outcome() {
+    fn gnome_wayland_keeps_libei_out_of_the_preference() {
         // DEVLOG 15/11: the mutter direct API delivered an EI keyboard in
-        // 5.7 ms with no dialog; libei leads, the kernel device is fallback.
+        // 5.7 ms, but the live gate failed — the engine-held session shows
+        // the screen-sharing indicator for its whole lifetime, and mutter
+        // segfaults when an EI client vanishes (twice logged the session
+        // out). Libei stays registered; the kernel device leads until the
+        // indicator-free acquisition and the upstream crash are resolved.
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _env = EnvGuard::save(&["DISPLAY", "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP"]);
         _env.unset("DISPLAY");
         _env.set("WAYLAND_DISPLAY", "wayland-0");
         _env.set("XDG_CURRENT_DESKTOP", "GNOME:Wayland");
-        assert_eq!(preference_order(), vec![Kind::Libei, Kind::Uinput]);
+        assert_eq!(preference_order(), vec![Kind::Uinput]);
     }
 
     #[test]
@@ -503,6 +531,35 @@ mod tests {
             injection.select_with(&[Kind::Uinput], &stub),
             Some(Kind::Uinput)
         );
+    }
+
+    #[test]
+    fn reselect_keeps_a_healthy_top_preferred_backend() {
+        // Focus-in and config apply re-run select constantly; rebuilding the
+        // held backend each time churns its acquisition (15/11: one mutter
+        // session dropped per focus change). Only a preference change or a
+        // dead backend may walk again.
+        let mut injection = Injection::new();
+        let attempts = Mutex::new(Vec::new());
+        let counting_ctor = |kind: Kind| -> Option<Box<dyn BackendOps>> {
+            attempts.lock().unwrap().push(kind);
+            Some(Box::new(FakeBackend::new(kind)))
+        };
+        assert_eq!(
+            injection.select_with(&[Kind::Uinput, Kind::XTest], &counting_ctor),
+            Some(Kind::Uinput)
+        );
+        assert_eq!(
+            injection.select_with(&[Kind::Uinput, Kind::XTest], &counting_ctor),
+            Some(Kind::Uinput)
+        );
+        assert_eq!(*attempts.lock().unwrap(), vec![Kind::Uinput]);
+        // The held kind dropped off the top of the preference: walk again.
+        assert_eq!(
+            injection.select_with(&[Kind::XTest], &counting_ctor),
+            Some(Kind::XTest)
+        );
+        assert_eq!(*attempts.lock().unwrap(), vec![Kind::Uinput, Kind::XTest]);
     }
 
     #[test]
