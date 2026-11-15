@@ -1666,3 +1666,31 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
         "a mid-session re-register is ignored by GNOME — per-item updates only: {members:?}"
     );
 }
+
+#[test]
+fn self_heal_picks_uinput_up_mid_session() {
+    // The Task 3 ruling's binding deliverable at the wiring level: a
+    // keystroke must retry the Uinput denial and re-select through the
+    // holder — the old static probe's mid-session ACL pickup, restored.
+    // The real constructor runs, so skip on uinput-less machines like the
+    // device probe test does.
+    if !crate::uinput::Uinput::available() {
+        return;
+    }
+    let mut engine = Engine::new(Method::Telex, Mode::Preedit);
+    engine.set_uinput_available(false);
+    let mut injection = Injection::new();
+    // Everything denied, nothing held: the shape left by an environment
+    // where every constructor failed once.
+    injection.select_with(&[Kind::Uinput], &|_: Kind| None);
+    let mut out = Vec::new();
+    assert!(super::process_key(
+        &mut engine,
+        &mut injection,
+        0x61,
+        0,
+        &mut out
+    ));
+    assert_eq!(injection.current(), Some(Kind::Uinput));
+    assert!(engine.uinput_available());
+}

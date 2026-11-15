@@ -97,9 +97,10 @@ pub fn preference_order() -> Vec<Kind> {
             // indicator for its whole lifetime, and mutter 51 segfaults
             // (libeis NULL fn pointer) when an EI client vanishes — both
             // measured live on 15/11, twice logging the session out. Libei
-            // stays registered for explicit testing and returns here only
-            // once an indicator-free acquisition exists and the crash is
-            // fixed; the kernel device covers GNOME fully.
+            // stays registered but only the MANGRS_REQUIRE_LIBEI-gated unit
+            // test ever reaches it (no selection override exists); it
+            // returns here only once an indicator-free acquisition exists
+            // and the crash is fixed; the kernel device covers GNOME fully.
             vec![Kind::Uinput]
         } else {
             // wlroots-family compositors (Hyprland, sway, ...) expose the
@@ -134,7 +135,7 @@ pub struct Injection {
     // Kinds whose construction failed, skipped by later selects so a broken
     // transport is not retried on every keystroke; `re_request` clears them.
     denied: Vec<Kind>,
-    // Retry pacing for the re-request wiring; read once that lands.
+    // Retry pacing for the re-request wiring; the mode-layer plan reads it.
     #[allow(dead_code)]
     last_attempt: Option<Instant>,
 }
@@ -165,10 +166,12 @@ impl Injection {
         ctor: &dyn Fn(Kind) -> Option<Box<dyn BackendOps>>,
     ) -> Option<Kind> {
         // Re-selection runs per focus-in and config apply; rebuilding a
-        // healthy held backend of the top-preferred kind pays the full
-        // acquisition and abandons the live one behind the caller's back
-        // (15/11: one mutter session dropped per focus change segfaulted
-        // mutter). A dead backend or a changed preference still walks.
+        // healthy held backend pays the full acquisition and abandons the
+        // live one behind the caller's back (15/11: one mutter session
+        // dropped per focus change segfaulted mutter; the same churn on the
+        // X11 fallback class rebuilt the X connection per focus). A dead
+        // backend still walks, and a higher-preference kind still displaces
+        // the held one when its constructor builds.
         if let Some(backend) = &self.inner {
             if backend.available() && prefer.first() == Some(&backend.kind()) {
                 return Some(backend.kind());
@@ -177,6 +180,11 @@ impl Injection {
         for &kind in prefer {
             if self.denied.contains(&kind) {
                 continue;
+            }
+            if let Some(backend) = &self.inner {
+                if backend.available() && backend.kind() == kind {
+                    return Some(kind);
+                }
             }
             self.last_attempt = Some(Instant::now());
             match ctor(kind) {
@@ -404,14 +412,15 @@ mod tests {
         // Pass-through now reaches the held backend.
         assert!(injection.paste());
         // A second walk skips the denied kind, so WlrVirtualKeyboard is not
-        // attempted again.
+        // attempted again — and the healthy held Uinput is kept without a
+        // rebuild (the churn the 15/11 fix stops).
         assert_eq!(
             injection.select_with(&[Kind::WlrVirtualKeyboard, Kind::Uinput], &stub),
             Some(Kind::Uinput)
         );
         assert_eq!(
             *attempts.lock().unwrap(),
-            vec![Kind::WlrVirtualKeyboard, Kind::Uinput, Kind::Uinput]
+            vec![Kind::WlrVirtualKeyboard, Kind::Uinput]
         );
     }
 
@@ -596,5 +605,94 @@ mod tests {
             Some(Kind::Uinput)
         );
         assert_eq!(injection.current(), Some(Kind::Uinput));
+    }
+
+    /// Test double whose availability flips at runtime — the dead-held
+    /// backend shape the keep-guard must not protect. The flag is shared so
+    /// the test can kill the held instance through its own handle.
+    struct FlakyBackend {
+        kind: Kind,
+        alive: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl FlakyBackend {
+        fn fresh(kind: Kind) -> Self {
+            Self {
+                kind,
+                alive: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            }
+        }
+    }
+
+    impl BackendOps for FlakyBackend {
+        fn kind(&self) -> Kind {
+            self.kind
+        }
+
+        fn available(&self) -> bool {
+            self.alive.load(std::sync::atomic::Ordering::Relaxed)
+        }
+
+        fn backspaces(&self, _n: u32, _gap_ms: u64) -> bool {
+            true
+        }
+
+        fn select_left(&self, _n: u32, _gap_ms: u64) -> bool {
+            true
+        }
+
+        fn delete(&self, _n: u32) -> bool {
+            true
+        }
+
+        fn paste(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn dead_held_backend_is_replaced_by_the_walk() {
+        // The plan's Task 8 Step 1 shape, pinned post-short-circuit: a held
+        // backend whose available() flipped false must not keep its seat —
+        // the walk rebuilds the same kind when it is the only preference and
+        // a building higher preference displaces it. Constructor call
+        // recording pins that a healthy held backend is kept without a
+        // rebuild (the churn the 15/11 fix stops).
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+        let mut injection = Injection::new();
+        let calls = Mutex::new(Vec::new());
+        let ctor = |kind: Kind| -> Option<Box<dyn BackendOps>> {
+            calls.lock().unwrap().push(kind);
+            Some(Box::new(FlakyBackend::fresh(kind)))
+        };
+        let held_alive = Arc::new(AtomicBool::new(true));
+        injection.inner = Some(Box::new(FlakyBackend {
+            kind: Kind::XTest,
+            alive: Arc::clone(&held_alive),
+        }));
+        // Healthy held XTest reached after a denied higher preference:
+        // kept, zero constructor calls (no churn).
+        injection.denied.push(Kind::Uinput);
+        assert_eq!(
+            injection.select_with(&[Kind::Uinput, Kind::XTest], &ctor),
+            Some(Kind::XTest)
+        );
+        assert!(calls.lock().unwrap().is_empty());
+        injection.denied.clear();
+        // Dead held XTest as the only preference: rebuilt, not kept.
+        held_alive.store(false, Ordering::Relaxed);
+        assert_eq!(
+            injection.select_with(&[Kind::XTest], &ctor),
+            Some(Kind::XTest)
+        );
+        assert_eq!(*calls.lock().unwrap(), vec![Kind::XTest]);
+        // A building higher preference displaces the held one regardless of
+        // its health (the rebuilt instance above is healthy again).
+        assert_eq!(
+            injection.select_with(&[Kind::Uinput, Kind::XTest], &ctor),
+            Some(Kind::Uinput)
+        );
+        assert_eq!(*calls.lock().unwrap(), vec![Kind::XTest, Kind::Uinput]);
     }
 }
