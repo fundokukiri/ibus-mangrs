@@ -12,10 +12,7 @@ use super::Mode;
 /// contexts. Keep this the single place the forwarded-delete modes are
 /// recognised, or one of them silently stops deleting.
 pub(super) fn forwards_delete(mode: Mode) -> bool {
-    matches!(
-        mode,
-        Mode::ForwardBackspace | Mode::ForwardSelect | Mode::SmoothForward
-    )
+    matches!(mode, Mode::ForwardBackspace | Mode::ForwardSelect)
 }
 
 /// mtime of `path`, or None when it does not exist — the reload gate for

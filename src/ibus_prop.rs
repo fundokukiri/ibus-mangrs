@@ -91,7 +91,6 @@ pub const MODES: &[(&str, &str, &str)] = &[
     ("preedit", "Gạch chân (preedit)", "Underline (preedit)"),
     ("surrounding", "Surrounding text", "Surrounding text"),
     ("flow", "Flow (uinput)", "Flow (uinput)"),
-    ("smoothforward", "Smooth (Forward)", "Smooth (Forward)"),
     ("forwardkeyevent", "Forward Backspace", "Forward Backspace"),
     ("forwardselect", "Forward Selection", "Forward Selection"),
     ("off", "OFF", "OFF"),

@@ -575,7 +575,6 @@ fn refresh_round_trips_every_widget() {
             "preedit".into(),
             "surrounding".into(),
             "flow".into(),
-            "smoothforward".into(),
             "forwardbackspace".into(),
             "forwardselect".into(),
             "off".into(),
@@ -626,7 +625,6 @@ fn refresh_round_trips_every_widget() {
         ModeConfig::Preedit,
         ModeConfig::Surrounding,
         ModeConfig::Flow,
-        ModeConfig::SmoothForward,
         ModeConfig::ForwardBackspace,
         ModeConfig::ForwardSelect,
         ModeConfig::Off,
@@ -640,24 +638,14 @@ fn refresh_round_trips_every_widget() {
             "index round-trip for {m:?}"
         );
     }
-    // SmoothForward sits between Flow and Forward Backspace in the fixed
+    // Flow sits between Surrounding and Forward Backspace in the fixed
     // table — by neighbors, so removing a row does not shift the claim.
-    let smooth = MODE_LABELS
+    let flow = MODE_LABELS
         .iter()
-        .position(|(m, ..)| *m == ModeConfig::SmoothForward)
-        .expect("SmoothForward row");
-    assert_eq!(MODE_LABELS[smooth - 1].0, ModeConfig::Flow);
-    assert_eq!(MODE_LABELS[smooth + 1].0, ModeConfig::ForwardBackspace);
-    // The mode's limits (design §9) must be discoverable: the mode-row tip
-    // names the transport and the game/XIM exclusions, in both content files.
-    assert!(
-        include_str!("../../data/gui-content.toml").contains("Smooth (Forward)"),
-        "the Vietnamese tip must mention Smooth (Forward)"
-    );
-    assert!(
-        include_str!("../../data/gui-content.en.toml").contains("Smooth (Forward)"),
-        "the English tip must mention Smooth (Forward)"
-    );
+        .position(|(m, ..)| *m == ModeConfig::Flow)
+        .expect("Flow row");
+    assert_eq!(MODE_LABELS[flow - 1].0, ModeConfig::Surrounding);
+    assert_eq!(MODE_LABELS[flow + 1].0, ModeConfig::ForwardBackspace);
     assert_eq!(
         ui.mode.selected(),
         mode_index(&all_modes, ModeConfig::ForwardSelect),

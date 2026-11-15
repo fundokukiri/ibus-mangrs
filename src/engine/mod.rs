@@ -65,16 +65,13 @@ pub enum Mode {
     /// Raw keys are forwarded while typing; the latin tail is erased with
     /// real Backspaces at word end and the Vietnamese word is committed.
     /// The removed Turbo mode (this without the app-autofill hold-back)
-    /// shared this arm, and the removed Select mode (whose Shift+Left
-    /// select-and-erase became this Backspace erase) too.
+    /// shared this arm, the removed Select mode (whose Shift+Left
+    /// select-and-erase became this Backspace erase) too, and the removed
+    /// SmoothForward mode (the same contract on the ordered forward
+    /// transport) as well: with a backend it types exactly this, and
+    /// without one the walk's ForwardBackspace fallback keeps its
+    /// no-`/dev/uinput` property.
     Flow,
-    /// The Smooth contract (raw keys forwarded while typing, one rewrite at
-    /// word end) with the rewrite delivered through forwarded Backspace key
-    /// events plus the commit — the same ordered IBus channel, no
-    /// `/dev/uinput` and no echo bookkeeping. Raw-key apps (games) ignore
-    /// the IM channel and XIM clients mishandle the forwarded Backspace:
-    /// pin Flow or ForwardSelect there instead.
-    SmoothForward,
     /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
@@ -1322,7 +1319,7 @@ impl Engine {
             Mode::ForwardBackspace => Mode::ForwardBackspace,
             // Unreachable: Off returned first, the forward modes through
             // `forwards_delete` above. Kept for exhaustiveness.
-            Mode::Off | Mode::SmoothForward | Mode::ForwardSelect => requested,
+            Mode::Off | Mode::ForwardSelect => requested,
         }
     }
 
@@ -1428,22 +1425,21 @@ impl Engine {
         // The tone-skip belongs to committed-text transports: the uinput
         // modes show the raw keys, and a skipped tone would desync the
         // screen from the wrapper. They keep the unikey undo.
-        self.wrapper
-            .set_backspace_tone(if matches!(mode, Mode::Flow | Mode::SmoothForward) {
-                BackspaceToneConfig::UnikeyWalk
-            } else {
-                self.backspace_tone
-            });
+        self.wrapper.set_backspace_tone(if mode == Mode::Flow {
+            BackspaceToneConfig::UnikeyWalk
+        } else {
+            self.backspace_tone
+        });
         // uinput modes: the application owns the on-screen text — the
         // Backspace is forwarded so it deletes the raw key shown there, and
         // bamboo follows so the composition stays aligned (unikey
         // convention: Backspace undoes the last raw key).
-        if matches!(mode, Mode::Flow | Mode::SmoothForward) {
+        if mode == Mode::Flow {
             // Per-key display: the app holds the composed word, so the
             // Backspace passes through with a reverse-mapped raw buffer —
             // the user's real key, the one transport the relay never drops.
             if self.flow_per_key {
-                return Some(self.backspace_per_key(mode));
+                return Some(self.backspace_per_key());
             }
             self.wrapper.backspace();
             if !self.wrapper.has_composition() {
@@ -1489,7 +1485,7 @@ impl Engine {
             }
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
-            Mode::Flow | Mode::SmoothForward => None,
+            Mode::Flow => None,
             Mode::Surrounding | Mode::ForwardBackspace | Mode::ForwardSelect => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
@@ -1712,8 +1708,7 @@ impl Engine {
             if deadline <= Instant::now() && (!self.backspace_down || overdue) {
                 self.deferred_fix = None;
                 debug_log::log("deferred backspace fix: rewrite the region");
-                let mode = self.effective_mode();
-                actions.extend(self.per_key_coalesce(mode, want));
+                actions.extend(self.per_key_coalesce(want));
             }
         }
         if self.take_stale_injection(self.echo_stale()) {

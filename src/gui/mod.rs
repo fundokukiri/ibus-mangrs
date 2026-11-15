@@ -105,11 +105,6 @@ const MODE_LABELS: &[(ModeConfig, &str, &str)] = &[
     ),
     (ModeConfig::Flow, "Flow (uinput)", "Flow (uinput)"),
     (
-        ModeConfig::SmoothForward,
-        "Smooth (Forward)",
-        "Smooth (Forward)",
-    ),
-    (
         ModeConfig::ForwardBackspace,
         "Forward Backspace",
         "Forward Backspace",

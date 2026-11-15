@@ -514,18 +514,19 @@ pub enum ModeConfig {
     /// migrates here — the hold-back stays, one rewrite behavior instead
     /// of two. The removed Select mode migrates here too: its Shift+Left
     /// select-and-erase contract is gone and the rewrite erases with the
-    /// same Backspace keys.
+    /// same Backspace keys. The removed SmoothForward mode (the same
+    /// contract on the forward transport) also migrates here: with a
+    /// backend it types exactly Flow, and without one the resolution walk's
+    /// ForwardBackspace fallback keeps its no-`/dev/uinput` property.
     // The aliases carry the removed mode names' spellings, so an existing
     // config.toml or app rule keeps loading after the merge.
-    #[serde(alias = "turbo", alias = "select")]
+    #[serde(
+        alias = "turbo",
+        alias = "select",
+        alias = "smoothforward",
+        alias = "smooth-forward"
+    )]
     Flow,
-    /// The Smooth contract (raw keys forwarded while typing, one rewrite at
-    /// word end, optional per-key mark display) with the rewrite delivered
-    /// through forwarded Backspace key events plus the commit — no
-    /// `/dev/uinput` needed. Raw-key apps (games) and XIM clients should
-    /// pin another mode.
-    #[serde(alias = "smooth-forward")]
-    SmoothForward,
     /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
@@ -634,7 +635,6 @@ impl From<ModeConfig> for Mode {
             ModeConfig::Preedit => Mode::Preedit,
             ModeConfig::Surrounding => Mode::Surrounding,
             ModeConfig::Flow => Mode::Flow,
-            ModeConfig::SmoothForward => Mode::SmoothForward,
             ModeConfig::ForwardBackspace => Mode::ForwardBackspace,
             ModeConfig::ForwardSelect => Mode::ForwardSelect,
             ModeConfig::Off => Mode::Off,
@@ -648,7 +648,6 @@ impl From<Mode> for ModeConfig {
             Mode::Preedit => ModeConfig::Preedit,
             Mode::Surrounding => ModeConfig::Surrounding,
             Mode::Flow => ModeConfig::Flow,
-            Mode::SmoothForward => ModeConfig::SmoothForward,
             Mode::ForwardBackspace => ModeConfig::ForwardBackspace,
             Mode::ForwardSelect => ModeConfig::ForwardSelect,
             Mode::Off => ModeConfig::Off,
@@ -736,7 +735,6 @@ impl ModeConfig {
             ModeConfig::Preedit => "preedit",
             ModeConfig::Surrounding => "surrounding",
             ModeConfig::Flow => "flow",
-            ModeConfig::SmoothForward => "smoothforward",
             ModeConfig::ForwardBackspace => "forwardbackspace",
             ModeConfig::ForwardSelect => "forwardselect",
             ModeConfig::Off => "off",
@@ -752,11 +750,10 @@ impl ModeConfig {
             "preedit" => ModeConfig::Preedit,
             "surrounding" => ModeConfig::Surrounding,
             "flow" => ModeConfig::Flow,
-            // The removed Turbo and Select modes migrate to Flow (both here
-            // and through the serde aliases on the enum, for old config
-            // files and app rules).
-            "turbo" | "select" => ModeConfig::Flow,
-            "smoothforward" | "smooth-forward" => ModeConfig::SmoothForward,
+            // The removed Turbo, Select and SmoothForward modes migrate to
+            // Flow (both here and through the serde aliases on the enum,
+            // for old config files and app rules).
+            "turbo" | "select" | "smoothforward" | "smooth-forward" => ModeConfig::Flow,
             "forwardbackspace" | "forwardkeyevent" | "forwardkey" | "forward-key-event"
             | "forward_key_event" => ModeConfig::ForwardBackspace,
             "forwardselect"
@@ -812,14 +809,8 @@ fn default_menu_modes() -> Vec<String> {
 /// Modes the GUI offers on a fresh install, in dropdown/cycle order. The
 /// technical variant (`forwardselect`) stays implemented but hidden until
 /// the user enables it.
-pub const DEFAULT_VISIBLE_MODES: [&str; 6] = [
-    "preedit",
-    "surrounding",
-    "flow",
-    "forwardkeyevent",
-    "smoothforward",
-    "off",
-];
+pub const DEFAULT_VISIBLE_MODES: [&str; 5] =
+    ["preedit", "surrounding", "flow", "forwardkeyevent", "off"];
 
 impl Default for Config {
     fn default() -> Self {
@@ -1220,25 +1211,26 @@ mod tests {
     }
 
     #[test]
-    fn smoothforward_mode_key_round_trips() {
-        let c: Config = toml::from_str("mode = \"smoothforward\"").unwrap();
-        assert_eq!(c.mode, ModeConfig::SmoothForward);
-        assert_eq!(c.mode.key(), "smoothforward");
-        assert_eq!(
-            ModeConfig::from_key("smooth-forward"),
-            Some(ModeConfig::SmoothForward),
-            "the dashed alias must parse"
-        );
+    fn smoothforward_keys_migrate_to_flow() {
+        // SmoothForward merged into Flow: every old spelling keeps loading,
+        // in the global mode, an app rule and the visible list. `key()` stays
+        // "flow" — one mode must not gain a second canonical name.
+        for key in ["smoothforward", "smooth-forward"] {
+            assert_eq!(ModeConfig::from_key(key), Some(ModeConfig::Flow));
+            // The serde aliases carry the same spellings for config.toml.
+            let c: Config = toml::from_str(&format!("mode = \"{key}\"\n")).unwrap();
+            assert_eq!(c.mode, ModeConfig::Flow);
+        }
+        assert_eq!(ModeConfig::Flow.key(), "flow");
         // A per-app rule can pin the mode by either spelling, and the value
-        // maps onto the engine mode the smooth path dispatches on.
+        // maps onto the engine mode Flow dispatches on.
         let c: Config =
             toml::from_str("[[app_rules]]\npattern = \"chrome\"\nmode = \"smoothforward\"\n")
                 .unwrap();
-        assert_eq!(c.app_rules[0].mode, ModeConfig::SmoothForward);
-        assert_eq!(
-            Mode::from(c.app_rules[0].mode),
-            crate::engine::Mode::SmoothForward
-        );
+        assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
+        assert_eq!(Mode::from(c.app_rules[0].mode), crate::engine::Mode::Flow);
+        let c: Config = toml::from_str("visible_modes = [\"smooth-forward\"]\n").unwrap();
+        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow]);
     }
 
     #[test]
@@ -1301,7 +1293,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_modes_default_to_the_six_main_entries() {
+    fn visible_modes_default_to_the_five_main_entries() {
         let c = Config::default();
         assert_eq!(
             c.visible_modes(),
@@ -1310,7 +1302,6 @@ mod tests {
                 ModeConfig::Surrounding,
                 ModeConfig::Flow,
                 ModeConfig::ForwardBackspace,
-                ModeConfig::SmoothForward,
                 ModeConfig::Off,
             ]
         );
@@ -1349,6 +1340,8 @@ mod tests {
 
     #[test]
     fn explicit_visible_modes_skip_unknown_and_empty_lists() {
+        // The old SmoothForward spelling parses through the alias and dedups
+        // against Flow — one entry per mode, never a duplicate row.
         let c = Config {
             visible_modes: Some(vec![
                 "smoothforward".into(),
@@ -1358,10 +1351,7 @@ mod tests {
             ]),
             ..Config::default()
         };
-        assert_eq!(
-            c.visible_modes(),
-            vec![ModeConfig::SmoothForward, ModeConfig::Off]
-        );
+        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow, ModeConfig::Off]);
         // An emptied list (a hand edit) falls back to the shipped default
         // rather than hiding every mode from the engine.
         let c = Config {

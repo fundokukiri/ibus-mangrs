@@ -665,9 +665,9 @@ impl FakeClient {
             Some(actions) => {
                 // A Forward here means the engine handed the real key back —
                 // the server forwards it and the application deletes one
-                // character itself (the smooth modes' per-key path works
-                // exactly like that). Without the pop the golden model
-                // desynced from the wire ("tien" instead of "tin").
+                // character itself (Flow's per-key path works exactly like
+                // that). Without the pop the golden model desynced from the
+                // wire ("tien" instead of "tin").
                 let forwards_key = actions.iter().any(|a| matches!(a, Action::Forward));
                 self.apply(&actions, None);
                 if forwards_key {
@@ -863,11 +863,17 @@ mod matrix {
     #[test]
     fn ideal_clients_reproduce_the_golden_text_in_every_mode() {
         // The core invariant: with a perfect client, every inline display
-        // mode leaves exactly the same text for the same keystrokes.
+        // mode leaves exactly the same text for the same keystrokes. The
+        // golden client holds no injection backend, so the Flow row runs
+        // the resolution walk's ForwardBackspace fallback and asserts its
+        // outcome; Flow's with-backend rewrite shapes stay pinned by the
+        // engine tests. The guard keeps the walk's own flow-fallback log
+        // lines out of the counting test's redirected log file.
+        let _guard = crate::debug_log::test_guard();
         for mode in [
             Mode::Preedit,
             Mode::Surrounding,
-            Mode::SmoothForward,
+            Mode::Flow,
             Mode::ForwardBackspace,
         ] {
             for (method, keys, _) in SEQUENCES {
@@ -961,10 +967,14 @@ mod matrix {
                 },
             ),
         ];
+        // Same guard reason as the ideal loop: the Flow row (no backend
+        // here) logs the walk's fallback, which must never interleave with
+        // the counting test's redirected log file.
+        let _guard = crate::debug_log::test_guard();
         for mode in [
             Mode::Preedit,
             Mode::Surrounding,
-            Mode::SmoothForward,
+            Mode::Flow,
             Mode::ForwardBackspace,
         ] {
             for (name, faults) in fault_rows {
@@ -1092,13 +1102,7 @@ mod matrix {
             .chars()
             .collect();
         let terminators: Vec<char> = vec![' ', '_', '5', '.', ',', '!', '\''];
-        let modes: Vec<Mode> = vec![
-            Mode::Preedit,
-            Mode::Surrounding,
-            Mode::Off,
-            Mode::Flow,
-            Mode::SmoothForward,
-        ];
+        let modes: Vec<Mode> = vec![Mode::Preedit, Mode::Surrounding, Mode::Off, Mode::Flow];
         let fault_sets: Vec<Faults> = vec![
             Faults::default(),
             Faults {
