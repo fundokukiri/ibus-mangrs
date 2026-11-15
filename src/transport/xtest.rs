@@ -15,11 +15,9 @@ use x11rb::rust_connection::RustConnection;
 
 use super::{BackendOps, Kind};
 
-// X keycodes = Linux evdev + 8: BACKSPACE 14->22, DELETE 111->119, CTRL 29->37, V 47->55.
+// X keycodes = Linux evdev + 8: BACKSPACE 14->22, DELETE 111->119.
 const KEYCODE_BACKSPACE: u8 = 22;
 const KEYCODE_DELETE: u8 = 119;
-const KEYCODE_CTRL: u8 = 37;
-const KEYCODE_V: u8 = 55;
 
 // X event types for `fake_input` (the core KeyPress/KeyRelease numbers).
 const KEY_PRESS: u8 = 2;
@@ -98,16 +96,6 @@ impl BackendOps for XtestBackend {
             }
         }
         true
-    }
-
-    fn paste(&self) -> bool {
-        if !self.fake_key(KEY_PRESS, KEYCODE_CTRL)
-            || !self.fake_key(KEY_PRESS, KEYCODE_V)
-            || !self.fake_key(KEY_RELEASE, KEYCODE_V)
-        {
-            return false;
-        }
-        self.fake_key(KEY_RELEASE, KEYCODE_CTRL)
     }
 }
 

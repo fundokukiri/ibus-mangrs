@@ -244,11 +244,11 @@ fn address_from_dir(dir: &std::path::Path) -> Option<String> {
 
 struct EngineHandler {
     engine: SharedEngine,
-    /// The selected injection backend: `emit`'s transports and the paste
-    /// channel route through it, and the engine's availability flag is fed
-    /// from `current()`. Selected at startup; re-selected with denials
-    /// cleared on config apply/focus-in; the uinput denial is additionally
-    /// retried per keystroke (the cheap-probe self-heal).
+    /// The selected injection backend: `emit`'s transports route through it,
+    /// and the engine's availability flag is fed from `current()`. Selected
+    /// at startup; re-selected with denials cleared on config apply/focus-in;
+    /// the uinput denial is additionally retried per keystroke (the
+    /// cheap-probe self-heal).
     injection: Injection,
     /// Config file hot-reload: check the mtime at most once a second, on key
     /// events, so GUI/menu edits apply without a focus change or restart.
@@ -703,12 +703,6 @@ fn process_key(
     }
     // Ctrl/Alt/Super combinations are application shortcuts.
     if state & keymap::SHORTCUT_MASK != 0 {
-        // The Ctrl+V of a clipboard-channel paste comes back as a shortcut:
-        // it is our own injection and must reach the application untouched.
-        if let Some(commits) = engine.take_nav_echo(keymap::V) {
-            park_nav_commits(engine, commits);
-            return false;
-        }
         if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
                 out.push(signal("CommitText").append1(plain_text(&text)));
@@ -762,25 +756,8 @@ fn process_key(
         }
     }
 
-    // A nav echo whose keyval is neither an editing key nor a shortcut
-    // has no other consumption site; forward it once rather than letting
-    // process_char treat it as a real keystroke.
-    if let Some(commits) = engine.take_nav_echo(keyval) {
-        park_nav_commits(engine, commits);
-        return false;
-    }
-
     // Arrows, Tab, Escape, Delete... end the word and belong to the app.
     if keymap::is_editing_key(keyval) {
-        // Echoes of keys the injection transports pressed outside the
-        // Backspace set (the clipboard channel's Ctrl+V): forward them so
-        // the paste actually happens. Their commits park like the Backspace
-        // path's — an inline commit overtook the injected key on the relay
-        // and landed before the paste it belongs to.
-        if let Some(commits) = engine.take_nav_echo(keyval) {
-            park_nav_commits(engine, commits);
-            return false;
-        }
         if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
                 out.push(signal("CommitText").append1(plain_text(&text)));
@@ -873,30 +850,17 @@ fn emit(
 ) -> u32 {
     let transports = Transports {
         backspaces: &|n, gap| injection.backspaces(n, gap),
-        paste: &|text, delay| crate::paste::paste_and_restore(text, &|| injection.paste(), delay),
     };
     emit_with(engine, actions, out, &transports)
-}
-
-/// Park the commits a nav-echo flush just made deliverable — the same
-/// grace as the Backspace path. On a mutter relay the app applies the
-/// injected keys a beat behind the commit channel, so a commit emitted
-/// with the last echo can land before the key it belongs to.
-fn park_nav_commits(engine: &mut Engine, commits: Vec<String>) {
-    for text in commits {
-        engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
-    }
 }
 
 /// Key transports shaped like the selected backend's ops. Production builds
 /// them over the server's `Injection`, which forwards to the backend it
 /// holds; tests build them over stubs to exercise the injection paths
 /// without a writable `/dev/uinput`. `backspaces(n, gap)` presses Backspace
-/// `n` times `gap` ms apart; `paste` puts text on the clipboard (with
-/// restore) around a Ctrl+V and reports success.
+/// `n` times `gap` ms apart.
 struct Transports<'a> {
     backspaces: &'a dyn Fn(u32, u64) -> bool,
-    paste: &'a dyn Fn(&str, u64) -> bool,
 }
 
 /// `emit` with injectable transports. Tests use it to exercise the injection
@@ -919,7 +883,6 @@ fn emit_with(
     let bs_gap = engine.backspace_interval_ms();
     let mut injected_since_commit = 0u32;
     let mut injected_total = 0u32;
-    let mut nav_since_commit = 0usize;
     // Set when a rewrite delete could not be delivered to a client proven
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
@@ -931,7 +894,6 @@ fn emit_with(
                 out,
                 text.clone(),
                 &mut delete_failed,
-                &mut nav_since_commit,
                 &mut injected_since_commit,
             ),
             Action::DeleteBefore(n) if inject => {
@@ -1122,28 +1084,6 @@ fn emit_with(
             Action::CommitNow(text) => {
                 out.push(signal("CommitText").append1(plain_text(text)));
             }
-            Action::Paste(text) => {
-                if (t.paste)(text, engine.clipboard_restore_delay_ms()) {
-                    // Length only: the word itself is what the user just
-                    // typed, and the paste result is visible on screen.
-                    debug_log::log(&format!("paste channel len={}", text.chars().count()));
-                    // The Ctrl+V we injected comes back as a key event; forward it.
-                    engine.add_injected_nav(&[keymap::V]);
-                } else {
-                    debug_log::log("paste channel FAILED → CommitText fallback");
-                    // Same deferrals as a plain commit: this fallback usually
-                    // follows injected Backspaces, and overtaking them makes
-                    // the accent flash and revert.
-                    push_commit(
-                        engine,
-                        out,
-                        text.clone(),
-                        &mut delete_failed,
-                        &mut nav_since_commit,
-                        &mut injected_since_commit,
-                    );
-                }
-            }
             Action::PostDelay(ms) => {
                 if *ms > 0 {
                     std::thread::sleep(std::time::Duration::from_millis(*ms));
@@ -1171,16 +1111,10 @@ fn push_commit(
     out: &mut Vec<Message>,
     text: String,
     delete_failed: &mut bool,
-    nav_since_commit: &mut usize,
     injected_since_commit: &mut u32,
 ) {
     if std::mem::take(delete_failed) {
         debug_log::log("commit suppressed: its rewrite delete was not deliverable");
-    } else if *nav_since_commit > 0 {
-        // A commit right after an injected nav key (the paste channel's
-        // Ctrl+V) can land before the app applied the key.
-        engine.defer_nav_commit(*nav_since_commit, text);
-        *nav_since_commit = 0;
     } else if *injected_since_commit > 0 {
         // The injected Backspaces travel through the compositor while this
         // commit would go straight over D-Bus — a synchronous commit here
@@ -1213,12 +1147,8 @@ const INTROSPECT_XML: &str = r#"<node>
   </interface>
 </node>"#;
 
-/// Fake transports for tests: every key press "succeeds", the clipboard
-/// does not exist (Paste falls back to CommitText).
+/// Fake transports for tests: every key press "succeeds".
 #[cfg(test)]
 fn fake_transports<'a>(backspaces: &'a dyn Fn(u32, u64) -> bool) -> Transports<'a> {
-    Transports {
-        backspaces,
-        paste: &|_, _| false,
-    }
+    Transports { backspaces }
 }

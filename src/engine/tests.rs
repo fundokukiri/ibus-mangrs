@@ -1962,8 +1962,6 @@ fn experimental_gate_forces_every_feature_off() {
             macro_expand_valid_words: true,
             extra_url_chars_enabled: true,
             extra_url_chars: "`".into(),
-            clipboard_restore_delay_enabled: true,
-            clipboard_restore_delay_ms: 1500,
             echo_stale_enabled: true,
             echo_stale_ms: 400,
             ..Config::default()
@@ -1977,7 +1975,6 @@ fn experimental_gate_forces_every_feature_off() {
         "`việt` ",
         "no extra bypass"
     );
-    assert_eq!(e.clipboard_restore_delay_ms(), 600, "default delay");
     assert_eq!(e.echo_stale(), Duration::from_millis(150), "default window");
     assert!(!e.macro_expand_valid_words && !e.idle_commit_enabled);
     assert!(e.extra_url_chars.is_empty() && e.extra_capitalize_after.is_empty());
@@ -1998,37 +1995,6 @@ fn experimental_gate_forces_every_feature_off() {
         "`vieejt` ",
         "bypass applies"
     );
-}
-
-#[test]
-fn clipboard_restore_delay_is_flag_gated() {
-    // Default: the built-in 600 ms, whatever a hand edit put in the value.
-    let e = engine(Mode::Surrounding, Config::default());
-    assert_eq!(e.clipboard_restore_delay_ms(), 600);
-    let e = engine(
-        Mode::Surrounding,
-        Config {
-            clipboard_restore_delay_enabled: false,
-            clipboard_restore_delay_ms: 1500,
-            ..Config::default()
-        },
-    );
-    assert_eq!(
-        e.clipboard_restore_delay_ms(),
-        600,
-        "the switch off must ignore the stored value"
-    );
-    // Switch on: the custom value applies.
-    let e = engine(
-        Mode::Surrounding,
-        Config {
-            experimental_features: true,
-            clipboard_restore_delay_enabled: true,
-            clipboard_restore_delay_ms: 1500,
-            ..Config::default()
-        },
-    );
-    assert_eq!(e.clipboard_restore_delay_ms(), 1500);
 }
 
 #[test]

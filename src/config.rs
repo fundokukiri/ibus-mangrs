@@ -110,13 +110,11 @@ pub struct Config {
     pub backspace_interval_ms: u64,
     /// Uinput pacing: idle time after a rewrite before more typing (ms).
     pub post_delay_ms: u64,
-    /// How the Vietnamese word reaches the app in the uinput modes:
-    /// `commit` = IBus CommitText, `clipboard` = clipboard paste (Ctrl+V).
+    /// How the Vietnamese word reaches the app in the uinput modes. Only
+    /// `commit` (IBus CommitText) exists now; the clipboard paste channel
+    /// was removed, and its old `clipboard` value parses as `commit` so old
+    /// files keep loading.
     pub unicode_channel: UnicodeChannel,
-    /// Custom clipboard restore delay after a paste (ms) — the built-in
-    /// default applies while the switch is off.
-    pub clipboard_restore_delay_enabled: bool,
-    pub clipboard_restore_delay_ms: u64,
     /// Custom lost-echo stale window (ms) for the uinput modes — the
     /// built-in default applies while the switch is off. Too small risks
     /// lost characters; too large makes words appear late.
@@ -417,12 +415,12 @@ impl Config {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum UnicodeChannel {
-    /// IBus `CommitText` — safe everywhere, does not touch the clipboard.
+    /// IBus `CommitText` — the only channel: text always travels over IBus
+    /// and never touches the clipboard. The alias keeps the removed
+    /// clipboard channel's value loading from old files.
     #[default]
+    #[serde(alias = "clipboard")]
     Commit,
-    /// Set the clipboard to the word, paste with injected Ctrl+V, restore the
-    /// clipboard afterwards. Works in apps that read raw keys (games).
-    Clipboard,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -864,8 +862,6 @@ impl Default for Config {
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,
-            clipboard_restore_delay_enabled: false,
-            clipboard_restore_delay_ms: 600,
             echo_stale_enabled: false,
             echo_stale_ms: 150,
             idle_commit_enabled: false,
@@ -1174,6 +1170,22 @@ mod tests {
         assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
         let c: Config = toml::from_str("visible_modes = [\"select\"]\n").unwrap();
         assert_eq!(c.visible_modes(), vec![ModeConfig::Flow]);
+    }
+
+    #[test]
+    fn clipboard_channel_value_migrates_to_commit() {
+        // The clipboard paste channel died (owner decision 15/11): an old
+        // file's `unicode_channel = "clipboard"` must parse as Commit, and
+        // a save must persist the current spelling so the value converges.
+        let c: Config = toml::from_str("unicode_channel = \"clipboard\"\n").unwrap();
+        assert_eq!(c.unicode_channel, UnicodeChannel::Commit);
+        let text = toml::to_string_pretty(&c).unwrap();
+        assert!(
+            text.contains("unicode_channel = \"commit\""),
+            "the round-trip must persist the current spelling: {text}"
+        );
+        let back: Config = toml::from_str(&text).unwrap();
+        assert_eq!(back.unicode_channel, UnicodeChannel::Commit);
     }
 
     #[test]

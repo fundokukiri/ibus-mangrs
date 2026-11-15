@@ -473,27 +473,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         let spoken = format!("{} (ms)", caption_text);
         spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
     }
-    let unicode_channel = combo_row(
-        &t("rows.unicode_channel.title", "Kênh gửi từ tiếng Việt"),
-        &t(
-            "rows.unicode_channel.subtitle",
-            "CommitText an toàn, hoặc Clipboard (Ctrl+V, tạm đè clipboard)",
-        ),
-        &labels(CHANNELS),
-    );
-    let clipboard_restore_spin = spin_button(100.0, 5000.0, 50.0);
-    clipboard_restore_spin.set_sensitive(false);
-    let (clipboard_restore_row, clipboard_restore_switch) = switch_value_row(
-        &t(
-            "rows.clipboard_restore.title",
-            "Hồi clipboard sau khi dán (ms)",
-        ),
-        &t(
-            "rows.clipboard_restore.subtitle",
-            "Trễ trả lại clipboard cũ sau khi dán",
-        ),
-        &clipboard_restore_spin,
-    );
     let echo_stale_spin = spin_button(50.0, 1000.0, 10.0);
     echo_stale_spin.set_sensitive(false);
     let (echo_stale_row, echo_stale_switch) = switch_value_row(
@@ -712,11 +691,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         "tips.post_delay",
         "Chờ sau khi viết lại cả từ trước khi gõ chữ tiếp, dành cho app xử lý phím chậm."
     );
-    tip!(
-        unicode_channel,
-        "tips.unicode_channel",
-        "Cách gửi từ có ký tự đặc biệt: CommitText là an toàn; Clipboard dùng Ctrl+V, tạm đè clipboard."
-    );
     // Every "Thử nghiệm" row: the tooltip names the feature it belongs to.
     tip!(
         experimental_features,
@@ -737,11 +711,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         auto_capitalize_after_row,
         "tips.auto_capitalize_after",
         "Tính năng Tự viết hoa (sau . ! ? và Enter): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; không nhận chữ, số, khoảng trắng."
-    );
-    tip!(
-        clipboard_restore_row,
-        "tips.clipboard_restore",
-        "Tính năng khôi phục clipboard: khi dán chữ có dấu ở kênh Clipboard, clipboard bị đè tạm — số ms bên phải là thời gian chờ trước khi clipboard cũ được trả lại. Chỉ tác dụng khi kênh gửi từ là Clipboard."
     );
     tip!(
         echo_stale_row,
@@ -854,10 +823,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         commit_interval,
         backspace_interval,
         post_delay,
-        unicode_channel,
-        clipboard_restore_row,
-        clipboard_restore_switch,
-        clipboard_restore_spin,
         echo_stale_row,
         echo_stale_switch,
         echo_stale_spin,

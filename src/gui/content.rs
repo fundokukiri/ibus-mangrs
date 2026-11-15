@@ -713,10 +713,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         }
         {
             let s = save.clone();
-            ui.unicode_channel.connect_selected_notify(move |_| s());
-        }
-        {
-            let s = save.clone();
             ui.time_format.connect_selected_notify(move |_| s());
         }
         {
@@ -890,7 +886,6 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.em_dash);
     on_change!(ui.auto_capitalize);
     on_change!(ui.auto_capitalize_after_switch);
-    on_change!(ui.clipboard_restore_switch);
     on_change!(ui.echo_stale_switch);
     on_change!(ui.idle_commit_switch);
     on_change!(ui.flow_per_key_switch);

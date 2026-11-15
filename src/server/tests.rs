@@ -571,52 +571,6 @@ fn registry_uses_the_newest_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[test]
-fn paste_failure_falls_back_to_commit() {
-    // Without a clipboard tool the Paste transport fails; the word must
-    // still reach the application (CommitText fallback).
-    let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_uinput_available(true);
-    let mut out = Vec::new();
-    let bs = |_: u32, _: u64| true;
-    let t = fake_transports(&bs);
-    emit_with(&mut e, &[Action::Paste("việt".into())], &mut out, &t);
-    assert!(
-        out.iter()
-            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
-        "{:?}",
-        out.iter()
-            .map(|m| m.member().map(|m| m.to_string()))
-            .collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn paste_fallback_after_injected_backspaces_is_deferred() {
-    // The flow rewrite erases the raw keys with injected Backspaces,
-    // then the paste fails. The fallback commit must not overtake the
-    // echoes, or the app deletes the freshly committed word.
-    let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_uinput_available(true);
-    let mut out = Vec::new();
-    let bs = |_: u32, _: u64| true;
-    let t = fake_transports(&bs);
-    emit_with(
-        &mut e,
-        &[Action::InjectBackspaces(6), Action::Paste("việt".into())],
-        &mut out,
-        &t,
-    );
-    assert!(
-        !out.iter()
-            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
-        "the fallback commit must wait for the Backspace echoes"
-    );
-    assert!(e.has_deferred());
-}
-
 // --- emit over the selected injection backend ---
 
 /// The injected ops, recorded by [`RecordingBackend`]. One entry per call,
@@ -624,7 +578,6 @@ fn paste_fallback_after_injected_backspaces_is_deferred() {
 #[derive(Debug, PartialEq)]
 enum RecordedOp {
     Backspaces(u32),
-    Paste,
 }
 
 /// Test double for the backend the server's `Injection` selects: records
@@ -652,11 +605,6 @@ impl BackendOps for RecordingBackend {
     // Whitelist surface: Delete stays a backend op, but no engine action
     // reaches it anymore, so there is nothing to record.
     fn delete(&self, _n: u32) -> bool {
-        true
-    }
-
-    fn paste(&self) -> bool {
-        self.ops.lock().unwrap().push(RecordedOp::Paste);
         true
     }
 }

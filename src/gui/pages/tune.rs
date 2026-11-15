@@ -1,7 +1,7 @@
 //! Page "Tinh chỉnh": the technical knobs most users never touch — the
-//! uinput pacing (Flow only), the delivery
-//! channel and the X11/XIM workarounds. The rows themselves come from
-//! `build`; this page groups them and keeps subtitles to two lines.
+//! uinput pacing (Flow only) and the X11/XIM workarounds. The rows
+//! themselves come from `build`; this page groups them and keeps subtitles
+//! to two lines.
 
 use super::*;
 
@@ -41,19 +41,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         });
     }
     page.add(&pacing);
-
-    // The delivery channel is not a speed knob: its own group keeps the
-    // pacing description from crowding the selected value. The experimental
-    // pairs that used to sit under it moved to the "Thử nghiệm" tab.
-    let channel = adw::PreferencesGroup::builder()
-        .title(t("groups.tune.channel.title", "Kênh gửi chữ"))
-        .build();
-    channel.add(&ui.unicode_channel);
-    ui.unicode_channel.set_subtitle(&t(
-        "rows.unicode_channel.subtitle",
-        "Clipboard sẽ tạm ghi đè nội dung clipboard của bạn.",
-    ));
-    page.add(&channel);
 
     // X11/XIM workarounds.
     let xim = adw::PreferencesGroup::builder()

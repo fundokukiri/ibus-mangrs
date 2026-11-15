@@ -30,8 +30,4 @@ impl BackendOps for UinputBackend {
         }
         true
     }
-
-    fn paste(&self) -> bool {
-        Uinput::ctrl_v()
-    }
 }

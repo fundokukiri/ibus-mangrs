@@ -299,10 +299,7 @@ impl Engine {
                     actions.push(Action::InjectBackspaces(n));
                 }
             }
-            match self.unicode_channel {
-                UnicodeChannel::Commit => actions.push(Action::Commit(replacement.clone())),
-                UnicodeChannel::Clipboard => actions.push(Action::Paste(replacement.clone())),
-            }
+            actions.push(Action::Commit(replacement.clone()));
             if self.post_delay_ms > 0 && mode != Mode::SmoothForward {
                 actions.push(Action::PostDelay(self.post_delay_ms));
             }
@@ -1081,16 +1078,10 @@ impl Engine {
             }
         }
         let encoded = encode(self.charset, text);
-        match self.unicode_channel {
-            UnicodeChannel::Commit => actions.push(Action::Commit(match terminator {
-                Some(c) => format!("{encoded}{c}"),
-                None => encoded,
-            })),
-            UnicodeChannel::Clipboard => actions.push(Action::Paste(match terminator {
-                Some(c) => format!("{encoded}{c}"),
-                None => encoded,
-            })),
-        }
+        actions.push(Action::Commit(match terminator {
+            Some(c) => format!("{encoded}{c}"),
+            None => encoded,
+        }));
         if self.post_delay_ms > 0 && mode != Mode::SmoothForward {
             actions.push(Action::PostDelay(self.post_delay_ms));
         }

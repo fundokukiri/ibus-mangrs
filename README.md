@@ -274,7 +274,7 @@ matching them by name needs the companion GNOME Shell extension
 - `/dev/uinput` comes from `systemd-logind` as a **session-scoped ACL**; the `input` group is no
   longer used. That group can read every keyboard of the machine (`/dev/input/event*`), so the
   installer removes the account from it and deletes the old `80-uinput.rules`.
-- The virtual keyboard registers **six keys only** — Backspace, Delete, Left, Shift, Ctrl+V. The
+- The virtual keyboard registers **two keys only** — Backspace and Delete. The
   kernel drops every other keycode, so a bug there cannot type text.
 - The debug log is off by default and created `0600`; it only contains typed text when
   `debug_log_text` is enabled on purpose.

@@ -77,19 +77,19 @@ fn gtk_widget_scenarios() {
 }
 
 /// The combo item lists (mode/charset/method/...) render in the window's
-/// language; positions stay the index contract either way.
+/// language; positions stay the index contract either way. `labels()` keeps a
+/// direct assert on one surviving list, `mode_label` on the mode helper.
 #[test]
 fn labels_follow_the_language() {
     let _g = crate::gui::text::LANG_TEST_LOCK
         .lock()
         .unwrap_or_else(|p| p.into_inner());
     set_language("vi");
-    assert_eq!(labels(CHANNELS)[0], "CommitText (an toàn)");
-    set_language("en");
-    assert_eq!(labels(CHANNELS)[0], "CommitText (safe)");
-    assert_eq!(mode_label(ModeConfig::Preedit), "Underline (preedit)");
-    set_language("vi");
+    assert_eq!(labels(BACKSPACE_TONE_MODES)[0], "Xóa dấu trước");
     assert_eq!(mode_label(ModeConfig::Preedit), "Gạch chân (preedit)");
+    set_language("en");
+    assert_eq!(labels(BACKSPACE_TONE_MODES)[0], "Tone first");
+    assert_eq!(mode_label(ModeConfig::Preedit), "Underline (preedit)");
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -538,9 +538,7 @@ fn refresh_round_trips_every_widget() {
         commit_interval_ms: 33,
         backspace_interval_ms: 7,
         post_delay_ms: 12,
-        unicode_channel: crate::config::UnicodeChannel::Clipboard,
-        clipboard_restore_delay_enabled: true,
-        clipboard_restore_delay_ms: 1500,
+        unicode_channel: crate::config::UnicodeChannel::Commit,
         echo_stale_enabled: true,
         echo_stale_ms: 250,
         idle_commit_enabled: true,
@@ -845,10 +843,9 @@ fn every_switch_triggers_save() {
     }
     // The merged "Thử nghiệm" rows carry bare GtkSwitch suffixes — same
     // wiring, different widget type.
-    let switches: [&gtk4::Switch; 6] = [
+    let switches: [&gtk4::Switch; 5] = [
         &ui.extra_url_chars_switch,
         &ui.auto_capitalize_after_switch,
-        &ui.clipboard_restore_switch,
         &ui.echo_stale_switch,
         &ui.idle_commit_switch,
         &ui.flow_backspace_restore_switch,

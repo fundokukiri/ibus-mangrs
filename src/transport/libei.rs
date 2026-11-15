@@ -37,8 +37,6 @@ use super::{BackendOps, Kind};
 // +8. Identical whitelist: no op can reach a keycode beyond these.
 const KEY_BACKSPACE: u32 = 14;
 const KEY_DELETE: u32 = 111;
-const KEY_V: u32 = 47;
-const KEY_CTRL: u32 = 29;
 
 // The whole CreateSession -> fd -> resumed-device round-trip is bounded by
 // this budget; mutter answers each step in single-digit ms when healthy.
@@ -408,18 +406,6 @@ impl BackendOps for LibeiBackend {
         self.op_end();
         true
     }
-
-    fn paste(&self) -> bool {
-        if !self.op_begin() {
-            return false;
-        }
-        self.key(KEY_CTRL, true);
-        self.key(KEY_V, true);
-        self.key(KEY_V, false);
-        self.key(KEY_CTRL, false);
-        self.op_end();
-        true
-    }
 }
 
 impl Drop for LibeiBackend {
@@ -535,7 +521,5 @@ mod tests {
         // internally — unlike the XTest/wlr_vk tables, which carry the +8.
         assert_eq!(super::KEY_BACKSPACE, 14);
         assert_eq!(super::KEY_DELETE, 111);
-        assert_eq!(super::KEY_V, 47);
-        assert_eq!(super::KEY_CTRL, 29);
     }
 }

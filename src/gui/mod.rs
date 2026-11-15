@@ -155,10 +155,6 @@ const NAV_KEY_MODES: &[(&str, &str)] = &[
     ),
     ("Phát lại phím qua tín hiệu", "Replay the key as a signal"),
 ];
-const CHANNELS: &[(&str, &str)] = &[
-    ("CommitText (an toàn)", "CommitText (safe)"),
-    ("Clipboard (Ctrl+V)", "Clipboard (Ctrl+V)"),
-];
 
 /// The combo item labels for `pairs` in the window's language.
 pub(crate) fn labels<'a>(pairs: &'a [(&'a str, &'a str)]) -> Vec<&'a str> {
@@ -383,10 +379,6 @@ struct Ui {
     commit_interval: gtk4::SpinButton,
     backspace_interval: gtk4::SpinButton,
     post_delay: gtk4::SpinButton,
-    unicode_channel: adw::ComboRow,
-    clipboard_restore_row: adw::ActionRow,
-    clipboard_restore_switch: gtk4::Switch,
-    clipboard_restore_spin: gtk4::SpinButton,
     echo_stale_row: adw::ActionRow,
     echo_stale_switch: gtk4::Switch,
     echo_stale_spin: gtk4::SpinButton,
@@ -649,20 +641,6 @@ impl Ui {
         self.backspace_interval
             .set_value(config.backspace_interval_ms as f64);
         self.post_delay.set_value(config.post_delay_ms as f64);
-        self.unicode_channel
-            .set_selected(match config.unicode_channel {
-                crate::config::UnicodeChannel::Clipboard => 1,
-                crate::config::UnicodeChannel::Commit => 0,
-            });
-        self.clipboard_restore_switch
-            .set_active(config.clipboard_restore_delay_enabled);
-        self.clipboard_restore_spin
-            .set_sensitive(config.clipboard_restore_delay_enabled);
-        // The typed value stays saved even while the switch is off — it
-        // reapplies when the switch returns; the off state itself applies
-        // the built-in default (the engine's flag-aware getters).
-        self.clipboard_restore_spin
-            .set_value(config.clipboard_restore_delay_ms as f64);
         self.echo_stale_switch.set_active(config.echo_stale_enabled);
         self.echo_stale_spin
             .set_sensitive(config.echo_stale_enabled);
@@ -829,12 +807,6 @@ impl Ui {
         config.commit_interval_ms = self.commit_interval.value() as u64;
         config.backspace_interval_ms = self.backspace_interval.value() as u64;
         config.post_delay_ms = self.post_delay.value() as u64;
-        config.unicode_channel = match self.unicode_channel.selected() {
-            1 => crate::config::UnicodeChannel::Clipboard,
-            _ => crate::config::UnicodeChannel::Commit,
-        };
-        config.clipboard_restore_delay_enabled = self.clipboard_restore_switch.is_active();
-        config.clipboard_restore_delay_ms = self.clipboard_restore_spin.value() as u64;
         config.echo_stale_enabled = self.echo_stale_switch.is_active();
         config.echo_stale_ms = self.echo_stale_spin.value() as u64;
         config.idle_commit_enabled = self.idle_commit_switch.is_active();
@@ -895,9 +867,6 @@ impl Ui {
             config.auto_capitalize_after_enabled = saved_experimental.auto_capitalize_after_enabled;
             config.auto_capitalize_after = saved_experimental.auto_capitalize_after;
             config.macro_expand_valid_words = saved_experimental.macro_expand_valid_words;
-            config.clipboard_restore_delay_enabled =
-                saved_experimental.clipboard_restore_delay_enabled;
-            config.clipboard_restore_delay_ms = saved_experimental.clipboard_restore_delay_ms;
             config.echo_stale_enabled = saved_experimental.echo_stale_enabled;
             config.echo_stale_ms = saved_experimental.echo_stale_ms;
             config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
@@ -959,11 +928,10 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 9] = [
+        let rows: [&gtk4::Widget; 8] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_row.upcast_ref(),
             self.auto_capitalize_after_row.upcast_ref(),
-            self.clipboard_restore_row.upcast_ref(),
             self.echo_stale_row.upcast_ref(),
             self.idle_commit_row.upcast_ref(),
             self.flow_backspace_retrack.upcast_ref(),
@@ -977,8 +945,6 @@ impl Ui {
             // The entry/spin twins follow their own switch again — a twin
             // stays locked while its switch is off, always inside the gate.
             let gate = self.experimental_features.is_active();
-            self.clipboard_restore_spin
-                .set_sensitive(gate && self.clipboard_restore_switch.is_active());
             self.echo_stale_spin
                 .set_sensitive(gate && self.echo_stale_switch.is_active());
             self.idle_commit_spin
@@ -1009,10 +975,6 @@ impl Ui {
             .set_active(d.auto_capitalize_after_enabled);
         self.auto_capitalize_after_entry
             .set_text(&d.auto_capitalize_after);
-        self.clipboard_restore_switch
-            .set_active(d.clipboard_restore_delay_enabled);
-        self.clipboard_restore_spin
-            .set_value(d.clipboard_restore_delay_ms as f64);
         self.echo_stale_switch.set_active(d.echo_stale_enabled);
         self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
         self.idle_commit_switch.set_active(d.idle_commit_enabled);
@@ -1043,10 +1005,6 @@ impl Ui {
             .set_active(c.auto_capitalize_after_enabled);
         self.auto_capitalize_after_entry
             .set_text(&c.auto_capitalize_after);
-        self.clipboard_restore_switch
-            .set_active(c.clipboard_restore_delay_enabled);
-        self.clipboard_restore_spin
-            .set_value(c.clipboard_restore_delay_ms as f64);
         self.echo_stale_switch.set_active(c.echo_stale_enabled);
         self.echo_stale_spin.set_value(c.echo_stale_ms as f64);
         self.idle_commit_switch.set_active(c.idle_commit_enabled);

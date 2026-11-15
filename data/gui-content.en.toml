@@ -196,10 +196,6 @@ subtitle = "Custom characters listed in the right box"
 title = "Capitalize after extra characters"
 subtitle = "Extra characters listed in the right box"
 
-[rows.clipboard_restore]
-title = "Restore clipboard after a paste (ms)"
-subtitle = "Delay before the old clipboard returns"
-
 [rows.echo_stale]
 title = "Flush commits on stale echo (ms)"
 subtitle = "Echo wait limit before the text flushes"
@@ -530,10 +526,6 @@ title = "Backspace pace"
 [rows.post_delay]
 title = "Post-word delay"
 
-[rows.unicode_channel]
-title = "Vietnamese word channel"
-subtitle = "Clipboard temporarily overwrites your clipboard content."
-
 # --- page About ---------------------------------------------------------------
 
 [about]
@@ -602,7 +594,6 @@ preedit_xim = "Uses a separate preedit window for XIM apps (Java/JetBrains) that
 commit_interval = "The per-word send pace in uinput modes — lower it if an app loses text, raise it if it stalls."
 backspace_interval = "The Backspace send pace in uinput modes — lower it if deletion lags, raise it if the app cannot keep up."
 post_delay = "Waits after rewriting a whole word before the next character, for apps with slow key handling."
-unicode_channel = "How words with special characters are sent: CommitText is safe; Clipboard uses Ctrl+V and temporarily overwrites the clipboard."
 export = "Saves the whole configuration, shorthand and dictionary to one JSON file to carry to another machine."
 import = "Reads back an exported JSON file: overwrites the current configuration, shorthand and dictionary."
 desktop_icon = "Show or hide the “MăngRS Settings” entry in GNOME's app grid (GNOME takes a few seconds to notice)."
@@ -613,7 +604,6 @@ experimental_features = "The master switch of the Experimental tab: off locks ev
 macro_valid_words = "The Shorthand feature: a shortcut colliding with a real Vietnamese word (e.g. \"cam\") does not expand, so normal typing is never blocked. On, shorthand wins — to type the real word, Backspace once and retype that key."
 extra_url_chars = "The No-tone-after-URL feature by default keeps only real URLs (https://, www.) raw. This row adds your OWN characters: a word typed right after one of them stays raw (no tones). Flip the left switch and list the characters in the right box (e.g. ` ' !); '-' is rejected so -- stays an em dash."
 auto_capitalize_after = "The Auto-capitalize feature (after . ! ? and Enter): this row adds custom characters to that set. Flip the left switch and list the characters in the right box (e.g. : ”); no letters, digits or spaces."
-clipboard_restore = "The clipboard-restore feature: pasting marked text over the Clipboard channel overwrites the clipboard for a moment — the right number is how long before the old clipboard comes back. Only effective when the send channel is Clipboard.Only effective when the send channel is Clipboard. 100–5000 ms, default 600."
 echo_stale = "The commit-flush guard on Wayland: the engine waits for the virtual Backspace keys (echoes) to return before the committed text lands in the app. The right number is the wait limit — past it the text flushes anyway instead of hanging.past it the text flushes anyway instead of hanging. 50–1000 ms, too low risks losing text, too high delays it. Default 150 ms."
 idle_commit = "The commit-on-pause feature: pausing long enough on an underlined word commits it, as if Space was pressed. The right number is the pause threshold.The right number is the pause threshold. 300–2000 ms."
 flow_per_key = "The per-key marks feature in Flow: Flow/Turbo show the accented letter as you type (ee → ê) instead of holding the raw keys until word end. Very fast typing merges the steps, the text appears when you pause. The right number is the delay before marked text lands in the document — lower shows marks sooner, higher types smoother. 0–500 ms, default 20. A too-low value can reorder text on Wayland. Select is unchanged."

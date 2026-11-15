@@ -36,17 +36,14 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
 
 use super::{BackendOps, Kind};
 
-// X keycodes = Linux evdev + 8: BACKSPACE 14->22, DELETE 111->119, CTRL 29->37, V 47->55.
+// X keycodes = Linux evdev + 8: BACKSPACE 14->22, DELETE 111->119.
 // Identical to XTest's whitelist: no op can reach a keycode beyond these.
 const KEYCODE_BACKSPACE: u32 = 22;
 const KEYCODE_DELETE: u32 = 119;
-const KEYCODE_CTRL: u32 = 37;
-const KEYCODE_V: u32 = 55;
 
-// Minimal US keymap for the whitelisted keys. The standard
-// xkeyboard-config includes are resolved by the compositor's own xkbcommon:
-// `pc` carries the modifier_map lines that make Ctrl a real modifier
-// plus the nav keys, `us` carries the letters.
+// Keymap for the whitelisted keys. The standard xkeyboard-config includes
+// are resolved by the compositor's own xkbcommon, so Backspace and Delete
+// arrive as ordinary key events in every client.
 const KEYMAP: &str = r#"xkb_keymap {
     xkb_keycodes { include "evdev" };
     xkb_types { include "complete" };
@@ -221,16 +218,6 @@ impl BackendOps for WlrVkBackend {
             }
         }
         true
-    }
-
-    fn paste(&self) -> bool {
-        if !self.key(KEYCODE_CTRL, true)
-            || !self.key(KEYCODE_V, true)
-            || !self.key(KEYCODE_V, false)
-        {
-            return false;
-        }
-        self.key(KEYCODE_CTRL, false)
     }
 }
 

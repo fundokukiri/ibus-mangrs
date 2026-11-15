@@ -25,7 +25,7 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
-use crate::config::{AppRule, BackspaceToneConfig, Config, UnicodeChannel};
+use crate::config::{AppRule, BackspaceToneConfig, Config};
 use crate::debug_log::{self, brief};
 use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
@@ -154,9 +154,6 @@ pub enum Action {
     /// IBus (ForwardSelect mode); the commit that follows replaces the
     /// selection. Same wire shape as `ForwardBackspaces`, no `/dev/uinput`.
     ForwardSelectLeft(u32),
-    /// Set the clipboard to `text`, paste with injected Ctrl+V, restore the
-    /// clipboard — the clipboard Unicode channel of the uinput modes.
-    Paste(String),
     /// Idle pause (ms) after a uinput rewrite, before the app sees more keys.
     PostDelay(u64),
     /// Emit CommitText immediately, bypassing the injected-echo deferral —
@@ -246,13 +243,6 @@ pub struct Engine {
     /// When the last batch of injections happened — echoes that have not
     /// come back within the stale window are treated as lost.
     last_inject: Option<Instant>,
-    /// Injected non-Backspace keys (the clipboard channel's Ctrl+V) whose
-    /// echoes are still expected, in press order.
-    pending_nav: Vec<u32>,
-    /// When the last non-Backspace injection happened (stale window).
-    last_nav_inject: Option<Instant>,
-    /// Commits waiting for injected nav-key echoes to be forwarded.
-    nav_deferred: Vec<(usize, String)>,
     /// Commits parked until a wall-clock deadline. On a mutter relay the
     /// commit channel reaches the client a beat ahead of the key events,
     /// so a rewrite commit must be emitted past the last delete of its
@@ -298,12 +288,6 @@ pub struct Engine {
     commit_interval_ms: u64,
     backspace_interval_ms: u64,
     post_delay_ms: u64,
-    /// How the Vietnamese word reaches the app in the uinput modes.
-    unicode_channel: UnicodeChannel,
-    /// Custom clipboard restore delay (ms); the built-in default applies
-    /// while the switch is off.
-    clipboard_restore_delay_enabled: bool,
-    clipboard_restore_delay_ms: u64,
     /// Custom lost-echo stale window (ms); the built-in default applies
     /// while the switch is off. Too small risks flushing the deferred
     /// commit over late echoes (lost characters); too large makes every
@@ -533,9 +517,6 @@ impl Engine {
             deferred: Vec::new(),
             echoes_forwarded: 0,
             last_inject: None,
-            pending_nav: Vec::new(),
-            last_nav_inject: None,
-            nav_deferred: Vec::new(),
             timed_commits: Vec::new(),
             per_key_park: None,
             word_mode: None,
@@ -558,9 +539,6 @@ impl Engine {
             commit_interval_ms: 20,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
-            unicode_channel: UnicodeChannel::Commit,
-            clipboard_restore_delay_enabled: false,
-            clipboard_restore_delay_ms: 600,
             echo_stale_enabled: false,
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
             idle_commit_enabled: false,
@@ -702,10 +680,6 @@ impl Engine {
         self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
-        self.unicode_channel = config.unicode_channel;
-        self.clipboard_restore_delay_enabled =
-            experimental && config.clipboard_restore_delay_enabled;
-        self.clipboard_restore_delay_ms = config.clipboard_restore_delay_ms;
         self.echo_stale_enabled = experimental && config.echo_stale_enabled;
         self.echo_stale_ms = config.echo_stale_ms;
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;
@@ -847,22 +821,6 @@ impl Engine {
         self.post_delay_ms
     }
 
-    /// How the Vietnamese word is delivered in the uinput modes.
-    pub fn unicode_channel(&self) -> UnicodeChannel {
-        self.unicode_channel
-    }
-
-    /// Effective clipboard restore delay: the custom value when the switch
-    /// is on, else the built-in default — the restore itself must always
-    /// run, or the user's clipboard stays replaced by the last word.
-    pub fn clipboard_restore_delay_ms(&self) -> u64 {
-        if self.clipboard_restore_delay_enabled {
-            self.clipboard_restore_delay_ms
-        } else {
-            crate::paste::DEFAULT_RESTORE_DELAY_MS
-        }
-    }
-
     /// The lost-echo stale window: the custom value when the switch is on,
     /// else the built-in default. The key handlers and the main-loop tick
     /// must read the SAME value or a lost echo holds the commit for
@@ -922,20 +880,6 @@ impl Engine {
                 }
             }
         }
-        if !self.pending_nav.is_empty() {
-            if let Some(t) = self.last_nav_inject {
-                if t.elapsed() > max {
-                    debug_log::log(&format!(
-                        "nav injection echoes stale ({}ms) → drop {} pending",
-                        t.elapsed().as_millis(),
-                        self.pending_nav.len()
-                    ));
-                    self.pending_nav.clear();
-                    self.last_nav_inject = None;
-                    stale = true;
-                }
-            }
-        }
         stale
     }
 
@@ -952,67 +896,7 @@ impl Engine {
 
     /// Injected backspace echoes still expected to come back.
     pub fn pending_echoes(&self) -> bool {
-        self.pending_injected > 0 || !self.pending_nav.is_empty()
-    }
-
-    /// Record that non-Backspace keys (the clipboard channel's Ctrl+V) were
-    /// injected; their echoes must be forwarded in press order, not
-    /// processed.
-    pub fn add_injected_nav(&mut self, keyvals: &[u32]) {
-        if keyvals.is_empty() {
-            return;
-        }
-        self.pending_nav.extend_from_slice(keyvals);
-        self.last_nav_inject = Some(Instant::now());
-    }
-
-    /// Consume an injected nav-key echo when it matches the press order.
-    /// True when the key is an echo and must go to the application untouched;
-    /// returned commits are those whose nav echoes are all delivered.
-    pub fn take_nav_echo(&mut self, keyval: u32) -> Option<Vec<String>> {
-        if self.pending_nav.first() == Some(&keyval) {
-            self.pending_nav.remove(0);
-            Some(self.note_nav_forwarded())
-        } else {
-            None
-        }
-    }
-
-    /// Non-Backspace injected keys still awaiting echoes.
-    pub fn pending_nav_echoes(&self) -> bool {
-        !self.pending_nav.is_empty()
-    }
-
-    /// A commit that must wait until `n` more injected nav-key echoes have
-    /// been forwarded (same transport race as `defer_commit`).
-    pub fn defer_nav_commit(&mut self, n: usize, text: String) {
-        // Length only: the queued text is the word being typed; its landing
-        // is visible on screen, the queue size is what diagnosis needs.
-        debug_log::log(&format!(
-            "defer commit after {n} nav echoes len={}",
-            text.chars().count()
-        ));
-        self.nav_deferred.push((n, text));
-    }
-
-    /// Record that one injected nav key was forwarded; returns commits whose
-    /// nav echoes have all been delivered.
-    fn note_nav_forwarded(&mut self) -> Vec<String> {
-        let mut ready = Vec::new();
-        let mut remaining = Vec::new();
-        for (left, text) in self.nav_deferred.drain(..) {
-            if left > 1 {
-                remaining.push((left - 1, text));
-            } else {
-                debug_log::log(&format!(
-                    "flush deferred commit (nav) len={}",
-                    text.chars().count()
-                ));
-                ready.push(text);
-            }
-        }
-        self.nav_deferred = remaining;
-        ready
+        self.pending_injected > 0
     }
 
     /// Queue `text` to be committed only after `n` more injected-backspace
@@ -1062,13 +946,6 @@ impl Engine {
                 text
             })
             .collect();
-        all.extend(self.nav_deferred.drain(..).map(|(_, text)| {
-            debug_log::log(&format!(
-                "flush deferred commit (nav, forced) len={}",
-                text.chars().count()
-            ));
-            text
-        }));
         // A forced flush ignores the deadline: the context is going away
         // and nobody will tick for it — delivering late beats never.
         all.extend(self.timed_commits.drain(..).map(|(_, text)| {
@@ -1089,10 +966,7 @@ impl Engine {
     }
 
     pub fn has_deferred(&self) -> bool {
-        !self.deferred.is_empty()
-            || !self.nav_deferred.is_empty()
-            || !self.timed_commits.is_empty()
-            || self.per_key_park.is_some()
+        !self.deferred.is_empty() || !self.timed_commits.is_empty() || self.per_key_park.is_some()
     }
 
     /// Hold `text` back for `delay` before it may be emitted: the relay
@@ -1889,20 +1763,14 @@ impl Engine {
     /// lost-echo stale window, the idle-commit deadline, or None when
     /// nothing is pending (the loop falls back to its 1 s poll).
     pub fn ms_until_tick(&self) -> Option<u64> {
-        // Both echo kinds share the stale window; the earliest deadline wins.
+        // The stale window wakes the loop for lost-echo flushes.
         let stale_ms = self.echo_stale().as_millis();
-        let mut deadlines: Vec<u64> = [
-            (self.pending_injected > 0)
-                .then_some(self.last_inject)
-                .flatten(),
-            (!self.pending_nav.is_empty())
-                .then_some(self.last_nav_inject)
-                .flatten(),
-        ]
-        .into_iter()
-        .flatten()
-        .map(|t| stale_ms as u64 - t.elapsed().as_millis().min(stale_ms) as u64)
-        .collect();
+        let mut deadlines: Vec<u64> = Vec::new();
+        if self.pending_injected > 0 {
+            if let Some(t) = self.last_inject {
+                deadlines.push(stale_ms as u64 - t.elapsed().as_millis().min(stale_ms) as u64);
+            }
+        }
         // The idle-commit deadline: a paused preedit word must wake the loop.
         if self.idle_commit_enabled && self.preedit_visible && !self.wrapper.output().is_empty() {
             if let Some(t) = self.last_key_at {

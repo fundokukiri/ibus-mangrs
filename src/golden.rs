@@ -611,11 +611,6 @@ impl FakeClient {
                     self.caret = self.caret.saturating_sub(*n as usize);
                     self.selection += *n as usize;
                 }
-                Action::Paste(t) => {
-                    self.buf
-                        .splice(self.caret..self.caret, t.chars().collect::<Vec<char>>());
-                    self.caret += t.chars().count();
-                }
                 // The per-key batch's parked commit: delivered as text.
                 Action::CommitNow(t) => {
                     self.buf

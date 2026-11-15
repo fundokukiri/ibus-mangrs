@@ -51,7 +51,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let tuning = adw::PreferencesGroup::builder()
         .title(t("groups.experimental.tuning.title", "Tinh chỉnh"))
         .build();
-    tuning.add(&ui.clipboard_restore_row);
     tuning.add(&ui.echo_stale_row);
     tuning.add(&ui.idle_commit_row);
     tuning.add(&ui.flow_backspace_retrack);
@@ -64,7 +63,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.macro_valid_words);
     decorate_experimental(&ui.extra_url_chars_row);
     decorate_experimental(&ui.auto_capitalize_after_row);
-    decorate_experimental(&ui.clipboard_restore_row);
     decorate_experimental(&ui.echo_stale_row);
     decorate_experimental(&ui.idle_commit_row);
     // A combo-only feature: the combo is its own primary row.
@@ -77,7 +75,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         ui.macro_valid_words.upcast_ref::<gtk4::Widget>(),
         ui.extra_url_chars_switch.upcast_ref::<gtk4::Widget>(),
         ui.auto_capitalize_after_switch.upcast_ref::<gtk4::Widget>(),
-        ui.clipboard_restore_switch.upcast_ref::<gtk4::Widget>(),
         ui.echo_stale_switch.upcast_ref::<gtk4::Widget>(),
         ui.idle_commit_switch.upcast_ref::<gtk4::Widget>(),
         ui.flow_backspace_restore_switch
@@ -113,10 +110,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             ui.auto_capitalize_after_entry.upcast_ref::<gtk4::Widget>(),
         ),
         (
-            &ui.clipboard_restore_switch,
-            ui.clipboard_restore_spin.upcast_ref::<gtk4::Widget>(),
-        ),
-        (
             &ui.echo_stale_switch,
             ui.echo_stale_spin.upcast_ref::<gtk4::Widget>(),
         ),
@@ -142,7 +135,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         entry.connect_changed(move |_| ui.fire_save());
     }
     for spin in [
-        &ui.clipboard_restore_spin,
         &ui.echo_stale_spin,
         &ui.idle_commit_spin,
         &ui.flow_backspace_restore_spin,

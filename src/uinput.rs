@@ -7,10 +7,9 @@
 //! When that is detected, the server falls back to injecting real Backspace
 //! key events through a virtual keyboard, which every toolkit honours.
 //!
-//! The uinput display modes (Flow) use the same device for more: paced key
-//! presses and Ctrl+V. Vietnamese glyphs have no keycodes, so text is
-//! injected per ASCII character only — everything else travels over IBus
-//! (CommitText or the clipboard, see `paste.rs`).
+//! The uinput display modes (Flow) use the same device for paced key
+//! presses. Vietnamese glyphs have no keycodes, so text always travels over
+//! IBus (CommitText).
 //!
 //! The device is opened lazily and kept for the engine's lifetime; a failed
 //! attempt is retried every couple of seconds, because the session ACL that
@@ -36,7 +35,6 @@ const SYN_REPORT: u16 = 0;
 
 // Linux keycodes (input-event-codes.h) — the AT set-1 numbers are wrong here.
 const KEY_BACKSPACE: u16 = 14;
-const KEY_LEFTCTRL: u16 = 29;
 /// Public so the transport backend can press Delete.
 pub const KEYCODE_DELETE: u16 = 111;
 
@@ -51,11 +49,10 @@ struct InputEvent {
 }
 
 /// The only keycodes the virtual keyboard registers. The kernel drops events
-/// for unregistered codes, so a bug in the injection path can press these four
-/// keys and nothing else — no letters (`V` appears only inside Ctrl+V, the
-/// clipboard channel), so it cannot type text. Keep the list in sync with the
-/// calls in `Uinput` (`backspace`, `press_keys`, `ctrl_v`).
-const KEYCODES: [u16; 4] = [KEY_BACKSPACE, KEYCODE_DELETE, KEY_LEFTCTRL, KEY_V_CODE];
+/// for unregistered codes, so a bug in the injection path can press these two
+/// keys and nothing else — no letters or digits, so it cannot type text. Keep
+/// the list in sync with the calls in `Uinput` (`backspace`, `press_keys`).
+const KEYCODES: [u16; 2] = [KEY_BACKSPACE, KEYCODE_DELETE];
 
 pub struct Uinput {
     file: File,
@@ -145,23 +142,7 @@ impl Uinput {
             None => false,
         }
     }
-
-    /// Press Ctrl+V (paste). Returns false when the device is unavailable.
-    pub fn ctrl_v() -> bool {
-        match Self::device() {
-            Some(dev) => {
-                dev.key_event(KEY_LEFTCTRL, 1);
-                dev.press(KEY_V_CODE);
-                dev.key_event(KEY_LEFTCTRL, 0);
-                true
-            }
-            None => false,
-        }
-    }
 }
-
-/// `KEY_V` alias for readability at the call site above.
-const KEY_V_CODE: u16 = 47;
 
 impl Uinput {
     /// Create a virtual keyboard covering every key this module can press.
@@ -328,12 +309,8 @@ mod tests {
     fn device_registers_only_the_whitelisted_keys() {
         // The kernel drops events for unregistered keycodes, so this list is
         // the device's whole capability. No letter or digit may be added: with
-        // one, a bug in the injection path could type arbitrary text. `V`
-        // appears only as Ctrl+V (the clipboard channel).
-        assert_eq!(
-            KEYCODES,
-            [KEY_BACKSPACE, KEYCODE_DELETE, KEY_LEFTCTRL, KEY_V_CODE]
-        );
+        // one, a bug in the injection path could type arbitrary text.
+        assert_eq!(KEYCODES, [KEY_BACKSPACE, KEYCODE_DELETE]);
     }
 
     #[test]

@@ -1,12 +1,10 @@
 //! Injection backends: pressing real keys outside the IM channel.
 //!
 //! Every backend implements [`BackendOps`], whose method set is a hard
-//! whitelist: Backspace, Delete and Ctrl+V (paste). Injected keys enter the
-//! input pipeline like the user's own keystrokes, so a bug in an injection
-//! path could type text desktop-wide; the whitelist keeps that damage
-//! structural — no op presses a letter or a digit (`V` appears only inside
-//! Ctrl+V, the clipboard channel). Text travels over IBus instead
-//! (CommitText or the clipboard, see `paste.rs`).
+//! whitelist: Backspace and Delete. Injected keys enter the input pipeline
+//! like the user's own keystrokes, so a bug in an injection path could type
+//! text desktop-wide; the whitelist keeps that damage structural — no op
+//! presses a letter or a digit. Text travels over IBus instead (CommitText).
 //!
 //! [`Injection`] holds the selected backend. [`Injection::select`] walks a
 //! preference list through [`constructors`]; a kind whose construction fails
@@ -66,8 +64,6 @@ pub trait BackendOps: Send {
     fn backspaces(&self, n: u32, gap_ms: u64) -> bool;
     /// Press Delete `n` times.
     fn delete(&self, n: u32) -> bool;
-    /// Press Ctrl+V (paste the clipboard).
-    fn paste(&self) -> bool;
 }
 
 /// Builds the backend for `kind`; `None` means the kind cannot be used, and
@@ -255,13 +251,6 @@ impl Injection {
             None => false,
         }
     }
-
-    pub fn paste(&self) -> bool {
-        match &self.inner {
-            Some(backend) => backend.paste(),
-            None => false,
-        }
-    }
 }
 
 /// Shared test fixture for the sibling backend test modules: `std::env` is
@@ -318,13 +307,12 @@ mod tests {
     use std::sync::Mutex;
 
     /// The injected actions, recorded by [`FakeBackend`]. `BackendOps` has
-    /// no default methods, so a method added to the trait beyond these three
+    /// no default methods, so a method added to the trait beyond these two
     /// fails to compile here — this enum is the whitelist in data form.
     #[derive(Debug, PartialEq)]
     enum RecordedOp {
         Backspace,
         Delete,
-        Paste,
     }
 
     /// Test double: always available, records every injected op.
@@ -360,25 +348,19 @@ mod tests {
             self.ops.lock().unwrap().push(RecordedOp::Delete);
             true
         }
-
-        fn paste(&self) -> bool {
-            self.ops.lock().unwrap().push(RecordedOp::Paste);
-            true
-        }
     }
 
     #[test]
     fn trait_surface_is_the_whitelist() {
-        // One call per trait method: the record must hold exactly the three
+        // One call per trait method: the record must hold exactly the two
         // whitelisted ops, in trait order, and nothing else.
         let backend = FakeBackend::new(Kind::XTest);
         assert!(backend.available());
         assert!(backend.backspaces(2, 10));
         assert!(backend.delete(1));
-        assert!(backend.paste());
         assert_eq!(
             *backend.ops.lock().unwrap(),
-            vec![RecordedOp::Backspace, RecordedOp::Delete, RecordedOp::Paste,]
+            vec![RecordedOp::Backspace, RecordedOp::Delete]
         );
     }
 
@@ -388,7 +370,6 @@ mod tests {
         assert_eq!(injection.current(), None);
         assert!(!injection.backspaces(3, 10));
         assert!(!injection.delete(3));
-        assert!(!injection.paste());
     }
 
     #[test]
@@ -414,7 +395,7 @@ mod tests {
         assert_eq!(injection.denied, vec![Kind::WlrVirtualKeyboard]);
         assert_eq!(injection.current(), Some(Kind::Uinput));
         // Pass-through now reaches the held backend.
-        assert!(injection.paste());
+        assert!(injection.backspaces(1, 0));
         // A second walk skips the denied kind, so WlrVirtualKeyboard is not
         // attempted again — and the healthy held Uinput is kept without a
         // rebuild (the churn the 15/11 fix stops).
@@ -683,10 +664,6 @@ mod tests {
         }
 
         fn delete(&self, _n: u32) -> bool {
-            true
-        }
-
-        fn paste(&self) -> bool {
             true
         }
     }
