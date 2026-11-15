@@ -12,9 +12,10 @@
 //! preference list through [`constructors`]; a kind whose construction fails
 //! is denied so it is not re-attempted on every keystroke, and
 //! [`Injection::re_request`] clears the denials when the environment may
-//! have changed.
+//! have changed — as does [`Injection::re_request_paced`] from the key
+//! path, paced by `RE_REQUEST_COOLDOWN`.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::uinput::Uinput;
 
@@ -128,6 +129,12 @@ fn on_mutter() -> bool {
         .unwrap_or(false)
 }
 
+/// Cooldown between the key path's paced re-requests: a cleared denial walks
+/// the real constructor table, and those costs are asymmetric — the uinput
+/// probe is a cheap device open, while a mutter/Libei acquisition runs whole
+/// seconds — so a Flow word may pay for one at most this often.
+const RE_REQUEST_COOLDOWN: Duration = Duration::from_secs(2);
+
 /// The selected backend plus the selection bookkeeping.
 #[derive(Default)]
 pub struct Injection {
@@ -135,8 +142,8 @@ pub struct Injection {
     // Kinds whose construction failed, skipped by later selects so a broken
     // transport is not retried on every keystroke; `re_request` clears them.
     denied: Vec<Kind>,
-    // Retry pacing for the re-request wiring; the mode-layer plan reads it.
-    #[allow(dead_code)]
+    // Instant of the last constructor attempt (a select walk or a paced
+    // clear): `re_request_paced` gates the key-path re-request on it.
     last_attempt: Option<Instant>,
 }
 
@@ -205,6 +212,25 @@ impl Injection {
     /// every kind there costs little on a rare event.
     pub fn re_request(&mut self) {
         self.denied.clear();
+    }
+
+    /// Clear the denials for the key path's re-request, PACED: unlike the
+    /// config-apply `re_request` (rare, user-visible), this fires from
+    /// `process_key` — and a cleared denial walks the real constructor
+    /// table, whose costs are asymmetric (the uinput probe is a cheap
+    /// device open, a mutter/Libei acquisition costs seconds) — so the
+    /// denials may clear at most once per [`RE_REQUEST_COOLDOWN`]. Returns
+    /// whether they cleared (the caller then re-selects).
+    pub fn re_request_paced(&mut self) -> bool {
+        let cooldown_over = match self.last_attempt {
+            None => true,
+            Some(at) => at.elapsed() > RE_REQUEST_COOLDOWN,
+        };
+        if cooldown_over {
+            self.denied.clear();
+            self.last_attempt = Some(Instant::now());
+        }
+        cooldown_over
     }
 
     /// Clear one kind's denial so the next `select` retries it. The
@@ -467,6 +493,47 @@ mod tests {
             Some(Kind::Libei)
         );
         assert_eq!(injection.current(), Some(Kind::Libei));
+    }
+
+    #[test]
+    fn re_request_paced_within_cooldown_is_a_no_op() {
+        // The key path's re-request is paced by last_attempt: every
+        // constructor attempt stamps it, so a Flow word right after a
+        // failure must not clear the denials; once the stamp is older than
+        // the cooldown the clear goes through and re-stamps, so a second
+        // paced call within the cooldown builds at most once.
+        let mut injection = Injection::new();
+        let attempts = Mutex::new(Vec::new());
+        let counting_ctor = |kind: Kind| -> Option<Box<dyn BackendOps>> {
+            attempts.lock().unwrap().push(kind);
+            Some(Box::new(FakeBackend::new(kind)))
+        };
+        // A failed walk denies the kind AND stamps last_attempt: the
+        // paced clear right after is a no-op.
+        let nothing = |_: Kind| -> Option<Box<dyn BackendOps>> { None };
+        assert_eq!(injection.select_with(&[Kind::Libei], &nothing), None);
+        assert_eq!(injection.denied, vec![Kind::Libei]);
+        assert!(!injection.re_request_paced());
+        assert_eq!(injection.denied, vec![Kind::Libei]);
+        // A stamp older than the cooldown clears, and the next walk
+        // retries the kind exactly once.
+        injection.last_attempt =
+            Some(Instant::now() - RE_REQUEST_COOLDOWN - Duration::from_millis(1));
+        assert!(injection.re_request_paced());
+        assert!(injection.denied.is_empty());
+        assert_eq!(
+            injection.select_with(&[Kind::Libei], &counting_ctor),
+            Some(Kind::Libei)
+        );
+        assert_eq!(*attempts.lock().unwrap(), vec![Kind::Libei]);
+        // The clear re-stamped: a second paced call within the cooldown is
+        // a no-op — the denied constructor is not retried per keystroke.
+        injection.inner = None;
+        assert_eq!(injection.select_with(&[Kind::Libei], &nothing), None);
+        assert_eq!(injection.denied, vec![Kind::Libei]);
+        assert!(!injection.re_request_paced());
+        assert_eq!(injection.select_with(&[Kind::Libei], &counting_ctor), None);
+        assert_eq!(*attempts.lock().unwrap(), vec![Kind::Libei]);
     }
 
     use super::test_env::{EnvGuard, ENV_LOCK};

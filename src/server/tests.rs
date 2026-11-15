@@ -1757,3 +1757,53 @@ fn self_heal_picks_uinput_up_mid_session() {
     assert_eq!(injection.current(), Some(Kind::Uinput));
     assert!(engine.uinput_available());
 }
+
+#[test]
+fn flow_fallback_re_requests_the_backend_on_later_words() {
+    // The paced re-request walks the real constructor table, so the story
+    // only completes where a constructor can answer — the same skip the
+    // self-heal test uses. The flag is raised at the engine level and the
+    // arm is driven directly: inside process_key the top self-heal would
+    // heal the real device before any word could resolve downgraded.
+    if !crate::uinput::Uinput::available() {
+        return;
+    }
+    let _guard = crate::debug_log::test_guard();
+    let mut engine = Engine::new(Method::Telex, Mode::Flow);
+    engine.set_client(Some("gtk4-im:test".into()));
+    engine.set_capabilities(1); // CAP_PREEDIT_TEXT
+    engine.set_uinput_available(false);
+    let mut injection = Injection::new();
+    // Word 1 starts with no backend: the walk downgrades Flow to the
+    // forwarded transport and raises the flag the re-request reads.
+    let _ = engine.process_char('v');
+    assert!(engine.flow_needs_backend(), "word 1 resolved downgraded");
+    // A later Flow word re-requests the backend; the flags follow the
+    // holder's answer whichever kind the environment offers.
+    flow_fallback_re_request(&mut engine, &mut injection);
+    assert!(
+        injection.current().is_some(),
+        "the re-request built a backend"
+    );
+    assert!(
+        engine.uinput_available(),
+        "flags refreshed from the holder's answer"
+    );
+    assert_eq!(
+        engine.injection_relay_safe(),
+        matches!(
+            injection.current(),
+            Some(Kind::Libei | Kind::WlrVirtualKeyboard)
+        ),
+        "relay-safe must track the built kind"
+    );
+    // The arm must not clear the flag itself: the word in flight rides its
+    // locked downgrade until the next resolution.
+    assert!(engine.flow_needs_backend());
+    let _ = engine.process_char(' ');
+    let _ = engine.process_char('n');
+    assert!(
+        !engine.flow_needs_backend(),
+        "the next word resolves through the walk with the backend"
+    );
+}

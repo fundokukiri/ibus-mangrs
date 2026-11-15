@@ -1164,6 +1164,11 @@ impl Engine {
         self.injection_relay_safe = safe;
     }
 
+    /// Whether the selected injection backend is compositor-routed.
+    pub fn injection_relay_safe(&self) -> bool {
+        self.injection_relay_safe
+    }
+
     /// Forget everything believed about the focused client's text buffer.
     ///
     /// Called on focus changes. The new context may not support surrounding

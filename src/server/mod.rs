@@ -641,6 +641,18 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
     );
 }
 
+/// Push both engine backend flags from the holder's current state — the
+/// self-heal and the paced Flow re-request share it, so every re-select
+/// refreshes both (a stale relay-safe mark would let injection back onto
+/// a relay the new backend does not serve).
+fn refresh_backend_flags(engine: &mut Engine, injection: &Injection) {
+    engine.set_uinput_available(injection.current().is_some());
+    engine.set_injection_relay_safe(matches!(
+        injection.current(),
+        Some(Kind::Libei | Kind::WlrVirtualKeyboard)
+    ));
+}
+
 /// Handle one key event, pushing resulting signals into `out`.
 /// Returns whether the engine consumed the key.
 fn process_key(
@@ -675,7 +687,7 @@ fn process_key(
     // regression the holder must not reintroduce.
     if !engine.uinput_available() {
         if injection.current().is_some() {
-            engine.set_uinput_available(true);
+            refresh_backend_flags(engine, injection);
         } else {
             // Only the uinput denial clears here: its constructor is a
             // cheap device probe, while the other backends' failures are
@@ -685,7 +697,7 @@ fn process_key(
             injection.retry_denied(Kind::Uinput);
             if injection.select(&[Kind::Uinput]).is_some() {
                 debug_log::log("uinput arrived mid-session — backend selected");
-                engine.set_uinput_available(true);
+                refresh_backend_flags(engine, injection);
             }
         }
     }
@@ -826,7 +838,25 @@ fn process_key(
     let consumed = !actions.contains(&Action::Forward);
     let injected = emit(engine, injection, &actions, out);
     engine.add_injected(injected);
+    // Char path only, after the actions are emitted: a backend arriving
+    // must not disturb the word in flight (its lock serves the rest of it;
+    // the next word resolves through the walk) — a downgraded Flow word
+    // discovered via Backspace re-requests on the next char key.
+    flow_fallback_re_request(engine, injection);
     consumed
+}
+
+/// The Flow fallback's paced backend re-request: the mode walk downgrades
+/// Flow for lack of an injection backend and raises `flow_needs_backend`;
+/// each later word then retries the constructor table — paced by
+/// `re_request_paced` (a mutter/Libei acquisition costs seconds, the
+/// uinput probe is cheap) — and the engine flags follow the holder's
+/// answer.
+fn flow_fallback_re_request(engine: &mut Engine, injection: &mut Injection) {
+    if engine.flow_needs_backend() && injection.re_request_paced() {
+        injection.select(&preference_order());
+        refresh_backend_flags(engine, injection);
+    }
 }
 
 /// Turn engine actions into the signals IBus expects.
