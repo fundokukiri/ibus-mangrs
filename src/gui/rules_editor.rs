@@ -17,11 +17,18 @@ impl Ui {
             let Some(row) = row.downcast_ref::<adw::ActionRow>() else {
                 continue;
             };
+            let idx = out.len();
+            let choices = self
+                .rule_choices
+                .borrow()
+                .get(idx)
+                .cloned()
+                .unwrap_or_else(|| self.mode_choices.borrow().clone());
             out.push(crate::config::AppRule {
                 pattern: row.title().trim().to_string(),
                 // The picker is always present; the default only keeps a
                 // hand-broken row from vanishing on save.
-                mode: row_mode(row).unwrap_or(ModeConfig::Preedit),
+                mode: row_mode(row, &choices).unwrap_or(ModeConfig::Preedit),
             });
         }
         out
@@ -101,8 +108,14 @@ impl Ui {
             self.rules_box.append(&row);
         }
         let total = rules.len();
+        let visible = self.mode_choices.borrow().clone();
+        *self.rule_choices.borrow_mut() = rules
+            .iter()
+            .map(|rule| rule_choices(&visible, rule.mode))
+            .collect();
+        let row_choices = self.rule_choices.borrow().clone();
         for (idx, rule) in rules.iter().enumerate() {
-            self.rule_row(idx, total, &rule.pattern, rule.mode);
+            self.rule_row(idx, total, &rule.pattern, rule.mode, &row_choices[idx]);
         }
         *self.rules_loading.borrow_mut() = false;
         self.update_rule_preview();
@@ -111,7 +124,14 @@ impl Ui {
     /// One rule as a one-line row: [drag handle] [priority number] [app id]
     /// [mode picker] [⋮ menu]. Row order is match priority — the engine
     /// takes the first rule that hits; renumbering happens by rebuilding.
-    fn rule_row(self: &Rc<Self>, idx: usize, total: usize, pattern: &str, mode: ModeConfig) {
+    fn rule_row(
+        self: &Rc<Self>,
+        idx: usize,
+        total: usize,
+        pattern: &str,
+        mode: ModeConfig,
+        choices: &[ModeConfig],
+    ) {
         // Markup is off before the title is set (the builder applies its
         // stored properties in declaration order, not call order): the
         // title is a user-typed app id, and a bare `&` in it would warn
@@ -130,7 +150,7 @@ impl Ui {
             "{}, {}, {}",
             idx + 1,
             pattern,
-            labels(MODES)[mode_index(mode) as usize]
+            mode_label(mode)
         ))]);
 
         // The drag handle starts a row move; the ghost is the row itself.
@@ -187,12 +207,23 @@ impl Ui {
 
         // The mode picker: a flat dropdown reading as dim row text; the
         // popup list carries the modes with the current one checked, and a
-        // change saves immediately.
-        let pick = gtk4::DropDown::new(
-            Some(StringList::new(&labels(MODES))),
-            gtk4::Expression::NONE,
-        );
-        pick.set_selected(mode_index(mode));
+        // change saves immediately. A stored mode now hidden stays listed
+        // (marked) so the row never lies about what the file holds.
+        let visible = self.mode_choices.borrow().clone();
+        let labels: Vec<String> = choices
+            .iter()
+            .map(|mode| {
+                let label = mode_label(*mode).to_string();
+                if visible.contains(mode) {
+                    label
+                } else {
+                    format!("{label} {}", t("rules.mode_hidden", "(đang ẩn)"))
+                }
+            })
+            .collect();
+        let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let pick = gtk4::DropDown::new(Some(StringList::new(&label_refs)), gtk4::Expression::NONE);
+        pick.set_selected(mode_index(choices, mode));
         pick.add_css_class("flat");
         pick.add_css_class("dim-label");
         pick.add_css_class("rule-mode");
@@ -414,7 +445,7 @@ impl Ui {
                 self.rule_preview.set_subtitle(
                     &t("rules.match_result", "Khớp luật #{n}: {mode}")
                         .replace("{n}", &idx.to_string())
-                        .replace("{mode}", labels(MODES)[mode_index(mode) as usize]),
+                        .replace("{mode}", mode_label(mode)),
                 );
             }
             None => {
@@ -426,9 +457,20 @@ impl Ui {
     }
 }
 
+/// One rule row's choice list: the visible modes, plus the row's own stored
+/// mode when it is hidden so the picker still shows the real value. The
+/// engine ignores a hidden-mode rule until the user picks a visible one.
+fn rule_choices(visible: &[ModeConfig], mode: ModeConfig) -> Vec<ModeConfig> {
+    let mut choices = visible.to_vec();
+    if !choices.contains(&mode) {
+        choices.push(mode);
+    }
+    choices
+}
+
 /// The row's mode picker: the only DropDown inside the row. GObject clones
 /// share the object, so reading `selected` reads what the user sees.
-fn row_mode(row: &adw::ActionRow) -> Option<ModeConfig> {
+fn row_mode(row: &adw::ActionRow, choices: &[ModeConfig]) -> Option<ModeConfig> {
     fn walk(w: &gtk4::Widget) -> Option<gtk4::DropDown> {
         if let Some(d) = w.downcast_ref::<gtk4::DropDown>() {
             return Some(d.clone());
@@ -442,5 +484,5 @@ fn row_mode(row: &adw::ActionRow) -> Option<ModeConfig> {
         }
         None
     }
-    walk(row.upcast_ref()).map(|d| mode_at(d.selected()))
+    walk(row.upcast_ref()).map(|d| mode_at(choices, d.selected()))
 }

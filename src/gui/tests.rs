@@ -59,6 +59,7 @@ fn gtk_widget_scenarios() {
     emoji_editor_follows_the_switch();
     toggling_off_releases_the_editor_caret();
     every_switch_triggers_save();
+    mode_visibility_hides_pickers_and_moves_the_active_mode();
     experimental_gate_locks_rows_and_preserves_values();
     combo_value_stays_right_after_a_pick();
     popup_marks_the_selected_item();
@@ -86,9 +87,9 @@ fn labels_follow_the_language() {
     assert_eq!(labels(CHANNELS)[0], "CommitText (an toàn)");
     set_language("en");
     assert_eq!(labels(CHANNELS)[0], "CommitText (safe)");
-    assert_eq!(labels(MODES)[0], "No underline");
+    assert_eq!(mode_label(ModeConfig::NonPreedit), "No underline");
     set_language("vi");
-    assert_eq!(labels(MODES)[0], "Không gạch chân");
+    assert_eq!(mode_label(ModeConfig::NonPreedit), "Không gạch chân");
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -569,6 +570,20 @@ fn refresh_round_trips_every_widget() {
         // Passes through read() untouched (see baseline above).
         quick_menu: baseline.quick_menu,
         menu_modes: baseline.menu_modes,
+        // The scenario exercises a hidden-by-default mode (Select), so its
+        // list shows every mode; refresh/read must preserve that order.
+        visible_modes: Some(vec![
+            "nonpreedit".into(),
+            "preedit".into(),
+            "surrounding".into(),
+            "flow".into(),
+            "turbo".into(),
+            "select".into(),
+            "smoothforward".into(),
+            "forwardkeyevent".into(),
+            "forwardselect".into(),
+            "off".into(),
+        ]),
         // The editor always produces a design, and refresh normalizes an
         // absent/empty one to the shipped shape; here a small tree that
         // must survive the store round-trip unchanged.
@@ -597,39 +612,59 @@ fn refresh_round_trips_every_widget() {
     ui.refresh(&config, &macros, &dictionary);
 
     // The mode combo must render the config's mode under the right label:
-    // the display list and the index mappers once drifted (the list kept
-    // the removed "Gõ mặc định" and missed "Tự động", so Preedit showed as
-    // Surrounding text) and the round-trip below could not see it because
-    // it only walks the mappers, never the labels.
+    // labels are looked up by mode value now, so a hidden mode leaves no
+    // positional hole to drift into.
     assert_eq!(
-        MODES[0].0, "Không gạch chân",
-        "the list must lead with the first display mode"
+        MODE_LABELS[0].0,
+        ModeConfig::NonPreedit,
+        "the table must lead with the first display mode"
     );
     assert!(
-        !MODES
+        !MODE_LABELS
             .iter()
-            .any(|(vi, en)| matches!(*vi, "Tự động" | "Gõ mặc định")
+            .any(|(_, vi, en)| matches!(*vi, "Tự động" | "Gõ mặc định")
                 || matches!(*en, "Tự động" | "Gõ mặc định")),
-        "removed modes must not linger in the list"
+        "removed modes must not linger in the table"
     );
-    for m in [
+    let all_modes = vec![
         ModeConfig::NonPreedit,
         ModeConfig::Preedit,
         ModeConfig::Surrounding,
         ModeConfig::Flow,
         ModeConfig::Turbo,
         ModeConfig::Select,
+        ModeConfig::SmoothForward,
         ModeConfig::ForwardKeyEvent,
         ModeConfig::ForwardSelect,
         ModeConfig::Off,
-    ] {
-        let i = mode_index(m) as usize;
-        assert!(i < MODES.len(), "{m:?} index {i} outside the list");
-        assert_eq!(mode_at(i as u32), m, "index round-trip for {m:?}");
+    ];
+    for m in &all_modes {
+        let i = mode_index(&all_modes, *m) as usize;
+        assert!(i < all_modes.len(), "{m:?} index {i} outside the list");
+        assert_eq!(
+            mode_at(&all_modes, i as u32),
+            *m,
+            "index round-trip for {m:?}"
+        );
     }
     assert_eq!(
+        MODE_LABELS[6].0,
+        ModeConfig::SmoothForward,
+        "the new mode sits between Select and Forward Backspace"
+    );
+    // The mode's limits (design §9) must be discoverable: the mode-row tip
+    // names the transport and the game/XIM exclusions, in both content files.
+    assert!(
+        include_str!("../../data/gui-content.toml").contains("Smooth (Forward)"),
+        "the Vietnamese tip must mention Smooth (Forward)"
+    );
+    assert!(
+        include_str!("../../data/gui-content.en.toml").contains("Smooth (Forward)"),
+        "the English tip must mention Smooth (Forward)"
+    );
+    assert_eq!(
         ui.mode.selected(),
-        mode_index(ModeConfig::Select),
+        mode_index(&all_modes, ModeConfig::Select),
         "refresh must place the config's mode at the right list position"
     );
 
@@ -676,7 +711,7 @@ fn row_texts_render_as_plain_text() {
     for markup_off in [
         !ui.bypass_url.uses_markup(),
         !ui.method.uses_markup(),
-        !ui.commit_interval.uses_markup(),
+        !ui.flow_per_key_row.uses_markup(),
         !ui.rule_preview.uses_markup(),
     ] {
         assert!(markup_off, "row titles and subtitles must be plain text");
@@ -684,6 +719,85 @@ fn row_texts_render_as_plain_text() {
     assert_eq!(
         ui.bypass_url.subtitle().as_deref(),
         Some("URL thật (https://, www.) giữ nguyên cả vùng tới dấu cách hoặc dấu câu")
+    );
+}
+
+/// The visibility switches drive one shared list: hiding a mode removes it
+/// from the main combo and the rule pickers, the active hidden mode moves to
+/// the first visible entry, and the last visible mode cannot be turned off.
+fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
+    let ui = widgets();
+    let config = Config::default();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    ui.refresh(&config, &macros, &dictionary);
+    assert_eq!(
+        ui.mode_choices.borrow().len(),
+        crate::config::DEFAULT_VISIBLE_MODES.len()
+    );
+    // The switch presentation follows the default list exactly.
+    for (idx, (mode, ..)) in MODE_LABELS.iter().enumerate() {
+        assert_eq!(
+            ui.mode_visible_switches[idx].is_active(),
+            ui.mode_choices.borrow().contains(mode),
+            "switch state for {mode:?}"
+        );
+    }
+
+    let saved = Rc::new(RefCell::new(Config::default()));
+    {
+        let ui_for_save = ui.clone();
+        let saved = saved.clone();
+        wire_mode_visibility(
+            &ui,
+            Rc::new(move || *saved.borrow_mut() = ui_for_save.read()),
+        );
+    }
+
+    // Turn on a hidden-by-default mode: it joins the end of the list.
+    let index_of = |mode: ModeConfig| {
+        MODE_LABELS
+            .iter()
+            .position(|(m, ..)| *m == mode)
+            .expect("mode in table")
+    };
+    ui.mode_visible_switches[index_of(ModeConfig::Select)].set_active(true);
+    assert!(ui.mode_choices.borrow().contains(&ModeConfig::Select));
+    assert_eq!(
+        ui.mode_choices.borrow().last(),
+        Some(&ModeConfig::Select),
+        "a newly enabled mode is appended"
+    );
+
+    // Hide the active mode: Preedit is first in the default list, so the
+    // selection moves to Surrounding and both the file and the combo follow.
+    ui.mode_visible_switches[index_of(ModeConfig::Preedit)].set_active(false);
+    assert!(!ui.mode_choices.borrow().contains(&ModeConfig::Preedit));
+    assert_eq!(saved.borrow().mode, ModeConfig::Surrounding);
+    let visible = saved.borrow().visible_modes.clone().unwrap();
+    assert!(visible.contains(&"select".to_string()), "new mode saved");
+    assert!(
+        !visible.contains(&"preedit".to_string()),
+        "hidden mode dropped"
+    );
+    assert_eq!(
+        mode_at(&ui.mode_choices.borrow()[..], ui.mode.selected()),
+        ModeConfig::Surrounding,
+        "the combo follows the coerced mode"
+    );
+
+    // Turn everything off but one; the last switch must refuse to turn off.
+    for switch in ui.mode_visible_switches.clone() {
+        if ui.mode_choices.borrow().len() > 1 {
+            switch.set_active(false);
+        }
+    }
+    assert_eq!(ui.mode_choices.borrow().len(), 1);
+    let last = ui.mode_choices.borrow()[0];
+    ui.mode_visible_switches[index_of(last)].set_active(false);
+    assert!(
+        ui.mode_visible_switches[index_of(last)].is_active(),
+        "the last visible mode must stay on"
     );
 }
 
@@ -799,10 +913,8 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(!ui.macro_valid_words.is_sensitive());
     assert!(!ui.extra_url_chars_row.is_sensitive());
     assert!(!ui.extra_url_chars_entry.is_sensitive());
-    assert!(!ui.flow_per_key_spin.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
-    assert_eq!(ui.flow_per_key_spin.value(), 60.0);
     assert!(!ui.flow_backspace_restore_row.is_sensitive());
     assert_eq!(ui.flow_backspace_restore_spin.value(), 150.0);
 
@@ -837,7 +949,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.set_experimental_sensitive(false);
     ui.show_experimental_defaults();
     assert!(!ui.macro_valid_words.is_sensitive());
-    assert_eq!(ui.flow_per_key_spin.value(), 60.0);
     // Hand the sandbox file to the later scenarios the way they expect it:
     // with the gate off, read() reports the file's experimental fields, so
     // a leftover saved value would trip their refresh asserts.

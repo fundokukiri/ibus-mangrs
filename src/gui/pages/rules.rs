@@ -153,19 +153,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // Block B — mode and Thêm on one line, one 10px gap below Block A.
     // Both children get the SizeGroup's equal width and a 40px height.
-    let mode_pick = gtk4::DropDown::new(
-        Some(StringList::new(&labels(MODES))),
-        gtk4::Expression::NONE,
-    );
-    // Preedit is the default rule mode (index of "Gạch chân (preedit)").
-    mode_pick.set_selected(mode_index(ModeConfig::Preedit));
-    mode_pick.set_hexpand(true);
-    mode_pick.set_height_request(40);
-    mode_pick.add_css_class("rule-fill");
-    mode_pick.set_tooltip_text(Some(&t("rows.rule_mode.tooltip", "Chế độ gõ của luật mới")));
-    if let Some(label) = first_label(&mode_pick) {
-        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    }
+    let mode_pick = ui.rule_add_mode_pick.clone();
     ui.rule_add_btn.set_height_request(40);
     let sizes = gtk4::SizeGroup::new(gtk4::SizeGroupMode::Horizontal);
     sizes.add_widget(&mode_pick);
@@ -238,7 +226,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             if pattern.is_empty() {
                 return;
             }
-            let mode = mode_at(mode_pick.selected());
+            let mode = mode_at(&ui.mode_choices.borrow()[..], mode_pick.selected());
             ui.edit_rules(|rules| {
                 rules.push(crate::config::AppRule {
                     pattern: pattern.clone(),

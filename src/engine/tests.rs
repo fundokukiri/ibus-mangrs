@@ -1119,6 +1119,125 @@ fn forward_key_event_backspace_never_deletes_by_protocol() {
 }
 
 #[test]
+fn smoothforward_mode_rewrites_at_word_end_with_forwarded_backspaces() {
+    // The Smooth contract on the forward transport: raw keys forwarded
+    // while typing, one rewrite at word end — the erase rides ForwardKeyEvent
+    // and the word+terminator ride the Commit, same ordered channel, no
+    // uinput device, no echo bookkeeping. Per-key off: with it on, the
+    // rewrite applies inline per key instead (see the per-key tests).
+    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.flow_per_key = false;
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT); // no ST capability at all
+    let actions = type_str(&mut e, "tieengs ");
+    // "tieengs" is 7 raw keys; the terminator travels inside the commit.
+    let fb = actions
+        .iter()
+        .position(|a| matches!(a, Action::ForwardBackspaces(7)))
+        .expect("word-end rewrite must forward 7 Backspaces: {actions:?}");
+    assert!(
+        matches!(actions.get(fb + 1), Some(Action::Commit(t)) if t == "tiếng "),
+        "the commit with the terminator must follow the erase: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(_) | Action::PostDelay(_))),
+        "no uinput transport and no pacing on this mode: {actions:?}"
+    );
+    assert!(!e.has_deferred(), "no park on the forward transport");
+    assert!(!e.pending_echoes(), "no echoes come back over IBus");
+    assert_eq!(replay(&actions), "tiếng ");
+}
+
+#[test]
+fn smoothforward_mode_does_not_fall_back_without_uinput() {
+    // The whole point of the mode: it never needs /dev/uinput, so the
+    // device fallback that stands preedit in for Flow/Turbo/Select must
+    // not engage.
+    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_uinput_available(false);
+    assert_eq!(e.effective_mode(), Mode::SmoothForward);
+    let actions = type_str(&mut e, "tieengs ");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+        "SmoothForward never falls back to preedit: {actions:?}"
+    );
+}
+
+#[test]
+fn smoothforward_backspace_during_composition_forwards() {
+    // Mid-word Backspace behaves exactly like the uinput smooth modes:
+    // the application owns the on-screen raw keys, so the engine hands
+    // the key over (None) and keeps the unikey raw-key undo. Per-key is
+    // off here — with it on, the backspace rides that batch instead.
+    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.flow_per_key = false;
+    type_str(&mut e, "tiee");
+    assert!(
+        e.backspace().is_none(),
+        "the Backspace is forwarded, not handled"
+    );
+}
+
+#[test]
+fn smoothforward_per_key_applies_marks_inline() {
+    // Per-key display on the forward transport: every key commits inline
+    // through the ordered channel (no park, no deadline), so the mark shows
+    // immediately and deletes can never overtake the commit.
+    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.flow_per_key = true;
+    let actions = type_str(&mut e, "tiee");
+    let fb = actions
+        .iter()
+        .position(|a| matches!(a, Action::ForwardBackspaces(1)))
+        .expect("the ee→ê mark must erase one character: {actions:?}");
+    assert!(
+        matches!(actions.get(fb + 1), Some(Action::Commit(t)) if t == "ê"),
+        "the composed vowel must follow the erase inline: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(
+            a,
+            Action::InjectBackspaces(_) | Action::PostDelay(_) | Action::CommitNow(_)
+        )),
+        "no uinput transport, no pacing, no park on this mode: {actions:?}"
+    );
+    assert!(!e.has_deferred(), "the forward transport parks nothing");
+    assert_eq!(replay(&actions), "tiê");
+}
+
+#[test]
+fn smoothforward_per_key_coalesces_fast_typing() {
+    // Two composition-changing keys in one word: each diff is computed
+    // against the previous batch's landing point, so the erase stays inside
+    // the word region and the final batch is one ordered FB+Commit pair.
+    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
+    e.flow_per_key = true;
+    let actions = type_str(&mut e, "tieengs");
+    let fb = actions
+        .iter()
+        .position(|a| matches!(a, Action::ForwardBackspaces(3)))
+        .expect("the sắc mark rewrites the tail's vowel run: {actions:?}");
+    assert!(
+        matches!(actions.get(fb + 1), Some(Action::Commit(t)) if t == "ếng"),
+        "the vowel run + suffix must follow inline: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(_) | Action::CommitNow(_))),
+        "the erase never leaves the word region nor rides uinput: {actions:?}"
+    );
+    assert!(!e.has_deferred(), "the forward transport parks nothing");
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
 fn config_rule_bypasses_the_delete_fallback() {
     // An explicit rule pins the mode for its client, skipping the runtime
     // fallback that would otherwise force preedit on delete-dropping
@@ -1165,6 +1284,65 @@ fn none_rule_targets_unnamed_clients_in_every_display_mode() {
         e.set_client(Some("gtk4-im:firefox".into()));
         assert_ne!(e.effective_mode(), mode, "named client: {mode:?}");
     }
+}
+
+#[test]
+fn hidden_modes_are_not_selectable_from_config_or_rules() {
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_client(Some("gtk4-im:game".into()));
+    e.apply_config(&Config {
+        // The global mode is hidden: the engine moves to the first visible
+        // entry instead of running a mode the user cannot see.
+        mode: ModeConfig::Turbo,
+        visible_modes: Some(vec!["preedit".into(), "off".into()]),
+        // A rule naming a hidden mode is ignored; the global mode stands.
+        app_rules: vec![crate::config::AppRule {
+            pattern: "game".into(),
+            mode: ModeConfig::Select,
+        }],
+        ..Config::default()
+    });
+    assert_eq!(e.mode(), Mode::Preedit, "hidden global mode coerced");
+    assert_eq!(e.effective_mode(), Mode::Preedit, "hidden rule ignored");
+
+    // A visible rule still wins over the global mode (a forward-transport
+    // mode, so the missing uinput device does not force a preedit fallback).
+    e.apply_config(&Config {
+        mode: ModeConfig::Preedit,
+        visible_modes: Some(vec!["preedit".into(), "forwardkeyevent".into()]),
+        app_rules: vec![crate::config::AppRule {
+            pattern: "game".into(),
+            mode: ModeConfig::ForwardKeyEvent,
+        }],
+        ..Config::default()
+    });
+    assert_eq!(
+        e.effective_mode(),
+        Mode::ForwardKeyEvent,
+        "visible rule applies"
+    );
+}
+
+#[test]
+fn hidden_mode_fallback_follows_the_visible_order() {
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        mode: ModeConfig::NonPreedit,
+        visible_modes: Some(vec!["off".into(), "preedit".into()]),
+        ..Config::default()
+    });
+    assert_eq!(e.mode(), Mode::Off, "the first visible entry wins");
+    e.apply_config(&Config {
+        mode: ModeConfig::Preedit,
+        visible_modes: Some(vec!["smoothforward".into(), "flow".into()]),
+        ..Config::default()
+    });
+    assert_eq!(
+        e.mode(),
+        Mode::SmoothForward,
+        "a visible mode is kept as configured"
+    );
 }
 
 #[test]
@@ -2722,12 +2900,11 @@ fn per_key_delay_follows_the_configured_value() {
 
 #[test]
 fn per_key_delay_clamps_out_of_range_values() {
-    // 0 is allowed by owner decision (experimental knob; the gate-off bake
-    // is what protects the shipped behavior, not the floor).
+    // 0 is allowed by owner decision (the clamp protects against nonsense
+    // values, the floor stays open).
     let e = engine(
         Mode::Flow,
         Config {
-            experimental_features: true,
             flow_per_key: true,
             flow_per_key_delay_ms: 0,
             ..Config::default()
@@ -2737,7 +2914,6 @@ fn per_key_delay_clamps_out_of_range_values() {
     let e = engine(
         Mode::Flow,
         Config {
-            experimental_features: true,
             flow_per_key: true,
             flow_per_key_delay_ms: 700,
             ..Config::default()
@@ -2746,25 +2922,9 @@ fn per_key_delay_clamps_out_of_range_values() {
     assert_eq!(e.per_key_delay(), Duration::from_millis(500));
     assert_eq!(
         Engine::new(Method::Telex, Mode::Flow).per_key_delay(),
-        Duration::from_millis(60),
-        "engine default stays today's behavior"
+        Duration::from_millis(20),
+        "the engine default follows the config default"
     );
-}
-
-#[test]
-fn per_key_delay_gate_off_forces_the_builtin_60() {
-    // The knob is experimental: gate off bakes the built-in 60 ms into the
-    // engine whatever the file says (the stored value stays saved).
-    let e = engine(
-        Mode::Flow,
-        Config {
-            flow_per_key: true,
-            flow_per_key_delay_ms: 200,
-            experimental_features: false,
-            ..Config::default()
-        },
-    );
-    assert_eq!(e.per_key_delay(), Duration::from_millis(60));
 }
 
 #[test]
@@ -2909,6 +3069,30 @@ fn flow_per_key_backspace_forwards_and_keeps_tracking() {
     );
     flush_per_key(&mut e);
     assert_eq!(e.tail, "tie");
+}
+
+#[test]
+fn smoothforward_per_key_backspace_forwards_and_keeps_tracking() {
+    // The same per-key Backspace contract as Flow, on the forward transport:
+    // zero injections — the user's real key deletes and tracking survives;
+    // the retyped key rides the inline commit instead of the park.
+    let mut e = per_key_engine(Mode::SmoothForward);
+    type_str(&mut e, "tiee"); // the mark applies inline on this transport
+    assert_eq!(e.tail, "tiê");
+    let actions = e.backspace().expect("backspace");
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert!(e.per_key_park.is_none());
+    // The screen's last character (`ê`) is gone — the reverse-map popped
+    // both raw `e` keys behind it.
+    assert_eq!(e.tail, "ti");
+    // Tracking survived: the retyped key appends through the forward batch.
+    let actions = type_str(&mut e, "e");
+    assert!(
+        actions.contains(&Action::Commit("e".to_string())),
+        "the retyped key rides the inline commit: {actions:?}"
+    );
+    assert_eq!(e.tail, "tie");
+    assert!(!e.has_deferred());
 }
 
 #[test]

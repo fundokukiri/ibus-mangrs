@@ -88,16 +88,41 @@ const METHODS: &[(&str, &str)] = &[
     ("VIQR", "VIQR"),
     ("Microsoft layout", "Microsoft layout"),
 ];
-const MODES: &[(&str, &str)] = &[
-    ("Không gạch chân", "No underline"),
-    ("Gạch chân (preedit)", "Underline (preedit)"),
-    ("Surrounding text", "Surrounding text"),
-    ("Flow (uinput)", "Flow (uinput)"),
-    ("Turbo (uinput)", "Turbo (uinput)"),
-    ("Select (uinput)", "Select (uinput)"),
-    ("Forward Backspace", "Forward Backspace"),
-    ("Forward Selection", "Forward Selection"),
-    ("OFF", "OFF"),
+/// (mode, Vietnamese label, English label) for every display mode, in the
+/// panel's fixed order. Labels are looked up by VALUE now: a hidden mode
+/// leaves holes in the visible list, so position is no longer a mapping
+/// contract.
+const MODE_LABELS: &[(ModeConfig, &str, &str)] = &[
+    (ModeConfig::NonPreedit, "Không gạch chân", "No underline"),
+    (
+        ModeConfig::Preedit,
+        "Gạch chân (preedit)",
+        "Underline (preedit)",
+    ),
+    (
+        ModeConfig::Surrounding,
+        "Surrounding text",
+        "Surrounding text",
+    ),
+    (ModeConfig::Flow, "Flow (uinput)", "Flow (uinput)"),
+    (ModeConfig::Turbo, "Turbo (uinput)", "Turbo (uinput)"),
+    (ModeConfig::Select, "Select (uinput)", "Select (uinput)"),
+    (
+        ModeConfig::SmoothForward,
+        "Smooth (Forward)",
+        "Smooth (Forward)",
+    ),
+    (
+        ModeConfig::ForwardKeyEvent,
+        "Forward Backspace",
+        "Forward Backspace",
+    ),
+    (
+        ModeConfig::ForwardSelect,
+        "Forward Selection",
+        "Forward Selection",
+    ),
+    (ModeConfig::Off, "OFF", "OFF"),
 ];
 const CHARSETS: &[(&str, &str)] = &[
     ("Unicode", "Unicode"),
@@ -142,6 +167,40 @@ const CHANNELS: &[(&str, &str)] = &[
 pub(crate) fn labels<'a>(pairs: &'a [(&'a str, &'a str)]) -> Vec<&'a str> {
     let en = is_english();
     pairs.iter().map(|p| if en { p.1 } else { p.0 }).collect()
+}
+
+/// One mode's label in the window's language.
+pub(crate) fn mode_label(mode: ModeConfig) -> &'static str {
+    let en = is_english();
+    MODE_LABELS
+        .iter()
+        .find(|(m, ..)| *m == mode)
+        .map(|(_, vi, en_label)| if en { *en_label } else { *vi })
+        .unwrap_or("")
+}
+
+/// The labels of an ordered mode list, for a combo/dropdown model.
+pub(crate) fn mode_labels(choices: &[ModeConfig]) -> Vec<&'static str> {
+    choices.iter().map(|m| mode_label(*m)).collect()
+}
+
+/// The index of `mode` in a visible list; a mode outside it falls back to
+/// the first entry (the engine and the GUI both coerce hidden modes).
+pub(crate) fn mode_index(choices: &[ModeConfig], mode: ModeConfig) -> u32 {
+    choices
+        .iter()
+        .position(|m| *m == mode)
+        .unwrap_or(0)
+        .try_into()
+        .unwrap_or(0)
+}
+
+/// The mode at `i` in a visible list (out of range: the first entry).
+pub(crate) fn mode_at(choices: &[ModeConfig], i: u32) -> ModeConfig {
+    choices
+        .get(i as usize)
+        .copied()
+        .unwrap_or_else(|| choices.first().copied().unwrap_or(ModeConfig::Preedit))
 }
 /// The $TIME/$DATE strftime presets, the shipped defaults first; a format
 /// the old free-text rows saved that matches none of these is appended as
@@ -194,6 +253,15 @@ struct Ui {
     enabled: adw::SwitchRow,
     method: adw::ComboRow,
     mode: adw::ComboRow,
+    /// The ordered visible modes every picker currently renders. Updated by
+    /// refresh and by the visibility switches; `read` maps dropdown
+    /// positions through it.
+    mode_choices: Rc<RefCell<Vec<ModeConfig>>>,
+    /// "Chế độ gõ hiển thị": one switch per mode, inside an expander.
+    mode_visibility: adw::ExpanderRow,
+    mode_visible_switches: Vec<adw::SwitchRow>,
+    /// Guards the programmatic switch updates in refresh/external reload.
+    mode_visibility_loading: Rc<RefCell<bool>>,
     charset: adw::ComboRow,
     /// Built-in shortcut rows: the value is the stored spec, the display
     /// renders it as keycaps (see `ShortcutDisplay`).
@@ -262,6 +330,12 @@ struct Ui {
     /// the group's first_child is its internal header, so a
     /// remove-everything loop would never end.
     rules_box: gtk4::ListBox,
+    /// Per-row visible choice lists for the rule dropdowns, parallel to the
+    /// rows `fill_rules` builds (a rule whose stored mode is hidden gets one
+    /// extra entry so the value still displays).
+    rule_choices: Rc<RefCell<Vec<Vec<ModeConfig>>>>,
+    /// The add-rule form's mode picker; its model follows the visible list.
+    rule_add_mode_pick: gtk4::DropDown,
     /// The page's toast host: add/copy confirmations and delete-undo. It is
     /// the wrapper the rules page returns, so toasts are actually visible.
     rules_overlay: adw::ToastOverlay,
@@ -308,9 +382,10 @@ struct Ui {
     desktop_icon_loading: Rc<RefCell<bool>>,
     x11_delete: adw::SwitchRow,
     preedit_xim: adw::SwitchRow,
-    commit_interval: adw::SpinRow,
-    backspace_interval: adw::SpinRow,
-    post_delay: adw::SpinRow,
+    pacing_row: adw::ActionRow,
+    commit_interval: gtk4::SpinButton,
+    backspace_interval: gtk4::SpinButton,
+    post_delay: gtk4::SpinButton,
     unicode_channel: adw::ComboRow,
     clipboard_restore_row: adw::ActionRow,
     clipboard_restore_switch: gtk4::Switch,
@@ -321,8 +396,9 @@ struct Ui {
     idle_commit_row: adw::ActionRow,
     idle_commit_switch: gtk4::Switch,
     idle_commit_spin: gtk4::SpinButton,
-    flow_per_key_switch: adw::SwitchRow,
-    flow_per_key_spin: adw::SpinRow,
+    flow_per_key_row: adw::ActionRow,
+    flow_per_key_switch: gtk4::Switch,
+    flow_per_key_spin: gtk4::SpinButton,
     flow_backspace_retrack: adw::SwitchRow,
     flow_backspace_restore_row: adw::ActionRow,
     flow_backspace_restore_switch: gtk4::Switch,
@@ -373,38 +449,6 @@ fn method_index(m: MethodConfig) -> u32 {
         MethodConfig::VniFrench => 6,
         MethodConfig::Viqr => 7,
         MethodConfig::Microsoft => 8,
-    }
-}
-
-fn mode_index(m: ModeConfig) -> u32 {
-    match m {
-        ModeConfig::NonPreedit => 0,
-        ModeConfig::Preedit => 1,
-        ModeConfig::Surrounding => 2,
-        ModeConfig::Flow => 3,
-        ModeConfig::Turbo => 4,
-        ModeConfig::Select => 5,
-        ModeConfig::ForwardKeyEvent => 6,
-        ModeConfig::ForwardSelect => 7,
-        ModeConfig::Off => 8,
-    }
-}
-
-/// Inverse of `mode_index`, shared by the main mode dropdown and the
-/// App Rules rows.
-fn mode_at(i: u32) -> ModeConfig {
-    match i {
-        0 => ModeConfig::NonPreedit,
-        1 => ModeConfig::Preedit,
-        2 => ModeConfig::Surrounding,
-        3 => ModeConfig::Flow,
-        4 => ModeConfig::Turbo,
-        5 => ModeConfig::Select,
-        6 => ModeConfig::ForwardKeyEvent,
-        7 => ModeConfig::ForwardSelect,
-        8 => ModeConfig::Off,
-        // Out of range: the factory default.
-        _ => ModeConfig::Preedit,
     }
 }
 
@@ -460,6 +504,31 @@ pub(crate) fn format_selected(row: &adw::ComboRow) -> String {
 }
 
 impl Ui {
+    /// Rebuild every mode dropdown's model from `mode_choices`, keeping the
+    /// selected mode when it is still visible. The mode row and the add-rule
+    /// picker share the list, so hiding a mode updates both at once.
+    pub(super) fn rebuild_mode_choices(&self, selected: Option<ModeConfig>) {
+        let choices = self.mode_choices.borrow().clone();
+        let labels = mode_labels(&choices);
+        let selected = selected.unwrap_or_else(|| mode_at(&choices, self.mode.selected()));
+        let add_selected = mode_at(&choices, self.rule_add_mode_pick.selected());
+        self.mode.set_model(Some(&StringList::new(&labels)));
+        self.mode.set_selected(mode_index(&choices, selected));
+        self.rule_add_mode_pick
+            .set_model(Some(&StringList::new(&labels)));
+        self.rule_add_mode_pick
+            .set_selected(mode_index(&choices, add_selected));
+    }
+
+    /// The expander's "n/10 đang hiện" line.
+    pub(super) fn update_mode_visibility_subtitle(&self) {
+        let n = self.mode_choices.borrow().len();
+        self.mode_visibility.set_subtitle(
+            &t("rows.mode_visibility.subtitle", "{n}/10 chế độ đang hiện")
+                .replace("{n}", &n.to_string()),
+        );
+    }
+
     /// Push a config (plus the two text lists) into every widget. This is the
     /// only config → widget mapping: the initial build and the import both go
     /// through it, so an import cannot leave a stale widget that the next
@@ -488,9 +557,24 @@ impl Ui {
         ) {
             config.nav_key_while_preedit = "swallow".into();
         }
+        // Same for the visible-mode list: read() always pins an explicit
+        // list and the engine coerces a hidden current mode to the first
+        // visible entry, so the copy being displayed must match both.
+        let choices = config.visible_modes();
+        if !choices.contains(&config.mode) {
+            config.mode = choices[0];
+        }
+        config.visible_modes = Some(choices.iter().map(|m| m.key().to_string()).collect());
+        *self.mode_choices.borrow_mut() = choices.clone();
         self.enabled.set_active(config.enabled);
         self.method.set_selected(method_index(config.method));
-        self.mode.set_selected(mode_index(config.mode));
+        self.rebuild_mode_choices(Some(config.mode));
+        *self.mode_visibility_loading.borrow_mut() = true;
+        for (switch, (mode, ..)) in self.mode_visible_switches.iter().zip(MODE_LABELS) {
+            switch.set_active(choices.contains(mode));
+        }
+        *self.mode_visibility_loading.borrow_mut() = false;
+        self.update_mode_visibility_subtitle();
         self.charset.set_selected(charset_index(config.charset));
         *self.hotkey_value.borrow_mut() = config.cycle_mode_hotkey.clone();
         self.hotkey_display.render(&config.cycle_mode_hotkey);
@@ -675,7 +759,7 @@ impl Ui {
             7 => MethodConfig::Viqr,
             _ => MethodConfig::Microsoft,
         };
-        config.mode = mode_at(self.mode.selected());
+        config.mode = mode_at(&self.mode_choices.borrow()[..], self.mode.selected());
         config.charset = match self.charset.selected() {
             1 => CharsetConfig::Nfd,
             2 => CharsetConfig::Tcvn3,
@@ -768,6 +852,33 @@ impl Ui {
         // The designed menu tree; never empty (the editor refuses to remove
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());
+        // The visible-mode order: the list currently rendered, filtered to
+        // the switches now on, then any newly enabled mode in table order.
+        let active: Vec<ModeConfig> = MODE_LABELS
+            .iter()
+            .zip(&self.mode_visible_switches)
+            .filter(|(_, switch)| switch.is_active())
+            .map(|((mode, ..), _)| *mode)
+            .collect();
+        let mut ordered: Vec<ModeConfig> = self
+            .mode_choices
+            .borrow()
+            .iter()
+            .copied()
+            .filter(|mode| active.contains(mode))
+            .collect();
+        for mode in &active {
+            if !ordered.contains(mode) {
+                ordered.push(*mode);
+            }
+        }
+        if ordered.is_empty() {
+            ordered = crate::config::DEFAULT_VISIBLE_MODES
+                .iter()
+                .filter_map(|key| ModeConfig::from_key(key))
+                .collect();
+        }
+        config.visible_modes = Some(ordered.iter().map(|mode| mode.key().to_string()).collect());
         // Read here, not in `save_all`: `refresh` asserts that `read` returns
         // everything it just pushed into the widgets, and the rule rows are
         // among those widgets.
@@ -795,7 +906,6 @@ impl Ui {
             config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
             config.idle_commit_ms = saved_experimental.idle_commit_ms;
             config.nav_key_while_preedit = saved_experimental.nav_key_while_preedit;
-            config.flow_per_key_delay_ms = saved_experimental.flow_per_key_delay_ms;
             config.flow_backspace_retrack = saved_experimental.flow_backspace_retrack;
             config.flow_backspace_restore = saved_experimental.flow_backspace_restore;
             config.flow_backspace_restore_delay_ms =
@@ -852,14 +962,13 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 10] = [
+        let rows: [&gtk4::Widget; 9] = [
             self.macro_valid_words.upcast_ref(),
             self.extra_url_chars_row.upcast_ref(),
             self.auto_capitalize_after_row.upcast_ref(),
             self.clipboard_restore_row.upcast_ref(),
             self.echo_stale_row.upcast_ref(),
             self.idle_commit_row.upcast_ref(),
-            self.flow_per_key_spin.upcast_ref(),
             self.flow_backspace_retrack.upcast_ref(),
             self.flow_backspace_restore_row.upcast_ref(),
             self.nav_key_while_preedit.upcast_ref(),
@@ -877,8 +986,6 @@ impl Ui {
                 .set_sensitive(gate && self.echo_stale_switch.is_active());
             self.idle_commit_spin
                 .set_sensitive(gate && self.idle_commit_switch.is_active());
-            self.flow_per_key_spin
-                .set_sensitive(gate && self.flow_per_key_switch.is_active());
             self.flow_backspace_restore_spin
                 .set_sensitive(gate && self.flow_backspace_restore_switch.is_active());
             self.extra_url_chars_entry
@@ -913,8 +1020,6 @@ impl Ui {
         self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
         self.idle_commit_switch.set_active(d.idle_commit_enabled);
         self.idle_commit_spin.set_value(d.idle_commit_ms as f64);
-        self.flow_per_key_spin
-            .set_value(d.flow_per_key_delay_ms as f64);
         self.flow_backspace_retrack
             .set_active(d.flow_backspace_retrack);
         self.flow_backspace_restore_switch
@@ -949,8 +1054,6 @@ impl Ui {
         self.echo_stale_spin.set_value(c.echo_stale_ms as f64);
         self.idle_commit_switch.set_active(c.idle_commit_enabled);
         self.idle_commit_spin.set_value(c.idle_commit_ms as f64);
-        self.flow_per_key_spin
-            .set_value(c.flow_per_key_delay_ms as f64);
         self.flow_backspace_retrack
             .set_active(c.flow_backspace_retrack);
         self.flow_backspace_restore_switch

@@ -113,6 +113,30 @@ fn cycle_next_wraps_around_the_list() {
 }
 
 #[test]
+fn visible_cycle_skips_hidden_modes_and_wraps() {
+    use super::hotkey::next_visible_mode;
+    let visible = vec![
+        ModeConfig::Preedit,
+        ModeConfig::Surrounding,
+        ModeConfig::Off,
+    ];
+    assert_eq!(
+        next_visible_mode(&visible, ModeConfig::Preedit),
+        ModeConfig::Surrounding
+    );
+    assert_eq!(
+        next_visible_mode(&visible, ModeConfig::Off),
+        ModeConfig::Preedit,
+        "wraps to the first"
+    );
+    assert_eq!(
+        next_visible_mode(&visible, ModeConfig::Turbo),
+        ModeConfig::Preedit,
+        "a hidden current mode lands on the first visible entry"
+    );
+}
+
+#[test]
 fn parse_hotkey_rejects_dangerous_or_bad_specs() {
     // A bare letter would swallow normal typing.
     assert_eq!(parse_hotkey("v"), None);
@@ -1116,14 +1140,15 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
 #[test]
 fn picker_keys_map_onto_entries() {
     use super::picker::{picker_entries, PickerKey, PickerState};
-    let len = picker_entries(ModeConfig::Preedit, false).len();
-    assert_eq!(len, ibus_prop::MODES.len(), "nine modes, nothing else");
+    let visible = Config::default().visible_modes();
+    let len = picker_entries(&visible, ModeConfig::Preedit, false).len();
+    assert_eq!(len, visible.len(), "only the visible modes, nothing else");
     let state = PickerState::new("e2epick".into(), 1);
     // Digits 1..9 pick entries 1..9, 0 picks the last; Enter picks the
     // highlighted entry; Up/Down move the highlight.
     assert_eq!(state.on_key(0x31), PickerKey::Select(0));
     assert_eq!(state.on_key(0x39), PickerKey::Select(8));
-    assert_eq!(state.on_key(0x30), PickerKey::Select(8));
+    assert_eq!(state.on_key(0x30), PickerKey::SelectLast);
     assert_eq!(
         state.on_key(65293),
         PickerKey::Select(1),
@@ -1133,30 +1158,40 @@ fn picker_keys_map_onto_entries() {
     assert_eq!(state.on_key(65362), PickerKey::Move(-1)); // Up
     assert_eq!(state.on_key(65364), PickerKey::Move(1)); // Down
     assert_eq!(state.on_key(0x76), PickerKey::Ignore);
-    // The current mode's entry carries the dot marker.
-    let entries = picker_entries(ModeConfig::Preedit, false);
+    // The current mode's entry carries the dot marker (Preedit is first in
+    // the default visible order).
+    let entries = picker_entries(&visible, ModeConfig::Preedit, false);
     assert!(
-        entries[1].starts_with("● "),
-        "preedit is the default: {}",
-        entries[1]
+        entries[0].starts_with("● "),
+        "preedit is first in the default visible order: {}",
+        entries[0]
     );
-    assert!(!entries[0].starts_with("● "));
+    assert!(!entries[1].starts_with("● "));
+    // A shortened visible list renders exactly its entries; a hidden mode
+    // never appears in the picker.
+    let short = vec![ModeConfig::Preedit, ModeConfig::Off];
+    let entries = picker_entries(&short, ModeConfig::Off, true);
+    assert_eq!(entries, vec!["Underline (preedit)", "● OFF"]);
 }
 
 #[test]
 fn picker_cursor_moves_with_wrap() {
-    use super::picker::PICKER_PAGE_SIZE;
-    // The same arithmetic the Move arm runs: wrapping past both ends.
+    // The same arithmetic the Move arm runs: wrapping over the visible list.
+    let len = Config::default().visible_modes().len() as i32;
     let mut cursor = 2usize;
     for delta in [1, -1, -1] {
-        cursor = (cursor as i32 + delta).rem_euclid(PICKER_PAGE_SIZE as i32) as usize;
+        cursor = (cursor as i32 + delta).rem_euclid(len) as usize;
     }
     assert_eq!(cursor, 1, "down then up twice: 2 -> 3 -> 2 -> 1");
     cursor = 0;
-    cursor = (cursor as i32 - 1).rem_euclid(PICKER_PAGE_SIZE as i32) as usize;
-    assert_eq!(cursor, 8, "Up from the first wraps to the last");
-    cursor = 8;
-    cursor = (cursor as i32 + 1).rem_euclid(PICKER_PAGE_SIZE as i32) as usize;
+    cursor = (cursor as i32 - 1).rem_euclid(len) as usize;
+    assert_eq!(
+        cursor as i32,
+        len - 1,
+        "Up from the first wraps to the last"
+    );
+    cursor = (len - 1) as usize;
+    cursor = (cursor as i32 + 1).rem_euclid(len) as usize;
     assert_eq!(cursor, 0, "Down from the last wraps to the first");
 }
 
