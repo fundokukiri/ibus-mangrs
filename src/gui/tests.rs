@@ -500,7 +500,7 @@ fn refresh_round_trips_every_widget() {
     let config = Config {
         enabled: false,
         method: MethodConfig::Vni,
-        mode: ModeConfig::ForwardSelect,
+        mode: ModeConfig::ForwardBackspace,
         charset: CharsetConfig::Tcvn3,
         modern_tone_style: false,
         free_tone_marking: true,
@@ -568,15 +568,13 @@ fn refresh_round_trips_every_widget() {
         // Passes through read() untouched (see baseline above).
         quick_menu: baseline.quick_menu,
         menu_modes: baseline.menu_modes,
-        // The scenario exercises a hidden-by-default mode (ForwardSelect),
-        // so its list shows every mode; refresh/read must preserve that
-        // order.
+        // The scenario lists every mode explicitly; refresh/read must
+        // preserve that order.
         visible_modes: Some(vec![
             "preedit".into(),
             "surrounding".into(),
             "flow".into(),
             "forwardbackspace".into(),
-            "forwardselect".into(),
             "off".into(),
         ]),
         // The editor always produces a design, and refresh normalizes an
@@ -626,7 +624,6 @@ fn refresh_round_trips_every_widget() {
         ModeConfig::Surrounding,
         ModeConfig::Flow,
         ModeConfig::ForwardBackspace,
-        ModeConfig::ForwardSelect,
         ModeConfig::Off,
     ];
     for m in &all_modes {
@@ -648,7 +645,7 @@ fn refresh_round_trips_every_widget() {
     assert_eq!(MODE_LABELS[flow + 1].0, ModeConfig::ForwardBackspace);
     assert_eq!(
         ui.mode.selected(),
-        mode_index(&all_modes, ModeConfig::ForwardSelect),
+        mode_index(&all_modes, ModeConfig::ForwardBackspace),
         "refresh must place the config's mode at the right list position"
     );
 
@@ -738,21 +735,37 @@ fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
         );
     }
 
-    // Turn on a hidden-by-default mode: it joins the end of the list.
+    // Turn on a mode hidden by an explicit subset (no variant ships hidden
+    // anymore, so the subset manufactures the hidden mode): it joins the
+    // end of the list.
+    let subset = Config {
+        visible_modes: Some(vec![
+            "preedit".into(),
+            "surrounding".into(),
+            "flow".into(),
+            "off".into(),
+        ]),
+        ..Config::default()
+    };
+    ui.refresh(&subset, &macros, &dictionary);
+    assert!(!ui
+        .mode_choices
+        .borrow()
+        .contains(&ModeConfig::ForwardBackspace));
     let index_of = |mode: ModeConfig| {
         MODE_LABELS
             .iter()
             .position(|(m, ..)| *m == mode)
             .expect("mode in table")
     };
-    ui.mode_visible_switches[index_of(ModeConfig::ForwardSelect)].set_active(true);
+    ui.mode_visible_switches[index_of(ModeConfig::ForwardBackspace)].set_active(true);
     assert!(ui
         .mode_choices
         .borrow()
-        .contains(&ModeConfig::ForwardSelect));
+        .contains(&ModeConfig::ForwardBackspace));
     assert_eq!(
         ui.mode_choices.borrow().last(),
-        Some(&ModeConfig::ForwardSelect),
+        Some(&ModeConfig::ForwardBackspace),
         "a newly enabled mode is appended"
     );
 
@@ -763,7 +776,7 @@ fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
     assert_eq!(saved.borrow().mode, ModeConfig::Surrounding);
     let visible = saved.borrow().visible_modes.clone().unwrap();
     assert!(
-        visible.contains(&"forwardselect".to_string()),
+        visible.contains(&"forwardbackspace".to_string()),
         "new mode saved"
     );
     assert!(

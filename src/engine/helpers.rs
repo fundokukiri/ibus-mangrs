@@ -4,15 +4,15 @@ use std::time::SystemTime;
 
 use super::Mode;
 
-/// Modes whose tail rewrite deletes with key events forwarded through IBus
-/// (`ForwardKeyEvent` signals) instead of the protocol delete or `/dev/uinput`.
-/// They need neither a surrounding-text report nor the virtual device, which
-/// makes them the only workable delete transport in XIM clients (their input
-/// context reports no capabilities at all) and in mutter-relayed Wayland
-/// contexts. Keep this the single place the forwarded-delete modes are
-/// recognised, or one of them silently stops deleting.
+/// Whether the mode's tail rewrite deletes with key events forwarded through
+/// IBus (`ForwardKeyEvent` signals) instead of the protocol delete or
+/// `/dev/uinput`. It needs neither a surrounding-text report nor the virtual
+/// device, which makes it the only workable delete transport in XIM clients
+/// (their input context reports no capabilities at all) and in mutter-relayed
+/// Wayland contexts. Keep this the single place the forwarded-delete mode is
+/// recognised, or it silently stops deleting.
 pub(super) fn forwards_delete(mode: Mode) -> bool {
-    matches!(mode, Mode::ForwardBackspace | Mode::ForwardSelect)
+    matches!(mode, Mode::ForwardBackspace)
 }
 
 /// mtime of `path`, or None when it does not exist — the reload gate for

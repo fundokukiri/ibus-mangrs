@@ -1088,41 +1088,6 @@ fn forward_key_event_mode_survives_the_preedit_heuristics() {
 }
 
 #[test]
-fn forward_select_mode_selects_the_tail_before_committing() {
-    // ForwardKeyEvent II: the tail is selected with forwarded Shift+Left
-    // and the commit replaces the selection, so the application never has
-    // to handle a Backspace. XIM clients report no capabilities at all,
-    // which is exactly the case this mode exists for.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
-    e.set_client(Some("xim".into()));
-    e.set_capabilities(0);
-    let mut buf: Vec<char> = Vec::new();
-    let mut selected = 0usize;
-    for c in "tieengs ".chars() {
-        let actions = e.process_char(c);
-        let forwarded = actions.contains(&Action::Forward);
-        for a in &actions {
-            match a {
-                Action::ForwardSelectLeft(n) => selected += *n as usize,
-                Action::Commit(t) => {
-                    buf.truncate(buf.len().saturating_sub(selected));
-                    selected = 0;
-                    buf.extend(t.chars());
-                }
-                Action::DeleteBefore(_) | Action::DeleteSurrounding { .. } => {
-                    panic!("ForwardSelect must not use a protocol delete: {actions:?}")
-                }
-                _ => {}
-            }
-        }
-        if forwarded {
-            buf.push(c);
-        }
-    }
-    assert_eq!(buf.iter().collect::<String>(), "tiếng ");
-}
-
-#[test]
 fn xim_clients_report_no_usable_application_name() {
     // ibus-x11 names every input context `xim`, so an app rule can only
     // match one by accident; the server must name the app from the
@@ -1216,14 +1181,15 @@ fn hidden_modes_are_not_selectable_from_config_or_rules() {
     e.set_capabilities(CAP_PREEDIT_TEXT);
     e.set_client(Some("gtk4-im:game".into()));
     e.apply_config(&Config {
-        // The global mode is hidden: the engine moves to the first visible
+        // The global mode is hidden by the explicit subset (no variant
+        // ships hidden anymore): the engine moves to the first visible
         // entry instead of running a mode the user cannot see.
-        mode: ModeConfig::ForwardSelect,
+        mode: ModeConfig::Flow,
         visible_modes: Some(vec!["preedit".into(), "off".into()]),
         // A rule naming a hidden mode is ignored; the global mode stands.
         app_rules: vec![crate::config::AppRule {
             pattern: "game".into(),
-            mode: ModeConfig::ForwardSelect,
+            mode: ModeConfig::Flow,
         }],
         ..Config::default()
     });
@@ -1257,17 +1223,17 @@ fn hidden_mode_fallback_follows_the_visible_order() {
         ..Config::default()
     });
     assert_eq!(e.mode(), Mode::Off, "the first visible entry wins");
-    // ForwardSelect: the only still-hidden variant key — the stand-in for a
-    // mode outside the shipped default list (fixture ruling).
+    // The explicit subset hides Preedit itself: the fallback still follows
+    // the list order, not the factory default.
     e.apply_config(&Config {
         mode: ModeConfig::Preedit,
-        visible_modes: Some(vec!["forwardselect".into(), "flow".into()]),
+        visible_modes: Some(vec!["forwardbackspace".into(), "flow".into()]),
         ..Config::default()
     });
     assert_eq!(
         e.mode(),
-        Mode::ForwardSelect,
-        "a visible mode is kept as configured"
+        Mode::ForwardBackspace,
+        "the fallback follows the list order, not the factory default"
     );
 }
 
@@ -3802,11 +3768,14 @@ fn preedit_shows_the_restored_raw_keys_for_a_non_vietnamese_word() {
 #[test]
 fn app_rule_wins_over_the_global_mode() {
     // A rule pins the client to preedit; the global mode must not run even
-    // though the client could not render preedit without the rule.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+    // though the client could not render preedit without the rule. Off is
+    // the global mode (the config must carry it — apply_config resets the
+    // mode to its own otherwise): an inert engine would leave every key raw.
+    let mut e = Engine::new(Method::Telex, Mode::Off);
     e.set_client(Some("gtk4-im:ruleclient".into()));
     e.set_capabilities(0);
     e.apply_config(&Config {
+        mode: ModeConfig::Off,
         app_rules: vec![crate::config::AppRule {
             pattern: "ruleclient".into(),
             mode: ModeConfig::Preedit,
@@ -3814,14 +3783,13 @@ fn app_rule_wins_over_the_global_mode() {
         ..Config::default()
     });
     // The rule requests Preedit; without preedit caps the hard fallback
-    // still applies (the rule does not bypass physics) — the global mode,
-    // on the other hand, is never consulted: no Shift+Left transport may
-    // appear.
+    // still applies (the rule does not bypass physics) and the word rides
+    // the walk's terminal transport — the global mode, on the other hand,
+    // is never consulted: raw keys, no commit.
     let actions: Vec<Action> = "vieetj ".chars().flat_map(|c| e.process_char(c)).collect();
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::ForwardSelectLeft(_))),
+    assert_eq!(
+        replay(&actions),
+        "việt",
         "a pinned rule must bypass the global mode: {actions:?}"
     );
 }

@@ -531,19 +531,24 @@ pub enum ModeConfig {
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
     /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent I.
-    // The aliases carry the old mode name's spellings, so an existing
-    // config.toml or app rule keeps loading after the rename.
+    /// The removed ForwardSelect mode (ibus-bamboo's ForwardKeyEvent II —
+    /// the tail selected with forwarded Shift+Left, the commit replacing
+    /// the selection) migrates here: its apps move onto the forwarded
+    /// Backspace transport (owner-approved).
+    // The aliases carry the old mode names' spellings, so an existing
+    // config.toml or app rule keeps loading after the rename and the merge.
     #[serde(
         alias = "forwardkeyevent",
         alias = "forwardkey",
         alias = "forward-key-event",
-        alias = "forward_key_event"
+        alias = "forward_key_event",
+        alias = "forwardselect",
+        alias = "forwardkeyevent2",
+        alias = "forwardkeyeventii",
+        alias = "forward-key-event-2",
+        alias = "forward_key_event_2"
     )]
     ForwardBackspace,
-    /// The same, but the tail is selected with forwarded Shift+Left and the
-    /// commit replaces the selection — for apps that mishandle a forwarded
-    /// Backspace. ibus-bamboo's ForwardKeyEvent II.
-    ForwardSelect,
     /// Vietnamese processing off, but macros and auto-capitalize still run.
     /// The removed Default Typing mode ("engine inert") migrates here: an
     /// inert engine is what switching to another input method already does.
@@ -636,7 +641,6 @@ impl From<ModeConfig> for Mode {
             ModeConfig::Surrounding => Mode::Surrounding,
             ModeConfig::Flow => Mode::Flow,
             ModeConfig::ForwardBackspace => Mode::ForwardBackspace,
-            ModeConfig::ForwardSelect => Mode::ForwardSelect,
             ModeConfig::Off => Mode::Off,
         }
     }
@@ -649,7 +653,6 @@ impl From<Mode> for ModeConfig {
             Mode::Surrounding => ModeConfig::Surrounding,
             Mode::Flow => ModeConfig::Flow,
             Mode::ForwardBackspace => ModeConfig::ForwardBackspace,
-            Mode::ForwardSelect => ModeConfig::ForwardSelect,
             Mode::Off => ModeConfig::Off,
         }
     }
@@ -736,7 +739,6 @@ impl ModeConfig {
             ModeConfig::Surrounding => "surrounding",
             ModeConfig::Flow => "flow",
             ModeConfig::ForwardBackspace => "forwardbackspace",
-            ModeConfig::ForwardSelect => "forwardselect",
             ModeConfig::Off => "off",
         }
     }
@@ -754,13 +756,19 @@ impl ModeConfig {
             // Flow (both here and through the serde aliases on the enum,
             // for old config files and app rules).
             "turbo" | "select" | "smoothforward" | "smooth-forward" => ModeConfig::Flow,
-            "forwardbackspace" | "forwardkeyevent" | "forwardkey" | "forward-key-event"
-            | "forward_key_event" => ModeConfig::ForwardBackspace,
-            "forwardselect"
+            // The removed ForwardSelect mode migrates to ForwardBackspace
+            // (both here and through the serde aliases on the enum, for old
+            // config files and app rules).
+            "forwardbackspace"
+            | "forwardkeyevent"
+            | "forwardkey"
+            | "forward-key-event"
+            | "forward_key_event"
+            | "forwardselect"
             | "forwardkeyevent2"
             | "forwardkeyeventii"
             | "forward-key-event-2"
-            | "forward_key_event_2" => ModeConfig::ForwardSelect,
+            | "forward_key_event_2" => ModeConfig::ForwardBackspace,
             "off" => ModeConfig::Off,
             // The removed Default Typing mode migrates to Off (both here and
             // through the serde aliases on the enum, for old config files).
@@ -806,9 +814,8 @@ fn default_menu_modes() -> Vec<String> {
         .collect()
 }
 
-/// Modes the GUI offers on a fresh install, in dropdown/cycle order. The
-/// technical variant (`forwardselect`) stays implemented but hidden until
-/// the user enables it.
+/// Modes the GUI offers on a fresh install, in dropdown/cycle order — every
+/// display mode; nothing ships hidden.
 pub const DEFAULT_VISIBLE_MODES: [&str; 5] =
     ["preedit", "surrounding", "flow", "forwardkeyevent", "off"];
 
@@ -1200,14 +1207,42 @@ mod tests {
         assert!(c.preedit_for_xim);
         let c = Config::from_toml("mode = \"preedit\"\n");
         assert!(!c.x11_delete_without_report && !c.preedit_for_xim);
+    }
 
-        let c: Config = toml::from_str("mode = \"forwardselect\"").unwrap();
-        assert_eq!(c.mode, ModeConfig::ForwardSelect);
-        assert_eq!(c.mode.key(), "forwardselect");
+    #[test]
+    fn forwardselect_keys_migrate_to_forwardbackspace() {
+        // ForwardSelect merged into ForwardBackspace: every old spelling
+        // keeps loading, in the global mode, an app rule and the visible
+        // list. `key()` stays "forwardbackspace" — one mode must not gain a
+        // second canonical name.
+        for key in [
+            "forwardselect",
+            "forwardkeyevent2",
+            "forwardkeyeventii",
+            "forward-key-event-2",
+            "forward_key_event_2",
+        ] {
+            assert_eq!(
+                ModeConfig::from_key(key),
+                Some(ModeConfig::ForwardBackspace)
+            );
+            // The serde aliases carry the same spellings for config.toml.
+            let c: Config = toml::from_str(&format!("mode = \"{key}\"\n")).unwrap();
+            assert_eq!(c.mode, ModeConfig::ForwardBackspace);
+        }
+        assert_eq!(ModeConfig::ForwardBackspace.key(), "forwardbackspace");
+        // A per-app rule can pin the mode by an old spelling, and the value
+        // maps onto the engine mode the walk dispatches on.
+        let c: Config =
+            toml::from_str("[[app_rules]]\npattern = \"game\"\nmode = \"forwardselect\"\n")
+                .unwrap();
+        assert_eq!(c.app_rules[0].mode, ModeConfig::ForwardBackspace);
         assert_eq!(
-            ModeConfig::from_key("forwardkeyevent2"),
-            Some(ModeConfig::ForwardSelect)
+            Mode::from(c.app_rules[0].mode),
+            crate::engine::Mode::ForwardBackspace
         );
+        let c: Config = toml::from_str("visible_modes = [\"forwardselect\"]\n").unwrap();
+        assert_eq!(c.visible_modes(), vec![ModeConfig::ForwardBackspace]);
     }
 
     #[test]
@@ -1315,27 +1350,23 @@ mod tests {
     fn absent_visible_modes_keep_the_configured_and_rule_modes() {
         // Upgrade path: an old file has no key. Its global mode and every
         // rule mode must stay selectable, or an upgrade would silently
-        // change what the user types with. ForwardSelect stands in for any
-        // mode outside the shipped default list.
+        // change what the user types with. Every shipped mode now sits in
+        // the default list, so the appended entries dedup against it — one
+        // entry per mode, in the shipped order.
         let c = Config {
-            mode: ModeConfig::ForwardSelect,
+            mode: ModeConfig::Surrounding,
             app_rules: vec![AppRule {
                 pattern: "game".into(),
-                mode: ModeConfig::ForwardSelect,
+                mode: ModeConfig::Off,
             }],
             ..Config::default()
         };
         let visible = c.visible_modes();
-        assert!(visible.contains(&ModeConfig::ForwardSelect));
-        // The default order stays first; the extra modes are appended once.
+        assert!(visible.contains(&ModeConfig::Surrounding));
+        assert!(visible.contains(&ModeConfig::Off));
+        // The shipped order stands and no mode appears twice.
         assert_eq!(visible.first(), Some(&ModeConfig::Preedit));
-        assert_eq!(
-            visible
-                .iter()
-                .filter(|m| **m == ModeConfig::ForwardSelect)
-                .count(),
-            1
-        );
+        assert_eq!(visible.len(), DEFAULT_VISIBLE_MODES.len());
     }
 
     #[test]

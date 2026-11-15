@@ -1062,21 +1062,6 @@ fn emit_with(
                     push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
                 }
             }
-            // ForwardSelect: Shift+Left moves the application's own selection
-            // over the raw tail, then one forwarded Backspace erases it.
-            // A CommitText does NOT replace an application-side selection (the
-            // selection lives in the widget, the commit goes through the input
-            // context), so without the erase the raw keys stayed and the word
-            // was duplicated ("chao" + "chào" = "chàoao"). Backspace over a
-            // selection deletes the selection in every toolkit, and it is the
-            // transport already proven to land in these clients.
-            Action::ForwardSelectLeft(n) => {
-                debug_log::log(&format!("forward-select-left n={n} + erase"));
-                for _ in 0..*n {
-                    push_forward_keys(out, keymap::LEFT, LEFT_KEYCODE, keymap::SHIFT_MASK);
-                }
-                push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
-            }
             // The per-key batch's parked commit: its deletes were injected
             // and their echoes accounted when the batch armed, so the
             // normal deferral would park it behind a stale count. Emit

@@ -507,9 +507,6 @@ struct FakeClient {
     protocol_deletes: u32,
     /// Deletes the client swallowed (drop_delete).
     deletes_swallowed: u32,
-    /// Characters selected from the caret to the right (Shift+Left); the next
-    /// commit replaces them, which is how the ForwardSelect rewrite deletes.
-    selection: usize,
 }
 
 impl FakeClient {
@@ -521,7 +518,6 @@ impl FakeClient {
             last_report: None,
             protocol_deletes: 0,
             deletes_swallowed: 0,
-            selection: 0,
         }
     }
 
@@ -535,14 +531,6 @@ impl FakeClient {
         for a in actions {
             match a {
                 Action::Commit(t) => {
-                    // A commit replaces the selection a Shift+Left rewrite
-                    // made; without this the selected tail survives and the
-                    // word is duplicated.
-                    if self.selection > 0 {
-                        let end = (self.caret + self.selection).min(self.buf.len());
-                        self.buf.drain(self.caret..end);
-                        self.selection = 0;
-                    }
                     let n = t.chars().count();
                     self.buf
                         .splice(self.caret..self.caret, t.chars().collect::<Vec<char>>());
@@ -604,12 +592,6 @@ impl FakeClient {
                     let start = self.caret.saturating_sub(*n as usize);
                     self.buf.drain(start..self.caret);
                     self.caret = start;
-                }
-                Action::ForwardSelectLeft(n) => {
-                    // Shift+Left in the application: the caret moves left over
-                    // the tail and leaves it selected for the next commit.
-                    self.caret = self.caret.saturating_sub(*n as usize);
-                    self.selection += *n as usize;
                 }
                 // The per-key batch's parked commit: delivered as text.
                 Action::CommitNow(t) => {

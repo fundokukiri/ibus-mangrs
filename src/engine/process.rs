@@ -362,11 +362,10 @@ impl Engine {
 
     /// The delete half of a rewrite for this keystroke: the protocol delete
     /// (or the server's uinput fallback) in the inline modes, key events
-    /// forwarded through IBus in the two ForwardBackspace modes.
+    /// forwarded through IBus in the ForwardBackspace mode.
     pub(super) fn delete_action(&mut self, mode: Mode, n: u32, insert_len: usize) -> Action {
         match mode {
             Mode::ForwardBackspace => Action::ForwardBackspaces(n),
-            Mode::ForwardSelect => Action::ForwardSelectLeft(n),
             _ => self.tracked_delete(n, insert_len),
         }
     }

@@ -76,11 +76,9 @@ pub enum Mode {
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
     /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent I.
+    /// The removed ForwardSelect mode (ForwardKeyEvent II, the select-then-
+    /// erase contract) shared the forward transport; its apps land here.
     ForwardBackspace,
-    /// The same, but the tail is selected with forwarded Shift+Left and the
-    /// commit replaces the selection — for apps that mishandle a forwarded
-    /// Backspace. ibus-bamboo's ForwardKeyEvent II.
-    ForwardSelect,
     /// Vietnamese processing off; macros still run, auto-capitalize does
     /// not (the gap analysis documented this drift — keep the comment true).
     Off,
@@ -147,10 +145,6 @@ pub enum Action {
     /// mutter-relayed Wayland contexts; unlike the protocol delete it works
     /// in clients that drop `DeleteSurroundingText`.
     ForwardBackspaces(u32),
-    /// Select `n` characters to the left with Shift+Left forwarded through
-    /// IBus (ForwardSelect mode); the commit that follows replaces the
-    /// selection. Same wire shape as `ForwardBackspaces`, no `/dev/uinput`.
-    ForwardSelectLeft(u32),
     /// Idle pause (ms) after a uinput rewrite, before the app sees more keys.
     PostDelay(u64),
     /// Emit CommitText immediately, bypassing the injected-echo deferral —
@@ -1317,9 +1311,8 @@ impl Engine {
             }
             // Terminal: carries its own delete transport, walks nowhere.
             Mode::ForwardBackspace => Mode::ForwardBackspace,
-            // Unreachable: Off returned first, the forward modes through
-            // `forwards_delete` above. Kept for exhaustiveness.
-            Mode::Off | Mode::ForwardSelect => requested,
+            // Unreachable: Off returned first. Kept for exhaustiveness.
+            Mode::Off => requested,
         }
     }
 
@@ -1486,7 +1479,7 @@ impl Engine {
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
             Mode::Flow => None,
-            Mode::Surrounding | Mode::ForwardBackspace | Mode::ForwardSelect => {
+            Mode::Surrounding | Mode::ForwardBackspace => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
                     // Backspace so the app deletes the last character itself.

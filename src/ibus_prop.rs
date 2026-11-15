@@ -92,7 +92,6 @@ pub const MODES: &[(&str, &str, &str)] = &[
     ("surrounding", "Surrounding text", "Surrounding text"),
     ("flow", "Flow (uinput)", "Flow (uinput)"),
     ("forwardkeyevent", "Forward Backspace", "Forward Backspace"),
-    ("forwardselect", "Forward Selection", "Forward Selection"),
     ("off", "OFF", "OFF"),
 ];
 
@@ -703,10 +702,11 @@ mod tests {
         let display = props.iter().find(|p| p.key == KEY_DISPLAY).unwrap();
         assert_eq!(display.sub.len(), 4);
 
-        // A design that lists only hidden modes renders no empty submenu.
+        // A design that lists only hidden modes renders no empty submenu
+        // (the explicit subset hides Flow, a shipped mode).
         let config = Config {
             visible_modes: Some(vec!["preedit".into(), "off".into()]),
-            menu_modes: vec!["forwardselect".into()],
+            menu_modes: vec!["flow".into()],
             ..Config::default()
         };
         assert!(

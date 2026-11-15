@@ -131,9 +131,9 @@ fn visible_cycle_skips_hidden_modes_and_wraps() {
         "wraps to the first"
     );
     assert_eq!(
-        next_visible_mode(&visible, ModeConfig::ForwardSelect),
+        next_visible_mode(&visible, ModeConfig::Flow),
         ModeConfig::Preedit,
-        "a hidden current mode lands on the first visible entry"
+        "a mode outside the visible list lands on the first visible entry"
     );
 }
 
@@ -869,59 +869,6 @@ fn x11_delete_opt_in_reaches_the_wire_without_a_report() {
         });
         assert_eq!(deleted, want_delete, "switch={enabled}: {out:?}");
     }
-}
-
-#[test]
-fn forward_select_selects_then_erases() {
-    // ForwardKeyEvent II's wire shape: Left with the shift held on the
-    // press, plain release (scancode 105; clients add 8 themselves), then
-    // one Backspace that erases the selection the Left keys made — the
-    // commit alone does not replace an application-side selection.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
-    e.set_client(Some("xim".into()));
-    let mut out = Vec::new();
-    emit_with(
-        &mut e,
-        &[Action::ForwardSelectLeft(2)],
-        &mut out,
-        &fake_transports(&|_, _| true),
-    );
-    let keys: Vec<(u32, u32, u32)> = out
-        .iter()
-        .filter(|m| m.member().map(|x| x == "ForwardKeyEvent").unwrap_or(false))
-        .filter_map(|m| m.read3::<u32, u32, u32>().ok())
-        .collect();
-    assert_eq!(keys.len(), 6, "two Lefts plus the erase: {keys:?}");
-    let lefts: Vec<_> = keys
-        .iter()
-        .filter(|(keyval, _, _)| *keyval == 0xff51)
-        .collect();
-    assert_eq!(lefts.len(), 4, "press and release per Left: {keys:?}");
-    assert!(
-        lefts.iter().all(|(_, keycode, _)| *keycode == 105),
-        "Left keyval with its scancode: {keys:?}"
-    );
-    assert_eq!(
-        keys.iter()
-            .filter(|(keyval, _, _)| *keyval == 0xff08)
-            .count(),
-        2,
-        "one Backspace press and release erases the selection: {keys:?}"
-    );
-    assert_eq!(
-        keys.iter()
-            .filter(|(_, _, state)| *state == keymap::SHIFT_MASK)
-            .count(),
-        2,
-        "only the Left presses carry the shift: {keys:?}"
-    );
-    assert_eq!(
-        keys.iter()
-            .filter(|(_, _, state)| *state == keymap::RELEASE_MASK)
-            .count(),
-        3,
-        "three plain releases (two Lefts, one Backspace): {keys:?}"
-    );
 }
 
 #[test]

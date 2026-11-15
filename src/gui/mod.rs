@@ -109,11 +109,6 @@ const MODE_LABELS: &[(ModeConfig, &str, &str)] = &[
         "Forward Backspace",
         "Forward Backspace",
     ),
-    (
-        ModeConfig::ForwardSelect,
-        "Forward Selection",
-        "Forward Selection",
-    ),
     (ModeConfig::Off, "OFF", "OFF"),
 ];
 const CHARSETS: &[(&str, &str)] = &[
