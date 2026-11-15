@@ -5,17 +5,19 @@
 //!
 //! # Display modes
 //!
-//! * **NonPreedit** — no underline at all. Text is committed to the
-//!   application immediately and rewritten with `DeleteSurroundingText`
-//!   followed by `CommitText`. This is the default.
-//! * **Preedit** — the application shows the composition inline with an
-//!   underline. Each keystroke sends `UpdatePreeditText`; nothing is
-//!   committed until the word ends.
-//! * **Surrounding** — non-preedit, but the engine verifies the application's
-//!   `SetSurroundingText` reports against what it believes it committed and
-//!   repairs drift (swallowed deletes, edits the application made). Useful
-//!   for clients that ignore `DeleteSurroundingText` but do report
-//!   surrounding text.
+//! * **Preedit** — the factory default. The application shows the
+//!   composition inline with an underline. Each keystroke sends
+//!   `UpdatePreeditText`; nothing is committed until the word ends.
+//! * **Surrounding** — commit as you type, no underline: text is committed
+//!   to the application immediately and rewritten with the best working
+//!   delete transport. When the application reports surrounding text, the
+//!   engine verifies the report against what it believes it committed and
+//!   repairs drift (swallowed deletes, edits the application made).
+//!
+//! The removed NonPreedit mode was merged into Surrounding: it was the same
+//! commit-as-you-type contract without the verification, and the mode
+//! resolution walk already served both identically. Old `nonpreedit` config
+//! keys and app rules alias to Surrounding.
 //!
 //! Per-application rules (`AppRule`) can force a mode for a matched client;
 //! clients without a rule fall back to the built-in heuristic.
@@ -51,12 +53,14 @@ use self::helpers::*;
 /// Display mode, selected in the GUI/menu and persisted in the config file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
-    /// Commit as you type, no underline.
-    #[default]
-    NonPreedit,
     /// Show the composition inline until the word ends.
+    // The enum's Default mirrors the config's factory default mode.
+    #[default]
     Preedit,
-    /// Non-preedit with surrounding-text verification.
+    /// Commit as you type, no underline: every key commits immediately and
+    /// the rewrite deletes ride the best working transport; with a
+    /// surrounding-text report the engine also verifies the report and
+    /// repairs drift. The removed NonPreedit mode shared this arm.
     Surrounding,
     /// Raw keys are forwarded while typing; the latin tail is erased with
     /// real Backspaces at word end and the Vietnamese word is committed.
@@ -1435,11 +1439,9 @@ impl Engine {
                     self.commit_as_you_type_walk(can_preedit, ruled.is_none())
                 }
             }
-            // The commit-as-you-type contract (NonPreedit until Task 4
-            // merges it into Surrounding).
-            Mode::NonPreedit | Mode::Surrounding => {
-                self.commit_as_you_type_walk(can_preedit, ruled.is_none())
-            }
+            // The commit-as-you-type contract: the walk picks the best
+            // delete transport for the client.
+            Mode::Surrounding => self.commit_as_you_type_walk(can_preedit, ruled.is_none()),
             // The uinput modes press real keys through /dev/uinput. Without
             // the virtual device the walk downgrades to the forwarded
             // transport and remembers it (the paced backend re-request
@@ -1638,7 +1640,7 @@ impl Engine {
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
             Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward => None,
-            Mode::NonPreedit | Mode::Surrounding | Mode::ForwardBackspace | Mode::ForwardSelect => {
+            Mode::Surrounding | Mode::ForwardBackspace | Mode::ForwardSelect => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
                     // Backspace so the app deletes the last character itself.

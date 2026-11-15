@@ -87,9 +87,9 @@ fn labels_follow_the_language() {
     assert_eq!(labels(CHANNELS)[0], "CommitText (an toàn)");
     set_language("en");
     assert_eq!(labels(CHANNELS)[0], "CommitText (safe)");
-    assert_eq!(mode_label(ModeConfig::NonPreedit), "No underline");
+    assert_eq!(mode_label(ModeConfig::Preedit), "Underline (preedit)");
     set_language("vi");
-    assert_eq!(mode_label(ModeConfig::NonPreedit), "Không gạch chân");
+    assert_eq!(mode_label(ModeConfig::Preedit), "Gạch chân (preedit)");
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -573,7 +573,6 @@ fn refresh_round_trips_every_widget() {
         // The scenario exercises a hidden-by-default mode (Select), so its
         // list shows every mode; refresh/read must preserve that order.
         visible_modes: Some(vec![
-            "nonpreedit".into(),
             "preedit".into(),
             "surrounding".into(),
             "flow".into(),
@@ -616,7 +615,7 @@ fn refresh_round_trips_every_widget() {
     // positional hole to drift into.
     assert_eq!(
         MODE_LABELS[0].0,
-        ModeConfig::NonPreedit,
+        ModeConfig::Preedit,
         "the table must lead with the first display mode"
     );
     assert!(
@@ -627,7 +626,6 @@ fn refresh_round_trips_every_widget() {
         "removed modes must not linger in the table"
     );
     let all_modes = vec![
-        ModeConfig::NonPreedit,
         ModeConfig::Preedit,
         ModeConfig::Surrounding,
         ModeConfig::Flow,
@@ -647,11 +645,14 @@ fn refresh_round_trips_every_widget() {
             "index round-trip for {m:?}"
         );
     }
-    assert_eq!(
-        MODE_LABELS[6].0,
-        ModeConfig::SmoothForward,
-        "the new mode sits between Select and Forward Backspace"
-    );
+    // SmoothForward sits between Select and Forward Backspace in the fixed
+    // table — by neighbors, so removing a row does not shift the claim.
+    let smooth = MODE_LABELS
+        .iter()
+        .position(|(m, ..)| *m == ModeConfig::SmoothForward)
+        .expect("SmoothForward row");
+    assert_eq!(MODE_LABELS[smooth - 1].0, ModeConfig::Select);
+    assert_eq!(MODE_LABELS[smooth + 1].0, ModeConfig::ForwardBackspace);
     // The mode's limits (design §9) must be discoverable: the mode-row tip
     // names the transport and the game/XIM exclusions, in both content files.
     assert!(

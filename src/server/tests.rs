@@ -217,7 +217,8 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
     // toggle) may switch the wrapper off.
     let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
     // The daemon sends SetCapabilities before any key; without
-    // CAP_PREEDIT_TEXT the engine resolves Preedit down to NonPreedit.
+    // CAP_PREEDIT_TEXT the engine resolves Preedit down to the
+    // commit-as-you-type walk.
     lock_engine(&engine).set_capabilities(1);
     let mut handler = EngineHandler {
         engine: Arc::clone(&engine),
@@ -291,7 +292,7 @@ fn emitted(actions: &[Action]) -> Vec<Message> {
     // delete; anything else falls back to key injection (no D-Bus signal).
     let mut e = crate::engine::Engine::new(
         crate::bamboo_wrapper::Method::Telex,
-        crate::engine::Mode::NonPreedit,
+        crate::engine::Mode::Surrounding,
     );
     e.set_capabilities(32); // CAP_SURROUNDING_TEXT
     e.set_surrounding("word".into(), 4);
@@ -344,7 +345,7 @@ fn hide_preedit_reuses_the_preedit_signal() {
 
 #[test]
 fn hide_underline_drops_the_underline_attribute() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         hide_underline: true,
         ..Config::default()
@@ -378,7 +379,7 @@ fn no_surrounding_data_routes_deletes_to_injection() {
     // A client without surrounding data must never see a protocol
     // DeleteSurroundingText (mutter segfaults on contexts whose buffer it
     // never saw — the search-bar logout); uinput is the delete transport.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(32); // CAP_SURROUNDING_TEXT, but no data reported
     e.set_uinput_available(true);
@@ -414,7 +415,7 @@ fn unknown_client_routes_deletes_to_injection() {
     // Backspace transport instead of raw-forwarding the tone keys.
     let mut e = Engine::new(
         crate::bamboo_wrapper::Method::Telex,
-        crate::engine::Mode::NonPreedit,
+        crate::engine::Mode::Surrounding,
     );
     e.set_capabilities(1);
     e.set_uinput_available(true);
@@ -441,7 +442,7 @@ fn commit_after_injection_waits_for_backspace_echoes() {
     // outruns the compositor round trip — the echo then deletes the
     // freshly committed word ("accent flashes and reverts"). The commit
     // must be deferred until the last echo is forwarded.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_uinput_available(true); // no surrounding data → injection
     let mut out = Vec::new();
@@ -773,7 +774,7 @@ fn emit_uses_the_selected_backend_not_uinput_statics() {
     // application as exactly that Backspace batch and never ALSO as a
     // protocol delete of the same region (double deletion erased words).
     let (injection, ops) = recorded_injection();
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_uinput_available(true);
     let mut out = Vec::new();
@@ -809,7 +810,7 @@ fn relay_context_never_attempts_injection() {
     // and the availability flag fed, emit must not find a way around the
     // ban: the record stays empty while the commit still lands.
     let (injection, ops) = recorded_injection();
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gnome-shell".into()));
     e.set_uinput_available(true);
     let mut out = Vec::new();
@@ -842,7 +843,7 @@ fn compositor_routed_backend_injects_on_a_relayed_context() {
     // behind the echoes like on any injected path. Without the
     // exemption the same batch stays banned (relay ban test above).
     let (injection, ops) = recorded_injection();
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gnome-shell".into()));
     e.set_uinput_available(true);
     e.set_injection_relay_safe(true);
@@ -872,7 +873,7 @@ fn compositor_routed_backend_injects_on_a_relayed_context() {
     // Without the exemption the relay ban holds: the same batch is not
     // injected and the commit lands ungated.
     let (injection, ops) = recorded_injection();
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gnome-shell".into()));
     e.set_uinput_available(true);
     let mut out = Vec::new();
@@ -900,7 +901,7 @@ fn stale_echo_flushes_parked_commit() {
     // arrives: the main-loop tick must still deliver the parked commit
     // through emit, without attempting another injection on the way out.
     let (injection, ops) = recorded_injection();
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         experimental_features: true,
         echo_stale_enabled: true,
@@ -979,12 +980,12 @@ fn x11_delete_opt_in_reaches_the_wire_without_a_report() {
     // delete even though it never reported its buffer. Without the switch
     // the same action is dropped (raw keystrokes instead).
     for (enabled, want_delete) in [(false, false), (true, true)] {
-        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        let mut e = Engine::new(Method::Telex, Mode::Surrounding);
         e.apply_config(&Config {
             x11_delete_without_report: enabled,
             ..Config::default()
         });
-        e.set_mode(Mode::NonPreedit);
+        e.set_mode(Mode::Surrounding);
         e.set_client(Some("gtk3-im:sublime_text".into()));
         e.set_capabilities(1 << 5); // IBUS_CAP_SURROUNDING_TEXT
         let mut out = Vec::new();
@@ -1058,7 +1059,7 @@ fn forward_select_selects_then_erases() {
 
 #[test]
 fn forced_flush_delivers_lost_echo_commits() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.defer_commit(2, "word".into());
     assert!(e.has_deferred());
     // One echo arrives, one is lost: a focus change forces delivery.
@@ -1071,7 +1072,7 @@ fn forced_flush_delivers_lost_echo_commits() {
 /// An engine proven (report proof) to talk to a delete-swallowing client.
 #[cfg(test)]
 fn delete_dropped_engine() -> Engine {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(32); // CAP_SURROUNDING_TEXT
     e.set_uinput_available(true);
@@ -1137,7 +1138,7 @@ fn dead_device_suppresses_rewrite_by_backspace_on_swallowers() {
 fn inject_failure_keeps_the_protocol_fallback_for_healthy_clients() {
     // A client that has never swallowed a delete honors the protocol:
     // when injection fails, the protocol delete is the correct fallback.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(32);
     e.set_uinput_available(true);

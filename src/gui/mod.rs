@@ -93,7 +93,6 @@ const METHODS: &[(&str, &str)] = &[
 /// leaves holes in the visible list, so position is no longer a mapping
 /// contract.
 const MODE_LABELS: &[(ModeConfig, &str, &str)] = &[
-    (ModeConfig::NonPreedit, "Không gạch chân", "No underline"),
     (
         ModeConfig::Preedit,
         "Gạch chân (preedit)",

@@ -1,7 +1,8 @@
 //! Golden behaviour tests (TODO.MD Giai đoạn 0): a table of keystroke
 //! sequences and the exact text the engine must leave in the application.
 //!
-//! Every row runs through the real `Engine` in non-preedit mode with Unicode
+//! Every row runs through the real `Engine` in Surrounding mode (the
+//! commit-as-you-type contract) with Unicode
 //! output and is replayed against a simulated application buffer, so a
 //! failure means the on-screen text would be wrong, not just the internal
 //! state. Three case variants per word: lowercase, Capitalized, UPPER.
@@ -384,7 +385,7 @@ const TELEX_W: &[(&str, &str)] = &[
 /// key whose actions contain `Forward` inserts the raw character.
 #[cfg(test)]
 fn typed_word(method: Method, keys: &str) -> String {
-    let mut e = Engine::new(method, Mode::NonPreedit);
+    let mut e = Engine::new(method, Mode::Surrounding);
     // Non-relayed in-process client: golden cases exercise the protocol
     // path. A real client reports right after RequireSurroundingText,
     // before the first keystroke — the protocol-delete row serves the
@@ -478,7 +479,8 @@ fn run_table(method: Method, table: &[(&str, &str)], case_variants: bool) -> Vec
 struct Faults {
     /// Never sends SetSurroundingText (XWayland / Sublime / XIM clients).
     no_st: bool,
-    /// Lacks IBUS_CAP_PREEDIT_TEXT: preedit must fall back to NonPreedit.
+    /// Lacks IBUS_CAP_PREEDIT_TEXT: preedit must fall back to the
+    /// commit-as-you-type walk.
     no_preedit_cap: bool,
     /// Swallows protocol deletes (Chrome/Electron-style clients).
     drop_delete: bool,
@@ -871,7 +873,6 @@ mod matrix {
         // The core invariant: with a perfect client, every inline display
         // mode leaves exactly the same text for the same keystrokes.
         for mode in [
-            Mode::NonPreedit,
             Mode::Preedit,
             Mode::Surrounding,
             Mode::SmoothForward,
@@ -969,7 +970,6 @@ mod matrix {
             ),
         ];
         for mode in [
-            Mode::NonPreedit,
             Mode::Preedit,
             Mode::Surrounding,
             Mode::SmoothForward,
@@ -992,7 +992,8 @@ mod matrix {
     #[test]
     fn ideal_client_without_preedit_cap_still_types_the_word() {
         // The no-preedit-cap fallback is not just safe, it is productive:
-        // the word must still be typed (as NonPreedit commits).
+        // the word must still be typed (the commit-as-you-type walk
+        // commits).
         for (method, keys, _) in SEQUENCES {
             let method = method_of(method);
             let got = run_session(
@@ -1020,28 +1021,29 @@ mod matrix {
         // drop by seeing one swallowed delete); from the next word on, the
         // walk's terminal transport serves the client and the text is
         // exact again.
-        for mode in [Mode::NonPreedit, Mode::Surrounding] {
-            let got = run_session(
-                Method::Telex,
-                mode,
-                Faults {
-                    drop_delete: true,
-                    ..Faults::default()
-                },
-                "gtk4-im:matrix",
-                "aa tieengs chaox ",
-            );
-            assert!(
-                got.starts_with("â tieêngếng "),
-                "the forwarded transport serves the first word: \
-                 {mode:?} final {got:?}"
-            );
-            assert!(
-                got.ends_with("chão "),
-                "swallowed-delete detection must heal following words: \
-                 {mode:?} final {got:?}"
-            );
-        }
+        // One arm serves the contract since NonPreedit merged into
+        // Surrounding.
+        let mode = Mode::Surrounding;
+        let got = run_session(
+            Method::Telex,
+            mode,
+            Faults {
+                drop_delete: true,
+                ..Faults::default()
+            },
+            "gtk4-im:matrix",
+            "aa tieengs chaox ",
+        );
+        assert!(
+            got.starts_with("â tieêngếng "),
+            "the forwarded transport serves the first word: \
+             {mode:?} final {got:?}"
+        );
+        assert!(
+            got.ends_with("chão "),
+            "swallowed-delete detection must heal following words: \
+             {mode:?} final {got:?}"
+        );
     }
 
     #[test]
@@ -1099,7 +1101,6 @@ mod matrix {
             .collect();
         let terminators: Vec<char> = vec![' ', '_', '5', '.', ',', '!', '\''];
         let modes: Vec<Mode> = vec![
-            Mode::NonPreedit,
             Mode::Preedit,
             Mode::Surrounding,
             Mode::Off,
@@ -1343,40 +1344,39 @@ mod fingerprint {
             ("s", &["DeleteBefore(1)", "Commit(ấ)"]),
             (" ", &["Forward"]),
         ];
-        // NonPreedit and Surrounding share the per-key rewrite fingerprint; preedit
-        // holds the composition and has its own block below.
-        for mode in [Mode::NonPreedit, Mode::Surrounding] {
-            for (name, keys, want) in [("word", "tieengs ", word), ("mark", "aas ", mark)] {
-                let mut e = Engine::new(Method::Telex, mode);
-                let mut fc = FakeClient::new(Faults::default());
-                fc.focus_in(&mut e, "gtk4-im:fp");
-                // A real client reports at focus-in, before the first key —
-                // the fingerprint pins the protocol-path sequence.
-                e.set_surrounding(String::new(), 0);
-                let mut it = want.iter();
-                for c in keys.chars() {
-                    let actions = fc.key(&mut e, c);
-                    let Some((kc, expected)) = it.next() else {
-                        panic!("fingerprint table shorter than the keys");
-                    };
-                    assert_eq!(c.to_string(), *kc, "{mode:?} {name}");
-                    let names: Vec<String> = actions
-                        .iter()
-                        .map(|a| match a {
-                            Action::Commit(t) => format!("Commit({t})"),
-                            Action::DeleteBefore(n) => format!("DeleteBefore({n})"),
-                            Action::Forward => "Forward".into(),
-                            other => format!("{other:?}"),
-                        })
-                        .collect();
-                    assert_eq!(
-                        names,
-                        expected.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-                        "{mode:?} {name} key {c}"
-                    );
-                }
-                assert_eq!(fc.text(), if name == "word" { "tiếng " } else { "ấ " });
+        // The Surrounding rewrite fingerprint; preedit holds the composition
+        // and has its own block below.
+        let mode = Mode::Surrounding;
+        for (name, keys, want) in [("word", "tieengs ", word), ("mark", "aas ", mark)] {
+            let mut e = Engine::new(Method::Telex, mode);
+            let mut fc = FakeClient::new(Faults::default());
+            fc.focus_in(&mut e, "gtk4-im:fp");
+            // A real client reports at focus-in, before the first key —
+            // the fingerprint pins the protocol-path sequence.
+            e.set_surrounding(String::new(), 0);
+            let mut it = want.iter();
+            for c in keys.chars() {
+                let actions = fc.key(&mut e, c);
+                let Some((kc, expected)) = it.next() else {
+                    panic!("fingerprint table shorter than the keys");
+                };
+                assert_eq!(c.to_string(), *kc, "{mode:?} {name}");
+                let names: Vec<String> = actions
+                    .iter()
+                    .map(|a| match a {
+                        Action::Commit(t) => format!("Commit({t})"),
+                        Action::DeleteBefore(n) => format!("DeleteBefore({n})"),
+                        Action::Forward => "Forward".into(),
+                        other => format!("{other:?}"),
+                    })
+                    .collect();
+                assert_eq!(
+                    names,
+                    expected.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                    "{mode:?} {name} key {c}"
+                );
             }
+            assert_eq!(fc.text(), if name == "word" { "tiếng " } else { "ấ " });
         }
         // The preedit fingerprint differs by construction: every key is an
         // UpdatePreedit of the composed text; the terminator commits once.

@@ -86,9 +86,9 @@ impl Engine {
     /// `tail` walks its own characters; every offset in the report is derived
     /// from the caret's byte position or stepped from the end.
     pub(super) fn verify_surrounding(&mut self, mode: Mode) -> Vec<Action> {
-        // Only Surrounding verifies: plain NonPreedit must never send a
-        // repair delete (the client did not ask for it, and a wrong repair
-        // eats real text).
+        // Only Surrounding verifies: preedit still owns the composition and
+        // the forward transports keep their own bookkeeping, so a repair
+        // delete there would eat real text.
         if mode != Mode::Surrounding || self.tail.is_empty() {
             return Vec::new();
         }

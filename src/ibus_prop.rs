@@ -88,7 +88,6 @@ pub const METHODS: &[(&str, &str, &str)] = &[
 /// four main entries); the rest are reachable through the GUI — duplicated
 /// near-identical choices only widen the popup.
 pub const MODES: &[(&str, &str, &str)] = &[
-    ("nonpreedit", "Không gạch chân", "No underline"),
     ("preedit", "Gạch chân (preedit)", "Underline (preedit)"),
     ("surrounding", "Surrounding text", "Surrounding text"),
     ("flow", "Flow (uinput)", "Flow (uinput)"),

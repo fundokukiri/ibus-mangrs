@@ -183,9 +183,9 @@ pub struct Config {
     /// did not see move can lose real text.
     pub x11_delete_without_report: bool,
     /// Keep Preedit for XIM clients (the fixed `xim` id: Java apps such as
-    /// JetBrains) instead of falling back to NonPreedit. They report no
-    /// preedit capability because the XIM server draws the preedit itself, so
-    /// the fallback turned accents into raw keystrokes (`tungf`). Off by
+    /// JetBrains) instead of falling back to commit-as-you-type. They report
+    /// no preedit capability because the XIM server draws the preedit itself,
+    /// so the fallback turned accents into raw keystrokes (`tungf`). Off by
     /// default: an app that negotiated `XIMPreeditNothing` shows nothing
     /// while the word is being typed.
     pub preedit_for_xim: bool,
@@ -492,8 +492,6 @@ pub enum MethodConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ModeConfig {
-    #[serde(alias = "non-preedit", alias = "non_preedit")]
-    NonPreedit,
     /// Default: the composition renders in the application itself, so even
     /// restricted apps (Sublime, XWayland clients) show text. The removed
     /// Auto mode migrates here (the serde alias and `from_key` below, for
@@ -501,9 +499,15 @@ pub enum ModeConfig {
     #[default]
     #[serde(alias = "auto")]
     Preedit,
-    /// Non-preedit rewritten with the help of `SetSurroundingText`: the engine
-    /// verifies the text before the cursor against what it believes it
-    /// committed and repairs drift (dropped deletes, manual edits).
+    /// Commit as you type, no underline, rewritten with the help of
+    /// `SetSurroundingText`: the engine verifies the text before the cursor
+    /// against what it believes it committed and repairs drift (dropped
+    /// deletes, manual edits). The removed No-underline mode (NonPreedit)
+    /// migrates here — it was this without the verification, which the
+    /// engine's fallback walk already supplied everywhere.
+    // The aliases carry the removed mode name's spellings, so an existing
+    // config.toml or app rule keeps loading after the merge.
+    #[serde(alias = "nonpreedit", alias = "non-preedit", alias = "non_preedit")]
     Surrounding,
     /// Flow (uinput): raw keys are forwarded while typing; at word end the
     /// latin tail is erased with real Backspace keys and the Vietnamese word
@@ -627,7 +631,6 @@ impl From<MethodConfig> for Method {
 impl From<ModeConfig> for Mode {
     fn from(m: ModeConfig) -> Self {
         match m {
-            ModeConfig::NonPreedit => Mode::NonPreedit,
             ModeConfig::Preedit => Mode::Preedit,
             ModeConfig::Surrounding => Mode::Surrounding,
             ModeConfig::Flow => Mode::Flow,
@@ -644,7 +647,6 @@ impl From<ModeConfig> for Mode {
 impl From<Mode> for ModeConfig {
     fn from(m: Mode) -> Self {
         match m {
-            Mode::NonPreedit => ModeConfig::NonPreedit,
             Mode::Preedit => ModeConfig::Preedit,
             Mode::Surrounding => ModeConfig::Surrounding,
             Mode::Flow => ModeConfig::Flow,
@@ -735,7 +737,6 @@ impl MethodConfig {
 impl ModeConfig {
     pub fn key(self) -> &'static str {
         match self {
-            ModeConfig::NonPreedit => "nonpreedit",
             ModeConfig::Preedit => "preedit",
             ModeConfig::Surrounding => "surrounding",
             ModeConfig::Flow => "flow",
@@ -750,7 +751,10 @@ impl ModeConfig {
 
     pub fn from_key(key: &str) -> Option<Self> {
         Some(match key {
-            "nonpreedit" | "non-preedit" => ModeConfig::NonPreedit,
+            // The removed NonPreedit mode migrates to Surrounding (both here
+            // and through the serde aliases on the enum, for old config
+            // files and app rules).
+            "nonpreedit" | "non-preedit" | "non_preedit" => ModeConfig::Surrounding,
             "preedit" => ModeConfig::Preedit,
             "surrounding" => ModeConfig::Surrounding,
             "flow" => ModeConfig::Flow,
@@ -810,8 +814,8 @@ fn default_menu_modes() -> Vec<String> {
 }
 
 /// Modes the GUI offers on a fresh install, in dropdown/cycle order. The
-/// technical variants (`nonpreedit`, `turbo`, `select`, `forwardselect`)
-/// stay implemented but hidden until the user enables them.
+/// technical variants (`turbo`, `select`, `forwardselect`) stay implemented
+/// but hidden until the user enables them.
 pub const DEFAULT_VISIBLE_MODES: [&str; 6] = [
     "preedit",
     "surrounding",
@@ -1121,6 +1125,26 @@ mod tests {
     }
 
     #[test]
+    fn nonpreedit_keys_migrate_to_surrounding() {
+        // NonPreedit merged into Surrounding: every old spelling keeps
+        // loading, in the global mode, an app rule and the visible list.
+        // `key()` stays "surrounding" — one mode must not gain a second
+        // canonical name.
+        for key in ["nonpreedit", "non-preedit", "non_preedit"] {
+            assert_eq!(ModeConfig::from_key(key), Some(ModeConfig::Surrounding));
+            // The serde aliases carry the same spellings for config.toml.
+            let c: Config = toml::from_str(&format!("mode = \"{key}\"\n")).unwrap();
+            assert_eq!(c.mode, ModeConfig::Surrounding);
+        }
+        assert_eq!(ModeConfig::Surrounding.key(), "surrounding");
+        let c: Config =
+            toml::from_str("[[app_rules]]\npattern = \"gedit\"\nmode = \"nonpreedit\"\n").unwrap();
+        assert_eq!(c.app_rules[0].mode, ModeConfig::Surrounding);
+        let c: Config = toml::from_str("visible_modes = [\"nonpreedit\"]\n").unwrap();
+        assert_eq!(c.visible_modes(), vec![ModeConfig::Surrounding]);
+    }
+
+    #[test]
     fn forward_key_event_mode_key_round_trips() {
         let c: Config = toml::from_str("mode = \"forwardkeyevent\"").unwrap();
         assert_eq!(c.mode, ModeConfig::ForwardBackspace);
@@ -1256,9 +1280,10 @@ mod tests {
     fn absent_visible_modes_keep_the_configured_and_rule_modes() {
         // Upgrade path: an old file has no key. Its global mode and every
         // rule mode must stay selectable, or an upgrade would silently
-        // change what the user types with.
+        // change what the user types with. Turbo stands in for any mode
+        // outside the shipped default list.
         let c = Config {
-            mode: ModeConfig::NonPreedit,
+            mode: ModeConfig::Turbo,
             app_rules: vec![
                 AppRule {
                     pattern: "code".into(),
@@ -1266,21 +1291,18 @@ mod tests {
                 },
                 AppRule {
                     pattern: "game".into(),
-                    mode: ModeConfig::NonPreedit,
+                    mode: ModeConfig::Turbo,
                 },
             ],
             ..Config::default()
         };
         let visible = c.visible_modes();
-        assert!(visible.contains(&ModeConfig::NonPreedit));
+        assert!(visible.contains(&ModeConfig::Turbo));
         assert!(visible.contains(&ModeConfig::Select));
         // The default order stays first; the extra modes are appended once.
         assert_eq!(visible.first(), Some(&ModeConfig::Preedit));
         assert_eq!(
-            visible
-                .iter()
-                .filter(|m| **m == ModeConfig::NonPreedit)
-                .count(),
+            visible.iter().filter(|m| **m == ModeConfig::Turbo).count(),
             1
         );
     }
@@ -1463,12 +1485,6 @@ children = ["preedit", "flow"]
         assert!(c.enabled, "missing keys take defaults");
         // Missing app_rules stay empty — nothing ships pre-added.
         assert!(c.app_rules.is_empty());
-    }
-
-    #[test]
-    fn hyphenated_mode_alias_is_accepted() {
-        let c: Config = toml::from_str("mode = \"non-preedit\"").unwrap();
-        assert_eq!(c.mode, ModeConfig::NonPreedit);
     }
 
     #[test]

@@ -3,12 +3,12 @@ use crate::bamboo_wrapper::Method;
 
 /// A lone letter typed after a forwarded caret move (Home) must reach the
 /// application exactly once in every display mode. GNOME Text Editor
-/// renders this inconsistently (double in preedit, dropped in nonpreedit
+/// renders this inconsistently (double in preedit, dropped in Surrounding
 /// — app-side, see open-questions #12); the engine's action stream is the
 /// contract this test locks in.
 #[test]
 fn lone_letter_after_caret_move_commits_exactly_once_per_mode() {
-    for mode in [Mode::Preedit, Mode::NonPreedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = Engine::new(Method::Telex, mode);
         e.set_client(None);
         e.set_capabilities(0b101001);
@@ -29,7 +29,7 @@ fn lone_letter_after_caret_move_commits_exactly_once_per_mode() {
         assert!(
             all.windows(2)
                 .any(|w| matches!(w, [Action::HidePreedit, Action::Commit(t)] if t == "x"))
-                || matches!(mode, Mode::NonPreedit | Mode::Surrounding),
+                || matches!(mode, Mode::Surrounding),
             "{mode:?}: preedit must hide before committing the letter: {all:?}"
         );
     }

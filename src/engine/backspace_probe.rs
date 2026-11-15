@@ -518,7 +518,7 @@ fn probe_inline_reference() {
 #[test]
 fn target_undone_mark_matches_the_inline_modes() {
     // The owner's requirement: for `chào` + `f` + Backspace the uinput modes
-    // must produce what Preedit / NonPreedit / Surrounding produce with the
+    // must produce what Preedit / Surrounding produce with the
     // same "Backspace xóa dấu" setting — ToneFirst `chào`, WholeChar `chao`,
     // UnikeyWalk `chào`. The correction is deferred, so the harness settles
     // the main loop before reading the screen.
