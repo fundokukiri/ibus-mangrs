@@ -24,12 +24,25 @@ larger than what those channels already give an ordinary process of the account.
 
 | Action | Mechanism | Limit |
 | --- | --- | --- |
-| Inject key events | virtual keyboard on `/dev/uinput` (Flow, Turbo, Select, and the Backspace fallback) | the device registers only `Backspace`, `Delete`, `Left`, `Shift`, `Ctrl` and `V`; the kernel drops every other keycode, so a bug here cannot type text |
+| Inject key events | one of the injection backends chosen per session — `/dev/uinput` (kernel device), XTest (X11), the wlroots virtual-keyboard protocol (Hyprland/wlroots), or libei over mutter's direct API (GNOME) — see `ARCHITECTURE.md` "Injection transports" | every backend is held to the same whitelist by the engine: Backspace, Delete, Shift+Left, Ctrl+V only — text always travels over IBus, never through injection. On `/dev/uinput` the kernel enforces it (only those keycodes are registered); on the protocol backends the trait method set is the enforcement |
 | Commit text | IBus `CommitText` to the focused input context | the focused client only |
 | Use the clipboard | opt-in `unicode_channel = "clipboard"`: write the word, press `Ctrl+V`, restore the previous clipboard | off by default; the default channel is `CommitText` |
 | Write files | `~/.config/ibus-mangrs/`, `~/.cache/ibus-mangrs/`, exports from the settings window | nothing under `/usr`, `/etc`, or another user's home |
 
 The engine opens no network connections.
+
+## libei on GNOME
+
+On GNOME Wayland the preferred backend speaks EI (Emulated Input) to mutter through the
+compositor's own `org.gnome.Mutter.RemoteDesktop` session API. Measured on GNOME 51: that
+API grants input injection to any session-bus client without a consent dialog — the
+compositor trusts processes of the session, which is exactly the trust boundary this file
+already assumes (the engine runs as the logged-in user, and such a process could use
+XTEST/XRecord on X11 or `/dev/uinput` with the uaccess ACL anyway). What the engine adds on
+top is the same whitelist as every other backend: only Backspace, Delete, Shift+Left and
+Ctrl+V, enforced by the backend trait's method set — no backend call can type text. The
+`libei.so.1` library is loaded at runtime (dlopen): a system without it builds and runs the
+engine fine, and the libei backend simply never activates.
 
 ## `/dev/uinput` access
 

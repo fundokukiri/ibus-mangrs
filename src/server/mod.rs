@@ -31,7 +31,7 @@ use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
 use crate::ibus_text::{plain_text, text_from_variant, text_variant, Attr};
 use crate::keymap;
-use crate::transport::{preference_order, Injection};
+use crate::transport::{preference_order, Injection, Kind};
 
 mod hotkey;
 mod prop;
@@ -240,8 +240,9 @@ struct EngineHandler {
     engine: SharedEngine,
     /// The selected injection backend: `emit`'s transports and the paste
     /// channel route through it, and the engine's availability flag is fed
-    /// from `current()`. Selected at startup and re-selected on focus-in,
-    /// where the environment may have changed since.
+    /// from `current()`. Selected at startup; re-selected with denials
+    /// cleared on config apply/focus-in; the uinput denial is additionally
+    /// retried per keystroke (the cheap-probe self-heal).
     injection: Injection,
     /// Config file hot-reload: check the mtime at most once a second, on key
     /// events, so GUI/menu edits apply without a focus change or restart.
@@ -469,8 +470,12 @@ impl EngineHandler {
                 debug_log::log(&format!("focus-in client={:?}", engine.client()));
                 // Re-select the injection backend next to the config apply:
                 // a new focus may follow an environment change (device ACL,
-                // session type), and emit's inject gate reads the flag fed
+                // session type), so denials clear and every kind is
+                // re-attempted once — their constructor failures are fast
+                // and this is a rare event (the per-keystroke self-heal
+                // stays uinput-only). emit's inject gate reads the flag fed
                 // from the holder's answer.
+                self.injection.re_request();
                 self.injection.select(&preference_order());
                 engine.set_uinput_available(self.injection.current().is_some());
                 let actions = engine.apply_config(&config);
@@ -627,7 +632,7 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
 /// Returns whether the engine consumed the key.
 fn process_key(
     engine: &mut Engine,
-    injection: &Injection,
+    injection: &mut Injection,
     keyval: u32,
     state: u32,
     out: &mut Vec<Message>,
@@ -651,9 +656,25 @@ fn process_key(
     // delete-swallowing client; the holder still owns the backend it built,
     // so its answer — not a static device probe — decides when to re-mark
     // it. Backends the holder could not build stay denied (see `select`)
-    // and never reach this re-mark.
-    if !engine.uinput_available() && injection.current().is_some() {
-        engine.set_uinput_available(true);
+    // and never reach this re-mark — except uinput: the old static probe
+    // picked a /dev/uinput grant up mid-session (logind's ACL can land
+    // minutes after engine spawn), and losing that self-heal is a
+    // regression the holder must not reintroduce.
+    if !engine.uinput_available() {
+        if injection.current().is_some() {
+            engine.set_uinput_available(true);
+        } else {
+            // Only the uinput denial clears here: its constructor is a
+            // cheap device probe, while the other backends' failures are
+            // environment-fixed (no mutter, no compositor global, no
+            // DISPLAY) and retrying them per keystroke would pay their
+            // full acquisition cost for nothing.
+            injection.retry_denied(Kind::Uinput);
+            if injection.select(&[Kind::Uinput]).is_some() {
+                debug_log::log("uinput arrived mid-session — backend selected");
+                engine.set_uinput_available(true);
+            }
+        }
     }
     // Ctrl/Alt/Super combinations are application shortcuts.
     if state & keymap::SHORTCUT_MASK != 0 {

@@ -110,7 +110,7 @@ impl EngineHandler {
         }
 
         let mut engine = lock_engine(&self.engine);
-        let consumed = process_key(&mut engine, &self.injection, keyval, state, out);
+        let consumed = process_key(&mut engine, &mut self.injection, keyval, state, out);
         msg.method_return().append1(consumed)
     }
 

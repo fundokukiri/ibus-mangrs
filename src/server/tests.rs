@@ -744,6 +744,11 @@ impl BackendOps for RecordingBackend {
 /// An `Injection` holding a [`RecordingBackend`], built through the real
 /// `select_with` seam (the holder itself is the test setter), plus the
 /// shared op log.
+///
+/// The routing tests drive production `emit` through this holder: if routing
+/// ever regressed to the uinput statics, the failing test would inject real
+/// Backspaces into whatever window is focused — that failure mode is the
+/// point of the pin, but be aware of it when running these alone.
 fn recorded_injection() -> (Injection, Arc<Mutex<Vec<RecordedOp>>>) {
     let ops = Arc::new(Mutex::new(Vec::new()));
     let log = Arc::clone(&ops);
@@ -1102,11 +1107,11 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, &Injection::new(), c as u32, 0, &mut Vec::new());
+        process_key(&mut e, &mut Injection::new(), c as u32, 0, &mut Vec::new());
     }
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out),
+        process_key(&mut e, &mut Injection::new(), 0xff51, 0, &mut out),
         "Left must be consumed"
     );
     assert!(
@@ -1119,7 +1124,13 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
     );
     // The composition is gone: the next arrow is forwarded normally.
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out));
+    assert!(!process_key(
+        &mut e,
+        &mut Injection::new(),
+        0xff51,
+        0,
+        &mut out
+    ));
 }
 
 #[test]
@@ -1132,13 +1143,13 @@ fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b100001); // PREEDIT|SURROUNDING
     for c in "tung".chars() {
-        process_key(&mut e, &Injection::new(), c as u32, 0, &mut Vec::new());
+        process_key(&mut e, &mut Injection::new(), c as u32, 0, &mut Vec::new());
     }
     e.set_capabilities(0b100000); // preedit bit gone, preedit still visible
     let mut out = Vec::new();
     assert!(process_key(
         &mut e,
-        &Injection::new(),
+        &mut Injection::new(),
         0xff51,
         keymap::SHIFT_MASK,
         &mut out
@@ -1159,7 +1170,13 @@ fn navigation_key_forwards_normally_without_pending_preedit() {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out));
+    assert!(!process_key(
+        &mut e,
+        &mut Injection::new(),
+        0xff51,
+        0,
+        &mut out
+    ));
 }
 
 #[test]
@@ -1170,10 +1187,16 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, &Injection::new(), c as u32, 0, &mut Vec::new());
+        process_key(&mut e, &mut Injection::new(), c as u32, 0, &mut Vec::new());
     }
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out));
+    assert!(!process_key(
+        &mut e,
+        &mut Injection::new(),
+        0xff51,
+        0,
+        &mut out
+    ));
 }
 
 // --- experimental nav_key_while_preedit values ---
@@ -1189,7 +1212,7 @@ fn pending_preedit_engine(value: &str, experimental: bool) -> Engine {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, &Injection::new(), c as u32, 0, &mut Vec::new());
+        process_key(&mut e, &mut Injection::new(), c as u32, 0, &mut Vec::new());
     }
     e
 }
@@ -1207,7 +1230,7 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
     let mut e = pending_preedit_engine("forward", true);
     let mut out = Vec::new();
     assert!(
-        !process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out),
+        !process_key(&mut e, &mut Injection::new(), 0xff51, 0, &mut out),
         "Left must be forwarded"
     );
     let members = member_names(&out);
@@ -1217,7 +1240,13 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
     );
     // The second press is still a plain forward (nothing pending).
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out));
+    assert!(!process_key(
+        &mut e,
+        &mut Injection::new(),
+        0xff51,
+        0,
+        &mut out
+    ));
 }
 
 #[test]
@@ -1228,7 +1257,7 @@ fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
     let mut e = pending_preedit_engine("replay", true);
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out),
+        process_key(&mut e, &mut Injection::new(), 0xff51, 0, &mut out),
         "Left must be consumed"
     );
     let members = member_names(&out);
@@ -1261,7 +1290,7 @@ fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
     let mut out = Vec::new();
     assert!(process_key(
         &mut e,
-        &Injection::new(),
+        &mut Injection::new(),
         0xff51,
         keymap::SHIFT_MASK,
         &mut out
@@ -1284,7 +1313,7 @@ fn the_experimental_gate_forces_the_nav_key_swallow_back_on() {
     let mut e = pending_preedit_engine("forward", false);
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, &Injection::new(), 0xff51, 0, &mut out),
+        process_key(&mut e, &mut Injection::new(), 0xff51, 0, &mut out),
         "Left must be consumed with the gate off"
     );
     let members = member_names(&out);
