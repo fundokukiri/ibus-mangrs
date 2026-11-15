@@ -528,11 +528,13 @@ mod tests {
 
     #[test]
     fn constructor_succeeds_on_this_machine() {
-        // This GNOME machine runs mutter RemoteDesktop; machines without it
-        // (wlroots, headless CI) skip rather than fail — the deny probe above
-        // covers their None shape. No key is sent: the mutter session dies
-        // with the backend drop.
-        if !super::mutter_reachable() {
+        // This test acquires a REAL mutter session and the test process's
+        // exit drops it — one vanish event per cargo test run, and mutter 51
+        // segfaults on EI client vanish (15/11: test runs alone put vanish
+        // events on the live shell). Opt in with MANGRS_REQUIRE_LIBEI=1 on
+        // a machine where a session churn is acceptable; machines without
+        // mutter skip either way, and the deny probe covers the None shape.
+        if std::env::var_os("MANGRS_REQUIRE_LIBEI").is_none() || !super::mutter_reachable() {
             return;
         }
         let backend = constructors(Kind::Libei)

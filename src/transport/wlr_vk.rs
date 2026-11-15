@@ -259,22 +259,18 @@ mod tests {
     fn constructor_returns_none_without_wayland_socket() {
         // Both env vars unset: connect_to_env finds no socket, so the kind is
         // denied with None instead of panicking. Calling in a normal test fn
-        // is the no-panic assertion. Env vars are process-global; the only
-        // other reader, paste's session-tool probe, accepts the no-tool
-        // outcome, so transient mutation is safe under the parallel runner.
-        let saved_display = std::env::var_os("WAYLAND_DISPLAY");
-        let saved_dir = std::env::var_os("XDG_RUNTIME_DIR");
-        std::env::remove_var("WAYLAND_DISPLAY");
-        std::env::remove_var("XDG_RUNTIME_DIR");
+        // is the no-panic assertion. The env is process-global and the
+        // preference tests mutate WAYLAND_DISPLAY under the parallel runner,
+        // so hold the shared test-env lock — a parallel restore re-setting
+        // the socket would otherwise reach the live compositor.
+        let _lock = crate::transport::test_env::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _env =
+            crate::transport::test_env::EnvGuard::save(&["WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"]);
+        _env.unset("WAYLAND_DISPLAY");
+        _env.unset("XDG_RUNTIME_DIR");
         let backend = constructors(Kind::WlrVirtualKeyboard);
-        match saved_display {
-            Some(value) => std::env::set_var("WAYLAND_DISPLAY", value),
-            None => std::env::remove_var("WAYLAND_DISPLAY"),
-        }
-        match saved_dir {
-            Some(value) => std::env::set_var("XDG_RUNTIME_DIR", value),
-            None => std::env::remove_var("XDG_RUNTIME_DIR"),
-        }
         assert!(backend.is_none());
     }
 }

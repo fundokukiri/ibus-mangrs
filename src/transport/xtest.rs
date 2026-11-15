@@ -137,20 +137,21 @@ mod tests {
     fn xtest_constructor_requires_display() {
         // Both degraded shapes must yield None instead of panicking — a
         // Wayland-only machine or a headless CI just denies the kind. Calling
-        // in a normal test fn is the no-panic assertion. Env vars are
-        // process-global; no other test reads DISPLAY, so mutation here is
-        // safe under the parallel runner.
-        let saved = std::env::var_os("DISPLAY");
+        // in a normal test fn is the no-panic assertion. The env is
+        // process-global and the preference tests mutate the same variables
+        // under the parallel runner, so hold the shared test-env lock (a
+        // parallel restore once re-set DISPLAY between the unset and the
+        // probe and the constructor reached the live display).
+        let _lock = crate::transport::test_env::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _env = crate::transport::test_env::EnvGuard::save(&["DISPLAY"]);
         std::env::remove_var("DISPLAY");
         let unset = constructors(Kind::XTest);
         // Loopback TCP: no default X server listens there, so this is the
         // "set but unreachable" shape.
         std::env::set_var("DISPLAY", "localhost:0");
         let unreachable = constructors(Kind::XTest);
-        match saved {
-            Some(value) => std::env::set_var("DISPLAY", value),
-            None => std::env::remove_var("DISPLAY"),
-        }
         assert!(unset.is_none());
         assert!(unreachable.is_none());
     }
