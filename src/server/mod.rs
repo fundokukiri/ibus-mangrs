@@ -131,6 +131,12 @@ impl Server {
         handler.borrow_mut().injection.select(&preference_order());
         let selected = handler.borrow().injection.current();
         lock_engine(&engine).set_uinput_available(selected.is_some());
+        // A compositor-routed backend delivers its keys through the
+        // compositor itself, so the relay ban on injection does not apply.
+        lock_engine(&engine).set_injection_relay_safe(matches!(
+            selected,
+            Some(Kind::Libei | Kind::WlrVirtualKeyboard)
+        ));
         let handler_for_cb = std::rc::Rc::clone(&handler);
         conn.replace_message_callback(Some(Box::new(move |conn, msg| {
             if msg.msg_type() != MessageType::MethodCall {
@@ -478,6 +484,13 @@ impl EngineHandler {
                 self.injection.re_request();
                 self.injection.select(&preference_order());
                 engine.set_uinput_available(self.injection.current().is_some());
+                // A compositor-routed backend delivers its keys through the
+                // compositor itself, so the relay ban on injection does not
+                // apply.
+                engine.set_injection_relay_safe(matches!(
+                    self.injection.current(),
+                    Some(Kind::Libei | Kind::WlrVirtualKeyboard)
+                ));
                 let actions = engine.apply_config(&config);
                 engine.set_enabled(config.enabled);
                 emit(&mut engine, &self.injection, &actions, out);

@@ -2,7 +2,9 @@ use super::*;
 use crate::config::{MethodConfig, ModeConfig};
 
 /// Feed keystrokes like a real client: it reports capabilities and a
-/// SetSurroundingText update after every visible change.
+/// SetSurroundingText update after every visible change. The first report
+/// lands at focus-in (the server sends RequireSurroundingText there), so
+/// the walk's protocol-delete row serves the very first word too.
 fn type_str(e: &mut Engine, s: &str) -> Vec<Action> {
     if e.client().is_none() {
         // Engine tests exercise the in-process-IM (non-relayed) path; the
@@ -10,6 +12,7 @@ fn type_str(e: &mut Engine, s: &str) -> Vec<Action> {
         e.set_client(Some("gtk4-im:test".into()));
     }
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
     let mut buf: Vec<char> = Vec::new();
     let mut all = Vec::new();
     for c in s.chars() {
@@ -270,7 +273,8 @@ fn no_surrounding_data_never_produces_a_delete() {
     // Regression for the mutter segfault: a client without preedit
     // support that has not reported SetSurroundingText yet must never
     // receive DeleteSurroundingText — mutter crashes applying a delete
-    // to a buffer it never saw. The key is forwarded instead.
+    // to a buffer it never saw. The rewrites ride the forwarded
+    // key-event transport instead, which needs no report.
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
     // Raw loop: no capabilities, no SetSurroundingText ever.
     let actions: Vec<Action> = "tieengs".chars().flat_map(|c| e.process_char(c)).collect();
@@ -281,7 +285,13 @@ fn no_surrounding_data_never_produces_a_delete() {
         )),
         "{actions:?}"
     );
-    assert!(actions.iter().any(|a| matches!(a, Action::Forward)));
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "the forwarded transport rewrites: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
 }
 
 #[test]
@@ -445,9 +455,15 @@ fn focus_change_drops_stale_surrounding_data() {
     e.clear_buffer_state();
     e.set_capabilities(CAP_PREEDIT_TEXT);
     assert!(!e.surrounding_data_ok());
-    // With no uinput the delete must be skipped entirely, never sent.
+    // With no uinput the protocol delete must be skipped entirely, never
+    // sent. The word rides its locked forwarded transport: the mark
+    // rewrite erases with forwarded Backspace key events.
     let actions = e.process_char('s');
-    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert_eq!(
+        actions,
+        vec![Action::ForwardBackspaces(3), Action::Commit("éng".into())],
+        "{actions:?}"
+    );
 }
 
 #[test]
@@ -590,24 +606,24 @@ fn backspace_honors_the_word_mode_lock_across_an_inline_suggestion() {
 }
 
 #[test]
-fn no_delete_transport_keeps_word_raw_at_word_end() {
-    // NonPreedit without a surrounding report and without uinput: mark
-    // keys are raw-forwarded, so the application already holds the raw
-    // keys. The auto-restore rewrite would duplicate them (delete
-    // dropped, commit appended).
+fn no_report_no_backend_rewrites_through_forward_backspace() {
+    // NonPreedit without a surrounding report and without uinput: the
+    // walk's terminal transport rewrites the word with forwarded Backspace
+    // key events instead of leaving the raw keys on screen.
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     assert_eq!(
         type_replay_with_reports(&mut e, "tieengs ", false),
-        "tieengs "
+        "tiếng "
     );
 }
 
 #[test]
-fn no_delete_transport_keeps_macros_raw() {
-    // A macro expansion rewrites committed text; without a delete
-    // transport the commit would duplicate the raw keys on screen.
+fn no_report_no_backend_macro_expands_through_the_forward_transport() {
+    // A macro expansion rewrites committed text; the walk's terminal
+    // transport supplies the delete, so the expansion lands instead of
+    // being held back.
     let mut e = engine(
         Mode::NonPreedit,
         Config {
@@ -619,38 +635,45 @@ fn no_delete_transport_keeps_macros_raw() {
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     e.macros
         .set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
-    assert_eq!(type_replay_with_reports(&mut e, "gs ", false), "gs ");
+    assert_eq!(type_replay_with_reports(&mut e, "gs ", false), "giờ sáng ");
 }
 
 #[test]
-fn no_delete_transport_backspace_forwards_to_the_app() {
-    // The delete cannot reach the application, so the Backspace key must
-    // be forwarded: the app deletes the last character itself, which is
-    // also what the wrapper's raw-key undo models.
+fn no_report_no_backend_backspace_rides_the_forward_transport() {
+    // Without a report and without a backend the walk still hands the
+    // edit a transport: the forwarded Backspace key event erases the
+    // character, like any ForwardBackspace word edit.
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     assert_eq!(type_replay_with_reports(&mut e, "ab", false), "ab");
     let actions = e.backspace().expect("backspace over a committed word");
     assert!(
-        actions.contains(&Action::Forward),
-        "the app must delete the character itself: {actions:?}"
+        actions.contains(&Action::ForwardBackspaces(1)),
+        "the forwarded transport erases: {actions:?}"
     );
 }
 
 #[test]
-fn no_delete_transport_legacy_charset_stays_raw() {
-    // Legacy rewrite deletes the whole tail every key; without a delete
-    // transport that duplicates from the second keystroke on.
+fn no_report_no_backend_legacy_charset_rewrites_forwarded() {
+    // Legacy rewrite deletes the whole tail every key; the walk's
+    // terminal transport supplies it, so the VNI output lands exactly
+    // like on the protocol path.
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     e.set_charset(Charset::Vni);
-    assert_eq!(type_replay_with_reports(&mut e, "viee", false), "viee");
+    assert_eq!(
+        type_replay_with_reports(&mut e, "viee", false),
+        encode(Charset::Vni, "viê")
+    );
 }
 
 #[test]
-fn no_delete_transport_keeps_em_dash_and_double_space_literal() {
+fn no_report_no_backend_rewrites_em_dash_and_double_space() {
+    // The walk's terminal transport gives the rewrite features a working
+    // delete: `--` becomes an em dash and the double space inserts the
+    // period through forwarded Backspaces.
     let mut e = engine(
         Mode::NonPreedit,
         Config {
@@ -661,8 +684,8 @@ fn no_delete_transport_keeps_em_dash_and_double_space_literal() {
     );
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-    assert_eq!(type_replay_with_reports(&mut e, "a--", false), "a--");
-    assert_eq!(type_replay_with_reports(&mut e, "b  ", false), "b  ");
+    assert_eq!(type_replay_with_reports(&mut e, "a--", false), "a—");
+    assert_eq!(type_replay_with_reports(&mut e, "b  ", false), "b. ");
 }
 
 #[test]
@@ -760,13 +783,15 @@ fn undo_mark_then_consonant_stays_raw_tool() {
 }
 
 #[test]
-fn raw_forward_resyncs_to_raw_keys_toool() {
+fn forward_backspace_resyncs_the_mark_undo_toool() {
     // Regression: "toool" (English) — the third 'o' undoes the
-    // circumflex inside bamboo. With no delete transport the mark keys
-    // pass through raw, and the tracker used to keep believing the
+    // circumflex inside bamboo. Without any delete transport the mark
+    // keys used to pass through raw while the tracker kept believing the
     // transformed text — a later key then committed garbage ("tooool"
-    // with an extra 'o'). The tracker must re-align to the raw keys the
-    // app actually holds.
+    // with an extra 'o'). The walk's forwarded transport makes the undo
+    // rewrites land, so the visible text behaves as "too" + 'l' → "tool"
+    // (bamboo's hidden extra 'o' must never resurface), exactly like on
+    // the protocol path.
     let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT); // no ST report, no uinput
@@ -795,10 +820,18 @@ fn raw_forward_resyncs_to_raw_keys_toool() {
             a,
             Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
         )),
-        "no delete transport: {all:?}"
+        "no protocol delete transport: {all:?}"
+    );
+    assert!(
+        all.iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "the forwarded transport rewrites: {all:?}"
     );
     let text: String = buf.into_iter().collect();
-    assert_eq!(text, "toool", "raw keys must survive verbatim");
+    assert_eq!(
+        text, "tool",
+        "the forwarded undo must not resurface raw keys"
+    );
 }
 
 #[test]
@@ -857,6 +890,9 @@ fn mutter_relayed_clients_skip_repair_deletes_but_rewrite_normally() {
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    // A real client reports at focus-in, before the first key: word one
+    // resolves through the walk's protocol-delete row.
+    e.set_surrounding(String::new(), 0);
     for c in "chan".chars() {
         e.process_char(c);
     }
@@ -1278,11 +1314,20 @@ fn none_rule_targets_unnamed_clients_in_every_display_mode() {
             }],
             ..Config::default()
         });
-        assert_eq!(e.effective_mode(), mode, "unnamed client: {mode:?}");
+        // The none rule matches the unnamed client and its mode then runs
+        // the walk. No surrounding report and no backend: the commit-as-
+        // you-type requests are served by the terminal forwarded
+        // transport, while Preedit stands when the client can render it.
+        let unnamed = if mode == Mode::Preedit {
+            Mode::Preedit
+        } else {
+            Mode::ForwardBackspace
+        };
+        assert_eq!(e.effective_mode(), unnamed, "unnamed client: {mode:?}");
         // A named client must not match the none rule: the configured
         // base mode (Off) stands for it.
         e.set_client(Some("gtk4-im:firefox".into()));
-        assert_ne!(e.effective_mode(), mode, "named client: {mode:?}");
+        assert_ne!(e.effective_mode(), unnamed, "named client: {mode:?}");
     }
 }
 
@@ -1498,10 +1543,12 @@ fn selection_reports_never_trigger_a_repair() {
 }
 
 #[test]
-fn only_surrounding_mode_repairs_from_the_report() {
-    // Plain NonPreedit must not send a repair delete: the client never
-    // asked for surrounding-text verification, and a wrong repair eats
-    // real text.
+fn nonpreedit_and_surrounding_repair_from_the_report() {
+    // Preedit never sends a repair delete: the composition is still on
+    // screen, nothing to verify against. The commit-as-you-type contract
+    // — Surrounding, and NonPreedit until Task 4 merges it — verifies and
+    // repairs from the report once the walk resolves it through the
+    // protocol-delete row (a report proves the client's buffer is known).
     for mode in [Mode::Preedit, Mode::NonPreedit, Mode::Surrounding] {
         let mut e = Engine::new(Method::Telex, mode);
         type_str(&mut e, "tie");
@@ -1515,7 +1562,7 @@ fn only_surrounding_mode_repairs_from_the_report() {
                 Action::DeleteSurrounding { .. } | Action::RewriteByBackspace { .. }
             )
         });
-        assert_eq!(repaired, mode == Mode::Surrounding, "{mode:?}: {actions:?}");
+        assert_eq!(repaired, mode != Mode::Preedit, "{mode:?}: {actions:?}");
     }
 }
 
@@ -2161,6 +2208,10 @@ fn protocol_delete_is_clamped_to_the_last_report() {
         .set_entries([("ttlt".to_string(), "Tôi tên là Tùng".to_string())].into_iter());
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    // A real client reports at focus-in, before the first key: the word
+    // resolves through the walk's protocol-delete row, whose delete the
+    // clamp below guards.
+    e.set_surrounding(String::new(), 0);
     for c in "ttlt".chars() {
         e.process_char(c);
     }
@@ -2665,7 +2716,10 @@ fn off_mode_backspace_belongs_to_the_app() {
 }
 
 #[test]
-fn flow_falls_back_to_preedit_without_uinput() {
+fn flow_without_backend_types_through_forward_backspace() {
+    // Flow without /dev/uinput: the walk downgrades to the forwarded
+    // transport — commit-as-you-type with the tone rewrites erasing
+    // through forwarded Backspaces; preedit never stands in.
     let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_uinput_available(false);
     e.set_capabilities(CAP_PREEDIT_TEXT);
@@ -2673,9 +2727,17 @@ fn flow_falls_back_to_preedit_without_uinput() {
     assert!(
         actions
             .iter()
-            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
-        "no uinput -> must render as preedit: {actions:?}"
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "the downgrade must serve the word: {actions:?}"
     );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+        "no backend never renders preedit: {actions:?}"
+    );
+    assert!(e.flow_needs_backend());
+    assert_eq!(replay(&actions), "việt");
 }
 
 #[test]
@@ -3260,7 +3322,11 @@ fn select_falls_back_to_preedit_without_surrounding_report() {
     e.set_client(Some("gtk4-im:test".into()));
     // No surrounding-text capability: Select cannot know the tail length.
     e.set_capabilities(CAP_PREEDIT_TEXT);
-    let actions = type_str(&mut e, "vieetj");
+    assert_eq!(e.effective_mode(), Mode::Preedit);
+    // type_raw keeps this client report-less (a Select client without the
+    // ST capability never reports), so the transitional passthrough
+    // stands in with preedit.
+    let actions = type_raw(&mut e, "vieetj");
     assert!(
         actions
             .iter()
@@ -3278,6 +3344,188 @@ fn select_stays_select_with_a_text_report() {
     // The fallback checks the actual report, not just the capability.
     e.set_surrounding(String::new(), 0);
     assert_eq!(e.effective_mode(), Mode::Select);
+}
+
+// --- Mode resolution walk (replaces the effective_mode heuristic chain) ---
+
+#[test]
+fn preedit_without_capability_walks_to_surrounding() {
+    // caps without CAP_PREEDIT_TEXT, requested Preedit: the walk moves on
+    // to the commit-as-you-type contract (Surrounding) instead of dropping
+    // to raw keystrokes, and the words still commit — through the protocol
+    // delete the report proves, like a real client's report at focus-in.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
+    assert_eq!(e.effective_mode(), Mode::Surrounding);
+    let mut buf: Vec<char> = Vec::new();
+    for c in "tieengs".chars() {
+        for a in e.process_char(c) {
+            match a {
+                Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(n as usize)),
+                Action::Commit(t) => buf.extend(t.chars()),
+                Action::UpdatePreedit { .. } => {
+                    panic!("no preedit without the capability: {a:?}")
+                }
+                _ => {}
+            }
+        }
+        let text: String = buf.iter().collect();
+        e.set_surrounding(text, buf.len() as u32);
+    }
+    assert_eq!(buf.iter().collect::<String>(), "tiếng");
+}
+
+#[test]
+fn surrounding_without_report_uses_injected_deletes_when_a_backend_exists() {
+    // No ST report but a backend: the walk keeps Surrounding and the
+    // rewrites go through the no-ST injection path — the DeleteBefore
+    // actions the server delivers as real Backspace key presses.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    assert_eq!(e.effective_mode(), Mode::Surrounding);
+    let actions = type_raw(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::DeleteBefore(n) if *n > 0)),
+        "the no-ST rewrite path: {actions:?}"
+    );
+    assert!(!actions
+        .iter()
+        .any(|a| matches!(a, Action::UpdatePreedit { .. })));
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn surrounding_on_a_capability_less_client_forwards_backspaces() {
+    // No ST report and no backend: the walk terminates on the forwarded
+    // transport — Surrounding is served by ForwardBackspaces, it does not
+    // fall back to preedit.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(0);
+    assert_eq!(e.effective_mode(), Mode::ForwardBackspace);
+    let actions = type_raw(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "terminal transport: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn flow_without_backend_serves_forward_backspace_and_logs_once() {
+    // Flow without a backend: the walk downgrades to the forwarded
+    // transport and logs the fallback once per session — two resolutions,
+    // one line.
+    let _guard = crate::debug_log::test_guard();
+    let dir = std::env::temp_dir().join(format!("ibus-mangrs-walk-log-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_uinput_available(false);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    assert_eq!(e.effective_mode(), Mode::ForwardBackspace);
+    assert!(e.flow_needs_backend());
+    // A second resolution must not log the fallback again.
+    assert_eq!(e.effective_mode(), Mode::ForwardBackspace);
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("flow without a backend"))
+            .count(),
+        1,
+        "one fallback line for two resolutions: {text}"
+    );
+    assert_eq!(
+        replay(&type_raw(&mut e, "tieengs")),
+        "tiếng",
+        "the downgrade serves the word"
+    );
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_dir(&dir);
+}
+
+#[test]
+fn forward_backspace_never_falls_back() {
+    // caps 0, no ST report, no backend: the ForwardBackspace request is
+    // terminal — the walk keeps it, nothing stands in.
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(0);
+    e.set_uinput_available(false);
+    assert_eq!(e.effective_mode(), Mode::ForwardBackspace);
+    let actions = type_raw(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "{actions:?}"
+    );
+    assert!(!actions
+        .iter()
+        .any(|a| matches!(a, Action::UpdatePreedit { .. })));
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn listed_delete_dropping_clients_keep_the_preedit_outcome() {
+    // Matrix row: a listed delete-dropping client with preedit capability
+    // keeps today's outcome — the word shows inline instead of being
+    // rewritten with a delete the client drops. The Surrounding request
+    // resolves like the NonPreedit one: one walk arm covers both
+    // commit-as-you-type contracts.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_client(Some("gtk4-im:chrome".into()));
+    assert_eq!(e.effective_mode(), Mode::Preedit);
+    let actions = type_str(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "tiếng")),
+        "{actions:?}"
+    );
+}
+
+#[test]
+fn compositor_routed_backend_is_exempt_from_the_relay_ban() {
+    // The relay ban exists because uinput keys never reach a relayed
+    // context; a compositor-routed backend (Libei / wlr virtual keyboard)
+    // rides the compositor's own routing, so its deletes are allowed —
+    // symmetrically on both ban consumers: the deletes_allowed gate and
+    // the may_inject gate the server's inject routing reads. Without the
+    // exemption the same context forwards instead.
+    for (safe, want_delete) in [(false, false), (true, true)] {
+        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_uinput_available(true);
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        e.set_injection_relay_safe(safe);
+        assert_eq!(e.deletes_allowed(), want_delete, "safe={safe}");
+        // No report on this client, so the second may_inject condition
+        // (delete proof or no report) holds and the exemption decides.
+        assert_eq!(e.may_inject(), want_delete, "safe={safe}");
+        let actions = type_raw(&mut e, "tiee");
+        assert_eq!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::DeleteBefore(n) if *n > 0)),
+            want_delete,
+            "safe={safe}: {actions:?}"
+        );
+    }
 }
 
 // --- URL/email/path bypass (spell-check round, phase 2-3) ---

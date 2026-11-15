@@ -219,6 +219,18 @@ pub struct Engine {
     /// Whether /dev/uinput is usable — deletions for clients without
     /// surrounding-text data go through key injection instead.
     uinput_available: bool,
+    /// True while the resolution walk has downgraded a Flow request to
+    /// ForwardBackspace for lack of an injection backend; the paced
+    /// backend re-request reads it. Cleared by every resolution that
+    /// finds a backend.
+    flow_needs_backend: bool,
+    /// One-time gate for the Flow fallback log line: once per session,
+    /// not per resolution.
+    flow_fallback_logged: bool,
+    /// The selected injection backend is routed by the compositor itself
+    /// (Libei / wlr virtual keyboard), so the relay ban on injection does
+    /// not apply to it — see `deletes_allowed`.
+    injection_relay_safe: bool,
     /// Backspace keys injected through uinput that will echo back as
     /// ProcessKeyEvent; those must be forwarded untouched.
     pending_injected: u32,
@@ -515,6 +527,9 @@ impl Engine {
             delete_dropped: false,
             awaiting_delete_proof: None,
             uinput_available: false,
+            flow_needs_backend: false,
+            flow_fallback_logged: false,
+            injection_relay_safe: false,
             pending_injected: 0,
             deferred: Vec::new(),
             echoes_forwarded: 0,
@@ -1133,6 +1148,19 @@ impl Engine {
         self.uinput_available
     }
 
+    /// Whether the resolution walk has downgraded Flow for lack of an
+    /// injection backend (the paced backend re-request reads it).
+    pub fn flow_needs_backend(&self) -> bool {
+        self.flow_needs_backend
+    }
+
+    /// Mark the selected injection backend as compositor-routed (Libei /
+    /// wlr virtual keyboard): the compositor itself routes those key
+    /// events to the focused client, so the relay ban does not apply.
+    pub fn set_injection_relay_safe(&mut self, safe: bool) {
+        self.injection_relay_safe = safe;
+    }
+
     /// Forget everything believed about the focused client's text buffer.
     ///
     /// Called on focus changes. The new context may not support surrounding
@@ -1186,9 +1214,12 @@ impl Engine {
     /// protocol delete demonstrably works on that path. A `None` client is an
     /// XIM/XWayland app that never sent `FocusInId`; its keys and injected
     /// backspaces do arrive (Sublime Text, JetBrains XToolkit), so it is not
-    /// lumped in with the relay.
+    /// lumped in with the relay. A compositor-routed backend is exempt: the
+    /// compositor itself routes its key events, so they cannot be lost the
+    /// way device-injected ones are (same exemption as `deletes_allowed`).
     pub fn may_inject(&self) -> bool {
-        !self.injection_forbidden() && (self.delete_dropped || self.surrounding.is_none())
+        (!self.injection_forbidden() || self.injection_relay_safe)
+            && (self.delete_dropped || self.surrounding.is_none())
     }
 
     /// Contexts where injected key events are known to be lost.
@@ -1320,10 +1351,14 @@ impl Engine {
     /// (g_utf8_offset_to_pointer out of bounds — the "logout while typing a
     /// tone mark" crash). Without a report the only alternative is key
     /// injection — and never on relayed contexts, where injected keys are
-    /// lost. Also several clients silently drop the protocol delete, which
-    /// used to duplicate words.
+    /// lost. A compositor-routed backend (Libei / wlr virtual keyboard) is
+    /// exempt from that ban: the compositor itself routes those events to
+    /// the focused client, so the relay race cannot arise. Also several
+    /// clients silently drop the protocol delete, which used to duplicate
+    /// words.
     fn deletes_allowed(&self) -> bool {
-        self.protocol_delete_ok() || (self.uinput_available && !self.injection_forbidden())
+        self.protocol_delete_ok()
+            || (self.uinput_available && (!self.injection_forbidden() || self.injection_relay_safe))
     }
 
     /// Whether the protocol delete may be sent right now.
@@ -1341,75 +1376,113 @@ impl Engine {
                 && !self.relay_context())
     }
 
-    /// Resolve the mode actually used for the focused client: hard fallbacks
-    /// first, then the app rule, then the built-in heuristic. `&mut self`
-    /// because the rule resolution is cached (see `client_rule_mode`).
+    /// Resolve the mode actually used for the focused client: the capability
+    /// fallback walk. Rules feed `requested` like the configured mode does;
+    /// the walk then serves the request with the best delete transport the
+    /// client allows, ending at the forwarded Backspace transport that
+    /// reaches every client. `&mut self` because the rule resolution is
+    /// cached (see `client_rule_mode`).
     fn effective_mode(&mut self) -> Mode {
+        // The flag describes the last resolution: a Flow downgrade here is
+        // cleared by any later run that finds a backend.
+        self.flow_needs_backend = false;
         let can_preedit = self.caps & CAP_PREEDIT_TEXT != 0;
         let ruled = self.client_rule_mode();
         let requested = ruled.unwrap_or(self.mode);
-        // Preedit is unusable when the client cannot render it — except for
-        // XIM clients, which report no preedit capability even though the XIM
-        // server draws the preedit itself (`XIMPreeditPosition`: ibus-x11
-        // shows it in its own window). Downgrading them turned every word into
-        // raw keystrokes; the opt-in keeps preedit, as ibus-bamboo does.
-        if requested == Mode::Preedit
-            && !can_preedit
-            && !(self.preedit_for_xim && self.client_name_is_opaque())
-        {
-            return Mode::NonPreedit;
+        if requested == Mode::Off {
+            return Mode::Off;
         }
-        // The uinput modes press real keys through /dev/uinput. On
-        // mutter-relayed contexts they were once believed dead (the 31/10
-        // session) and fell back to preedit; the 08/11 re-measurement
-        // refuted that — injection, echoes, deletes and commits all land
-        // on the relay. What actually raced was the ORDER between the
-        // commit channel and the key events; the server parks the rewrite
-        // commit past the last injected key (ECHO_APPLY_GRACE_MS) and the
-        // rewrite batch carries its own terminator key, so the relay runs
-        // these modes. Without the virtual device, or Select without a
-        // surrounding-text report (it sizes the selection from it),
-        // preedit still stands in.
-        if matches!(requested, Mode::Flow | Mode::Turbo | Mode::Select)
+        // Transitional passthrough, removed with the modes (Tasks 5-8):
+        // Turbo without a backend and Select without the report it sizes
+        // its selection from keep today's preedit stand-in; the forward
+        // modes carry their own delete transport, no walk arm applies.
+        if matches!(requested, Mode::Turbo | Mode::Select)
             && (!self.uinput_available || (requested == Mode::Select && self.surrounding.is_none()))
         {
             return Mode::Preedit;
         }
-        // ForwardBackspace carries its own delete transport (Backspace key
-        // events through IBus), so none of the delete-transport heuristics
-        // below apply — falling back to preedit would defeat the mode, which
-        // exists for apps where preedit is unusable.
         if forwards_delete(requested) {
-            return requested;
-        }
-        if ruled.is_some() {
             return requested;
         }
         // Inline autocomplete: the app appended suggestion text after the
         // caret, and its rewrite delete is dropped (repairing crashes
         // mutter). Show the following words as preedit so no rewrite delete
-        // is needed.
-        if self.suggestions && can_preedit && self.relay_context() {
+        // is needed. Unruled clients only — a rule pins its mode.
+        if ruled.is_none() && self.suggestions && can_preedit && self.relay_context() {
             return Mode::Preedit;
         }
-        // Rewriting the tail is impossible for delete-dropping clients, so
-        // show the word inline instead of letting the commits pile up.
-        if requested == Mode::NonPreedit && can_preedit && self.client_cannot_delete_surrounding() {
+        match requested {
+            // Preedit is unusable when the client cannot render it — except
+            // for XIM clients, which report no preedit capability even
+            // though the XIM server draws the preedit itself
+            // (`XIMPreeditPosition`: ibus-x11 shows it in its own window).
+            // Downgrading them turned every word into raw keystrokes; the
+            // opt-in keeps preedit, as ibus-bamboo does. Without the
+            // capability the request walks on to the commit-as-you-type
+            // contract below.
+            Mode::Preedit => {
+                if can_preedit || (self.preedit_for_xim && self.client_name_is_opaque()) {
+                    Mode::Preedit
+                } else {
+                    self.commit_as_you_type_walk(can_preedit, ruled.is_none())
+                }
+            }
+            // The commit-as-you-type contract (NonPreedit until Task 4
+            // merges it into Surrounding).
+            Mode::NonPreedit | Mode::Surrounding => {
+                self.commit_as_you_type_walk(can_preedit, ruled.is_none())
+            }
+            // The uinput modes press real keys through /dev/uinput. Without
+            // the virtual device the walk downgrades to the forwarded
+            // transport and remembers it (the paced backend re-request
+            // reads it).
+            Mode::Flow => {
+                if self.uinput_available {
+                    Mode::Flow
+                } else {
+                    self.flow_needs_backend = true;
+                    if !self.flow_fallback_logged {
+                        self.flow_fallback_logged = true;
+                        debug_log::log("flow without a backend → forward backspace");
+                    }
+                    Mode::ForwardBackspace
+                }
+            }
+            // Terminal: carries its own delete transport, walks nowhere.
+            Mode::ForwardBackspace => Mode::ForwardBackspace,
+            // Transitional modes (Tasks 5-6 delete them): their fallback
+            // conditions were checked above, the request stands.
+            Mode::Turbo | Mode::Select => requested,
+            // Unreachable: Off returned first, the forward modes through the
+            // transitional passthrough above. Kept for exhaustiveness.
+            Mode::Off | Mode::SmoothForward | Mode::ForwardSelect => requested,
+        }
+    }
+
+    /// The commit-as-you-type contract served by the best working delete
+    /// transport, in preference order. `unruled` gates the built-in
+    /// delete-dropper list: a rule's whole point is to bypass that
+    /// fallback (`config_rule_bypasses_the_delete_fallback`).
+    fn commit_as_you_type_walk(&mut self, can_preedit: bool, unruled: bool) -> Mode {
+        // Clients known to drop DeleteSurroundingText keep today's outcome:
+        // the word shows inline instead of being duplicated.
+        if unruled && can_preedit && self.client_cannot_delete_surrounding() {
             return Mode::Preedit;
         }
-        // A rewrite delete was proven swallowed (report proof) and real-key
-        // injection cannot take over: without a working delete transport the
-        // following words go through preedit, which needs no delete at all.
-        // Rule-matched clients keep their configured mode (they returned
-        // above); this only heals unlisted clients.
-        if matches!(requested, Mode::NonPreedit | Mode::Surrounding)
-            && can_preedit
-            && self.delete_dropped
-            && !self.uinput_available
-        {
-            return Mode::Preedit;
+        // A report (or the direct-client opt-in) proves the protocol delete
+        // safe, with drift repair as today. A client PROVEN to swallow
+        // rewrite deletes skips it: the terminal transport below serves it.
+        if self.protocol_delete_ok() && !self.delete_dropped {
+            return Mode::Surrounding;
         }
-        requested
+        // No usable report yet: injected Backspaces serve when a backend
+        // exists (the deletes_allowed gate decides per keystroke, unchanged).
+        if self.uinput_available {
+            return Mode::Surrounding;
+        }
+        // Terminal: the forwarded transport reaches clients with no report
+        // and no backend (mutter-relayed Wayland, XIM) — never preedit.
+        Mode::ForwardBackspace
     }
 
     /// Mode for the current keystroke: the word-locked mode when a word is in

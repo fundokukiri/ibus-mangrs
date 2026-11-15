@@ -385,9 +385,13 @@ const TELEX_W: &[(&str, &str)] = &[
 #[cfg(test)]
 fn typed_word(method: Method, keys: &str) -> String {
     let mut e = Engine::new(method, Mode::NonPreedit);
-    // Non-relayed in-process client: golden cases exercise the protocol path.
+    // Non-relayed in-process client: golden cases exercise the protocol
+    // path. A real client reports right after RequireSurroundingText,
+    // before the first keystroke — the protocol-delete row serves the
+    // word from key 1 (the priming report below).
     e.set_client(Some("gtk4-im:golden".into()));
     e.set_capabilities(0b100001); // PREEDIT_TEXT | SURROUNDING_TEXT
+    e.set_surrounding(String::new(), 0);
     let mut buf: Vec<char> = Vec::new();
     for c in keys.chars() {
         let actions = e.process_char(c);
@@ -1008,16 +1012,15 @@ mod matrix {
 
     #[test]
     fn drop_delete_clients_still_get_the_right_text() {
-        // Chrome-style clients swallow the protocol delete. Listed clients
-        // are auto-switched to preedit by the name heuristic; an UNLISTED
-        // client in NonPreedit gets its mark-key rewrites swallowed. The
-        // engine must detect the swallowed delete and heal: following
-        // words go through preedit and type correctly. The corrupted first
-        // word is the documented cost of the already-swallowed delete.
+        // Chrome-style clients swallow the protocol delete. The walk serves
+        // the first word through the forwarded transport, so it lands
+        // exact — there is no protocol delete to swallow yet. The FIRST
+        // word typed after a report has arrived pays a one-time swallow
+        // cost while the proof is collected (the report can only prove the
+        // drop by seeing one swallowed delete); from the next word on, the
+        // walk's terminal transport serves the client and the text is
+        // exact again.
         for mode in [Mode::NonPreedit, Mode::Surrounding] {
-            // First word: "aa " under Telex — the swallowed delete may
-            // corrupt it ("aâ"); nothing can undo what the app never
-            // deleted. Second word must be exact.
             let got = run_session(
                 Method::Telex,
                 mode,
@@ -1026,10 +1029,15 @@ mod matrix {
                     ..Faults::default()
                 },
                 "gtk4-im:matrix",
-                "aa tieengs ",
+                "aa tieengs chaox ",
             );
             assert!(
-                got.ends_with("tiếng "),
+                got.starts_with("â tieêngếng "),
+                "the forwarded transport serves the first word: \
+                 {mode:?} final {got:?}"
+            );
+            assert!(
+                got.ends_with("chão "),
                 "swallowed-delete detection must heal following words: \
                  {mode:?} final {got:?}"
             );
@@ -1339,6 +1347,9 @@ mod fingerprint {
                 let mut e = Engine::new(Method::Telex, mode);
                 let mut fc = FakeClient::new(Faults::default());
                 fc.focus_in(&mut e, "gtk4-im:fp");
+                // A real client reports at focus-in, before the first key —
+                // the fingerprint pins the protocol-path sequence.
+                e.set_surrounding(String::new(), 0);
                 let mut it = want.iter();
                 for c in keys.chars() {
                     let actions = fc.key(&mut e, c);

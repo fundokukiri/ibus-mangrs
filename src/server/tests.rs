@@ -832,6 +832,69 @@ fn relay_context_never_attempts_injection() {
 }
 
 #[test]
+fn compositor_routed_backend_injects_on_a_relayed_context() {
+    // The ban's reason is device-injected (uinput/XTest) keys getting
+    // lost between the compositor and a relayed client. A compositor-
+    // routed backend delivers through the compositor itself, so the
+    // exemption must hold on the inject path too: the DeleteBefore the
+    // engine emits on the no-report path is served by real Backspace
+    // presses through the selected backend, with the commit parked
+    // behind the echoes like on any injected path. Without the
+    // exemption the same batch stays banned (relay ban test above).
+    let (injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_uinput_available(true);
+    e.set_injection_relay_safe(true);
+    let mut out = Vec::new();
+    let injected = emit(
+        &mut e,
+        &injection,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+    );
+    assert_eq!(injected, 2, "the exempt backend serves the delete");
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(2)],
+        "real Backspace presses through the compositor-routed backend"
+    );
+    assert!(
+        !out.iter().any(|m| m
+            .member()
+            .map(|m| m == "DeleteSurroundingText")
+            .unwrap_or(false)),
+        "no protocol delete on the no-report path: {:?}",
+        member_names(&out)
+    );
+    assert!(e.has_deferred(), "the commit waits for the echoes");
+
+    // Without the exemption the relay ban holds: the same batch is not
+    // injected and the commit lands ungated.
+    let (injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_uinput_available(true);
+    let mut out = Vec::new();
+    emit(
+        &mut e,
+        &injection,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+    );
+    assert!(
+        ops.lock().unwrap().is_empty(),
+        "no injection without the compositor-routed exemption"
+    );
+    assert!(
+        out.iter()
+            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+        "the commit still lands: {:?}",
+        member_names(&out)
+    );
+}
+
+#[test]
 fn stale_echo_flushes_parked_commit() {
     // A rewrite's echo never comes back (injection lost) and no key
     // arrives: the main-loop tick must still deliver the parked commit
