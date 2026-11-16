@@ -491,7 +491,8 @@ pub enum ModeConfig {
     Surrounding,
     /// Flow (uinput): raw keys are forwarded while typing; at word end the
     /// latin tail is erased with real Backspace keys and the Vietnamese word
-    /// is committed. Falls back to Preedit where injection is impossible.
+    /// is committed. Falls back to ForwardBackspace where injection is
+    /// impossible.
     /// The removed Turbo mode (this without the app-autofill hold-back)
     /// migrates here — the hold-back stays, one rewrite behavior instead
     /// of two. The removed Select mode migrates here too: its Shift+Left
@@ -797,9 +798,11 @@ fn default_menu_modes() -> Vec<String> {
 }
 
 /// Modes the GUI offers on a fresh install, in dropdown/cycle order — every
-/// display mode; nothing ships hidden.
+/// display mode; nothing ships hidden. Canonical keys only: the list is the
+/// shipped spelling every picker walks, so the old `forwardkeyevent` name
+/// must not leak back into saved files through a fresh install's save.
 pub const DEFAULT_VISIBLE_MODES: [&str; 5] =
-    ["preedit", "surrounding", "flow", "forwardkeyevent", "off"];
+    ["preedit", "surrounding", "flow", "forwardbackspace", "off"];
 
 impl Default for Config {
     fn default() -> Self {
@@ -1245,6 +1248,49 @@ mod tests {
         assert_eq!(Mode::from(c.app_rules[0].mode), crate::engine::Mode::Flow);
         let c: Config = toml::from_str("visible_modes = [\"smooth-forward\"]\n").unwrap();
         assert_eq!(c.visible_modes(), vec![ModeConfig::Flow]);
+    }
+
+    #[test]
+    fn removed_mode_keys_in_every_config_position_map_to_the_five() {
+        // One old file carrying a removed spelling in every position a mode
+        // key can occupy: the global mode, two app rules, the visible list
+        // and the panel menu list. The whole file must parse, and every
+        // position must land on the five canonical modes.
+        let toml_text = r#"
+mode = "smoothforward"
+visible_modes = ["nonpreedit", "turbo", "smoothforward", "forwardkeyevent"]
+menu_modes = ["preedit", "turbo"]
+
+[[app_rules]]
+pattern = "chrome"
+mode = "turbo"
+
+[[app_rules]]
+pattern = "game"
+mode = "forwardselect"
+"#;
+        let c: Config = toml::from_str(toml_text).unwrap();
+        assert_eq!(c.mode, ModeConfig::Flow);
+        assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
+        assert_eq!(c.app_rules[1].mode, ModeConfig::ForwardBackspace);
+        // The visible list maps entry by entry and dedups: `turbo` and
+        // `smoothforward` both land on Flow (one row), and every remaining
+        // entry sits within the five canonical modes, in first-appearance
+        // order.
+        assert_eq!(
+            c.visible_modes(),
+            vec![
+                ModeConfig::Surrounding,
+                ModeConfig::Flow,
+                ModeConfig::ForwardBackspace,
+            ]
+        );
+        // The panel list parses as-is (raw strings); the submenu maps its
+        // spellings through from_key — pinned by ibus_prop's display tests.
+        assert_eq!(
+            c.menu_modes,
+            vec!["preedit".to_string(), "turbo".to_string()]
+        );
     }
 
     #[test]

@@ -62,6 +62,7 @@ fn gtk_widget_scenarios() {
     toggling_off_releases_the_editor_caret();
     every_switch_triggers_save();
     mode_visibility_hides_pickers_and_moves_the_active_mode();
+    cycle_subtitle_lists_the_five_modes();
     experimental_gate_locks_rows_and_preserves_values();
     combo_value_stays_right_after_a_pick();
     popup_marks_the_selected_item();
@@ -799,6 +800,18 @@ fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
     let macros = Macros::load();
     let dictionary = Dictionary::load();
     ui.refresh(&config, &macros, &dictionary);
+    // The dropdown model is the shipped five, in the shipped order — the
+    // same list the panel submenu, the rule pickers and the cycle walk.
+    assert_eq!(
+        *ui.mode_choices.borrow(),
+        vec![
+            ModeConfig::Preedit,
+            ModeConfig::Surrounding,
+            ModeConfig::Flow,
+            ModeConfig::ForwardBackspace,
+            ModeConfig::Off,
+        ]
+    );
     assert_eq!(
         ui.mode_choices.borrow().len(),
         crate::config::DEFAULT_VISIBLE_MODES.len()
@@ -888,6 +901,38 @@ fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
     assert!(
         ui.mode_visible_switches[index_of(last)].is_active(),
         "the last visible mode must stay on"
+    );
+}
+
+/// The cycle hotkey's expander derives from the same visible list the
+/// engine cycles: the count reads five and the sequence row joins the five
+/// labels in shipped order — a mode added or removed shows up here too.
+fn cycle_subtitle_lists_the_five_modes() {
+    let ui = widgets();
+    let page = crate::gui::pages::hotkeys::build(&ui);
+    let win = gtk4::Window::new();
+    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
+    win.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let expander = descendants::<adw::ExpanderRow>(page.upcast_ref())
+        .into_iter()
+        .find(|row| row.title() == "Thứ tự khi đổi chế độ")
+        .expect("the cycle-order expander");
+    assert_eq!(
+        expander.subtitle().as_str(),
+        "5 chế độ, xoay vòng",
+        "the count follows the five visible modes"
+    );
+    let sequence = descendants::<adw::ActionRow>(expander.upcast_ref())
+        .into_iter()
+        .find(|row| row.subtitle().is_some_and(|s| s.contains(" → ")))
+        .expect("the sequence row");
+    assert_eq!(
+        sequence.subtitle().as_ref().map(|s| s.as_str()),
+        Some("Gạch chân (preedit) → Surrounding text → Flow → Forward Backspace → OFF"),
+        "the sequence joins the five labels in shipped order"
     );
 }
 

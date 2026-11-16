@@ -102,7 +102,7 @@ subtitle = "Cách đưa chữ vào ứng dụng"
 
 [rows.mode_visibility]
 title = "Chế độ gõ hiển thị"
-subtitle = "{n}/10 chế độ đang hiện"
+subtitle = "{n}/5 chế độ đang hiện"
 
 [rows.charset]
 title = "Bảng mã"
@@ -249,17 +249,13 @@ subtitle = "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành h
 title = "Phím điều hướng khi còn từ"
 subtitle = "Phím mũi tên đầu tiên khi còn từ gõ dở"
 
-[rows.flow_per_key]
-title = "Hiện dấu từng bước ở Flow"
-subtitle = "Chữ có dấu hiện ngay trong lúc gõ ở Flow/Turbo"
+[rows.flow_per_key_delay]
+title = "Trễ đổ dấu từng bước (ms)"
+subtitle = "Thời gian chữ có dấu đợi trước khi đổ vào app ở Flow. Mặc định: 20."
 
-[rows.flow_backspace_retrack]
-title = "Sửa dấu sau Backspace (Flow/Turbo)"
-subtitle = "Xoá một ký tự rồi gõ dấu — từ vẫn biến hoá"
-
-[rows.flow_backspace_restore]
-title = "Hoàn dấu sau Backspace (Flow/Turbo)"
-subtitle = "Xoá phím đã gỡ dấu — dấu hiện lại"
+[rows.flow_backspace_restore_delay]
+title = "Trễ hoàn dấu sau Backspace (ms)"
+subtitle = "Thời gian đợi sau Backspace rồi mới sửa lại màn hình ở Flow. Mặc định: 150."
 
 [rows.macro_enabled]
 title = "Bật gõ tắt"
@@ -432,7 +428,7 @@ kind_entry = "Mục chọn"
 
 [groups.tune.pacing]
 title = "Cấu hình uinput"
-description = "Chỉ áp dụng cho Flow, Turbo và Select."
+description = "Chỉ áp dụng cho Flow."
 
 [groups.tune.channel]
 title = "Kênh gửi chữ"
@@ -571,7 +567,7 @@ hotkey_settings = "Mở Cài đặt"
 [tips]
 enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
 method = "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
-mode = "Cách hiển thị chữ đang gõ: preedit (gạch chân) dùng được ở mọi app, các mode uinput gửi phím thật nhưng có thể lệch app. Smooth (Forward) xóa bằng phím forwarded qua IBus — không cần /dev/uinput; không dùng cho game hoặc client XIM."
+mode = "Gạch chân (preedit): chữ gạch chân inline, commit khi hết từ — cần client hỗ trợ preedit, không hỗ trợ thì tự chuyển Surrounding. Surrounding text: mỗi phím commit ngay, đuôi từ được sửa lại qua xóa-văn-bản — cần client báo surrounding-text; client không báo thì đuôi từ được xóa bằng phím chèn (backend) hoặc phím chuyển tiếp thay thế. Flow: phím raw được chuyển thẳng, dấu hiện ngay từng bước, hết từ commit — cần backend chèn phím (uinput/Wayland), không có thì tự chạy như Forward Backspace. Forward Backspace: mỗi phím commit ngay, sửa đuôi bằng phím Backspace chuyển tiếp qua IBus — không bao giờ tự chuyển mode, chạy được ở mọi client kể cả terminal/XIM. OFF: tắt xử lý tiếng Việt, macro vẫn chạy."
 mode_visibility = "Bỏ chọn một chế độ để ẩn nó khỏi menu, phím tắt, luật theo app và bộ chọn chế độ. Chế độ đang dùng sẽ chuyển sang mục còn hiện đầu tiên."
 charset = "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
 hide_underline = "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
@@ -609,7 +605,7 @@ extra_url_chars = "Tính năng Không dấu sau URL mặc định chỉ giữ ng
 auto_capitalize_after = "Tính năng Tự viết hoa (sau . ! ? và Enter): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải (ví dụ : ”); không nhận chữ, số, khoảng trắng."
 echo_stale = "Bảo vệ xả commit trên Wayland: chờ các phím Backspace ảo (echo) quay về trước khi đổ chữ đã commit vào app. Số ms bên phải là thời hạn chờ — quá hạn thì xả luôn để chữ không treo.quá hạn thì xả luôn để chữ không treo. 50–1000 ms, quá thấp dễ mất chữ, quá cao làm chữ hiện trễ. Mặc định 150 ms."
 idle_commit = "Tính năng Chấp nhận từ khi nghỉ gõ: dừng tay quá lâu trên một từ đang gạch chân thì từ đó được commit luôn, như bấm dấu cách. Số ms bên phải là ngưỡng nghỉ tay.Số ms bên phải là ngưỡng nghỉ tay. 300–2000 ms."
-flow_per_key = "Tính năng Hiện dấu từng bước ở Flow: Flow/Turbo hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland. Select không đổi."
-flow_backspace_retrack = "Tính năng Sửa dấu sau Backspace ở Flow/Turbo: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Chỉ tác dụng khi Hiện dấu từng bước đang bật."
-flow_backspace_restore = "Tính năng Hoàn dấu sau Backspace: gõ chào rồi gõ thêm f (dấu bị gỡ, màn hình thành chaof), bấm Backspace thì dấu quay lại (chào) — theo đúng cài đặt “Xóa dấu bằng Backspace”: Unikey và Xóa dấu trước trả lại dấu, Cả ký tự thì xoá một ký tự. Số ms bên phải là thời gian chờ sau Backspace rồi mới sửa màn hình (0–1000, mặc định 150). Cần bật cả Sửa dấu sau Backspace."
+flow_per_key = "Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — luôn bật, không có công tắc. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland."
+flow_backspace_retrack = "Sửa dấu sau Backspace ở Flow: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Luôn bật ở Flow."
+flow_backspace_restore = "Hoàn dấu sau Backspace, chuẩn ở Flow: gõ chào rồi gõ thêm f (dấu bị gỡ, màn hình thành chaof), bấm Backspace thì dấu quay lại (chào) — theo đúng cài đặt “Xóa dấu bằng Backspace”: Unikey và Xóa dấu trước trả lại dấu, Cả ký tự thì xoá một ký tự. Số ms bên phải là thời gian chờ sau Backspace rồi mới sửa màn hình (0–1000, mặc định 150)."
 nav_key_while_preedit = "Tính năng Phím điều hướng khi còn từ: khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên sẽ nuốt để commit trước (mặc định, nhấn hai lần mới chạy) hoặc cho caret chạy ngay lần đầu. Nếu chữ bị chèn sai chỗ thì quay lại Nuốt."

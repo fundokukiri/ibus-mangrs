@@ -125,7 +125,7 @@ fn property_menu(s: &mut common::Sess) {
     );
     s.drain();
 
-    s.property("display:nonpreedit", 1); // 1 = STATE_CHECKED
+    s.property("display:surrounding", 1); // 1 = STATE_CHECKED
     s.pump(PUMP_MS);
     let sigs = s.drain();
     assert!(
@@ -134,7 +134,7 @@ fn property_menu(s: &mut common::Sess) {
     );
     let text = std::fs::read_to_string(s.config_path()).expect("config");
     assert!(
-        text.contains("mode = \"nonpreedit\""),
+        text.contains("mode = \"surrounding\""),
         "activate must persist the mode: {text:.300}"
     );
 }
@@ -187,9 +187,9 @@ fn toggle_hotkey(s: &mut common::Sess) {
 
 fn app_rule_picker(s: &mut common::Sess) {
     // The picker targets the client's prgname (the e2e has no focus
-    // extension): one flat page of the ten modes — the auxiliary line names
+    // extension): one flat page of the five modes — the auxiliary line names
     // the app and its current mode, digit 2 applies the second entry
-    // (nonpreedit), and the popup closes.
+    // (surrounding), and the popup closes.
     s.focus(CAPS_BOTH, "gtk4-im:e2epicktest");
     s.drain();
     assert!(
@@ -231,14 +231,14 @@ fn app_rule_picker(s: &mut common::Sess) {
     );
     let text = std::fs::read_to_string(s.config_path()).expect("config");
     assert!(
-        text.contains("pattern = \"e2epicktest\"") && text.contains("mode = \"nonpreedit\""),
+        text.contains("pattern = \"e2epicktest\"") && text.contains("mode = \"surrounding\""),
         "the pick must land as the client's rule: {text:.400}"
     );
     // Mid-word pick: a composed word is still on the wire (preedit) when
     // the menu opens — the flush must commit exactly what is shown, and
     // typing after the pick must keep working (the lost-letters report).
     // A fresh client: the previous section pinned e2epicktest to
-    // nonpreedit, where no preedit composes.
+    // surrounding, where no preedit composes.
     s.focus(CAPS_BOTH, "gtk4-im:e2emidword");
     s.drain();
     let (_buf, preedit_sigs) = s.type_buffered("tieengs"); // composes, no terminator yet
@@ -257,7 +257,7 @@ fn app_rule_picker(s: &mut common::Sess) {
         commits(&sigs).contains(&"tiếng"),
         "opening the menu commits the composed word: {sigs:?}"
     );
-    assert!(s.key(0x31, 0), "digit 1 applies auto");
+    assert!(s.key(0x31, 0), "digit 1 applies the first entry (preedit)");
     s.pump(PUMP_MS);
     s.drain();
     let (buf, _) = s.type_reported(" x tieengs ");
@@ -278,13 +278,13 @@ fn app_rule_picker(s: &mut common::Sess) {
     );
     let text = std::fs::read_to_string(s.config_path()).expect("config");
     assert!(
-        text.contains("pattern = \"e2epicktest\"") && text.contains("mode = \"surrounding\""),
+        text.contains("pattern = \"e2epicktest\"") && text.contains("mode = \"forwardbackspace\""),
         "the mouse pick must update the winning rule in place: {text:.400}"
     );
 
     // Arrow navigation: the highlight starts on the mode in force (the
-    // mouse pick above left the app on surrounding, index 3), Down moves
-    // it (the table re-renders with the new cursor), Enter picks it.
+    // mouse pick above left the app on forwardbackspace, index 3), Down
+    // moves it (the table re-renders with the new cursor), Enter picks it.
     std::thread::sleep(std::time::Duration::from_millis(
         300, // past the hotkey repeat gap: a deliberate second press
     ));
@@ -307,8 +307,8 @@ fn app_rule_picker(s: &mut common::Sess) {
     );
     let text = std::fs::read_to_string(s.config_path()).expect("config");
     assert!(
-        text.contains("pattern = \"e2epicktest\"") && text.contains("mode = \"smooth\""),
-        "Enter must apply the entry the highlight moved to (index 4 = smooth): {text:.400}"
+        text.contains("pattern = \"e2epicktest\"") && text.contains("mode = \"off\""),
+        "Enter must apply the entry the highlight moved to (index 4 = off): {text:.400}"
     );
     // Second hotkey press while the menu is up toggles it closed.
     std::thread::sleep(std::time::Duration::from_millis(300));

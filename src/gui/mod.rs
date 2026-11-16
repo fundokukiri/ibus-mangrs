@@ -103,7 +103,7 @@ const MODE_LABELS: &[(ModeConfig, &str, &str)] = &[
         "Surrounding text",
         "Surrounding text",
     ),
-    (ModeConfig::Flow, "Flow (uinput)", "Flow (uinput)"),
+    (ModeConfig::Flow, "Flow", "Flow"),
     (
         ModeConfig::ForwardBackspace,
         "Forward Backspace",
@@ -496,11 +496,11 @@ impl Ui {
             .set_selected(mode_index(&choices, add_selected));
     }
 
-    /// The expander's "n/10 đang hiện" line.
+    /// The expander's "n/5 đang hiện" line.
     pub(super) fn update_mode_visibility_subtitle(&self) {
         let n = self.mode_choices.borrow().len();
         self.mode_visibility.set_subtitle(
-            &t("rows.mode_visibility.subtitle", "{n}/10 chế độ đang hiện")
+            &t("rows.mode_visibility.subtitle", "{n}/5 chế độ đang hiện")
                 .replace("{n}", &n.to_string()),
         );
     }
