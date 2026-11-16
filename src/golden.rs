@@ -1,5 +1,7 @@
 //! Golden behaviour tests (TODO.MD Giai đoạn 0): a table of keystroke
 //! sequences and the exact text the engine must leave in the application.
+//! Baseline: 894 cases — 294 rows x 3 case variants + 12 MsLayout rows;
+//! the four core tables alone are the old 678-case baseline.
 //!
 //! Every row runs through the real `Engine` in Surrounding mode (the
 //! commit-as-you-type contract) with Unicode

@@ -62,8 +62,9 @@ installer now removes that membership and deletes a leftover `80-uinput.rules`; 
 file in `rules.d`, so an old copy would keep the group access alive next to the new rule.
 
 `/dev/uinput` is opened lazily and retried every two seconds while it is unavailable, because
-logind can apply the ACL a moment after the engine starts. If it never becomes available, the
-engine falls back to the protocol delete and preedit — it does not fail silently.
+logind can apply the ACL a moment after the engine starts. If it never becomes available,
+commit-as-you-type typing falls back to the protocol delete where the client reports its text
+and to Backspace keys forwarded through IBus otherwise — it does not fail silently.
 
 ## Residual risks (accepted)
 
@@ -113,8 +114,9 @@ sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/ui
 ibus restart
 ```
 
-The Preedit and NonPreedit modes never touch the device, so the engine keeps working without it;
-Flow and the Backspace fallback degrade to the protocol delete.
+The Preedit and Forward Backspace modes never touch the device, and without it Surrounding
+falls back to the protocol delete or the forwarded Backspace keys while Flow falls back to
+Forward Backspace — the engine keeps working.
 
 ## Reporting a vulnerability
 

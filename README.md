@@ -8,7 +8,7 @@
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
 [`bamboo-core`](https://crates.io/crates/bamboo-core). 9 input methods, 11 output charsets,
-10 display modes (6 shown by default), a GTK4 settings window, macros, an emoji picker at
+5 display modes, a GTK4 settings window, macros, an emoji picker at
 the caret and per-app rules.
 
 > Developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland; X11 smoke-tested).
@@ -20,7 +20,7 @@ the caret and per-app rules.
 - **9 input methods** — Telex (`tieengs` → `tiếng`), Telex 2, Telex W, Telex + VNI,
   Telex + VNI + VIQR, VNI (`tie6ng1`), VNI (French keyboard), VIQR and the Microsoft layout
   (`ti3ng8` → `tiếng`) — with **11 output charsets** (Unicode, VNI, VIQR, TCVN3, VISCII, ...).
-- **10 display modes** (table below), 6 shown by default — hide or show each one on the
+- **5 display modes** (table below) — hide or show each one on the
   _General_ page; hidden modes disappear from the menu, hotkey cycle, App Rules and pickers,
   and are settable per application through **App Rules**.
 - **Flexible typing options**: modern tone placement (`hòa`) or traditional (`hoà`), free tone
@@ -29,7 +29,7 @@ the caret and per-app rules.
   double space → period.
 - **Three Backspace behaviors on tone-marked words**: tone first (`hạ` → `ha`), whole screen
   character (`việt` → `việ`), or the unikey walk (`hạ` → `hã` → `hà` → ...).
-- **Per-key marks in the Flow/Turbo modes** (on by default): `ee` shows `ê` the moment it
+- **Per-key marks in Flow** (always on): `ee` shows `ê` the moment it
   lands instead of holding raw keys until the word ends. A click or a focus change never
   loses the half-typed word — the preedit commits what it shows, including a shorthand fix
   like `ddc` → `đc`.
@@ -46,42 +46,38 @@ the caret and per-app rules.
 
 ## Display modes
 
-| Display mode (label) | Config value    | How it works                                                     
-| -------------------- | --------------- | ---------------------------------------------------------------- | 
-| Underline (preedit)  | `preedit`       | word shows inline with underline, commits at word end            | 
-| No underline         | `nonpreedit`    | every key commits, the tail is rewritten on marks                | 
-| Surrounding text     | `surrounding`   | non-preedit, verified against the app's own text report          | 
-| Flow (uinput)        | `flow`          | raw keys forwarded; real Backspaces erase the tail at word end   |
-| Turbo (uinput)       | `turbo`         | Flow without the safety check before rewriting                   |
-| Select (uinput)      | `select`        | Shift+← selects the tail, Delete erases it, word commits         |
-| Smooth (Forward)     | `smoothforward` | Flow's contract on forwarded Backspaces — no `/dev/uinput`       |
-| Forward Backspace    | `forwardkeyevent` | the tail is deleted with Backspace events forwarded via IBus   |
-| Forward Selection    | `forwardselect` | the tail is selected with Shift+← and replaced by the commit     |
-| OFF                  | `off`           | Vietnamese off, macros and auto-capitalize still work            |
+| Display mode (label) | Config value      | How it works                                                     |
+| -------------------- | ----------------- | ---------------------------------------------------------------- |
+| Underline (preedit)  | `preedit`         | word shows inline with underline, commits at word end            |
+| Surrounding text     | `surrounding`     | every key commits; the tail is rewritten and verified against the app's own text report |
+| Flow                 | `flow`            | raw keys forwarded; every mark appears as you type, the word commits at word end |
+| Forward Backspace    | `forwardbackspace` | the tail is deleted with Backspace events forwarded via IBus    |
+| OFF                  | `off`             | Vietnamese off, macros and auto-capitalize still work            |
 
 The labels are the ones the engine's menu and settings window show; the config value is what
 `config.toml` and App Rules accept.
 
 Switch modes from the input-source menu, the settings window's _Display mode_ row, a cycle
-hotkey, or per app with App Rules. The three uinput modes press real keys through
-`/dev/uinput`: they need write access to that device and fall back to preedit without it
-(Select also needs a surrounding-text report from the app). They run on both X11 and GNOME
-Wayland. The three forward modes need neither `/dev/uinput` nor a surrounding-text report —
-their delete or selection travels as forwarded key events. A config or rule still carrying
-the removed `auto` or `defaulttyping` value migrates automatically (to `preedit` and `off`).
+hotkey, or per app with App Rules. Flow presses real keys through an injection backend —
+the kernel's `/dev/uinput` device by default, or the compositor's virtual-keyboard protocol
+on Hyprland and other wlroots compositors — and falls back to Forward Backspace when no
+backend can be acquired. Forward Backspace needs nothing beyond IBus: its deletes travel as
+forwarded key events, so it works on the GNOME Wayland relay and in XIM clients where no
+device can reach. A config or rule still carrying a removed value migrates automatically:
+`nonpreedit` loads as `surrounding`, `turbo`/`select`/`smoothforward` as `flow`,
+`forwardselect` and the old `forwardkeyevent` spelling as `forwardbackspace`,
+`defaulttyping` as `off`, `auto` as `preedit`.
 
 ### Showing and hiding modes
 
 The settings window's _General_ page carries one switch per mode
 (_Displayed modes_). A hidden mode is not selectable anywhere: it leaves the mode row, the
 App Rules pickers, the panel menu and the cycle hotkey, and the engine ignores it as a global
-mode or a rule mode. The shipped set is `preedit`, `surrounding`, `flow`, `forwardkeyevent`,
-`smoothforward`, `off`; the four technical variants (`nonpreedit`, `turbo`, `select`,
-`forwardselect`) stay implemented but hidden until enabled. The active mode moves to the first
-still-visible entry when it is hidden. The list is saved in `config.toml`:
+mode or a rule mode. All five ship visible. The active mode moves to the first still-visible
+entry when it is hidden. The list is saved in `config.toml`:
 
 ```toml
-visible_modes = ["preedit", "surrounding", "flow", "forwardkeyevent", "smoothforward", "off"]
+visible_modes = ["preedit", "surrounding", "flow", "forwardbackspace", "off"]
 ```
 
 A file without the key (an upgrade) keeps every mode it already uses — the global mode and
@@ -244,10 +240,10 @@ pattern = "sublime_text"
 mode = "surrounding"
 ```
 
-Mode values: `preedit` (default), `nonpreedit`, `surrounding`, `flow`, `turbo`,
-`select` (these three press real keys through `/dev/uinput`), `smoothforward`,
-`forwardkeyevent`, `forwardselect`, `off`. A rule naming a mode hidden in
-`visible_modes` is kept in the file but ignored until that mode is shown again.
+Mode values: `preedit` (default), `surrounding`, `flow`, `forwardbackspace`, `off`. Old
+values keep loading — they migrate to the five (see the display-mode table). A rule naming
+a mode hidden in `visible_modes` is kept in the file but ignored until that mode is shown
+again.
 
 No rules ship with the engine. It does carry a built-in safeguard for known
 delete-dropping clients (Chrome, Chromium, Edge, Brave, Vivaldi and Electron apps such as
@@ -274,8 +270,9 @@ matching them by name needs the companion GNOME Shell extension
 - `/dev/uinput` comes from `systemd-logind` as a **session-scoped ACL**; the `input` group is no
   longer used. That group can read every keyboard of the machine (`/dev/input/event*`), so the
   installer removes the account from it and deletes the old `80-uinput.rules`.
-- The virtual keyboard registers **two keys only** — Backspace and Delete. The
-  kernel drops every other keycode, so a bug there cannot type text.
+- Injection is whitelist-bound: **Backspace and Delete only**, in every backend. On the
+  `/dev/uinput` device the keycode list enforces it; the engine's backend interface has no
+  other operations for the rest. A bug there can erase — it cannot type text.
 - The debug log is off by default and created `0600`; it only contains typed text when
   `debug_log_text` is enabled on purpose.
 
