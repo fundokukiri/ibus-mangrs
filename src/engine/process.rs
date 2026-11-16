@@ -563,11 +563,13 @@ impl Engine {
                 self.undo_key_at = None;
             }
         }
-        // A key arriving before the deferred correction fires cancels it: the
-        // compose delta below is computed against the wrapper's old output,
-        // which still carries the mark, and lands on the shortened screen —
-        // the correction is folded into this key.
-        self.deferred_fix = None;
+        // A key arriving before the deferred correction fires cancels it and
+        // folds the correction into this key. The wrapper's output no longer
+        // matches the screen here — the ToneFirst pop keeps the letter the
+        // user's Backspace deleted (`tung` in the wrapper, `tùn` on screen) —
+        // so the compose delta below is applied to the fix's text (the output
+        // it is measured against), never to the believed screen.
+        let folded_fix = self.deferred_fix.take();
         // The undo of a mark is one key event: remember where the raw keys
         // stood when it happened, so only an immediate Backspace treats it as
         // the erase to restore (`undo_in_word` itself stays set for the whole
@@ -594,7 +596,15 @@ impl Engine {
                 // The transformed output stays internal; the composed delta
                 // applies immediately through the injected transport.
                 let want = if self.charset == Charset::Unicode {
-                    replace_tail(&self.tail, edit.delete_chars, &edit.insert)
+                    match &folded_fix {
+                        // The delta counts characters of the wrapper's
+                        // output, which the pop left longer than the screen;
+                        // on the fix's text the count stays true, and the
+                        // coalesce below diffs the result against the real
+                        // screen.
+                        Some((_, fix)) => replace_tail(fix, edit.delete_chars, &edit.insert),
+                        None => replace_tail(&self.tail, edit.delete_chars, &edit.insert),
+                    }
                 } else {
                     // Legacy encodings change the character count: the
                     // screen must hold the whole re-encoded tail.

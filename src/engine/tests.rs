@@ -2862,6 +2862,43 @@ fn flow_backspace_restores_the_undone_mark_without_the_switch() {
 }
 
 #[test]
+fn flow_per_key_tonefirst_fold_keeps_every_screen_char() {
+    // A key typed inside the restore window after a ToneFirst Flow
+    // Backspace folds the pending tone fix into its batch. The pop keeps
+    // in the wrapper the letter the user's Backspace deleted from the
+    // screen (`tung` in the wrapper, `tùn` on screen), so the fold must
+    // not apply the wrapper's delta to the screen directly: that erased
+    // the leading `t` (`InjectBackspaces(3)`, screen `úng`).
+    let mut e = engine(Mode::Flow, Config::default());
+    e.set_uinput_available(true);
+    type_str(&mut e, "tungf ");
+    flush_per_key(&mut e); // "tùng " lands
+    assert_eq!(e.tail, "tùng ");
+    e.backspace(); // the terminator goes; the word comes back live
+    assert_eq!(e.tail, "tùng");
+    let actions = e.backspace().expect("backspace");
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert!(e.deferred_fix.is_some(), "the tone fix must be scheduled");
+    assert_eq!(e.tail, "tùn");
+    // Fast `s` lands inside the window: the fix folds into this key's
+    // batch and the screen keeps every character.
+    let actions = type_str(&mut e, "s");
+    assert_eq!(actions, vec![Action::InjectBackspaces(2)], "{actions:?}");
+    assert_eq!(e.tail, "túng");
+    assert!(
+        e.deferred_fix.is_none(),
+        "the fix folded into the key's batch"
+    );
+    let actions = flush_per_key(&mut e);
+    assert_eq!(
+        actions,
+        vec![Action::CommitNow("úng".into())],
+        "{actions:?}"
+    );
+    assert_eq!(e.tail, "túng");
+}
+
+#[test]
 fn flow_per_key_word_end_carries_the_terminator_in_the_batch() {
     // The word-end terminator joins the coalesced batch — a forwarded key
     // would race the pending commit on a relay.

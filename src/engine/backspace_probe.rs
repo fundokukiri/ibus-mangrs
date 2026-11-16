@@ -521,6 +521,30 @@ fn target_typing_before_the_fix_lands_keeps_the_mark() {
 }
 
 #[test]
+fn target_tonefirst_fold_keeps_every_screen_char() {
+    // The fold family under ToneFirst: the pop leaves the wrapper one
+    // character longer than the screen (`tung` vs `tùn`), so folding the
+    // pending tone fix into a fast key's batch must not apply the wrapper's
+    // delta to the screen — that erased the `t` (`úng`). The folded rewrite
+    // lands the composed word whole.
+    let (_, cfg) = tone(Mode::Flow, BackspaceToneConfig::ToneFirst);
+    let (screen, e) = screen_of(Mode::Flow, cfg, "tungf ~\u{8}\u{8}s");
+    assert_eq!(screen, "túng");
+    assert_eq!(e.tail, "túng");
+    assert!(e.deferred_fix.is_none(), "the fix folded into the key");
+}
+
+#[test]
+fn target_tonefirst_fold_after_an_undone_mark() {
+    // The equal-length fold sibling under ToneFirst: the undo pop keeps
+    // wrapper output and screen the same length, and a fast tone key folds
+    // the mark restore into its batch (`cháo`, like the UnikeyWalk pin).
+    let (_, cfg) = tone(Mode::Flow, BackspaceToneConfig::ToneFirst);
+    let (screen, _) = screen_of(Mode::Flow, cfg, "chaoff\u{8}s");
+    assert_eq!(screen, "cháo");
+}
+
+#[test]
 fn target_restore_runs_with_a_zero_delay() {
     // The delay field accepts 0 (test knob): the correction still lands, on
     // the next main-loop wake.
