@@ -456,20 +456,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         ("rows.post_delay.title", "Độ trễ sau từ", &post_delay),
     ] {
         if !first_column {
-            let divider = gtk4::Separator::new(gtk4::Orientation::Vertical);
-            divider.set_margin_start(8);
-            divider.set_margin_end(8);
-            pacing_row.add_suffix(&divider);
+            pacing_row.add_suffix(&pacing_divider());
         }
         first_column = false;
         let caption_text = t(key, fallback);
-        let caption = gtk4::Label::new(Some(&caption_text));
-        caption.add_css_class("caption");
-        caption.set_halign(gtk4::Align::Center);
-        let column = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-        column.append(&caption);
-        column.append(spin);
-        pacing_row.add_suffix(&column);
+        pacing_row.add_suffix(&pacing_column(&caption_text, spin));
         let spoken = format!("{} (ms)", caption_text);
         spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
     }
@@ -494,33 +485,45 @@ pub(super) fn widgets() -> Rc<Ui> {
         &idle_commit_spin,
     );
     let flow_per_key_spin = spin_button(0.0, 500.0, 5.0);
-    // Its own plain row: the display switch died (the per-key look is the
-    // only Flow path) and the park delay stays tunable, outside the
-    // experimental gate like the pacing knobs it sits with.
-    let flow_per_key_delay_row = action_row(
-        &t("rows.flow_per_key_delay.title", "Trễ đổ dấu từng bước (ms)"),
-        &t(
-            "rows.flow_per_key_delay.subtitle",
-            "Thời gian chữ có dấu đợi trước khi đổ vào app ở Flow. Mặc định: 20.",
-        ),
-    );
-    flow_per_key_delay_row.add_suffix(&flow_per_key_spin);
     let flow_backspace_restore_spin = spin_button(0.0, 1000.0, 10.0);
-    // Its own plain row: both Backspace switches died (the retrack and the
-    // mark restore are standard Flow behavior) and the correction delay
-    // stays tunable, outside the experimental gate like the pacing knobs it
-    // sits with.
-    let flow_backspace_restore_delay_row = action_row(
-        &t(
-            "rows.flow_backspace_restore_delay.title",
-            "Trễ hoàn dấu sau Backspace (ms)",
-        ),
-        &t(
-            "rows.flow_backspace_restore_delay.subtitle",
-            "Thời gian đợi sau Backspace rồi mới sửa lại màn hình ở Flow. Mặc định: 150.",
+    // The two Flow delays share the pacing row's caption-column shape — a
+    // caption above each spin, a divider between — so the group reads as
+    // one style. Caption-only row: the captions carry the names, the
+    // subtitle the shipped defaults; both knobs stay outside the
+    // experimental gate like the pacing knobs they pace with.
+    let flow_delay_row = action_row(
+        "",
+        &t("rows.flow_delay.subtitle", "Mặc định: {n}").replace(
+            "{n}",
+            &format!(
+                "{} · {}",
+                pacing_defaults.flow_per_key_delay_ms,
+                pacing_defaults.flow_backspace_restore_delay_ms
+            ),
         ),
     );
-    flow_backspace_restore_delay_row.add_suffix(&flow_backspace_restore_spin);
+    let mut first_flow_column = true;
+    for (caption, spin) in [
+        (
+            t("rows.flow_per_key_delay.title", "Dấu từng bước (ms)"),
+            &flow_per_key_spin,
+        ),
+        (
+            t(
+                "rows.flow_backspace_restore_delay.title",
+                "Hoàn dấu sau Backspace (ms)",
+            ),
+            &flow_backspace_restore_spin,
+        ),
+    ] {
+        if !first_flow_column {
+            flow_delay_row.add_suffix(&pacing_divider());
+        }
+        first_flow_column = false;
+        flow_delay_row.add_suffix(&pacing_column(&caption, spin));
+        // The caption already carries (ms): the spoken label is the caption.
+        spin.update_property(&[gtk4::accessible::Property::Label(&caption)]);
+    }
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
@@ -611,11 +614,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         backspace_tone,
         "tips.backspace_tone",
         "Xóa dấu trước (mặc định): hạ thành ha, rồi h. Xóa cả dấu và chữ: hạ thành h, việt thành việc rồi vi — mỗi Backspace xóa đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
-    );
-    tip!(
-        nav_key_while_preedit,
-        "tips.nav_key_while_preedit",
-        "Nuốt phím đầu (mặc định): lần nhấn đầu chỉ commit từ, lần hai mới di chuyển caret. Hai lựa chọn kia cho caret chạy ngay lần nhấn đầu; nếu chữ bị chèn sai chỗ thì quay lại mặc định."
     );
     tip!(
         em_dash,
@@ -718,20 +716,21 @@ pub(super) fn widgets() -> Rc<Ui> {
         "tips.idle_commit",
         "Tính năng Chấp nhận từ khi nghỉ gõ: dừng tay quá lâu trên một từ đang gạch chân thì từ đó được commit luôn, như bấm dấu cách. Số ms bên phải là ngưỡng nghỉ tay."
     );
+    // The two Flow tips sit on their spins now: one row carries both knobs.
     tip!(
-        flow_per_key_delay_row,
+        flow_per_key_spin,
         "tips.flow_per_key",
-        "Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — luôn bật, không có công tắc. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms bên phải là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland."
+        "Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — luôn bật, không có công tắc. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms trong ô là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland."
     );
     tip!(
-        flow_backspace_restore_delay_row,
+        flow_backspace_restore_spin,
         "tips.flow_backspace_restore",
-        "Hoàn dấu sau Backspace, chuẩn ở Flow: gõ chào rồi gõ thêm f (dấu bị gỡ, màn hình thành chaof), bấm Backspace thì dấu quay lại (chào) — theo đúng cài đặt “Xóa dấu bằng Backspace”: Unikey và Xóa dấu trước trả lại dấu, Cả ký tự thì xoá một ký tự. Số ms bên phải là thời gian chờ sau Backspace rồi mới sửa màn hình (0–1000, mặc định 150)."
+        "Hoàn dấu sau Backspace, chuẩn ở Flow: gõ chào rồi gõ thêm f (dấu bị gỡ, màn hình thành chaof), bấm Backspace thì dấu quay lại (chào) — theo đúng cài đặt “Xóa dấu bằng Backspace”: Unikey và Xóa dấu trước trả lại dấu, Cả ký tự thì xoá một ký tự. Số ms trong ô là thời gian chờ sau Backspace rồi mới sửa màn hình (0–1000, mặc định 150)."
     );
     tip!(
         nav_key_while_preedit,
         "tips.nav_key_while_preedit",
-        "Tính năng Phím điều hướng khi còn từ: khi từ đang gõ còn gạch chân, phím mũi tên đầu tiên sẽ nuốt để commit trước (mặc định, nhấn hai lần mới chạy) hoặc cho caret chạy ngay lần đầu. Nếu chữ bị chèn sai chỗ thì quay lại Nuốt."
+        "Điều hướng khi còn từ: khi từ vẫn còn gạch chân, phím mũi tên đầu tiên mặc định đưa caret chạy ngay (kiểu ibus-bamboo) — commit vẫn nằm trong cùng lượt trả về, tới trước phím mũi tên. Nếu chữ bị chèn sai chỗ ở một app nào, chọn lại Nuốt phím đầu: lần nhấn đầu chỉ commit từ, lần hai mới di chuyển."
     );
 
     Rc::new(Ui {
@@ -820,9 +819,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         idle_commit_row,
         idle_commit_switch,
         idle_commit_spin,
-        flow_per_key_delay_row,
+        flow_delay_row,
         flow_per_key_spin,
-        flow_backspace_restore_delay_row,
         flow_backspace_restore_spin,
         experimental_features,
         menu,

@@ -2624,9 +2624,14 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
     // The preedit commit and the forwarded key travel different
     // transports on mutter-relayed contexts; a burst of arrows used to
     // move the caret before the commit landed ("em tên tùng" → "etùngm
-    // tên"). The first navigation key is consumed so the commit lands
-    // while the caret is still in place.
+    // tên"). The `swallow` value consumes the first navigation key so
+    // the commit lands while the caret is still in place — the safe
+    // opt-in next to the shipped `forward` default.
     let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        nav_key_while_preedit: "swallow".into(),
+        ..Config::default()
+    });
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
@@ -2686,10 +2691,14 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
 #[test]
 fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
     // The daemon flips capabilities mid-word. The preedit is already on
-    // screen (word-mode lock), so a navigation key must still commit it
-    // and swallow that one press to keep it from landing at the moved
-    // caret.
+    // screen (word-mode lock), so a navigation key must still commit it;
+    // with `swallow` that one press is consumed to keep the text from
+    // landing at the moved caret.
     let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        nav_key_while_preedit: "swallow".into(),
+        ..Config::default()
+    });
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b100001); // PREEDIT|SURROUNDING
     for c in "tung".chars() {
@@ -2786,13 +2795,12 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
     ));
 }
 
-// --- experimental nav_key_while_preedit values ---
+// --- nav_key_while_preedit values ---
 
 /// Type "tung" into a relayed Preedit engine configured with `value`.
-fn pending_preedit_engine(value: &str, experimental: bool) -> Engine {
+fn pending_preedit_engine(value: &str) -> Engine {
     let mut e = Engine::new(Method::Telex, Mode::Preedit);
     e.apply_config(&Config {
-        experimental_features: experimental,
         nav_key_while_preedit: value.into(),
         ..Config::default()
     });
@@ -2825,7 +2833,7 @@ fn member_names(out: &[Message]) -> Vec<String> {
 fn forward_mode_commits_and_forwards_the_first_navigation_key() {
     // The forward value: commit and key ride one reply — ibus-bamboo's
     // sequence. The caret moves on the first press.
-    let mut e = pending_preedit_engine("forward", true);
+    let mut e = pending_preedit_engine("forward");
     let mut out = Vec::new();
     assert!(
         !process_key(
@@ -2868,7 +2876,7 @@ fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
     // The replay value: the key is consumed and re-emitted as a
     // ForwardKeyEvent press+release pair AFTER the commit signals, so the
     // caret still moves on the first physical press.
-    let mut e = pending_preedit_engine("replay", true);
+    let mut e = pending_preedit_engine("replay");
     let mut out = Vec::new();
     assert!(
         process_key(
@@ -2911,7 +2919,7 @@ fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
 fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
     // The relay drops modifier state on forwarded keys: a replayed
     // Shift+Left would move instead of select, so the swallow stands.
-    let mut e = pending_preedit_engine("replay", true);
+    let mut e = pending_preedit_engine("replay");
     let mut out = Vec::new();
     assert!(process_key(
         &mut e,
@@ -2937,10 +2945,33 @@ fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
 }
 
 #[test]
-fn the_experimental_gate_forces_the_nav_key_swallow_back_on() {
-    // Gate off: the chosen value stays saved but the engine keeps the
-    // shipped swallow, like every other gated feature.
-    let mut e = pending_preedit_engine("forward", false);
+fn the_nav_key_choice_applies_without_the_experimental_gate() {
+    // Graduated: the choice applies like every config value, no master
+    // gate needed. The default forward sends the first key in the reply;
+    // a saved swallow still consumes it.
+    let mut e = pending_preedit_engine("forward");
+    let mut out = Vec::new();
+    assert!(
+        !process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: 0xff51,
+                keycode: 0,
+                state: 0,
+            },
+            &mut out,
+        ),
+        "Left must be forwarded without the gate"
+    );
+    let members = member_names(&out);
+    assert!(
+        members.iter().any(|m| m == "CommitText"),
+        "the pending word must still be committed: {members:?}"
+    );
+    let mut e = pending_preedit_engine("swallow");
     let mut out = Vec::new();
     assert!(
         process_key(
@@ -2955,13 +2986,9 @@ fn the_experimental_gate_forces_the_nav_key_swallow_back_on() {
             },
             &mut out,
         ),
-        "Left must be consumed with the gate off"
+        "Left must be consumed with a saved swallow"
     );
     let members = member_names(&out);
-    assert!(
-        members.iter().all(|m| m != "ForwardKeyEvent"),
-        "no key may be replayed: {members:?}"
-    );
     assert!(
         members.iter().any(|m| m == "CommitText"),
         "the pending word must still be committed: {members:?}"

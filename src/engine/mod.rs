@@ -85,15 +85,15 @@ pub enum Mode {
 }
 
 /// What the first navigation key does while a preedit commit is pending on
-/// a mutter-relayed context (the experimental `nav_key_while_preedit`).
+/// a mutter-relayed context (the `nav_key_while_preedit` config key).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NavKeyWhilePreedit {
     /// Consume the key: the commit lands while the caret is still in place,
-    /// the next press moves the caret. The shipped behavior.
-    #[default]
+    /// the next press moves the caret.
     Swallow,
     /// Send the commit and the key in one reply (ibus-bamboo's sequence):
-    /// the caret moves on the first press.
+    /// the caret moves on the first press. The shipped default.
+    #[default]
     Forward,
     /// Consume the key and re-emit it as ForwardKeyEvent signals after the
     /// commit; the ordered connection delivers the commit first.
@@ -102,12 +102,13 @@ pub enum NavKeyWhilePreedit {
 
 impl NavKeyWhilePreedit {
     /// Tolerant parse like the GUI language value: an unknown value keeps
-    /// the shipped behavior instead of failing the whole config file.
+    /// the default instead of failing the whole config file. A saved
+    /// `swallow` keeps swallowing.
     pub fn from_config_value(value: &str) -> Self {
         match value {
-            "forward" => Self::Forward,
+            "swallow" => Self::Swallow,
             "replay" => Self::Replay,
-            _ => Self::Swallow,
+            _ => Self::Forward,
         }
     }
 }
@@ -632,13 +633,10 @@ impl Engine {
         self.macro_expand_valid_words = experimental && config.macro_expand_valid_words;
         self.x11_delete_without_report = config.x11_delete_without_report;
         self.preedit_for_xim = config.preedit_for_xim;
-        // Experimental: the gate forces the shipped swallow back on while
-        // the chosen value stays saved for when the gate reopens.
-        self.nav_key_while_preedit = if experimental {
-            NavKeyWhilePreedit::from_config_value(&config.nav_key_while_preedit)
-        } else {
-            NavKeyWhilePreedit::Swallow
-        };
+        // The caret choice applies like every config value; a saved
+        // `swallow` keeps swallowing.
+        self.nav_key_while_preedit =
+            NavKeyWhilePreedit::from_config_value(&config.nav_key_while_preedit);
         self.time_format = config.time_format.clone();
         self.date_format = config.date_format.clone();
         // Reload the auxiliary files only when they changed on disk (see the

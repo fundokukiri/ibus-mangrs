@@ -52,8 +52,7 @@ fn gtk_widget_scenarios() {
     shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
     row_texts_render_as_plain_text();
-    flow_per_key_delay_row_stands_alone();
-    flow_backspace_restore_delay_row_stands_alone();
+    flow_delay_row_shows_captions();
     rules_add_group_merges_the_focus_chip();
     rule_rows_and_preview_track_the_engine_match();
     macro_page_helpers_count_and_preview();
@@ -704,16 +703,19 @@ fn row_texts_render_as_plain_text() {
 }
 
 /// The per-key display switch died (the per-key look is the only Flow
-/// path): the delay spin must survive as its own always-active Tuning row,
-/// still wired to the `flow_per_key_delay_ms` config key.
-fn flow_per_key_delay_row_stands_alone() {
+/// path) and both Backspace switches died (the retrack and the mark
+/// restore are standard Flow behavior): both delay spins survive as one
+/// always-active caption row, still wired to their config keys.
+fn flow_delay_row_shows_captions() {
     let ui = widgets();
     assert!(
-        !ui.flow_per_key_delay_row.uses_markup(),
+        !ui.flow_delay_row.uses_markup(),
         "row titles and subtitles must be plain text"
     );
     assert!(
-        ui.flow_per_key_delay_row.is_sensitive() && ui.flow_per_key_spin.is_sensitive(),
+        ui.flow_delay_row.is_sensitive()
+            && ui.flow_per_key_spin.is_sensitive()
+            && ui.flow_backspace_restore_spin.is_sensitive(),
         "the delay row has no switch left to lock it"
     );
     let macros = Macros::load();
@@ -727,6 +729,7 @@ fn flow_per_key_delay_row_stands_alone() {
     ui.refresh(
         &Config {
             flow_per_key_delay_ms: 80,
+            flow_backspace_restore_delay_ms: 40,
             ..Config::default()
         },
         &macros,
@@ -737,57 +740,22 @@ fn flow_per_key_delay_row_stands_alone() {
         80.0,
         "refresh shows the file value"
     );
+    assert_eq!(
+        ui.flow_backspace_restore_spin.value(),
+        40.0,
+        "refresh shows the file value"
+    );
     ui.flow_per_key_spin.set_value(200.0);
+    ui.flow_backspace_restore_spin.set_value(250.0);
     ui.fire_save();
     let saved = Config::load();
     assert_eq!(
         saved.flow_per_key_delay_ms, 200,
         "the detached spin still saves the delay key"
     );
-}
-
-/// Both experimental Backspace switches died (the retrack and the mark
-/// restore are standard Flow behavior): the correction delay spin must
-/// survive as its own always-active Tuning row, still wired to the
-/// `flow_backspace_restore_delay_ms` config key.
-fn flow_backspace_restore_delay_row_stands_alone() {
-    let ui = widgets();
-    assert!(
-        !ui.flow_backspace_restore_delay_row.uses_markup(),
-        "row titles and subtitles must be plain text"
-    );
-    assert!(
-        ui.flow_backspace_restore_delay_row.is_sensitive()
-            && ui.flow_backspace_restore_spin.is_sensitive(),
-        "the delay row has no switch left to lock it"
-    );
-    let macros = Macros::load();
-    let dictionary = Dictionary::load();
-    {
-        let ui_for_save = Rc::clone(&ui);
-        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
-            ui_for_save.save_all().expect("restore delay row save");
-        }));
-    }
-    ui.refresh(
-        &Config {
-            flow_backspace_restore_delay_ms: 40,
-            ..Config::default()
-        },
-        &macros,
-        &dictionary,
-    );
-    assert_eq!(
-        ui.flow_backspace_restore_spin.value(),
-        40.0,
-        "refresh shows the file value"
-    );
-    ui.flow_backspace_restore_spin.set_value(250.0);
-    ui.fire_save();
-    let saved = Config::load();
     assert_eq!(
         saved.flow_backspace_restore_delay_ms, 250,
-        "the detached spin still saves the delay key"
+        "the detached spin still saves the restore key"
     );
 }
 
@@ -1186,8 +1154,8 @@ fn language_row_round_trips() {
     assert_eq!(ui.read().language, "vi", "an unknown value behaves as vi");
 }
 
-/// The experimental nav-key combo: the config value selects the item and
-/// the pick reads back as the config value.
+/// The nav-key combo: the config value selects the item and the pick reads
+/// back as the config value — a normal row now, no gate needed.
 fn nav_key_row_round_trips() {
     let ui = widgets();
     let macros = Macros::load();
@@ -1195,10 +1163,7 @@ fn nav_key_row_round_trips() {
 
     ui.refresh(
         &Config {
-            // The nav-key row is experimental: its round trip runs with the
-            // gate on, or read() would report the file's value instead.
-            experimental_features: true,
-            nav_key_while_preedit: "forward".into(),
+            nav_key_while_preedit: "swallow".into(),
             ..Config::default()
         },
         &macros,
@@ -1207,16 +1172,30 @@ fn nav_key_row_round_trips() {
     assert_eq!(
         ui.nav_key_while_preedit.selected(),
         1,
-        "forward selects index 1"
+        "swallow selects index 1"
     );
-    assert_eq!(ui.read().nav_key_while_preedit, "forward");
+    assert_eq!(ui.read().nav_key_while_preedit, "swallow");
     ui.refresh(&Config::default(), &macros, &dictionary);
     assert_eq!(
         ui.nav_key_while_preedit.selected(),
         0,
         "the default selects index 0"
     );
-    assert_eq!(ui.read().nav_key_while_preedit, "swallow");
+    assert_eq!(ui.read().nav_key_while_preedit, "forward");
+    ui.refresh(
+        &Config {
+            nav_key_while_preedit: "replay".into(),
+            ..Config::default()
+        },
+        &macros,
+        &dictionary,
+    );
+    assert_eq!(
+        ui.nav_key_while_preedit.selected(),
+        2,
+        "replay selects index 2"
+    );
+    assert_eq!(ui.read().nav_key_while_preedit, "replay");
     // A hand-edited value behaves as the default.
     ui.refresh(
         &Config {
@@ -1233,8 +1212,8 @@ fn nav_key_row_round_trips() {
     );
     assert_eq!(
         ui.read().nav_key_while_preedit,
-        "swallow",
-        "an unknown value behaves as swallow"
+        "forward",
+        "an unknown value behaves as forward"
     );
 }
 

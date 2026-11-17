@@ -244,16 +244,17 @@ title = "Delete tones with Backspace"
 subtitle = "Default: the tone is deleted first, the word stays (hạ becomes ha). Or delete the tone and the letter (hạ becomes h), or walk back one key like Unikey."
 
 [rows.nav_key_while_preedit]
-title = "Navigation keys while composing"
+title = "Navigation while a word is open"
 subtitle = "The first arrow key while a word is open"
 
 [rows.flow_per_key_delay]
-title = "Per-key display delay (ms)"
-subtitle = "How long accented text waits before landing in the app in Flow. Default: 20."
+title = "Per-step marks (ms)"
 
 [rows.flow_backspace_restore_delay]
-title = "Mark-restore delay (ms)"
-subtitle = "How long to wait after Backspace before the screen is rewritten in Flow. Default: 150."
+title = "Mark restore after Backspace (ms)"
+
+[rows.flow_delay]
+subtitle = "Defaults: {n}"
 
 [rows.macro_enabled]
 title = "Enable shorthand"
@@ -602,7 +603,7 @@ extra_url_chars = "The No-tone-after-URL feature by default keeps only real URLs
 auto_capitalize_after = "The Auto-capitalize feature (after . ! ? and Enter): this row adds custom characters to that set. Flip the left switch and list the characters in the right box (e.g. : ”); no letters, digits or spaces."
 echo_stale = "The commit-flush guard on Wayland: the engine waits for the virtual Backspace keys (echoes) to return before the committed text lands in the app. The right number is the wait limit — past it the text flushes anyway instead of hanging.past it the text flushes anyway instead of hanging. 50–1000 ms, too low risks losing text, too high delays it. Default 150 ms."
 idle_commit = "The commit-on-pause feature: pausing long enough on an underlined word commits it, as if Space was pressed. The right number is the pause threshold.The right number is the pause threshold. 300–2000 ms."
-flow_per_key = "Flow shows the accented letter as you type (ee → ê) instead of holding the raw keys until word end — always on, no switch. Very fast typing merges the steps, the text appears when you pause. The right number is the delay before marked text lands in the document — lower shows marks sooner, higher types smoother. 0–500 ms, default 20. A too-low value can reorder text on Wayland."
+flow_per_key = "Flow shows the accented letter as you type (ee → ê) instead of holding the raw keys until word end — always on, no switch. Very fast typing merges the steps, the text appears when you pause. The number in the box is the delay before marked text lands in the document — lower shows marks sooner, higher types smoother. 0–500 ms, default 20. A too-low value can reorder text on Wayland."
 flow_backspace_retrack = "Mark editing after Backspace in Flow: erase one character of a finished word and type a mark key — the word keeps transforming (tùn + s → tún) instead of falling back to plain letters. Always on in Flow."
-flow_backspace_restore = "Restore the mark after Backspace, standard in Flow: type chào, press f again (the mark is undone, the screen shows chaof), then Backspace brings the mark back (chào) — following the \"Delete tones with Backspace\" setting: Unikey and Tone first restore the mark, Whole char deletes one character. The right number is how long to wait after Backspace before rewriting the screen (0–1000, default 150)."
-nav_key_while_preedit = "The nav-key-while-a-word-is-typed feature: with a word still underlined, the first arrow key swallows to commit first (default, press twice to move) or moves the caret right away. If text lands in the wrong place, go back to Swallow."
+flow_backspace_restore = "Restore the mark after Backspace, standard in Flow: type chào, press f again (the mark is undone, the screen shows chaof), then Backspace brings the mark back (chào) — following the \"Delete tones with Backspace\" setting: Unikey and Tone first restore the mark, Whole char deletes one character. The number in the box is how long to wait after Backspace before rewriting the screen (0–1000, default 150)."
+nav_key_while_preedit = "Navigation while a word is open: with a word still underlined, the first arrow key moves the caret right away by default (ibus-bamboo's sequence) — the commit rides the same reply, ahead of the key. If text lands in the wrong place in some app, go back to Swallow: the first press only commits the word, the second one moves."

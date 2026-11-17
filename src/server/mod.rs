@@ -957,10 +957,11 @@ fn process_key(
         // A preedit commit and the forwarded navigation key travel different
         // transports on relayed contexts; a burst of arrows moves the caret
         // before the commit lands and the word is inserted mid-text
-        // ("em tên tùng" → "etùngm tên"). The shipped swallow consumes the
-        // first press so the commit lands while the caret is still in place;
-        // the experimental `nav_key_while_preedit` values trade that for an
-        // immediate caret move.
+        // ("em tên tùng" → "etùngm tên"). The default `forward` trades that
+        // for an immediate caret move — the commit signals above are already
+        // in `out`, so the forwarded key cannot overtake them; `swallow`
+        // consumes the first press instead so the commit lands with the
+        // caret still in place.
         let nav_pending = keymap::is_navigation_key(keyval)
             && engine.relay_context()
             && engine.preedit_commit_pending();

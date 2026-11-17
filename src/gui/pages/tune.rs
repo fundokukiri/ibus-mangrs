@@ -15,12 +15,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .description(t("groups.tune.pacing.description", "Chỉ áp dụng cho Flow."))
         .build();
     pacing.add(&ui.pacing_row);
-    // The per-key display's park delay lives with the pacing knobs: it
-    // paces the same uinput word rendering, outside the experimental gate.
-    pacing.add(&ui.flow_per_key_delay_row);
-    // The Backspace correction's wait paces the same screen rewriting: the
-    // deleted mark comes back after this many ms.
-    pacing.add(&ui.flow_backspace_restore_delay_row);
+    // The two Flow delays share the pacing row's caption-column shape: the
+    // per-key park delay paces the same uinput word rendering, the restore
+    // delay paces the same screen rewriting, both outside the gate.
+    pacing.add(&ui.flow_delay_row);
     {
         // The spins need their own value hooks, like the pacing spins.
         let s = ui.save_cb.clone();

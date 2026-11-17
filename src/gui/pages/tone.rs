@@ -21,6 +21,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     tones.add(&ui.modern);
     tones.add(&ui.free);
     tones.add(&ui.backspace_tone);
+    // nav_key_while_preedit graduated from the "Thử nghiệm" tab: no badge,
+    // not gated by the master switch — the caret choice is a normal row.
+    tones.add(&ui.nav_key_while_preedit);
     page.add(&tones);
 
     let spelling = adw::PreferencesGroup::builder()
