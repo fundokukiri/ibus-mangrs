@@ -163,6 +163,13 @@ pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
 /// wider than a 12-char entry, which would skew the divider column.
 const VALUE_WIDTH_PX: i32 = 120;
 
+/// The text width every spin reserves. A spin's natural width otherwise
+/// tracks its adjustment's widest value ("1000" wider than "500"), which
+/// made sibling inputs uneven. Kept small so the natural width stays
+/// under the VALUE_WIDTH_PX floor — every spin then renders at exactly
+/// that shared width.
+const SPIN_WIDTH_CHARS: i32 = 5;
+
 /// The fixed width of every decorated row's text block: with one shared
 /// title width the switch/divider/value controls all start at the same x
 /// across the tab.
@@ -214,6 +221,7 @@ pub(super) fn spin_button(min: f64, max: f64, step: f64) -> gtk4::SpinButton {
     let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
     let spin = gtk4::SpinButton::new(Some(&adjustment), step, 0);
     spin.set_size_request(VALUE_WIDTH_PX, -1);
+    spin.set_width_chars(SPIN_WIDTH_CHARS);
     spin
 }
 
