@@ -143,7 +143,8 @@ vẫn còn hiệu lực. Chi tiết đầy đủ: [SECURITY.md](SECURITY.md).
 
 - [FEATURES.md](docs/FEATURES.md) — tính năng đầy đủ, 5 chế độ gõ, hướng dẫn sử dụng từng phần.
 - [README.en.md](docs/README.en.md) — English readme.
-- [SECURITY.md](SECURITY.md) — ranh giới tin cậy, rủi ro còn lại, cách kiểm tra và thu hồi quyền.
+- [SECURITY.md](SECURITY.md) — ranh giới tin cậy, rủi ro còn lại, cách kiểm tra và thu hồi quyền
+  (bản tiếng Việt: [docs/SECURITY.md](docs/SECURITY.md)).
 - [ARCHITECTURE.md](ARCHITECTURE.md) — kiến trúc engine (dành cho người sửa code).
 - [CHANGELOG.md](CHANGELOG.md) — thay đổi theo từng bản phát hành.
 - Phím tắt mở bằng GUI; luật cho Chrome/Firefox trên GNOME Wayland cần GNOME Shell extension
