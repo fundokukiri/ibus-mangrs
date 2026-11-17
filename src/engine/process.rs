@@ -727,13 +727,57 @@ impl Engine {
                 return actions;
             }
         }
-        // "Xóa dấu trước" (ToneFirst) on a tracked word. The
+        // The tracked region is already fully erased and the screen behind
+        // the caret still holds the landed word with its terminator. This
+        // Backspace deletes that terminator — one key press, one character,
+        // nothing injected — and when nothing but the word remains it comes
+        // back for editing unchanged, its tone included (erasing a terminator
+        // is a delete, not a tone edit: `chào ` + Backspace must stay
+        // `chào`).
+        if self.tail.is_empty()
+            && !self.landed_region.is_empty()
+            && !(self.url_word || self.emoji_word)
+            && self
+                .landed_region
+                .chars()
+                .last()
+                .is_some_and(crate::bamboo_wrapper::is_word_terminator)
+        {
+            let mut behind: Vec<char> = self.landed_region.chars().collect();
+            behind.pop();
+            let behind: String = behind.into_iter().collect();
+            self.landed_region.clear();
+            self.tail = behind.clone();
+            let bare_word = !behind
+                .chars()
+                .last()
+                .is_some_and(crate::bamboo_wrapper::is_word_terminator);
+            if bare_word && self.wrapper.retrack_from_screen(&behind) {
+                self.region_plain = false;
+            } else {
+                // A failed rebuild leaves the replayed keys composed: reset
+                // keeps the wrapper from believing text the screen does not
+                // hold.
+                self.wrapper.reset();
+                self.release_word_mode();
+                self.idle_committed = None;
+            }
+            self.note_backspace_forwarded();
+            actions.push(Action::Forward);
+            return actions;
+        }
+        // "Xóa dấu trước" (ToneFirst) on a live tracked word. The
         // inline modes drop the tone (`tùng` -> `tung`) while a plain
         // Backspace would lose the last screen character (`tùn`), so the
         // screen rewrite is deferred past the key release like the restore
-        // above.
+        // above. The pop needs a composition that still describes the screen
+        // this key deletes FROM — a dead word (composition already reset) is
+        // re-tracked by the plain path below onto the post-delete screen;
+        // popping that would delete a second character (`tungf ` + two
+        // Backspaces ate the `g`).
         let region_len = self.tail.chars().count();
         if self.backspace_tone == BackspaceToneConfig::ToneFirst
+            && self.wrapper.has_composition()
             && !(self.url_word || self.emoji_word)
             // Erasing a word terminator is a delete of that character: the
             // word behind it comes back for editing, it does not lose its
@@ -748,25 +792,18 @@ impl Engine {
             // digit is a delete too (`việt` + `6` + Backspace stays `việt`).
             && !self.tail_ends_word
             // A one-key plain region over a finished word is the litter-erase
-            // case: the region restore below gives the word back, and this
-            // rewrite must not swallow it (`chào ` + stray `f` + Backspace
-            // stays `chào`).
+            // case: the plain path below erases the stray key, and the next
+            // Backspace deletes the terminator to re-enter the word.
             && !(region_len == 1
                 && self.region_plain
                 && !self.landed_region.is_empty())
         {
             let target = replace_tail(&self.tail, 1, "");
-            // The wrapper must still describe the screen this key deletes
-            // from. A live composition matches the pre-delete tail; a rebuilt
-            // one was just re-derived from `target`. A cancelled correction (a
-            // key arrived first) leaves it ahead, and stacking another mode
+            // A cancelled correction (a key arrived first) leaves the
+            // composition ahead of the tail, and stacking another mode
             // rewrite on that would put text back the user is deleting — the
             // plain path below handles that case.
-            let in_sync = if self.wrapper.has_composition() {
-                encode(self.charset, &self.wrapper.output()) == self.tail
-            } else {
-                self.wrapper.retrack_from_screen(&target)
-            };
+            let in_sync = encode(self.charset, &self.wrapper.output()) == self.tail;
             if in_sync {
                 self.wrapper
                     .set_backspace_tone(BackspaceToneConfig::ToneFirst);
@@ -797,14 +834,12 @@ impl Engine {
         // The pass-through Backspace deletes one character of the FINAL
         // screen: land the in-flight batch first, or the key deletes a
         // character the batch was still going to add.
-        let mut ran_park = false;
         if let Some((_, text)) = self.per_key_park.take() {
             debug_log::log(&format!(
                 "per-key backspace lands the batch len={}",
                 text.chars().count()
             ));
             actions.push(Action::CommitNow(text));
-            ran_park = true;
         }
         let target = replace_tail(&self.tail, 1, "");
         let raw_len = self.wrapper.raw().chars().count();
@@ -840,45 +875,6 @@ impl Engine {
             self.release_word_mode();
             self.tail = target;
             self.idle_committed = None;
-        }
-        // A region that never composed anything was a stray key
-        // typed over a finished word (`chào ` then `f`). Erasing it gives the
-        // word behind it back to the composition, so the next mark key edits
-        // it instead of starting a new word. The terminator the user typed
-        // after the word is retracted too, so the word ends up at the caret
-        // exactly as if the terminator had been erased by hand — the injected
-        // delete lands before the user's own Backspace, which then removes the
-        // stray key. Raw-forwarder spans never rebuild.
-        if region_len == 1
-            && self.tail.is_empty()
-            && self.region_plain
-            && !self.landed_region.is_empty()
-            && !(self.url_word || self.emoji_word)
-        {
-            let word = self
-                .landed_region
-                .trim_end_matches(|c: char| crate::bamboo_wrapper::is_word_terminator(c))
-                .to_string();
-            if !word.is_empty() && self.wrapper.retrack_from_screen(&word) {
-                let suffix = self.landed_region.chars().count() - word.chars().count();
-                if ran_park {
-                    // The stray key was still in the batch: cancel it, the
-                    // screen never showed it, and the user's own Backspace
-                    // erases the terminator instead.
-                    if matches!(actions.last(), Some(Action::CommitNow(_))) {
-                        actions.pop();
-                    }
-                } else if suffix > 0 {
-                    // The stray key is already on screen; the injected delete
-                    // and the user's Backspace remove two characters (the
-                    // stray key and the terminator), so their order does not
-                    // matter.
-                    actions.push(Action::InjectBackspaces(suffix as u32));
-                }
-                self.tail = word;
-                self.region_plain = false;
-                self.landed_region.clear();
-            }
         }
         self.note_backspace_forwarded();
         actions.push(Action::Forward);

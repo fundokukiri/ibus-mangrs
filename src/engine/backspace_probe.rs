@@ -146,13 +146,17 @@ impl Sim {
 
     fn state(&self) -> String {
         format!(
-            "screen={:?} tail={:?} park={:?} out={:?} comp={} raw={:?}",
+            "screen={:?} tail={:?} park={:?} out={:?} comp={} raw={:?} fix={:?} ends_word={} plain={} landed={:?}",
             self.screen(),
             self.e.tail,
             self.e.per_key_park.as_ref().map(|(_, t)| t.clone()),
             self.e.wrapper.output(),
             self.e.wrapper.has_composition(),
-            self.e.wrapper.raw()
+            self.e.wrapper.raw(),
+            self.e.deferred_fix.as_ref().map(|(_, t)| t.clone()),
+            self.e.tail_ends_word,
+            self.e.region_plain,
+            self.e.landed_region
         )
     }
 
@@ -415,22 +419,125 @@ fn target_a_mark_key_edits_the_word_after_backspace() {
 
 #[test]
 fn target_committed_word_comes_back_after_the_litter_is_erased() {
-    // Owner trace: `chào` committed, a stray `f` litters the next region,
-    // Backspace erases it — the word behind the terminator comes back to the
-    // composition, and the terminator is retracted with it so the word sits at
-    // the caret; `s` then turns it into `cháo`.
+    // Owner trace, one-Backspace-one-character: `chào` committed, a stray `f`
+    // litters the next region. The first Backspace erases exactly the stray
+    // key (`chào ` — no retraction); the second deletes the terminator and
+    // the word behind it comes back to the composition unchanged; `s` then
+    // turns it into `cháo`.
     let (_, cfg) = per_key(Mode::Flow);
     let (screen, e) = screen_of(Mode::Flow, cfg.clone(), "chaof ~f\u{8}");
+    assert_eq!(screen, "chào ");
+    assert!(
+        !e.wrapper.has_composition(),
+        "the word is not re-entered yet"
+    );
+    let (screen, e) = screen_of(Mode::Flow, cfg.clone(), "chaof ~f\u{8}\u{8}");
     assert_eq!(screen, "chào");
     assert_eq!(e.tail, "chào");
     assert!(e.wrapper.has_composition(), "word must come back");
-    let (screen, _) = screen_of(Mode::Flow, cfg.clone(), "chaof ~f\u{8}~s");
+    let (screen, _) = screen_of(Mode::Flow, cfg.clone(), "chaof ~f\u{8}\u{8}~s");
     assert_eq!(screen, "cháo");
     // Same when the stray key already landed on screen (the batch flushed
-    // before the Backspace): the injected retract removes the terminator.
-    let (screen, e) = screen_of(Mode::Flow, cfg, "chaof ~f~\u{8}");
+    // before the Backspace).
+    let (screen, _) = screen_of(Mode::Flow, cfg, "chaof ~f~\u{8}\u{8}");
     assert_eq!(screen, "chào");
-    assert_eq!(e.tail, "chào");
+}
+
+#[test]
+fn target_boundary_backspace_leaves_the_word_unchanged() {
+    // The owner's table: a committed word, a terminator, a plain one-letter
+    // stray, then two Backspaces that cross the boundary. Each Backspace
+    // deletes exactly one character; the word behind the terminator comes
+    // back unchanged — its tone included.
+    for (word, keys, stray) in [
+        ("chịu", "chiuj", "t"),
+        ("ê", "ee", "a"),
+        ("â", "aa", "e"),
+        ("ơ", "ow", "k"),
+        ("ớ", "ows", "a"),
+        ("ô", "oo", "k"),
+        ("ắ", "aws", "a"),
+        ("ă", "aw", "a"),
+        ("ý", "ys", "a"),
+        ("ù", "uf", "a"),
+    ] {
+        let (_, cfg) = tone(Mode::Flow, BackspaceToneConfig::ToneFirst);
+        let script = format!("{keys}~ ~{stray}~\u{8}\u{8}~");
+        let (screen, e) = screen_of(Mode::Flow, cfg, &script);
+        assert_eq!(screen, word, "{keys}~ ~{stray}~ BS BS");
+        assert_eq!(e.tail, word, "{keys}: the word is tracked again");
+        assert!(
+            e.wrapper.has_composition(),
+            "{keys}: the word is live again"
+        );
+    }
+}
+
+#[test]
+fn target_multi_key_stray_backspaces_reenter_the_word() {
+    // The same boundary over multi-letter strays: the Backspace count the
+    // user pressed is the character count deleted (`thùng kia` + 4
+    // Backspaces is `thùng`, not a tone-stripped `thung`).
+    for (word, keys, stray, backspaces) in [
+        ("thùng", "thungf", "kia", 4),
+        ("vào", "vaof", "tk", 3),
+        ("mệt", "meejt", "qua", 4),
+        ("giữa", "giuwax", "ao", 3),
+        ("mèo", "meof", "o", 2),
+    ] {
+        let (_, cfg) = tone(Mode::Flow, BackspaceToneConfig::ToneFirst);
+        let script = format!("{keys}~ ~{stray}~{}~", "\u{8}".repeat(backspaces));
+        let (screen, _) = screen_of(Mode::Flow, cfg, &script);
+        assert_eq!(screen, word, "{keys}~ ~{stray}~ {backspaces} BS");
+    }
+}
+
+#[test]
+fn target_backspaces_into_the_reentered_word_delete_characters() {
+    // Past the boundary the word is live and toneless (`lương`): the next
+    // Backspaces delete visible characters, one per key.
+    for (want, keys, stray, backspaces) in [("lươ", "luowng", "t", 4), ("thươ", "thuwong", "t", 4)]
+    {
+        let (_, cfg) = tone(Mode::Flow, BackspaceToneConfig::ToneFirst);
+        let script = format!("{keys}~ ~{stray}~{}~", "\u{8}".repeat(backspaces));
+        let (screen, _) = screen_of(Mode::Flow, cfg, &script);
+        assert_eq!(screen, want, "{keys}~ ~{stray}~ {backspaces} BS");
+    }
+}
+
+#[test]
+fn target_marked_stray_reenters_on_the_terminator_backspace() {
+    // A stray that composed (the owner's tone-bearing-stray class) is erased
+    // by the first Backspace; the second deletes the terminator and re-enters
+    // the word; a third pops the tone — ToneFirst on a live word, the
+    // setting's own contract.
+    let (_, cfg) = tone(Mode::Flow, BackspaceToneConfig::ToneFirst);
+    let (screen, e) = screen_of(Mode::Flow, cfg.clone(), "aa~ ~is~\u{8}\u{8}~");
+    assert_eq!(screen, "â");
+    assert!(e.wrapper.has_composition(), "the word is live again");
+    let (screen, _) = screen_of(Mode::Flow, cfg, "aa~ ~is~\u{8}\u{8}\u{8}~");
+    assert_eq!(screen, "a", "ToneFirst pops on the live word");
+}
+
+#[test]
+fn target_fundo_backspace_eats_no_extra_character() {
+    // Owner trace: `tùng` + the mark key again (the undo shows `tungf`), a
+    // space, two Backspaces = `tung` — the terminator and the raw span's `f`,
+    // nothing more. The re-track of the post-delete screen must not be popped
+    // a second time.
+    let (_, cfg) = tone(Mode::Flow, BackspaceToneConfig::ToneFirst);
+    let (screen, e) = screen_of(Mode::Flow, cfg, "tung~f~f~ ~\u{8}\u{8}~");
+    assert_eq!(screen, "tung");
+    assert_eq!(e.tail, "tung");
+}
+
+#[test]
+fn target_terminator_backspace_reenters_a_committed_word() {
+    // No-regression shape: the terminator alone between the caret and the
+    // word — one Backspace re-enters the word, tone kept.
+    let (_, cfg) = tone(Mode::Flow, BackspaceToneConfig::ToneFirst);
+    let (screen, e) = screen_of(Mode::Flow, cfg, "chiuj~ ~\u{8}~");
+    assert_eq!(screen, "chịu");
     assert!(e.wrapper.has_composition());
 }
 
@@ -688,4 +795,126 @@ fn target_restore_never_resurrects_a_deleted_word() {
     assert_eq!(screen, "chào ");
     assert_eq!(e.tail, "");
     assert!(!e.wrapper.has_composition());
+}
+
+#[test]
+fn probe_owner_repro_table() {
+    // The owner's live corruption table (18/11), typed verbatim: a committed
+    // word, a terminator, a plain new word, then Backspaces back onto the old
+    // word. Prints the measured per-key trace and asserts nothing — the pin
+    // set for the fix comes from here, not from invented shapes.
+    // Script conventions: `~` is the main-loop wake (flushes the per-key
+    // batch, fires a due deferred fix), `\u{8}` is Backspace; consecutive
+    // `\u{8}` run inside the restore window with no wake, like fast typing.
+    // Telex raw keys, tone key last (the file's WORDS convention). The
+    // "owner-observed" column is the pre-Task-16 build; chains list their
+    // intermediate screens — the summary only compares finals.
+    let cases: &[(&str, &str, &str, &str)] = &[
+        // (label, script, correct screen, owner-observed)
+        // Telex tone keys: s=sắc, f=huyền, j=nặng, r=hỏi (the WORDS table's
+        // convention: the tone key last).
+        ("chịu+t 2bs", "chiuj~ ~t~\u{8}\u{8}~", "chịu", "chịiu"),
+        ("ê+a 2bs", "ee~ ~a~\u{8}\u{8}~", "ê", "êe"),
+        ("â+e 2bs", "aa~ ~e~\u{8}\u{8}~", "â", "âa"),
+        ("ơ+k 2bs", "ow~ ~k~\u{8}\u{8}~", "ơ", "ơo"),
+        ("ớ+a 2bs", "ows~ ~a~\u{8}\u{8}~", "ớ", "ớơ"),
+        ("ô+k 2bs", "oo~ ~k~\u{8}\u{8}~", "ô", "ôo"),
+        ("ắ+a 2bs", "aws~ ~a~\u{8}\u{8}~", "ắ", "ắă"),
+        ("ă+a 2bs", "aw~ ~a~\u{8}\u{8}~", "ă", "ăa"),
+        ("ý+a 2bs", "ys~ ~a~\u{8}\u{8}~", "ý", "ýy"),
+        ("ù+a 2bs", "uf~ ~a~\u{8}\u{8}~", "ù", "ùu"),
+        (
+            "ố chain",
+            "oos~ ~a~\u{8}\u{8}\u{8}\u{8}\u{8}~",
+            "",
+            "ốô→ốo→ố→",
+        ),
+        (
+            "ớn chain",
+            "owns~ ~a~\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}~",
+            "",
+            "ớơn→ớo→ớ→",
+        ),
+        ("tĩnh+a 2bs", "tinhx~ ~a~\u{8}\u{8}~", "tĩnh", "tĩinh"),
+        (
+            "thùng+kia 4bs",
+            "thungf~ ~kia~\u{8}\u{8}\u{8}\u{8}~",
+            "thùng",
+            "thùung",
+        ),
+        ("vào+tk 3bs", "vaof~ ~tk~\u{8}\u{8}\u{8}~", "vào", "vàao"),
+        ("mèo+o 2bs", "meof~ ~o~\u{8}\u{8}~", "mèo", "mèeo"),
+        (
+            "mệt+qua 4bs",
+            "meejt~ ~qua~\u{8}\u{8}\u{8}\u{8}~",
+            "mệt",
+            "mệêt",
+        ),
+        (
+            "giữa+ao 3bs",
+            "giuwax~ ~ao~\u{8}\u{8}\u{8}~",
+            "giữa",
+            "giữưa",
+        ),
+        ("lưỡng+a 2bs", "luowngx~ ~a~\u{8}\u{8}~", "lưỡng", "luỡơng"),
+        (
+            "lương+t 4bs",
+            "luowng~ ~t~\u{8}\u{8}\u{8}\u{8}~",
+            "lươ",
+            "lươo",
+        ),
+        (
+            "thương+t 4bs",
+            "thuwong~ ~t~\u{8}\u{8}\u{8}\u{8}~",
+            "thươ",
+            "thươo",
+        ),
+        ("hữu+o 2bs", "huwux~ ~o~\u{8}\u{8}~", "hữu", "hữưu"),
+        ("hữu+o 4bs", "huwux~ ~o~\u{8}\u{8}\u{8}\u{8}~", "h", "hữu"),
+        (
+            "thông chain",
+            "thoong~ ~o~\u{8}\u{8}~\u{8}\u{8}~",
+            "thô",
+            "thông→thôo",
+        ),
+        ("hâm chain", "haam~ ~o~\u{8}\u{8}~\u{8}~", "hâ", "hâm→hâa"),
+        ("hăm chain", "hawm~ ~o~\u{8}\u{8}~\u{8}~", "hă", "hăm→hăa"),
+        ("êm chain", "eem~ ~o~\u{8}\u{8}~\u{8}~", "ê", "êm→êe"),
+        ("ôm chain", "oom~ ~o~\u{8}\u{8}~\u{8}~", "ô", "ôm→ôo"),
+        ("â+í 3bs", "aa~ ~is~\u{8}\u{8}\u{8}~", "a", "â"),
+        ("mèo+ơ 3bs", "meof~ ~ow~\u{8}\u{8}\u{8}~", "meo", "mèo"),
+        (
+            "thưởng+tí chain",
+            "thuwongf~ ~tis~\u{8}\u{8}\u{8}\u{8}~\u{8}\u{8}~",
+            "thươ",
+            "thưởng→thưở",
+        ),
+        ("tùng f-undo 2bs", "tung~f~f~ ~\u{8}\u{8}~", "tung", "tun"),
+    ];
+    println!("\n== probe_owner_repro_table: owner table through the current build ==");
+    let mut mismatches = 0;
+    for (label, script, correct, observed) in cases {
+        println!(
+            "\n--- {label}: script={script:?} correct={correct:?} owner-observed={observed:?}"
+        );
+        let (_, cfg) = tone(Mode::Flow, BackspaceToneConfig::ToneFirst);
+        let mut sim = Sim::new(Mode::Flow, cfg);
+        sim.run(script);
+        let fix = sim.e.deferred_fix.as_ref().map(|(_, text)| text.clone());
+        let verdict = if sim.screen() == *correct {
+            "MATCHES-CORRECT"
+        } else {
+            mismatches += 1;
+            "MISMATCH"
+        };
+        println!(
+            "   FINAL screen={:?} tail={:?} deferred_fix={fix:?} [{verdict}]",
+            sim.screen(),
+            sim.e.tail
+        );
+    }
+    println!(
+        "\n== summary: {mismatches}/{} finals mismatch the correct screen ==\n",
+        cases.len()
+    );
 }
