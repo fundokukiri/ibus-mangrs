@@ -1180,7 +1180,7 @@ pub(super) fn install_focus_extension() -> Result<String, String> {
     Ok(note)
 }
 
-const DESKTOP_ENTRY: &str = include_str!("../../data/org.freedesktop.IBus.mangrs.desktop");
+const DESKTOP_ENTRY: &str = include_str!("../../data/system/org.freedesktop.IBus.mangrs.desktop");
 
 /// The user-level override that hides the settings app from the grid.
 fn desktop_override_path() -> Option<PathBuf> {

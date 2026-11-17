@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../data/logo.png" alt="MăngRS logo" width="360">
+  <img src="../data/assets/logo.png" alt="MăngRS logo" width="360">
 </p>
 
 # MăngRS
@@ -94,7 +94,7 @@ Arch: `makepkg -si`.
 The engine presses **real Backspace keys** through `/dev/uinput` for apps that cannot delete
 text over IBus; without write permission those apps cannot type tone marks. Access comes from
 the active session's user through logind, not from group membership. Create
-`/etc/udev/rules.d/70-uinput.rules` (shipped as `data/70-uinput.rules`):
+`/etc/udev/rules.d/70-uinput.rules` (shipped as `data/system/70-uinput.rules`):
 
 ```
 KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"

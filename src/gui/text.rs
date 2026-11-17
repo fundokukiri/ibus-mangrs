@@ -1,6 +1,6 @@
 //! Editable GUI content. The user-visible texts live in
-//! `data/gui-content.toml` (Vietnamese, the install default) and
-//! `data/gui-content.en.toml` (English), compiled in with `include_str!` —
+//! `data/gui/gui-content.toml` (Vietnamese, the install default) and
+//! `data/gui/gui-content.en.toml` (English), compiled in with `include_str!` —
 //! the owner edits those files and rebuilds without touching code. Every
 //! lookup goes through `t(key, default)`: the table of the per-process
 //! language first, then the code default, so the interface can never go
@@ -9,8 +9,8 @@
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
 
-const CONTENT: &str = include_str!("../../data/gui-content.toml");
-const CONTENT_EN: &str = include_str!("../../data/gui-content.en.toml");
+const CONTENT: &str = include_str!("../../data/gui/gui-content.toml");
+const CONTENT_EN: &str = include_str!("../../data/gui/gui-content.en.toml");
 
 static TABLE: OnceLock<toml::Table> = OnceLock::new();
 static TABLE_EN: OnceLock<toml::Table> = OnceLock::new();

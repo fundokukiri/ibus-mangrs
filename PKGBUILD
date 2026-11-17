@@ -23,13 +23,13 @@ package() {
     cd "$srcdir"
     install -Dm755 target/release/ibus-engine-mangrs \
         "$pkgdir/usr/lib/ibus-mangrs/ibus-engine-mangrs"
-    install -Dm644 data/ibus-mangrs.xml \
+    install -Dm644 data/system/ibus-mangrs.xml \
         "$pkgdir/usr/share/ibus/component/ibus-mangrs.xml"
-    install -Dm644 data/70-uinput.rules \
+    install -Dm644 data/system/70-uinput.rules \
         "$pkgdir/usr/lib/udev/rules.d/70-uinput.rules"
-    install -Dm644 data/logo.png \
+    install -Dm644 data/assets/logo.png \
         "$pkgdir/usr/share/icons/hicolor/512x512/apps/ibus-mangrs.png"
-    install -Dm644 data/org.freedesktop.IBus.mangrs.desktop \
+    install -Dm644 data/system/org.freedesktop.IBus.mangrs.desktop \
         "$pkgdir/usr/share/applications/org.freedesktop.IBus.mangrs.desktop"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

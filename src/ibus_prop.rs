@@ -28,7 +28,7 @@ pub const TYPE_SEPARATOR: u32 = 4;
 pub const STATE_UNCHECKED: u32 = 0;
 pub const STATE_CHECKED: u32 = 1;
 
-/// Project homepage — must match `data/ibus-mangrs.xml`.
+/// Project homepage — must match `data/system/ibus-mangrs.xml`.
 pub const HOMEPAGE: &str = "https://github.com/fundokukiri/ibus-mangrs";
 
 pub const KEY_ABOUT: &str = "about";

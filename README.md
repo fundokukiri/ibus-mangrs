@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="data/logo.png" alt="Logo MăngRS" width="360">
+  <img src="data/assets/logo.png" alt="Logo MăngRS" width="360">
 </p>
 
 # MăngRS
@@ -90,7 +90,7 @@ Script copy engine vào `/usr/lib/ibus-mangrs/`, đăng ký component cho IBus, 
 Bộ gõ nhấn **phím thật** qua `/dev/uinput` cho những app không xoá chữ được qua IBus; thiếu
 quyền ghi thì app đó không gõ được dấu. Quyền đến từ ACL của **phiên đăng nhập** (logind),
 không phải từ nhóm. Tạo `/etc/udev/rules.d/70-uinput.rules` (mẫu có sẵn trong
-`data/70-uinput.rules`):
+`data/system/70-uinput.rules`):
 
 ```
 KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
