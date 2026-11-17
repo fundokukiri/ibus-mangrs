@@ -330,6 +330,10 @@ struct Ui {
     /// created in `refresh`, so they fire edits through this instead of a
     /// closure captured at build time. `None` in headless tests.
     save_cb: SharedSave,
+    /// The config.toml mtime this window itself wrote (the last `save_all`):
+    /// the live-reload poll skips it — reloading our own save would churn
+    /// every row for nothing. External writers still reload.
+    self_saved_mtime: Cell<Option<std::time::SystemTime>>,
     /// Blocks the save funnel while `external_reload` pushes fresh file
     /// contents into the widgets: the programmatic updates fire the same
     /// change handlers a user edit does, and saving them would write the
@@ -998,6 +1002,13 @@ impl Ui {
     fn save_all(&self) -> Result<(), Box<dyn std::error::Error>> {
         let config = self.read();
         config.save()?;
+        // Record the stamp of this self-write for the live-reload poll (see
+        // `self_saved_mtime`): the file's mtime, read after the write.
+        self.self_saved_mtime.set(
+            Config::path()
+                .and_then(|p| std::fs::metadata(p).ok())
+                .and_then(|m| m.modified().ok()),
+        );
 
         let mut macros = Macros::load();
         macros.set_entries(self.macros_from_text().into_iter());

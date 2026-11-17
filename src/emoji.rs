@@ -235,10 +235,13 @@ impl UserEmoji {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(
-            path,
-            toml::to_string_pretty(&self.map).map_err(std::io::Error::other)?,
-        )
+        let text = toml::to_string_pretty(&self.map).map_err(std::io::Error::other)?;
+        // Unchanged content: skip the write (see the save-round note in
+        // config.rs).
+        if std::fs::read_to_string(&path).unwrap_or_default() == text {
+            return Ok(());
+        }
+        std::fs::write(path, text)
     }
 }
 

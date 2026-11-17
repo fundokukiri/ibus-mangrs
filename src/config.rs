@@ -947,6 +947,12 @@ impl Config {
         // hand edit) instead of silently dropping them on the next save.
         let existing = std::fs::read_to_string(&path).unwrap_or_default();
         let text = merge(&existing, self).map_err(std::io::Error::other)?;
+        // Unchanged content: skip the write. The settings save round runs on
+        // every toggle and rewrites all four files — an identical rewrite
+        // would only churn the disk and the window's own mtime watch.
+        if existing == text {
+            return Ok(());
+        }
         std::fs::write(path, text)
     }
 

@@ -70,6 +70,8 @@ fn gtk_widget_scenarios() {
     nav_key_row_round_trips();
     language_switch_rebuilds_the_window();
     language_handler_rebuilds_both_ways();
+    save_round_skips_unchanged_files_and_stamps_self_writes();
+    poll_reloads_skips_self_writes();
     // Restore before the sandbox dir could be cleaned under a racing test.
     match original_config_dir {
         Some(dir) => std::env::set_var("XDG_CONFIG_HOME", dir),
@@ -1342,4 +1344,86 @@ fn language_handler_rebuilds_both_ways() {
 
     win3.close();
     set_language("vi");
+}
+
+/// The settings save round runs on every toggle: files the round did not
+/// change must not be rewritten (the window's own mtime watch would reload
+/// for nothing), and config.toml's self-write stamp must be recorded for
+/// that skip. A real change still writes and moves the stamp.
+fn save_round_skips_unchanged_files_and_stamps_self_writes() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    ui.refresh(&Config::default(), &macros, &dictionary);
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("save");
+        }));
+    }
+    ui.fire_save();
+    assert!(
+        ui.self_saved_mtime.get().is_some(),
+        "a config write must record the self-save stamp"
+    );
+    let stamps = file_stamps();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    ui.fire_save();
+    assert_eq!(
+        file_stamps(),
+        stamps,
+        "an identical save round must not rewrite any file"
+    );
+    // A real change still writes, and the stamp follows the new write.
+    // widgets() has no page wiring: the spin's own save hook lives in the
+    // tune page build, so the funnel fires explicitly here.
+    ui.flow_per_key_spin.set_value(123.0);
+    ui.fire_save();
+    let after_change = file_stamps();
+    assert_ne!(
+        after_change[0], stamps[0],
+        "a changed config must be written"
+    );
+    assert!(ui.self_saved_mtime.get().is_some());
+}
+
+/// The mtimes of the four settings files, in config/macros/dictionary/emoji
+/// order; a missing file stamps as None.
+fn file_stamps() -> Vec<Option<std::time::SystemTime>> {
+    [
+        crate::config::Config::path(),
+        crate::macros::Macros::path(),
+        crate::macros::Dictionary::path(),
+        crate::emoji::UserEmoji::path(),
+    ]
+    .into_iter()
+    .map(|p| {
+        p.and_then(|p| std::fs::metadata(p).ok())
+            .and_then(|m| m.modified().ok())
+    })
+    .collect()
+}
+
+/// The live-reload poll: a self-written mtime must not reload (the widgets
+/// already show it), an external write and a deleted file must.
+fn poll_reloads_skips_self_writes() {
+    use std::time::{Duration, SystemTime};
+    let base = SystemTime::now();
+    let later = base + Duration::from_secs(1);
+    assert!(
+        !crate::gui::content::poll_reloads(Some(base), Some(base)),
+        "our own save must not reload"
+    );
+    assert!(
+        crate::gui::content::poll_reloads(Some(later), Some(base)),
+        "an external write must reload"
+    );
+    assert!(
+        crate::gui::content::poll_reloads(None, Some(base)),
+        "a deleted config must reload"
+    );
+    assert!(
+        crate::gui::content::poll_reloads(Some(base), None),
+        "no stamp (a failed save) must reload"
+    );
 }

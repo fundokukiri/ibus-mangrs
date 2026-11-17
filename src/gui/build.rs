@@ -806,6 +806,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         desktop_icon_loading,
         save_cb,
         suppress_save,
+        self_saved_mtime: Cell::new(None),
         sidebar_select: RefCell::new(None),
         rule_preview_input,
         rule_preview,

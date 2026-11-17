@@ -811,7 +811,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
             let m = config_mtime();
             if m != watch_mtime.get() {
                 watch_mtime.set(m);
-                watch_ui.external_reload();
+                // The window's own save wrote this stamp: the widgets
+                // already show it. External writers still reload.
+                if poll_reloads(m, watch_ui.self_saved_mtime.get()) {
+                    watch_ui.external_reload();
+                }
             }
             gtk4::glib::ControlFlow::Continue
         });
@@ -910,4 +914,15 @@ fn config_mtime() -> Option<std::time::SystemTime> {
     Config::path()
         .and_then(|p| std::fs::metadata(p).ok())
         .and_then(|m| m.modified().ok())
+}
+
+/// The live-reload poll decision: a config.toml mtime change reloads the
+/// widgets unless this window wrote it — reloading our own save would
+/// churn every row for nothing. External writers (the engine's hotkey
+/// toggles) still reload.
+pub(super) fn poll_reloads(
+    m: Option<std::time::SystemTime>,
+    self_saved: Option<std::time::SystemTime>,
+) -> bool {
+    m != self_saved
 }

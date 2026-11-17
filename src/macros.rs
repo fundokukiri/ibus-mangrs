@@ -46,10 +46,13 @@ impl Macros {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(
-            path,
-            toml::to_string_pretty(&self.map).map_err(std::io::Error::other)?,
-        )
+        let text = toml::to_string_pretty(&self.map).map_err(std::io::Error::other)?;
+        // Unchanged content: skip the write (the settings save round runs on
+        // every toggle and would churn files the edit did not touch).
+        if std::fs::read_to_string(&path).unwrap_or_default() == text {
+            return Ok(());
+        }
+        std::fs::write(path, text)
     }
 
     /// Expand `raw` if it is a macro key. With `capitalize` the key is matched
@@ -151,6 +154,10 @@ impl Dictionary {
             std::fs::create_dir_all(parent)?;
         }
         let text = self.words.iter().cloned().collect::<Vec<_>>().join("\n");
+        // Unchanged content: skip the write (see the save-round note above).
+        if std::fs::read_to_string(&path).unwrap_or_default() == text {
+            return Ok(());
+        }
         std::fs::write(path, text)
     }
 
