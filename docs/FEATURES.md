@@ -1,6 +1,6 @@
 # Tính năng và hướng dẫn sử dụng — MăngRS
 
-Cài đặt và xử lý sự cố: [README.md](README.md). Bản tiếng Anh: [FEATURES.en.md](FEATURES.en.md).
+Cài đặt và xử lý sự cố: [README.md](../README.md). Bản tiếng Anh: [FEATURES.en.md](FEATURES.en.md).
 
 ## Các chế độ gõ
 
@@ -130,7 +130,7 @@ nếu một chế độ có xoá-ghi-lại đang bật ở đó, engine gõ bằ
 Muốn app đó dùng chế độ khác, tự thêm luật.
 
 Chrome và Firefox trên GNOME Wayland chỉ hiện với IBus như một relay vô danh: muốn đặt luật
-cho chúng phải cài kèm GNOME Shell extension (`data/gnome-shell-extension/README.md`) rồi
+cho chúng phải cài kèm GNOME Shell extension (`../data/gnome-shell-extension/README.md`) rồi
 đăng xuất đăng nhập lại.
 
 ## Phím tắt

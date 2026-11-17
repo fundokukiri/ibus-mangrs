@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="data/logo.png" alt="MăngRS logo" width="360">
+  <img src="../data/logo.png" alt="MăngRS logo" width="360">
 </p>
 
 # MăngRS
 
-[Tiếng Việt](README.md) | **English**
+[Tiếng Việt](../README.md) | **English**
 
 A Vietnamese input method engine for **IBus**, written in **Rust** on top of
 [`bamboo-core`](https://crates.io/crates/bamboo-core). 9 input methods, 11 output charsets,
@@ -148,10 +148,10 @@ udev reads every file in the directory, so the old rule stays effective. Details
 ## Other documents
 
 - [FEATURES.en.md](FEATURES.en.md) — the full feature list, the five display modes, per-feature usage.
-- [README.md](README.md) — the Vietnamese readme (the repo's primary readme).
-- [SECURITY.md](SECURITY.md) — the trust boundary, residual risks, verification and revocation.
-- [ARCHITECTURE.md](ARCHITECTURE.md) — engine architecture (for code changes).
-- [CHANGELOG.md](CHANGELOG.md) — changes per release.
+- [README.md](../README.md) — the Vietnamese readme (the repo's primary readme).
+- [SECURITY.md](../SECURITY.md) — the trust boundary, residual risks, verification and revocation.
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — engine architecture (for code changes).
+- [CHANGELOG.md](../CHANGELOG.md) — changes per release.
 
 ## License
 
