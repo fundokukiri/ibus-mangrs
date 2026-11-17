@@ -1,6 +1,6 @@
 # Features and usage — MăngRS
 
-Installation and troubleshooting: [README.en.md](README.en.md). Tiếng Việt: [FEATURES.md](FEATURES.md).
+Installation and troubleshooting: [README-en.md](README-en.md). Tiếng Việt: [FEATURES-vi.md](FEATURES-vi.md).
 
 ## Display modes
 

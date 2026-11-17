@@ -141,13 +141,13 @@ udev reads every file in the directory, so the old rule stays effective. Details
 - **Just installed/upgraded but it still behaves like the old version**: the running engine is
   the old code — `ibus restart` after every binary replacement.
 - **Mode changes seem ignored**: an App Rule for the app overrides the global mode (see
-  FEATURES.en.md, _App Rules_).
+  FEATURES-en.md, _App Rules_).
 - **X11/XIM apps (JetBrains) misbehave**: try the two _X11/XIM compatibility_ switches in the
   GUI _Tuning_ page.
 
 ## Other documents
 
-- [FEATURES.en.md](FEATURES.en.md) — the full feature list, the five display modes, per-feature usage.
+- [FEATURES-en.md](FEATURES-en.md) — the full feature list, the five display modes, per-feature usage.
 - [README.md](../README.md) — the Vietnamese readme (the repo's primary readme).
 - [SECURITY.md](../SECURITY.md) — the trust boundary, residual risks, verification and revocation.
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — engine architecture (for code changes).

@@ -14,7 +14,7 @@ cửa sổ cài đặt GTK4, gõ tắt, bảng chọn emoji tại con trỏ và 
 > thử). Chỉ cần IBus ≥ 1.5 và GTK4 + libadwaita — nơi nào IBus chạy được thì bộ gõ này chạy
 > được. Rất mong phản hồi từ người dùng các distro khác.
 
-Toàn bộ tính năng và hướng dẫn sử dụng nằm ở **[FEATURES.md](docs/FEATURES.md)** — file này chỉ
+Toàn bộ tính năng và hướng dẫn sử dụng nằm ở **[FEATURES-vi.md](docs/FEATURES-vi.md)** — file này chỉ
 tập trung vào cài đặt và xử lý sự cố.
 
 ## Yêu cầu
@@ -141,10 +141,10 @@ vẫn còn hiệu lực. Chi tiết đầy đủ: [SECURITY.md](SECURITY.md).
 
 ## Tài liệu khác
 
-- [FEATURES.md](docs/FEATURES.md) — tính năng đầy đủ, 5 chế độ gõ, hướng dẫn sử dụng từng phần.
-- [README.en.md](docs/README.en.md) — English readme.
+- [FEATURES-vi.md](docs/FEATURES-vi.md) — tính năng đầy đủ, 5 chế độ gõ, hướng dẫn sử dụng từng phần.
+- [README-en.md](docs/README-en.md) — English readme.
 - [SECURITY.md](SECURITY.md) — ranh giới tin cậy, rủi ro còn lại, cách kiểm tra và thu hồi quyền
-  (bản tiếng Việt: [docs/SECURITY.md](docs/SECURITY.md)).
+  (bản tiếng Việt: [docs/SECURITY-vi.md](docs/SECURITY-vi.md)).
 - [ARCHITECTURE.md](ARCHITECTURE.md) — kiến trúc engine (dành cho người sửa code).
 - [CHANGELOG.md](CHANGELOG.md) — thay đổi theo từng bản phát hành.
 - Phím tắt mở bằng GUI; luật cho Chrome/Firefox trên GNOME Wayland cần GNOME Shell extension

@@ -1,6 +1,6 @@
 # Security
 
-[Tiếng Việt](docs/SECURITY.md) | **English**
+[Tiếng Việt](docs/SECURITY-vi.md) | **English**
 
 MăngRS is an input engine: it sees every keystroke typed into an application and it can put
 text and key events into the focused window. This file states what it does with that position,

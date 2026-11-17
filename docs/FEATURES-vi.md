@@ -1,6 +1,6 @@
 # Tính năng và hướng dẫn sử dụng — MăngRS
 
-Cài đặt và xử lý sự cố: [README.md](../README.md). Bản tiếng Anh: [FEATURES.en.md](FEATURES.en.md).
+Cài đặt và xử lý sự cố: [README.md](../README.md). Bản tiếng Anh: [FEATURES-en.md](FEATURES-en.md).
 
 ## Các chế độ gõ
 
