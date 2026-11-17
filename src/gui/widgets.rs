@@ -163,13 +163,6 @@ pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
 /// wider than a 12-char entry, which would skew the divider column.
 const VALUE_WIDTH_PX: i32 = 120;
 
-/// The text width every spin reserves. A spin's natural width otherwise
-/// tracks its adjustment's widest value ("1000" wider than "500"), which
-/// made sibling inputs uneven. Kept small so the natural width stays
-/// under the VALUE_WIDTH_PX floor — every spin then renders at exactly
-/// that shared width.
-const SPIN_WIDTH_CHARS: i32 = 5;
-
 /// The fixed width of every decorated row's text block: with one shared
 /// title width the switch/divider/value controls all start at the same x
 /// across the tab.
@@ -221,7 +214,6 @@ pub(super) fn spin_button(min: f64, max: f64, step: f64) -> gtk4::SpinButton {
     let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
     let spin = gtk4::SpinButton::new(Some(&adjustment), step, 0);
     spin.set_size_request(VALUE_WIDTH_PX, -1);
-    spin.set_width_chars(SPIN_WIDTH_CHARS);
     spin
 }
 
@@ -235,11 +227,16 @@ pub(super) fn pacing_divider() -> gtk4::Separator {
 }
 
 /// One pacing column of a merged row: the caption above the spin. The
-/// caller places the column (dividers go between columns).
+/// caller places the column (dividers go between columns). The spin is
+/// centered, not the default Fill: the vertical box hands a filling child
+/// the whole column width — the caption's width — so a long caption
+/// ("Hoàn dấu sau Backspace (ms)") stretches its input while its siblings
+/// stay short. Centered, every spin renders at the shared VALUE_WIDTH_PX.
 pub(super) fn pacing_column(caption: &str, spin: &gtk4::SpinButton) -> gtk4::Box {
     let label = gtk4::Label::new(Some(caption));
     label.add_css_class("caption");
     label.set_halign(gtk4::Align::Center);
+    spin.set_halign(gtk4::Align::Center);
     let column = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
     column.append(&label);
     column.append(spin);
