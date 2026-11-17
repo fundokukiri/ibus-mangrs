@@ -110,13 +110,11 @@ pub struct Config {
     pub backspace_interval_ms: u64,
     /// Uinput pacing: idle time after a rewrite before more typing (ms).
     pub post_delay_ms: u64,
-    /// How the Vietnamese word reaches the app in the uinput modes:
-    /// `commit` = IBus CommitText, `clipboard` = clipboard paste (Ctrl+V).
+    /// How the Vietnamese word reaches the app in the uinput modes. Only
+    /// `commit` (IBus CommitText) exists now; the clipboard paste channel
+    /// was removed, and its old `clipboard` value parses as `commit` so old
+    /// files keep loading.
     pub unicode_channel: UnicodeChannel,
-    /// Custom clipboard restore delay after a paste (ms) — the built-in
-    /// default applies while the switch is off.
-    pub clipboard_restore_delay_enabled: bool,
-    pub clipboard_restore_delay_ms: u64,
     /// Custom lost-echo stale window (ms) for the uinput modes — the
     /// built-in default applies while the switch is off. Too small risks
     /// lost characters; too large makes words appear late.
@@ -127,34 +125,16 @@ pub struct Config {
     /// is the behavior users know.
     pub idle_commit_enabled: bool,
     pub idle_commit_ms: u64,
-    /// Show the composed word progressively in the Flow/Turbo modes: every
-    /// key that changes the composition erases the committed tail and
-    /// commits the new one through the injected transport (`ee` shows
-    /// `ê` immediately, marks are editable mid-word) instead of holding
-    /// the raw keys until the word ends. On by default: the owner ships
-    /// the per-key display as the standard look; the word-end rewrite
-    /// stays one switch away and the per-key commit costs ~60 ms per key.
-    pub flow_per_key: bool,
-    /// How long the per-key display parks each keystroke's commit before
-    /// it lands (ms). Per-key pacing only: the two server-side rewrite
-    /// parks stay on the engine's built-in grace constant, so a mistuned
-    /// value here cannot reintroduce the relay ordering bug.
+    /// How long the per-key Flow display parks each keystroke's commit
+    /// before it lands (ms). Per-key pacing only: the two server-side
+    /// rewrite parks stay on the engine's built-in grace constant, so a
+    /// mistuned value here cannot reintroduce the relay ordering bug.
     pub flow_per_key_delay_ms: u64,
-    /// Experimental: a Backspace on a committed word in the uinput modes
-    /// re-tracks the shortened screen (the composition is rebuilt from the
-    /// re-encoded keys), so the next mark key keeps editing the word
-    /// (`tùn` + `s` -> `tún`) instead of landing as a literal letter. Off
-    /// keeps today's plain-text behavior byte for byte.
-    pub flow_backspace_retrack: bool,
-    /// Experimental: a Backspace that removes a key which undid a mark gives
-    /// the mark back (`chào` + `f` -> `chaof`, Backspace -> `chào`) with the
-    /// user's "Backspace xóa dấu" setting, like the inline modes. Needs
-    /// `flow_backspace_retrack`; off keeps today's plain result.
-    pub flow_backspace_restore: bool,
-    /// How long the restore waits after the user's Backspace before rewriting
-    /// the screen (ms). Injected Backspaces sent while that key is handled
-    /// never reach the application, so 0 only means "as soon as the main loop
-    /// wakes", not "during the key".
+    /// How long the Flow Backspace correction waits after the user's
+    /// Backspace before rewriting the screen (ms) — a deleted mark comes
+    /// back, a shortened word stays editable. Injected Backspaces sent while
+    /// that key is handled never reach the application, so 0 only means "as
+    /// soon as the main loop wakes", not "during the key".
     pub flow_backspace_restore_delay_ms: u64,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
@@ -183,18 +163,18 @@ pub struct Config {
     /// did not see move can lose real text.
     pub x11_delete_without_report: bool,
     /// Keep Preedit for XIM clients (the fixed `xim` id: Java apps such as
-    /// JetBrains) instead of falling back to NonPreedit. They report no
-    /// preedit capability because the XIM server draws the preedit itself, so
-    /// the fallback turned accents into raw keystrokes (`tungf`). Off by
+    /// JetBrains) instead of falling back to commit-as-you-type. They report
+    /// no preedit capability because the XIM server draws the preedit itself,
+    /// so the fallback turned accents into raw keystrokes (`tungf`). Off by
     /// default: an app that negotiated `XIMPreeditNothing` shows nothing
     /// while the word is being typed.
     pub preedit_for_xim: bool,
     /// What the first navigation key does while a preedit commit is pending
-    /// on a mutter-relayed context: `swallow` consumes it (the commit lands
-    /// first, the caret moves on the next press), `forward` sends the commit
-    /// and the key in one reply (ibus-bamboo's sequence), `replay` consumes
-    /// the key and re-emits it as ForwardKeyEvent after the commit. Unknown
-    /// values behave as `swallow`. Experimental: the gate forces `swallow`.
+    /// on a mutter-relayed context: `forward` sends the commit and the key
+    /// in one reply (ibus-bamboo's sequence, the shipped default), `swallow`
+    /// consumes it (the commit lands first, the caret moves on the next
+    /// press), `replay` consumes the key and re-emits it as ForwardKeyEvent
+    /// after the commit. Unknown values behave as `forward`.
     pub nav_key_while_preedit: String,
     /// Per-application display mode overrides (phase 9).
     pub app_rules: Vec<AppRule>,
@@ -417,12 +397,12 @@ impl Config {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum UnicodeChannel {
-    /// IBus `CommitText` — safe everywhere, does not touch the clipboard.
+    /// IBus `CommitText` — the only channel: text always travels over IBus
+    /// and never touches the clipboard. The alias keeps the removed
+    /// clipboard channel's value loading from old files.
     #[default]
+    #[serde(alias = "clipboard")]
     Commit,
-    /// Set the clipboard to the word, paste with injected Ctrl+V, restore the
-    /// clipboard afterwards. Works in apps that read raw keys (games).
-    Clipboard,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -492,8 +472,6 @@ pub enum MethodConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ModeConfig {
-    #[serde(alias = "non-preedit", alias = "non_preedit")]
-    NonPreedit,
     /// Default: the composition renders in the application itself, so even
     /// restricted apps (Sublime, XWayland clients) show text. The removed
     /// Auto mode migrates here (the serde alias and `from_key` below, for
@@ -501,36 +479,59 @@ pub enum ModeConfig {
     #[default]
     #[serde(alias = "auto")]
     Preedit,
-    /// Non-preedit rewritten with the help of `SetSurroundingText`: the engine
-    /// verifies the text before the cursor against what it believes it
-    /// committed and repairs drift (dropped deletes, manual edits).
+    /// Commit as you type, no underline, rewritten with the help of
+    /// `SetSurroundingText`: the engine verifies the text before the cursor
+    /// against what it believes it committed and repairs drift (dropped
+    /// deletes, manual edits). The removed No-underline mode (NonPreedit)
+    /// migrates here — it was this without the verification, which the
+    /// engine's fallback walk already supplied everywhere.
+    // The aliases carry the removed mode name's spellings, so an existing
+    // config.toml or app rule keeps loading after the merge.
+    #[serde(alias = "nonpreedit", alias = "non-preedit", alias = "non_preedit")]
     Surrounding,
     /// Flow (uinput): raw keys are forwarded while typing; at word end the
     /// latin tail is erased with real Backspace keys and the Vietnamese word
-    /// is committed. Falls back to Preedit where injection is impossible.
+    /// is committed. Falls back to ForwardBackspace where injection is
+    /// impossible.
+    /// The removed Turbo mode (this without the app-autofill hold-back)
+    /// migrates here — the hold-back stays, one rewrite behavior instead
+    /// of two. The removed Select mode migrates here too: its Shift+Left
+    /// select-and-erase contract is gone and the rewrite erases with the
+    /// same Backspace keys. The removed SmoothForward mode (the same
+    /// contract on the forward transport) also migrates here: with a
+    /// backend it types exactly Flow, and without one the resolution walk's
+    /// ForwardBackspace fallback keeps its no-`/dev/uinput` property.
+    // The aliases carry the removed mode names' spellings, so an existing
+    // config.toml or app rule keeps loading after the merge.
+    #[serde(
+        alias = "turbo",
+        alias = "select",
+        alias = "smoothforward",
+        alias = "smooth-forward"
+    )]
     Flow,
-    /// Turbo (uinput): Flow without the pre-rewrite verification (minimum
-    /// latency).
-    Turbo,
-    /// Select (uinput): Shift+Left selects the typed tail, Delete erases it,
-    /// then the Vietnamese word is committed. Needs a surrounding-text report.
-    Select,
-    /// The Smooth contract (raw keys forwarded while typing, one rewrite at
-    /// word end, optional per-key mark display) with the rewrite delivered
-    /// through forwarded Backspace key events plus the commit — no
-    /// `/dev/uinput` needed. Raw-key apps (games) and XIM clients should
-    /// pin another mode.
-    #[serde(alias = "smooth-forward")]
-    SmoothForward,
     /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
     /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent I.
-    ForwardKeyEvent,
-    /// The same, but the tail is selected with forwarded Shift+Left and the
-    /// commit replaces the selection — for apps that mishandle a forwarded
-    /// Backspace. ibus-bamboo's ForwardKeyEvent II.
-    ForwardSelect,
+    /// The removed ForwardSelect mode (ibus-bamboo's ForwardKeyEvent II —
+    /// the tail selected with forwarded Shift+Left, the commit replacing
+    /// the selection) migrates here: its apps move onto the forwarded
+    /// Backspace transport (owner-approved).
+    // The aliases carry the old mode names' spellings, so an existing
+    // config.toml or app rule keeps loading after the rename and the merge.
+    #[serde(
+        alias = "forwardkeyevent",
+        alias = "forwardkey",
+        alias = "forward-key-event",
+        alias = "forward_key_event",
+        alias = "forwardselect",
+        alias = "forwardkeyevent2",
+        alias = "forwardkeyeventii",
+        alias = "forward-key-event-2",
+        alias = "forward_key_event_2"
+    )]
+    ForwardBackspace,
     /// Vietnamese processing off, but macros and auto-capitalize still run.
     /// The removed Default Typing mode ("engine inert") migrates here: an
     /// inert engine is what switching to another input method already does.
@@ -619,15 +620,10 @@ impl From<MethodConfig> for Method {
 impl From<ModeConfig> for Mode {
     fn from(m: ModeConfig) -> Self {
         match m {
-            ModeConfig::NonPreedit => Mode::NonPreedit,
             ModeConfig::Preedit => Mode::Preedit,
             ModeConfig::Surrounding => Mode::Surrounding,
             ModeConfig::Flow => Mode::Flow,
-            ModeConfig::Turbo => Mode::Turbo,
-            ModeConfig::Select => Mode::Select,
-            ModeConfig::SmoothForward => Mode::SmoothForward,
-            ModeConfig::ForwardKeyEvent => Mode::ForwardKeyEvent,
-            ModeConfig::ForwardSelect => Mode::ForwardSelect,
+            ModeConfig::ForwardBackspace => Mode::ForwardBackspace,
             ModeConfig::Off => Mode::Off,
         }
     }
@@ -636,15 +632,10 @@ impl From<ModeConfig> for Mode {
 impl From<Mode> for ModeConfig {
     fn from(m: Mode) -> Self {
         match m {
-            Mode::NonPreedit => ModeConfig::NonPreedit,
             Mode::Preedit => ModeConfig::Preedit,
             Mode::Surrounding => ModeConfig::Surrounding,
             Mode::Flow => ModeConfig::Flow,
-            Mode::Turbo => ModeConfig::Turbo,
-            Mode::Select => ModeConfig::Select,
-            Mode::SmoothForward => ModeConfig::SmoothForward,
-            Mode::ForwardKeyEvent => ModeConfig::ForwardKeyEvent,
-            Mode::ForwardSelect => ModeConfig::ForwardSelect,
+            Mode::ForwardBackspace => ModeConfig::ForwardBackspace,
             Mode::Off => ModeConfig::Off,
         }
     }
@@ -727,36 +718,40 @@ impl MethodConfig {
 impl ModeConfig {
     pub fn key(self) -> &'static str {
         match self {
-            ModeConfig::NonPreedit => "nonpreedit",
             ModeConfig::Preedit => "preedit",
             ModeConfig::Surrounding => "surrounding",
             ModeConfig::Flow => "flow",
-            ModeConfig::Turbo => "turbo",
-            ModeConfig::Select => "select",
-            ModeConfig::SmoothForward => "smoothforward",
-            ModeConfig::ForwardKeyEvent => "forwardkeyevent",
-            ModeConfig::ForwardSelect => "forwardselect",
+            ModeConfig::ForwardBackspace => "forwardbackspace",
             ModeConfig::Off => "off",
         }
     }
 
     pub fn from_key(key: &str) -> Option<Self> {
         Some(match key {
-            "nonpreedit" | "non-preedit" => ModeConfig::NonPreedit,
+            // The removed NonPreedit mode migrates to Surrounding (both here
+            // and through the serde aliases on the enum, for old config
+            // files and app rules).
+            "nonpreedit" | "non-preedit" | "non_preedit" => ModeConfig::Surrounding,
             "preedit" => ModeConfig::Preedit,
             "surrounding" => ModeConfig::Surrounding,
             "flow" => ModeConfig::Flow,
-            "turbo" => ModeConfig::Turbo,
-            "select" => ModeConfig::Select,
-            "smoothforward" | "smooth-forward" => ModeConfig::SmoothForward,
-            "forwardkeyevent" | "forwardkey" | "forward-key-event" | "forward_key_event" => {
-                ModeConfig::ForwardKeyEvent
-            }
-            "forwardselect"
+            // The removed Turbo, Select and SmoothForward modes migrate to
+            // Flow (both here and through the serde aliases on the enum,
+            // for old config files and app rules).
+            "turbo" | "select" | "smoothforward" | "smooth-forward" => ModeConfig::Flow,
+            // The removed ForwardSelect mode migrates to ForwardBackspace
+            // (both here and through the serde aliases on the enum, for old
+            // config files and app rules).
+            "forwardbackspace"
+            | "forwardkeyevent"
+            | "forwardkey"
+            | "forward-key-event"
+            | "forward_key_event"
+            | "forwardselect"
             | "forwardkeyevent2"
             | "forwardkeyeventii"
             | "forward-key-event-2"
-            | "forward_key_event_2" => ModeConfig::ForwardSelect,
+            | "forward_key_event_2" => ModeConfig::ForwardBackspace,
             "off" => ModeConfig::Off,
             // The removed Default Typing mode migrates to Off (both here and
             // through the serde aliases on the enum, for old config files).
@@ -802,17 +797,12 @@ fn default_menu_modes() -> Vec<String> {
         .collect()
 }
 
-/// Modes the GUI offers on a fresh install, in dropdown/cycle order. The
-/// technical variants (`nonpreedit`, `turbo`, `select`, `forwardselect`)
-/// stay implemented but hidden until the user enables them.
-pub const DEFAULT_VISIBLE_MODES: [&str; 6] = [
-    "preedit",
-    "surrounding",
-    "flow",
-    "forwardkeyevent",
-    "smoothforward",
-    "off",
-];
+/// Modes the GUI offers on a fresh install, in dropdown/cycle order — every
+/// display mode; nothing ships hidden. Canonical keys only: the list is the
+/// shipped spelling every picker walks, so the old `forwardkeyevent` name
+/// must not leak back into saved files through a fresh install's save.
+pub const DEFAULT_VISIBLE_MODES: [&str; 5] =
+    ["preedit", "surrounding", "flow", "forwardbackspace", "off"];
 
 impl Default for Config {
     fn default() -> Self {
@@ -855,16 +845,11 @@ impl Default for Config {
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,
-            clipboard_restore_delay_enabled: false,
-            clipboard_restore_delay_ms: 600,
             echo_stale_enabled: false,
             echo_stale_ms: 150,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            flow_per_key: true,
             flow_per_key_delay_ms: 20,
-            flow_backspace_retrack: false,
-            flow_backspace_restore: false,
             flow_backspace_restore_delay_ms: 150,
             experimental_features: false,
             show_toasts: true,
@@ -872,7 +857,7 @@ impl Default for Config {
             debug_log_text: false,
             x11_delete_without_report: false,
             preedit_for_xim: false,
-            nav_key_while_preedit: "swallow".into(),
+            nav_key_while_preedit: "forward".into(),
             app_rules: Vec::new(),
             custom_hotkeys: Vec::new(),
             quick_menu: default_quick_menu(),
@@ -1095,13 +1080,102 @@ mod tests {
     }
 
     #[test]
+    fn forwardkeyevent_key_and_aliases_parse_as_forwardbackspace() {
+        for key in [
+            "forwardbackspace",
+            "forwardkeyevent",
+            "forwardkey",
+            "forward-key-event",
+            "forward_key_event",
+        ] {
+            assert_eq!(
+                ModeConfig::from_key(key),
+                Some(ModeConfig::ForwardBackspace)
+            );
+        }
+        let c: Config = toml::from_str("mode = \"forwardkeyevent\"\n").unwrap();
+        assert_eq!(c.mode, ModeConfig::ForwardBackspace);
+        assert_eq!(c.mode.key(), "forwardbackspace");
+    }
+
+    #[test]
+    fn nonpreedit_keys_migrate_to_surrounding() {
+        // NonPreedit merged into Surrounding: every old spelling keeps
+        // loading, in the global mode, an app rule and the visible list.
+        // `key()` stays "surrounding" — one mode must not gain a second
+        // canonical name.
+        for key in ["nonpreedit", "non-preedit", "non_preedit"] {
+            assert_eq!(ModeConfig::from_key(key), Some(ModeConfig::Surrounding));
+            // The serde aliases carry the same spellings for config.toml.
+            let c: Config = toml::from_str(&format!("mode = \"{key}\"\n")).unwrap();
+            assert_eq!(c.mode, ModeConfig::Surrounding);
+        }
+        assert_eq!(ModeConfig::Surrounding.key(), "surrounding");
+        let c: Config =
+            toml::from_str("[[app_rules]]\npattern = \"gedit\"\nmode = \"nonpreedit\"\n").unwrap();
+        assert_eq!(c.app_rules[0].mode, ModeConfig::Surrounding);
+        let c: Config = toml::from_str("visible_modes = [\"nonpreedit\"]\n").unwrap();
+        assert_eq!(c.visible_modes(), vec![ModeConfig::Surrounding]);
+    }
+
+    #[test]
+    fn turbo_key_migrates_to_flow() {
+        // Turbo merged into Flow: the old key keeps loading, in the global
+        // mode, an app rule and the visible list. `key()` stays "flow" —
+        // one mode must not gain a second canonical name.
+        assert_eq!(ModeConfig::from_key("turbo"), Some(ModeConfig::Flow));
+        // The serde alias carries the same spelling for config.toml.
+        let c: Config = toml::from_str("mode = \"turbo\"\n").unwrap();
+        assert_eq!(c.mode, ModeConfig::Flow);
+        assert_eq!(ModeConfig::Flow.key(), "flow");
+        let c: Config =
+            toml::from_str("[[app_rules]]\npattern = \"gedit\"\nmode = \"turbo\"\n").unwrap();
+        assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
+        let c: Config = toml::from_str("visible_modes = [\"turbo\"]\n").unwrap();
+        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow]);
+    }
+
+    #[test]
+    fn select_key_migrates_to_flow() {
+        // Select merged into Flow: the old key keeps loading, in the global
+        // mode, an app rule and the visible list. `key()` stays "flow" —
+        // one mode must not gain a second canonical name.
+        assert_eq!(ModeConfig::from_key("select"), Some(ModeConfig::Flow));
+        // The serde alias carries the same spelling for config.toml.
+        let c: Config = toml::from_str("mode = \"select\"\n").unwrap();
+        assert_eq!(c.mode, ModeConfig::Flow);
+        assert_eq!(ModeConfig::Flow.key(), "flow");
+        let c: Config =
+            toml::from_str("[[app_rules]]\npattern = \"gedit\"\nmode = \"select\"\n").unwrap();
+        assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
+        let c: Config = toml::from_str("visible_modes = [\"select\"]\n").unwrap();
+        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow]);
+    }
+
+    #[test]
+    fn clipboard_channel_value_migrates_to_commit() {
+        // The clipboard paste channel died (owner decision 15/11): an old
+        // file's `unicode_channel = "clipboard"` must parse as Commit, and
+        // a save must persist the current spelling so the value converges.
+        let c: Config = toml::from_str("unicode_channel = \"clipboard\"\n").unwrap();
+        assert_eq!(c.unicode_channel, UnicodeChannel::Commit);
+        let text = toml::to_string_pretty(&c).unwrap();
+        assert!(
+            text.contains("unicode_channel = \"commit\""),
+            "the round-trip must persist the current spelling: {text}"
+        );
+        let back: Config = toml::from_str(&text).unwrap();
+        assert_eq!(back.unicode_channel, UnicodeChannel::Commit);
+    }
+
+    #[test]
     fn forward_key_event_mode_key_round_trips() {
         let c: Config = toml::from_str("mode = \"forwardkeyevent\"").unwrap();
-        assert_eq!(c.mode, ModeConfig::ForwardKeyEvent);
-        assert_eq!(c.mode.key(), "forwardkeyevent");
+        assert_eq!(c.mode, ModeConfig::ForwardBackspace);
+        assert_eq!(c.mode.key(), "forwardbackspace");
         assert_eq!(
             ModeConfig::from_key("forwardkey"),
-            Some(ModeConfig::ForwardKeyEvent),
+            Some(ModeConfig::ForwardBackspace),
             "the short alias must keep working"
         );
         // Both compatibility switches ship off: an old config keeps today's
@@ -1115,49 +1189,121 @@ mod tests {
         assert!(c.preedit_for_xim);
         let c = Config::from_toml("mode = \"preedit\"\n");
         assert!(!c.x11_delete_without_report && !c.preedit_for_xim);
-
-        let c: Config = toml::from_str("mode = \"forwardselect\"").unwrap();
-        assert_eq!(c.mode, ModeConfig::ForwardSelect);
-        assert_eq!(c.mode.key(), "forwardselect");
-        assert_eq!(
-            ModeConfig::from_key("forwardkeyevent2"),
-            Some(ModeConfig::ForwardSelect)
-        );
     }
 
     #[test]
-    fn smoothforward_mode_key_round_trips() {
-        let c: Config = toml::from_str("mode = \"smoothforward\"").unwrap();
-        assert_eq!(c.mode, ModeConfig::SmoothForward);
-        assert_eq!(c.mode.key(), "smoothforward");
+    fn forwardselect_keys_migrate_to_forwardbackspace() {
+        // ForwardSelect merged into ForwardBackspace: every old spelling
+        // keeps loading, in the global mode, an app rule and the visible
+        // list. `key()` stays "forwardbackspace" — one mode must not gain a
+        // second canonical name.
+        for key in [
+            "forwardselect",
+            "forwardkeyevent2",
+            "forwardkeyeventii",
+            "forward-key-event-2",
+            "forward_key_event_2",
+        ] {
+            assert_eq!(
+                ModeConfig::from_key(key),
+                Some(ModeConfig::ForwardBackspace)
+            );
+            // The serde aliases carry the same spellings for config.toml.
+            let c: Config = toml::from_str(&format!("mode = \"{key}\"\n")).unwrap();
+            assert_eq!(c.mode, ModeConfig::ForwardBackspace);
+        }
+        assert_eq!(ModeConfig::ForwardBackspace.key(), "forwardbackspace");
+        // A per-app rule can pin the mode by an old spelling, and the value
+        // maps onto the engine mode the walk dispatches on.
+        let c: Config =
+            toml::from_str("[[app_rules]]\npattern = \"game\"\nmode = \"forwardselect\"\n")
+                .unwrap();
+        assert_eq!(c.app_rules[0].mode, ModeConfig::ForwardBackspace);
         assert_eq!(
-            ModeConfig::from_key("smooth-forward"),
-            Some(ModeConfig::SmoothForward),
-            "the dashed alias must parse"
+            Mode::from(c.app_rules[0].mode),
+            crate::engine::Mode::ForwardBackspace
         );
+        let c: Config = toml::from_str("visible_modes = [\"forwardselect\"]\n").unwrap();
+        assert_eq!(c.visible_modes(), vec![ModeConfig::ForwardBackspace]);
+    }
+
+    #[test]
+    fn smoothforward_keys_migrate_to_flow() {
+        // SmoothForward merged into Flow: every old spelling keeps loading,
+        // in the global mode, an app rule and the visible list. `key()` stays
+        // "flow" — one mode must not gain a second canonical name.
+        for key in ["smoothforward", "smooth-forward"] {
+            assert_eq!(ModeConfig::from_key(key), Some(ModeConfig::Flow));
+            // The serde aliases carry the same spellings for config.toml.
+            let c: Config = toml::from_str(&format!("mode = \"{key}\"\n")).unwrap();
+            assert_eq!(c.mode, ModeConfig::Flow);
+        }
+        assert_eq!(ModeConfig::Flow.key(), "flow");
         // A per-app rule can pin the mode by either spelling, and the value
-        // maps onto the engine mode the smooth path dispatches on.
+        // maps onto the engine mode Flow dispatches on.
         let c: Config =
             toml::from_str("[[app_rules]]\npattern = \"chrome\"\nmode = \"smoothforward\"\n")
                 .unwrap();
-        assert_eq!(c.app_rules[0].mode, ModeConfig::SmoothForward);
+        assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
+        assert_eq!(Mode::from(c.app_rules[0].mode), crate::engine::Mode::Flow);
+        let c: Config = toml::from_str("visible_modes = [\"smooth-forward\"]\n").unwrap();
+        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow]);
+    }
+
+    #[test]
+    fn removed_mode_keys_in_every_config_position_map_to_the_five() {
+        // One old file carrying a removed spelling in every position a mode
+        // key can occupy: the global mode, two app rules, the visible list
+        // and the panel menu list. The whole file must parse, and every
+        // position must land on the five canonical modes.
+        let toml_text = r#"
+mode = "smoothforward"
+visible_modes = ["nonpreedit", "turbo", "smoothforward", "forwardkeyevent"]
+menu_modes = ["preedit", "turbo"]
+
+[[app_rules]]
+pattern = "chrome"
+mode = "turbo"
+
+[[app_rules]]
+pattern = "game"
+mode = "forwardselect"
+"#;
+        let c: Config = toml::from_str(toml_text).unwrap();
+        assert_eq!(c.mode, ModeConfig::Flow);
+        assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
+        assert_eq!(c.app_rules[1].mode, ModeConfig::ForwardBackspace);
+        // The visible list maps entry by entry and dedups: `turbo` and
+        // `smoothforward` both land on Flow (one row), and every remaining
+        // entry sits within the five canonical modes, in first-appearance
+        // order.
         assert_eq!(
-            Mode::from(c.app_rules[0].mode),
-            crate::engine::Mode::SmoothForward
+            c.visible_modes(),
+            vec![
+                ModeConfig::Surrounding,
+                ModeConfig::Flow,
+                ModeConfig::ForwardBackspace,
+            ]
+        );
+        // The panel list parses as-is (raw strings); the submenu maps its
+        // spellings through from_key — pinned by ibus_prop's display tests.
+        assert_eq!(
+            c.menu_modes,
+            vec!["preedit".to_string(), "turbo".to_string()]
         );
     }
 
     #[test]
     fn nav_key_while_preedit_key_round_trips() {
-        // The shipped behavior stays the default: an old config without the
-        // key keeps swallowing the first navigation key.
-        assert_eq!(Config::default().nav_key_while_preedit, "swallow");
-        let c: Config = toml::from_str("nav_key_while_preedit = \"forward\"").unwrap();
-        assert_eq!(c.nav_key_while_preedit, "forward");
-        let c = Config::from_toml("mode = \"preedit\"\n");
+        // The caret moves on the first navigation key: an old config without
+        // the key keeps the shipped default.
+        assert_eq!(Config::default().nav_key_while_preedit, "forward");
+        let c: Config = toml::from_str("nav_key_while_preedit = \"swallow\"").unwrap();
         assert_eq!(c.nav_key_while_preedit, "swallow");
+        let c = Config::from_toml("mode = \"preedit\"\n");
+        assert_eq!(c.nav_key_while_preedit, "forward");
         // The raw string is stored as-is; the engine normalizes unknown
-        // values to swallow (same tolerance as the GUI language value).
+        // values to forward (same tolerance as the GUI language value).
         let c: Config = toml::from_str("nav_key_while_preedit = \"weird\"").unwrap();
         assert_eq!(c.nav_key_while_preedit, "weird");
     }
@@ -1207,7 +1353,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_modes_default_to_the_six_main_entries() {
+    fn visible_modes_default_to_the_five_main_entries() {
         let c = Config::default();
         assert_eq!(
             c.visible_modes(),
@@ -1215,8 +1361,7 @@ mod tests {
                 ModeConfig::Preedit,
                 ModeConfig::Surrounding,
                 ModeConfig::Flow,
-                ModeConfig::ForwardKeyEvent,
-                ModeConfig::SmoothForward,
+                ModeConfig::ForwardBackspace,
                 ModeConfig::Off,
             ]
         );
@@ -1230,37 +1375,29 @@ mod tests {
     fn absent_visible_modes_keep_the_configured_and_rule_modes() {
         // Upgrade path: an old file has no key. Its global mode and every
         // rule mode must stay selectable, or an upgrade would silently
-        // change what the user types with.
+        // change what the user types with. Every shipped mode now sits in
+        // the default list, so the appended entries dedup against it — one
+        // entry per mode, in the shipped order.
         let c = Config {
-            mode: ModeConfig::NonPreedit,
-            app_rules: vec![
-                AppRule {
-                    pattern: "code".into(),
-                    mode: ModeConfig::Select,
-                },
-                AppRule {
-                    pattern: "game".into(),
-                    mode: ModeConfig::NonPreedit,
-                },
-            ],
+            mode: ModeConfig::Surrounding,
+            app_rules: vec![AppRule {
+                pattern: "game".into(),
+                mode: ModeConfig::Off,
+            }],
             ..Config::default()
         };
         let visible = c.visible_modes();
-        assert!(visible.contains(&ModeConfig::NonPreedit));
-        assert!(visible.contains(&ModeConfig::Select));
-        // The default order stays first; the extra modes are appended once.
+        assert!(visible.contains(&ModeConfig::Surrounding));
+        assert!(visible.contains(&ModeConfig::Off));
+        // The shipped order stands and no mode appears twice.
         assert_eq!(visible.first(), Some(&ModeConfig::Preedit));
-        assert_eq!(
-            visible
-                .iter()
-                .filter(|m| **m == ModeConfig::NonPreedit)
-                .count(),
-            1
-        );
+        assert_eq!(visible.len(), DEFAULT_VISIBLE_MODES.len());
     }
 
     #[test]
     fn explicit_visible_modes_skip_unknown_and_empty_lists() {
+        // The old SmoothForward spelling parses through the alias and dedups
+        // against Flow — one entry per mode, never a duplicate row.
         let c = Config {
             visible_modes: Some(vec![
                 "smoothforward".into(),
@@ -1270,10 +1407,7 @@ mod tests {
             ]),
             ..Config::default()
         };
-        assert_eq!(
-            c.visible_modes(),
-            vec![ModeConfig::SmoothForward, ModeConfig::Off]
-        );
+        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow, ModeConfig::Off]);
         // An emptied list (a hand edit) falls back to the shipped default
         // rather than hiding every mode from the engine.
         let c = Config {
@@ -1440,12 +1574,6 @@ children = ["preedit", "flow"]
     }
 
     #[test]
-    fn hyphenated_mode_alias_is_accepted() {
-        let c: Config = toml::from_str("mode = \"non-preedit\"").unwrap();
-        assert_eq!(c.mode, ModeConfig::NonPreedit);
-    }
-
-    #[test]
     fn mode_surrounding_roundtrips() {
         let c: Config = toml::from_str("mode = \"surrounding\"").unwrap();
         assert_eq!(c.mode, ModeConfig::Surrounding);
@@ -1468,10 +1596,21 @@ children = ["preedit", "flow"]
     }
 
     #[test]
-    fn flow_per_key_round_trips_and_defaults_on() {
-        let c: Config = toml::from_str("flow_per_key = false").unwrap();
-        assert!(!c.flow_per_key);
-        assert!(Config::default().flow_per_key);
+    fn flow_per_key_is_gone_but_old_files_still_load() {
+        // The word-end-only switch died: the per-key display is the only
+        // Flow path. The default no longer carries the key, and an old file
+        // that still lists it parses with the key ignored — the live
+        // setting beside it survives.
+        let default = toml::Value::try_from(Config::default()).unwrap();
+        assert!(
+            default.get("flow_per_key").is_none(),
+            "the removed toggle must not come back through the default"
+        );
+        let c: Config = toml::from_str("flow_per_key = false\nflow_per_key_delay_ms = 45").unwrap();
+        assert_eq!(c.flow_per_key_delay_ms, 45);
+        // Both spellings of the removed key take the same ignored-key path.
+        let c: Config = toml::from_str("flow_per_key = true").unwrap();
+        assert_eq!(c.flow_per_key_delay_ms, 20);
     }
 
     #[test]
@@ -1482,21 +1621,39 @@ children = ["preedit", "flow"]
     }
 
     #[test]
-    fn flow_backspace_retrack_round_trips_and_defaults_off() {
-        let c: Config = toml::from_str("flow_backspace_retrack = true").unwrap();
-        assert!(c.flow_backspace_retrack);
-        assert!(!Config::default().flow_backspace_retrack);
+    fn flow_backspace_retrack_is_gone_but_old_files_still_load() {
+        // The experimental switch died: the Backspace retrack is standard
+        // Flow behavior. The default no longer carries the key, and an old
+        // file that still lists it parses with the key ignored (either
+        // value) — the live delay beside it survives.
+        let default = toml::Value::try_from(Config::default()).unwrap();
+        assert!(
+            default.get("flow_backspace_retrack").is_none(),
+            "the removed switch must not come back through the default"
+        );
+        let c: Config =
+            toml::from_str("flow_backspace_retrack = true\nflow_backspace_restore_delay_ms = 45")
+                .unwrap();
+        assert_eq!(c.flow_backspace_restore_delay_ms, 45);
+        let c: Config = toml::from_str("flow_backspace_retrack = false").unwrap();
+        assert_eq!(c.flow_backspace_restore_delay_ms, 150);
     }
 
     #[test]
-    fn flow_backspace_restore_round_trips_and_defaults_off() {
+    fn flow_backspace_restore_is_gone_but_old_files_still_load() {
+        // Same removal for the restore switch: both values take the same
+        // ignored-key path, the pacing value stays live.
+        let default = toml::Value::try_from(Config::default()).unwrap();
+        assert!(
+            default.get("flow_backspace_restore").is_none(),
+            "the removed switch must not come back through the default"
+        );
         let c: Config =
             toml::from_str("flow_backspace_restore = true\nflow_backspace_restore_delay_ms = 0")
                 .unwrap();
-        assert!(c.flow_backspace_restore);
         assert_eq!(c.flow_backspace_restore_delay_ms, 0);
-        assert!(!Config::default().flow_backspace_restore);
-        assert_eq!(Config::default().flow_backspace_restore_delay_ms, 150);
+        let c: Config = toml::from_str("flow_backspace_restore = false").unwrap();
+        assert_eq!(c.flow_backspace_restore_delay_ms, 150);
     }
 
     /// The old mode names are gone for good: an old file resets the mode to

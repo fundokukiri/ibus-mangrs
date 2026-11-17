@@ -43,9 +43,10 @@ impl Engine {
         // Settle the rewrite-delete delivery proof: a report whose prefix is
         // exactly the swallowed shape (delete missing, insert landed) proves
         // this client drops rewrite deletes. Without real-key injection
-        // there is then no working delete transport, and effective_mode()
-        // moves the following words to preedit. A stale report shows neither
-        // delete nor insert, so it never matches the swallowed shape.
+        // there is then no working delete transport, and the mode walk
+        // serves the following words through the forwarded-Backspace
+        // transport. A stale report shows neither delete nor insert, so it
+        // never matches the swallowed shape.
         if let Some((healthy, swallowed)) = self.awaiting_delete_proof.take() {
             if swallowed != healthy && cursor.min(len) == swallowed {
                 self.delete_dropped = true;
@@ -85,9 +86,9 @@ impl Engine {
     /// `tail` walks its own characters; every offset in the report is derived
     /// from the caret's byte position or stepped from the end.
     pub(super) fn verify_surrounding(&mut self, mode: Mode) -> Vec<Action> {
-        // Only Surrounding verifies: plain NonPreedit must never send a
-        // repair delete (the client did not ask for it, and a wrong repair
-        // eats real text).
+        // Only Surrounding verifies: preedit still owns the composition and
+        // the forward transports keep their own bookkeeping, so a repair
+        // delete there would eat real text.
         if mode != Mode::Surrounding || self.tail.is_empty() {
             return Vec::new();
         }

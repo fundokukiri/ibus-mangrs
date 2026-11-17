@@ -1,5 +1,6 @@
-//! End-to-end cases for the non-protocol modes: OFF, Default Typing and
-//! ForwardKeyEvent (whose deletes travel as forwarded key events).
+//! End-to-end cases for the five modes' non-protocol shapes: OFF, the auto
+//! alias, Forward Backspace (whose deletes travel as forwarded key events)
+//! and Flow on a backend client.
 
 mod common;
 
@@ -7,8 +8,6 @@ use common::{commits, deletes, preedits, run_suite, Case, Sig, CAPS_BOTH};
 
 const BACKSPACE_KEYVAL: u32 = 0xff08;
 const BACKSPACE_KEYCODE: u32 = 14;
-const LEFT_KEYVAL: u32 = 0xff51;
-const LEFT_KEYCODE: u32 = 105;
 
 const CASES: &[Case] = &[
     Case {
@@ -52,20 +51,20 @@ const CASES: &[Case] = &[
         f: forward_keyevent,
     },
     Case {
-        name: "forwardkeyevent II selects the tail with forwarded Shift+Left",
-        cfg: &[("mode", "\"forwardselect\"")],
+        name: "forwardbackspace serves the XIM client (ForwardSelect's profiles ride it)",
+        cfg: &[("mode", "\"forwardbackspace\"")],
         macros: &[],
         raw: "",
         dict: "",
-        f: forward_select,
+        f: forward_backspace_xim,
     },
     Case {
-        name: "smoothforward rewrites at word end on a relayed client",
-        cfg: &[("mode", "\"smoothforward\"")],
+        name: "flow serves the word on a relayed client, per key and at word end",
+        cfg: &[("mode", "\"flow\"")],
         macros: &[],
         raw: "",
         dict: "",
-        f: smooth_forward,
+        f: flow_relayed,
     },
 ];
 
@@ -130,18 +129,45 @@ fn forward_keyevent(s: &mut common::Sess) {
     );
 }
 
-fn smooth_forward(s: &mut common::Sess) {
-    // The Smooth contract over the forward transport: raw keys ride the
-    // commit/forward channel while typing, and the word-end rewrite erases
-    // the raw tail with Backspace key events — no /dev/uinput, no protocol
-    // delete, no pacing.
+fn flow_relayed(s: &mut common::Sess) {
+    // Flow on a mutter-relayed client (the gnome-shell context): the raw
+    // keys pass through unconsumed, and both the per-key display and the
+    // word-end erase ride the injection backend — invisible to this
+    // harness, which sees neither DeleteSurroundingText nor forwarded key
+    // events. What the harness does see is the per-key display's commits:
+    // the word grows step by step, and the mark step lands the accented
+    // tail, with the terminator closing the word.
     s.focus(CAPS_BOTH, "gnome-shell");
     s.drain();
-    let (buf, sigs) = s.type_buffered("tieengs ");
-    assert_eq!(buf, "tiếng ", "the word-end rewrite must land the word");
+    let (_buf, sigs) = s.type_buffered("tieengs ");
     assert!(
         deletes(&sigs).is_empty(),
-        "no DeleteSurroundingText in SmoothForward mode: {sigs:?}"
+        "no DeleteSurroundingText in Flow mode: {sigs:?}"
+    );
+    assert!(preedits(&sigs).is_empty(), "no preedit: {sigs:?}");
+    let committed = commits(&sigs);
+    assert!(
+        !committed.is_empty(),
+        "the per-key display commits the word as it grows: {sigs:?}"
+    );
+    assert!(
+        committed.contains(&"ếng"),
+        "the mark step must land the accented tail: {sigs:?}"
+    );
+}
+
+fn forward_backspace_xim(s: &mut common::Sess) {
+    // A XIM client: the input context reports no capabilities at all, so no
+    // protocol delete and no preedit is possible there. ForwardSelect's old
+    // profiles ride ForwardBackspace since the merge: the tail rewrite
+    // erases with forwarded Backspace keys — the Shift+Left selection
+    // transport is gone — and the rewrite commits land behind them.
+    s.focus(CAPS_BOTH, "xim");
+    s.drain();
+    let sigs = s.type_plain("tieengs");
+    assert!(
+        deletes(&sigs).is_empty(),
+        "no DeleteSurroundingText in ForwardBackspace mode: {sigs:?}"
     );
     assert!(preedits(&sigs).is_empty(), "no preedit: {sigs:?}");
     let presses: Vec<(u32, u32)> = sigs
@@ -157,65 +183,18 @@ fn smooth_forward(s: &mut common::Sess) {
         .collect();
     assert!(
         !presses.is_empty(),
-        "the word-end rewrite must forward Backspace presses: {sigs:?}"
+        "the tone rewrite must forward Backspace presses: {sigs:?}"
     );
     assert!(
         presses.iter().all(|(k, _)| *k == BACKSPACE_KEYVAL),
-        "only Backspace may be forwarded: {presses:x?}"
+        "only Backspace may be forwarded — the Shift+Left transport is gone: {presses:x?}"
     );
+    // ibus clients add 8 to this to get their own keycode, so it is the evdev
+    // scancode (14), not the X keycode (22).
     assert!(
         presses.iter().all(|(_, code)| *code == BACKSPACE_KEYCODE),
-        "the Backspace rides evdev scancode 14, not X keycode 22: {presses:x?}"
+        "the scancode must be the evdev one: {presses:x?}"
     );
-}
-
-fn forward_select(s: &mut common::Sess) {
-    // A XIM client: the input context reports no capabilities at all, so no
-    // protocol delete and no preedit is possible there.
-    s.focus(CAPS_BOTH, "xim");
-    s.drain();
-    let sigs = s.type_plain("tieengs");
-    assert!(
-        deletes(&sigs).is_empty(),
-        "no DeleteSurroundingText in ForwardKeyEvent II: {sigs:?}"
-    );
-    let keys: Vec<(u32, u32, u32)> = sigs
-        .iter()
-        .filter_map(|sig| match sig {
-            Sig::ForwardKeyEvent {
-                keyval,
-                keycode,
-                state,
-            } if *keyval == LEFT_KEYVAL => Some((*keycode, *state, *keyval)),
-            _ => None,
-        })
-        .collect();
-    assert!(
-        !keys.is_empty(),
-        "the tone rewrite must forward Shift+Left: {sigs:?}"
-    );
-    assert!(
-        keys.iter().all(|(code, _, _)| *code == LEFT_KEYCODE),
-        "the scancode must be the evdev one: {keys:x?}"
-    );
-    assert!(
-        keys.iter().any(|(_, state, _)| *state == 1),
-        "a press carries the shift: {keys:x?}"
-    );
-    // The erase: ONE forwarded Backspace after the selection — a CommitText
-    // does not replace an application-side selection, so the selection is
-    // deleted with a Backspace (the select-then-erase fix).
-    assert!(
-        sigs.iter().any(|sig| matches!(
-            sig,
-            Sig::ForwardKeyEvent { keyval, state: 0, .. } if *keyval == BACKSPACE_KEYVAL
-        )),
-        "the selection must be erased with a forwarded Backspace: {sigs:?}"
-    );
-    // The rewrite commits ride the pacing window (the delete keys and the
-    // commit left in one batch and apps applied them out of order — every
-    // word lost the character before its accented vowel); pump past the
-    // window and check they still land.
     // The rewrite commits land within the per-key pumps — deferred by the
     // pacing window (Engine::defer_commit_timed, the engine log shows
     // "defer commit 30ms" then the timed flush), but they must land.
@@ -241,14 +220,14 @@ fn auto_capable(s: &mut common::Sess) {
 
 fn auto_xim(s: &mut common::Sess) {
     // A real XIM context reports no capabilities at all (caps 0): the
-    // Shift+Left transport, not the ladder's inert fallback.
+    // terminal Forward Backspace transport, not the ladder's inert fallback.
     s.focus(0, "xim");
     s.drain();
     let sigs = s.type_plain("tieengs");
     assert!(
         sigs.iter()
             .any(|s| matches!(s, Sig::ForwardKeyEvent { .. })),
-        "xim under auto must resolve to ForwardSelect: {sigs:?}"
+        "xim under auto must resolve to Forward Backspace: {sigs:?}"
     );
 }
 

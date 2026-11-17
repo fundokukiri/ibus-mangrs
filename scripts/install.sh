@@ -19,15 +19,15 @@ bin="$here/target/release/ibus-engine-mangrs"
 # IBus runs engines as the logged-in user, not as root, so the binary must be
 # world-readable and executable.
 install -Dm755 "$bin" "$LIBDIR/ibus-engine-mangrs"
-install -Dm644 "$here/data/ibus-mangrs.xml" "$COMPONENT_DIR/ibus-mangrs.xml"
+install -Dm644 "$here/data/system/ibus-mangrs.xml" "$COMPONENT_DIR/ibus-mangrs.xml"
 
 # Rebuild the registry cache; without -t refresh the daemon serves the old list.
 ibus write-cache --system 2>/dev/null || true
 
 # App icon + desktop entry for the settings window (the Wayland window icon
 # comes from the desktop file matching the app id, not from the binary).
-install -Dm644 "$here/data/logo.png"     "$PREFIX/share/icons/hicolor/512x512/apps/ibus-mangrs.png"
-install -Dm644 "$here/data/org.freedesktop.IBus.mangrs.desktop"     "$PREFIX/share/applications/org.freedesktop.IBus.mangrs.desktop"
+install -Dm644 "$here/data/icons/logo.png"     "$PREFIX/share/icons/hicolor/512x512/apps/ibus-mangrs.png"
+install -Dm644 "$here/data/system/org.freedesktop.IBus.mangrs.desktop"     "$PREFIX/share/applications/org.freedesktop.IBus.mangrs.desktop"
 # GTK4 ships the tool as gtk4-update-icon-cache; the GTK3 name only exists
 # where GTK3 is installed, so try both instead of silently skipping the cache.
 if command -v gtk4-update-icon-cache >/dev/null; then
@@ -38,10 +38,10 @@ fi
 update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
 
 # /dev/uinput access for the real-key injector. The active session's user gets
-# the device through logind's uaccess ACL (data/70-uinput.rules), which ends
+# the device through logind's uaccess ACL (data/rules/70-uinput.rules), which ends
 # with the session. Older installers added the user to the `input` group
 # instead; that group can read every keyboard of the machine, so it is removed.
-rule_src="$here/data/70-uinput.rules"
+rule_src="$here/data/rules/70-uinput.rules"
 rule_dst=/etc/udev/rules.d/70-uinput.rules
 
 # The rule used to be 80-uinput.rules. udev reads every file in the directory,

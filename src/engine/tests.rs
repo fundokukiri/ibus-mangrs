@@ -2,7 +2,9 @@ use super::*;
 use crate::config::{MethodConfig, ModeConfig};
 
 /// Feed keystrokes like a real client: it reports capabilities and a
-/// SetSurroundingText update after every visible change.
+/// SetSurroundingText update after every visible change. The first report
+/// lands at focus-in (the server sends RequireSurroundingText there), so
+/// the walk's protocol-delete row serves the very first word too.
 fn type_str(e: &mut Engine, s: &str) -> Vec<Action> {
     if e.client().is_none() {
         // Engine tests exercise the in-process-IM (non-relayed) path; the
@@ -10,6 +12,7 @@ fn type_str(e: &mut Engine, s: &str) -> Vec<Action> {
         e.set_client(Some("gtk4-im:test".into()));
     }
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
     let mut buf: Vec<char> = Vec::new();
     let mut all = Vec::new();
     for c in s.chars() {
@@ -37,8 +40,8 @@ fn type_str(e: &mut Engine, s: &str) -> Vec<Action> {
 }
 
 #[test]
-fn non_preedit_commits_and_rewrites() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+fn surrounding_commits_and_rewrites() {
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     let actions = type_str(&mut e, "tieengs");
     // Each key is committed as it arrives; the tone key then rewrites the
     // unaccented tail in place.
@@ -61,7 +64,7 @@ fn replay(actions: &[Action]) -> String {
     for a in actions {
         match a {
             Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
-            // ForwardKeyEvent mode: real Backspace key events, same net effect on
+            // ForwardBackspace mode: real Backspace key events, same net effect on
             // the buffer as a protocol delete.
             Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
             // IBus semantics: delete n chars starting at cursor+offset.
@@ -79,7 +82,7 @@ fn replay(actions: &[Action]) -> String {
 
 /// Engine with a config whose mode matches the constructor argument.
 /// `apply_config` would otherwise silently reset the mode to the config's
-/// default (preedit), making a NonPreedit test exercise preedit.
+/// default (preedit), making a Surrounding test exercise preedit.
 fn engine(mode: Mode, config: Config) -> Engine {
     let mut e = Engine::new(Method::Telex, mode);
     e.apply_config(&Config {
@@ -167,7 +170,7 @@ fn type_replay_with_reports(e: &mut Engine, s: &str, reports: bool) -> String {
         for a in &actions {
             match a {
                 Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
-                // ForwardKeyEvent mode: real Backspace key events, same net effect on
+                // ForwardBackspace mode: real Backspace key events, same net effect on
                 // the buffer as a protocol delete.
                 Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
                 // IBus semantics: delete n chars starting at cursor+offset.
@@ -238,7 +241,7 @@ fn stale_surrounding_text_does_not_tear_down_the_word() {
     // characters were eaten (`tùng` -> `tungf`). A stale report must be
     // ignored; the fresh one (sent right before the next keystroke) is
     // what verify works on.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     type_str(&mut e, "tie");
 
@@ -270,8 +273,9 @@ fn no_surrounding_data_never_produces_a_delete() {
     // Regression for the mutter segfault: a client without preedit
     // support that has not reported SetSurroundingText yet must never
     // receive DeleteSurroundingText — mutter crashes applying a delete
-    // to a buffer it never saw. The key is forwarded instead.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    // to a buffer it never saw. The rewrites ride the forwarded
+    // key-event transport instead, which needs no report.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     // Raw loop: no capabilities, no SetSurroundingText ever.
     let actions: Vec<Action> = "tieengs".chars().flat_map(|c| e.process_char(c)).collect();
     assert!(
@@ -281,7 +285,13 @@ fn no_surrounding_data_never_produces_a_delete() {
         )),
         "{actions:?}"
     );
-    assert!(actions.iter().any(|a| matches!(a, Action::Forward)));
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "the forwarded transport rewrites: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
 }
 
 #[test]
@@ -309,7 +319,7 @@ fn replay_from(prefix: &str, actions: &[Action]) -> String {
     for a in actions {
         match a {
             Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
-            // ForwardKeyEvent mode: real Backspace key events, same net effect on
+            // ForwardBackspace mode: real Backspace key events, same net effect on
             // the buffer as a protocol delete.
             Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
             // IBus semantics: delete n chars starting at cursor+offset.
@@ -333,7 +343,7 @@ fn replay_from(prefix: &str, actions: &[Action]) -> String {
 
 #[test]
 fn terminator_forwards_and_does_not_delete() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     type_str(&mut e, "vieejt");
     let actions = e.process_char(' ');
     assert!(actions.contains(&Action::Forward));
@@ -348,24 +358,22 @@ fn backspace_then_type_does_not_eat_a_letter() {
     // Regression: bamboo-core's EditDelta is relative to a stale
     // prev_preedit after remove_last_output_char, so the next keystroke
     // deleted an already-removed character ("tin" came out as "tn").
-    for mode in [Mode::NonPreedit, Mode::Surrounding] {
-        let mut e = Engine::new(Method::Telex, mode);
-        type_str(&mut e, "tie");
-        e.backspace().expect("backspace");
-        // The client's next SetSurroundingText reflects the deletion.
-        e.set_surrounding("ti".into(), 2);
-        let actions = e.process_char('n');
-        // The app buffer held "ti" after the backspace; the new key must
-        // only add its own character, not re-delete an old one.
-        assert_eq!(replay_from("ti", &actions), "tin", "{mode:?}: {actions:?}");
-    }
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    type_str(&mut e, "tie");
+    e.backspace().expect("backspace");
+    // The client's next SetSurroundingText reflects the deletion.
+    e.set_surrounding("ti".into(), 2);
+    let actions = e.process_char('n');
+    // The app buffer held "ti" after the backspace; the new key must
+    // only add its own character, not re-delete an old one.
+    assert_eq!(replay_from("ti", &actions), "tin", "{actions:?}");
 }
 
 #[test]
 fn backspace_then_tone_key_rewrites_correctly() {
     // unikey convention: the Backspace undoes the last KEY — here the
     // tone key "s" — and retyping it restores the word.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     let mut actions = type_str(&mut e, "tieengs"); // tiếng
     actions.extend(e.backspace().expect("backspace")); // tiêng
     e.set_surrounding("tiêng".into(), 5);
@@ -375,15 +383,15 @@ fn backspace_then_tone_key_rewrites_correctly() {
 
 #[test]
 fn backspace_on_empty_composition_forwards() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     assert!(e.backspace().is_none());
 }
 
 #[test]
 fn backspace_deletes_one_char() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
-        mode: Mode::NonPreedit.into(),
+        mode: Mode::Surrounding.into(),
         backspace_tone: BackspaceToneConfig::UnikeyWalk,
         ..Config::default()
     });
@@ -395,7 +403,7 @@ fn backspace_deletes_one_char() {
 fn backspace_replays_when_the_tone_moves() {
     // unikey convention: each Backspace pops the last raw KEY and the
     // word recomposes ("hoàng" -> "hoang" -> "hoan" -> "hoa").
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     let mut actions = type_str(&mut e, "hoangf");
     assert_eq!(replay(&actions), "hoàng");
     for expected in ["hoang", "hoan", "hoa"] {
@@ -409,7 +417,7 @@ fn backspace_replays_when_the_tone_moves() {
 fn chromium_falls_back_to_preedit() {
     // Chrome drops DeleteSurroundingText and matches the default app
     // rule, so the word is shown inline instead of being rewritten.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_capabilities(CAP_PREEDIT_TEXT);
     e.set_client(Some("gtk4-im:chrome".into()));
     let actions = type_str(&mut e, "tieengs");
@@ -432,7 +440,7 @@ fn focus_change_drops_stale_surrounding_data() {
     // client's surrounding data and caps must not leak into the next
     // context. Without the clear, the engine sent protocol
     // DeleteSurroundingText to a context whose buffer mutter never saw.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     for c in "tieng".chars() {
@@ -445,14 +453,20 @@ fn focus_change_drops_stale_surrounding_data() {
     e.clear_buffer_state();
     e.set_capabilities(CAP_PREEDIT_TEXT);
     assert!(!e.surrounding_data_ok());
-    // With no uinput the delete must be skipped entirely, never sent.
+    // With no uinput the protocol delete must be skipped entirely, never
+    // sent. The word rides its locked forwarded transport: the mark
+    // rewrite erases with forwarded Backspace key events.
     let actions = e.process_char('s');
-    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert_eq!(
+        actions,
+        vec![Action::ForwardBackspaces(3), Action::Commit("éng".into())],
+        "{actions:?}"
+    );
 }
 
 #[test]
 fn fake_client_context_drops_buffer_state_but_keeps_name() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:chrome".into()));
     type_str(&mut e, "tieng");
     assert!(e.surrounding_data_ok());
@@ -466,7 +480,7 @@ fn fake_client_context_drops_buffer_state_but_keeps_name() {
 
 #[test]
 fn stale_echoes_are_dropped_and_deferred_flushed() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.add_injected(2);
     e.defer_commit(2, "word".into());
     // Fresh injection: echoes still expected.
@@ -489,7 +503,7 @@ fn capability_flip_does_not_change_delete_transport() {
     // proves mutter has the buffer, so the rewrite stays on the protocol
     // delete; treating the bit as authoritative routed every rewrite to
     // injection, whose backspaces never arrive on a relay.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     // In the real session the report channel works from the first key on.
@@ -514,7 +528,7 @@ fn stale_pending_without_deferred_unsticks_backspace() {
     // A bare injection (Backspace while composing) leaves pending echoes
     // even with nothing deferred; without the stale drop every later
     // real Backspace would be eaten as an echo forever.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.add_injected(1);
     assert!(e.pending_echoes());
     assert!(e.take_stale_injection(Duration::ZERO));
@@ -530,7 +544,7 @@ fn digits_terminate_the_word_and_are_forwarded() {
     // Regression: bamboo clears its whole composition when a digit
     // arrives in Telex — the engine replayed that as "delete everything"
     // and the user's characters vanished when typing numbers.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     assert_eq!(type_replay(&mut e, "abc123"), "abc123");
     let mut e = Engine::new(Method::Telex, Mode::Preedit);
@@ -538,7 +552,7 @@ fn digits_terminate_the_word_and_are_forwarded() {
     // Preedit: the word commits when the digit ends it, the digit follows.
     assert_eq!(type_replay(&mut e, "x1"), "x1");
     // Vietnamese word + digit.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     assert_eq!(type_replay(&mut e, "tieeng2"), "tiêng2");
 }
@@ -570,12 +584,12 @@ fn lost_echoes_flush_in_the_main_loop_tick() {
 
 #[test]
 fn backspace_honors_the_word_mode_lock_across_an_inline_suggestion() {
-    // A NonPreedit word in flight; the app appends suggestion text after
+    // A Surrounding word in flight; the app appends suggestion text after
     // the caret, so effective_mode() now resolves to Preedit. The
     // Backspace must follow the locked mode — a phantom preedit over the
     // per-key-committed text is exactly the mid-word flip the lock
     // exists to prevent.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     assert_eq!(type_replay(&mut e, "tie"), "tie");
@@ -585,31 +599,31 @@ fn backspace_honors_the_word_mode_lock_across_an_inline_suggestion() {
         !actions
             .iter()
             .any(|a| matches!(a, Action::UpdatePreedit { .. })),
-        "the locked NonPreedit word must not turn into a preedit: {actions:?}"
+        "the locked Surrounding word must not turn into a preedit: {actions:?}"
     );
 }
 
 #[test]
-fn no_delete_transport_keeps_word_raw_at_word_end() {
-    // NonPreedit without a surrounding report and without uinput: mark
-    // keys are raw-forwarded, so the application already holds the raw
-    // keys. The auto-restore rewrite would duplicate them (delete
-    // dropped, commit appended).
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+fn no_report_no_backend_rewrites_through_forward_backspace() {
+    // Surrounding without a surrounding report and without uinput: the
+    // walk's terminal transport rewrites the word with forwarded Backspace
+    // key events instead of leaving the raw keys on screen.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     assert_eq!(
         type_replay_with_reports(&mut e, "tieengs ", false),
-        "tieengs "
+        "tiếng "
     );
 }
 
 #[test]
-fn no_delete_transport_keeps_macros_raw() {
-    // A macro expansion rewrites committed text; without a delete
-    // transport the commit would duplicate the raw keys on screen.
+fn no_report_no_backend_macro_expands_through_the_forward_transport() {
+    // A macro expansion rewrites committed text; the walk's terminal
+    // transport supplies the delete, so the expansion lands instead of
+    // being held back.
     let mut e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             time_format: "%H".into(),
             ..Config::default()
@@ -619,40 +633,47 @@ fn no_delete_transport_keeps_macros_raw() {
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     e.macros
         .set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
-    assert_eq!(type_replay_with_reports(&mut e, "gs ", false), "gs ");
+    assert_eq!(type_replay_with_reports(&mut e, "gs ", false), "giờ sáng ");
 }
 
 #[test]
-fn no_delete_transport_backspace_forwards_to_the_app() {
-    // The delete cannot reach the application, so the Backspace key must
-    // be forwarded: the app deletes the last character itself, which is
-    // also what the wrapper's raw-key undo models.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+fn no_report_no_backend_backspace_rides_the_forward_transport() {
+    // Without a report and without a backend the walk still hands the
+    // edit a transport: the forwarded Backspace key event erases the
+    // character, like any ForwardBackspace word edit.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     assert_eq!(type_replay_with_reports(&mut e, "ab", false), "ab");
     let actions = e.backspace().expect("backspace over a committed word");
     assert!(
-        actions.contains(&Action::Forward),
-        "the app must delete the character itself: {actions:?}"
+        actions.contains(&Action::ForwardBackspaces(1)),
+        "the forwarded transport erases: {actions:?}"
     );
 }
 
 #[test]
-fn no_delete_transport_legacy_charset_stays_raw() {
-    // Legacy rewrite deletes the whole tail every key; without a delete
-    // transport that duplicates from the second keystroke on.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+fn no_report_no_backend_legacy_charset_rewrites_forwarded() {
+    // Legacy rewrite deletes the whole tail every key; the walk's
+    // terminal transport supplies it, so the VNI output lands exactly
+    // like on the protocol path.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     e.set_charset(Charset::Vni);
-    assert_eq!(type_replay_with_reports(&mut e, "viee", false), "viee");
+    assert_eq!(
+        type_replay_with_reports(&mut e, "viee", false),
+        encode(Charset::Vni, "viê")
+    );
 }
 
 #[test]
-fn no_delete_transport_keeps_em_dash_and_double_space_literal() {
+fn no_report_no_backend_rewrites_em_dash_and_double_space() {
+    // The walk's terminal transport gives the rewrite features a working
+    // delete: `--` becomes an em dash and the double space inserts the
+    // period through forwarded Backspaces.
     let mut e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             em_dash: true,
             double_space_period: true,
@@ -661,8 +682,8 @@ fn no_delete_transport_keeps_em_dash_and_double_space_literal() {
     );
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-    assert_eq!(type_replay_with_reports(&mut e, "a--", false), "a--");
-    assert_eq!(type_replay_with_reports(&mut e, "b  ", false), "b  ");
+    assert_eq!(type_replay_with_reports(&mut e, "a--", false), "a—");
+    assert_eq!(type_replay_with_reports(&mut e, "b  ", false), "b. ");
 }
 
 #[test]
@@ -670,7 +691,7 @@ fn viqr_marks_apply_in_every_display_mode() {
     // The VIQR mark keys are punctuation keys: they must compose instead
     // of ending the word (BUG: they used to be intercepted as word
     // terminators, so VIQR could not type any mark at all).
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(
             mode,
             Config {
@@ -692,7 +713,7 @@ fn viqr_non_mark_digits_still_terminate_and_stay_literal() {
     // VIQR uses `0` as its only digit mark (remove tone); the other
     // digits end the word and are kept as data.
     let mut e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             method: crate::config::MethodConfig::Viqr,
             ..Config::default()
@@ -706,7 +727,7 @@ fn viqr_punctuation_stays_literal_where_no_mark_applies() {
     // unikey convention: a mark key that cannot transform anything stays
     // literal, and a doubled mark key yields the literal character.
     let mut e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             method: crate::config::MethodConfig::Viqr,
             ..Config::default()
@@ -722,7 +743,7 @@ fn microsoft_brackets_type_horn_in_every_display_mode() {
     // The Microsoft layout types ư/ơ only on the bracket keys; they must
     // reach the engine even with the bracket option off (BUG: the keys
     // used to end the word, so ư/ơ were untypeable on this layout).
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(
             mode,
             Config {
@@ -744,30 +765,32 @@ fn undo_mark_then_consonant_stays_raw_tool() {
     // bamboo resurface a hidden extra 'o' ("toool") which replayed into
     // the application. The poisoned composition must never win: the
     // output can never be longer than the raw keystrokes.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     assert_eq!(type_replay(&mut e, "tool"), "tool");
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     assert_eq!(type_replay(&mut e, "toool"), "tool");
     // Vietnamese words keep working.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     assert_eq!(type_replay(&mut e, "xin chaof "), "xin chào ");
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     assert_eq!(type_replay(&mut e, "tieengs "), "tiếng ");
 }
 
 #[test]
-fn raw_forward_resyncs_to_raw_keys_toool() {
+fn forward_backspace_resyncs_the_mark_undo_toool() {
     // Regression: "toool" (English) — the third 'o' undoes the
-    // circumflex inside bamboo. With no delete transport the mark keys
-    // pass through raw, and the tracker used to keep believing the
+    // circumflex inside bamboo. Without any delete transport the mark
+    // keys used to pass through raw while the tracker kept believing the
     // transformed text — a later key then committed garbage ("tooool"
-    // with an extra 'o'). The tracker must re-align to the raw keys the
-    // app actually holds.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    // with an extra 'o'). The walk's forwarded transport makes the undo
+    // rewrites land, so the visible text behaves as "too" + 'l' → "tool"
+    // (bamboo's hidden extra 'o' must never resurface), exactly like on
+    // the protocol path.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT); // no ST report, no uinput
     let mut buf: Vec<char> = Vec::new();
@@ -778,7 +801,7 @@ fn raw_forward_resyncs_to_raw_keys_toool() {
         for a in &actions {
             match a {
                 Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
-                // ForwardKeyEvent mode: real Backspace key events, same net effect on
+                // ForwardBackspace mode: real Backspace key events, same net effect on
                 // the buffer as a protocol delete.
                 Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
                 Action::Commit(t) => buf.extend(t.chars()),
@@ -795,10 +818,18 @@ fn raw_forward_resyncs_to_raw_keys_toool() {
             a,
             Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
         )),
-        "no delete transport: {all:?}"
+        "no protocol delete transport: {all:?}"
+    );
+    assert!(
+        all.iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "the forwarded transport rewrites: {all:?}"
     );
     let text: String = buf.into_iter().collect();
-    assert_eq!(text, "toool", "raw keys must survive verbatim");
+    assert_eq!(
+        text, "tool",
+        "the forwarded undo must not resurface raw keys"
+    );
 }
 
 #[test]
@@ -808,10 +839,10 @@ fn toool_with_protocol_delete_undoes_the_circumflex() {
     // "toool" (5 keys — the 3rd 'o' undid the circumflex): the visible
     // text behaves as "too" + 'l' → "tool"; bamboo's hidden extra 'o'
     // must never resurface.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     assert_eq!(type_replay(&mut e, "toool"), "tool");
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     assert_eq!(type_replay(&mut e, "too"), "tô");
 }
@@ -821,7 +852,7 @@ fn word_mode_locks_across_config_changes() {
     // Mid-word mode changes (config reload, capability flips) must not
     // toggle preedit under the user's hands; the lock releases at the
     // word boundary.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     let first = e.process_char('t');
@@ -857,6 +888,9 @@ fn mutter_relayed_clients_skip_repair_deletes_but_rewrite_normally() {
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    // A real client reports at focus-in, before the first key: word one
+    // resolves through the walk's protocol-delete row.
+    e.set_surrounding(String::new(), 0);
     for c in "chan".chars() {
         e.process_char(c);
     }
@@ -885,7 +919,7 @@ fn heuristic_clients_fall_back_to_preedit() {
     // Clients on the engine's FALLBACK_NO_DELETE_SURROUNDING list ignore
     // DeleteSurroundingText; non-preedit would append the rewrite and
     // duplicate the word, so keep it inline instead.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_capabilities(CAP_PREEDIT_TEXT);
     e.set_client(Some("gtk3-im:code".into()));
     let actions = type_str(&mut e, "tieengs");
@@ -917,7 +951,7 @@ fn x11_delete_without_report_is_opt_in() {
     // switch is on (that is what makes Sublime work, like ibus-bamboo).
     for (enabled, want_delete) in [(false, false), (true, true)] {
         let mut e = engine(
-            Mode::NonPreedit,
+            Mode::Surrounding,
             Config {
                 x11_delete_without_report: enabled,
                 ..Config::default()
@@ -935,7 +969,7 @@ fn x11_delete_without_report_is_opt_in() {
     // A mutter relay still needs a report: the switch must never lift the
     // rule that keeps the compositor alive.
     let mut e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             x11_delete_without_report: true,
             ..Config::default()
@@ -950,7 +984,7 @@ fn x11_delete_without_report_is_opt_in() {
     );
     // Without the surrounding capability there is nothing to delete with.
     let mut e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             x11_delete_without_report: true,
             ..Config::default()
@@ -1013,7 +1047,7 @@ fn forward_key_event_mode_deletes_by_forwarding_backspaces() {
     // The mode's point: a mutter-relayed client with no surrounding-text
     // report and no usable /dev/uinput path still rewrites correctly,
     // because the deletes are Backspace key events sent through IBus.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT); // no ST capability at all
     let actions = type_str(&mut e, "tieengs");
@@ -1022,7 +1056,7 @@ fn forward_key_event_mode_deletes_by_forwarding_backspaces() {
             a,
             Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
         )),
-        "no protocol delete in ForwardKeyEvent mode: {actions:?}"
+        "no protocol delete in ForwardBackspace mode: {actions:?}"
     );
     assert!(
         actions
@@ -1039,7 +1073,7 @@ fn forward_key_event_mode_survives_the_preedit_heuristics() {
     // (inline suggestions, the known-client list, a proven swallowed
     // delete) must not apply: this mode was chosen precisely because
     // preedit is unusable in the app.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     e.set_client(Some("gnome-shell".into()));
     e.set_suggestions(true);
@@ -1048,44 +1082,9 @@ fn forward_key_event_mode_survives_the_preedit_heuristics() {
         !actions
             .iter()
             .any(|a| matches!(a, Action::UpdatePreedit { .. })),
-        "ForwardKeyEvent never falls back to preedit: {actions:?}"
+        "ForwardBackspace never falls back to preedit: {actions:?}"
     );
     assert_eq!(replay(&actions), "tiếng");
-}
-
-#[test]
-fn forward_select_mode_selects_the_tail_before_committing() {
-    // ForwardKeyEvent II: the tail is selected with forwarded Shift+Left
-    // and the commit replaces the selection, so the application never has
-    // to handle a Backspace. XIM clients report no capabilities at all,
-    // which is exactly the case this mode exists for.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
-    e.set_client(Some("xim".into()));
-    e.set_capabilities(0);
-    let mut buf: Vec<char> = Vec::new();
-    let mut selected = 0usize;
-    for c in "tieengs ".chars() {
-        let actions = e.process_char(c);
-        let forwarded = actions.contains(&Action::Forward);
-        for a in &actions {
-            match a {
-                Action::ForwardSelectLeft(n) => selected += *n as usize,
-                Action::Commit(t) => {
-                    buf.truncate(buf.len().saturating_sub(selected));
-                    selected = 0;
-                    buf.extend(t.chars());
-                }
-                Action::DeleteBefore(_) | Action::DeleteSurrounding { .. } => {
-                    panic!("ForwardSelect must not use a protocol delete: {actions:?}")
-                }
-                _ => {}
-            }
-        }
-        if forwarded {
-            buf.push(c);
-        }
-    }
-    assert_eq!(buf.iter().collect::<String>(), "tiếng ");
 }
 
 #[test]
@@ -1093,7 +1092,7 @@ fn xim_clients_report_no_usable_application_name() {
     // ibus-x11 names every input context `xim`, so an app rule can only
     // match one by accident; the server must name the app from the
     // compositor extension or xprop for rules to work there.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("xim".into()));
     assert!(e.client_name_is_opaque());
     e.set_client(Some("gtk3-im:sublime_text".into()));
@@ -1102,7 +1101,7 @@ fn xim_clients_report_no_usable_application_name() {
 
 #[test]
 fn forward_key_event_backspace_never_deletes_by_protocol() {
-    let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT);
     type_str(&mut e, "tiee");
@@ -1119,136 +1118,17 @@ fn forward_key_event_backspace_never_deletes_by_protocol() {
 }
 
 #[test]
-fn smoothforward_mode_rewrites_at_word_end_with_forwarded_backspaces() {
-    // The Smooth contract on the forward transport: raw keys forwarded
-    // while typing, one rewrite at word end — the erase rides ForwardKeyEvent
-    // and the word+terminator ride the Commit, same ordered channel, no
-    // uinput device, no echo bookkeeping. Per-key off: with it on, the
-    // rewrite applies inline per key instead (see the per-key tests).
-    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
-    e.flow_per_key = false;
-    e.set_client(Some("gnome-shell".into()));
-    e.set_capabilities(CAP_PREEDIT_TEXT); // no ST capability at all
-    let actions = type_str(&mut e, "tieengs ");
-    // "tieengs" is 7 raw keys; the terminator travels inside the commit.
-    let fb = actions
-        .iter()
-        .position(|a| matches!(a, Action::ForwardBackspaces(7)))
-        .expect("word-end rewrite must forward 7 Backspaces: {actions:?}");
-    assert!(
-        matches!(actions.get(fb + 1), Some(Action::Commit(t)) if t == "tiếng "),
-        "the commit with the terminator must follow the erase: {actions:?}"
-    );
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(_) | Action::PostDelay(_))),
-        "no uinput transport and no pacing on this mode: {actions:?}"
-    );
-    assert!(!e.has_deferred(), "no park on the forward transport");
-    assert!(!e.pending_echoes(), "no echoes come back over IBus");
-    assert_eq!(replay(&actions), "tiếng ");
-}
-
-#[test]
-fn smoothforward_mode_does_not_fall_back_without_uinput() {
-    // The whole point of the mode: it never needs /dev/uinput, so the
-    // device fallback that stands preedit in for Flow/Turbo/Select must
-    // not engage.
-    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
-    e.set_client(Some("gnome-shell".into()));
-    e.set_capabilities(CAP_PREEDIT_TEXT);
-    e.set_uinput_available(false);
-    assert_eq!(e.effective_mode(), Mode::SmoothForward);
-    let actions = type_str(&mut e, "tieengs ");
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
-        "SmoothForward never falls back to preedit: {actions:?}"
-    );
-}
-
-#[test]
-fn smoothforward_backspace_during_composition_forwards() {
-    // Mid-word Backspace behaves exactly like the uinput smooth modes:
-    // the application owns the on-screen raw keys, so the engine hands
-    // the key over (None) and keeps the unikey raw-key undo. Per-key is
-    // off here — with it on, the backspace rides that batch instead.
-    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
-    e.flow_per_key = false;
-    type_str(&mut e, "tiee");
-    assert!(
-        e.backspace().is_none(),
-        "the Backspace is forwarded, not handled"
-    );
-}
-
-#[test]
-fn smoothforward_per_key_applies_marks_inline() {
-    // Per-key display on the forward transport: every key commits inline
-    // through the ordered channel (no park, no deadline), so the mark shows
-    // immediately and deletes can never overtake the commit.
-    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
-    e.flow_per_key = true;
-    let actions = type_str(&mut e, "tiee");
-    let fb = actions
-        .iter()
-        .position(|a| matches!(a, Action::ForwardBackspaces(1)))
-        .expect("the ee→ê mark must erase one character: {actions:?}");
-    assert!(
-        matches!(actions.get(fb + 1), Some(Action::Commit(t)) if t == "ê"),
-        "the composed vowel must follow the erase inline: {actions:?}"
-    );
-    assert!(
-        !actions.iter().any(|a| matches!(
-            a,
-            Action::InjectBackspaces(_) | Action::PostDelay(_) | Action::CommitNow(_)
-        )),
-        "no uinput transport, no pacing, no park on this mode: {actions:?}"
-    );
-    assert!(!e.has_deferred(), "the forward transport parks nothing");
-    assert_eq!(replay(&actions), "tiê");
-}
-
-#[test]
-fn smoothforward_per_key_coalesces_fast_typing() {
-    // Two composition-changing keys in one word: each diff is computed
-    // against the previous batch's landing point, so the erase stays inside
-    // the word region and the final batch is one ordered FB+Commit pair.
-    let mut e = Engine::new(Method::Telex, Mode::SmoothForward);
-    e.flow_per_key = true;
-    let actions = type_str(&mut e, "tieengs");
-    let fb = actions
-        .iter()
-        .position(|a| matches!(a, Action::ForwardBackspaces(3)))
-        .expect("the sắc mark rewrites the tail's vowel run: {actions:?}");
-    assert!(
-        matches!(actions.get(fb + 1), Some(Action::Commit(t)) if t == "ếng"),
-        "the vowel run + suffix must follow inline: {actions:?}"
-    );
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(_) | Action::CommitNow(_))),
-        "the erase never leaves the word region nor rides uinput: {actions:?}"
-    );
-    assert!(!e.has_deferred(), "the forward transport parks nothing");
-    assert_eq!(replay(&actions), "tiếng");
-}
-
-#[test]
 fn config_rule_bypasses_the_delete_fallback() {
     // An explicit rule pins the mode for its client, skipping the runtime
     // fallback that would otherwise force preedit on delete-dropping
     // clients such as chrome.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_capabilities(CAP_PREEDIT_TEXT);
     e.set_client(Some("gtk4-im:chrome".into()));
     e.apply_config(&Config {
         app_rules: vec![crate::config::AppRule {
             pattern: "chrome".into(),
-            mode: crate::config::ModeConfig::NonPreedit,
+            mode: crate::config::ModeConfig::Surrounding,
         }],
         ..Config::default()
     });
@@ -1264,7 +1144,7 @@ fn none_rule_targets_unnamed_clients_in_every_display_mode() {
     // The special `none` pattern targets clients that never reported a
     // name (X11/XIM apps): with no name there is nothing to substring-
     // match, so the rule used to be silently skipped for them.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = Engine::new(Method::Telex, Mode::Off);
         e.set_capabilities(CAP_PREEDIT_TEXT);
         e.set_client(None);
@@ -1278,11 +1158,20 @@ fn none_rule_targets_unnamed_clients_in_every_display_mode() {
             }],
             ..Config::default()
         });
-        assert_eq!(e.effective_mode(), mode, "unnamed client: {mode:?}");
+        // The none rule matches the unnamed client and its mode then runs
+        // the walk. No surrounding report and no backend: the commit-as-
+        // you-type requests are served by the terminal forwarded
+        // transport, while Preedit stands when the client can render it.
+        let unnamed = if mode == Mode::Preedit {
+            Mode::Preedit
+        } else {
+            Mode::ForwardBackspace
+        };
+        assert_eq!(e.effective_mode(), unnamed, "unnamed client: {mode:?}");
         // A named client must not match the none rule: the configured
         // base mode (Off) stands for it.
         e.set_client(Some("gtk4-im:firefox".into()));
-        assert_ne!(e.effective_mode(), mode, "named client: {mode:?}");
+        assert_ne!(e.effective_mode(), unnamed, "named client: {mode:?}");
     }
 }
 
@@ -1292,14 +1181,15 @@ fn hidden_modes_are_not_selectable_from_config_or_rules() {
     e.set_capabilities(CAP_PREEDIT_TEXT);
     e.set_client(Some("gtk4-im:game".into()));
     e.apply_config(&Config {
-        // The global mode is hidden: the engine moves to the first visible
+        // The global mode is hidden by the explicit subset (no variant
+        // ships hidden anymore): the engine moves to the first visible
         // entry instead of running a mode the user cannot see.
-        mode: ModeConfig::Turbo,
+        mode: ModeConfig::Flow,
         visible_modes: Some(vec!["preedit".into(), "off".into()]),
         // A rule naming a hidden mode is ignored; the global mode stands.
         app_rules: vec![crate::config::AppRule {
             pattern: "game".into(),
-            mode: ModeConfig::Select,
+            mode: ModeConfig::Flow,
         }],
         ..Config::default()
     });
@@ -1313,13 +1203,13 @@ fn hidden_modes_are_not_selectable_from_config_or_rules() {
         visible_modes: Some(vec!["preedit".into(), "forwardkeyevent".into()]),
         app_rules: vec![crate::config::AppRule {
             pattern: "game".into(),
-            mode: ModeConfig::ForwardKeyEvent,
+            mode: ModeConfig::ForwardBackspace,
         }],
         ..Config::default()
     });
     assert_eq!(
         e.effective_mode(),
-        Mode::ForwardKeyEvent,
+        Mode::ForwardBackspace,
         "visible rule applies"
     );
 }
@@ -1328,20 +1218,22 @@ fn hidden_modes_are_not_selectable_from_config_or_rules() {
 fn hidden_mode_fallback_follows_the_visible_order() {
     let mut e = Engine::new(Method::Telex, Mode::Preedit);
     e.apply_config(&Config {
-        mode: ModeConfig::NonPreedit,
+        mode: ModeConfig::Surrounding,
         visible_modes: Some(vec!["off".into(), "preedit".into()]),
         ..Config::default()
     });
     assert_eq!(e.mode(), Mode::Off, "the first visible entry wins");
+    // The explicit subset hides Preedit itself: the fallback still follows
+    // the list order, not the factory default.
     e.apply_config(&Config {
         mode: ModeConfig::Preedit,
-        visible_modes: Some(vec!["smoothforward".into(), "flow".into()]),
+        visible_modes: Some(vec!["forwardbackspace".into(), "flow".into()]),
         ..Config::default()
     });
     assert_eq!(
         e.mode(),
-        Mode::SmoothForward,
-        "a visible mode is kept as configured"
+        Mode::ForwardBackspace,
+        "the fallback follows the list order, not the factory default"
     );
 }
 
@@ -1396,16 +1288,16 @@ fn app_name_feeds_rules_but_not_transport_decisions() {
 }
 
 #[test]
-fn firefox_keeps_non_preedit() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+fn firefox_keeps_surrounding() {
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_capabilities(CAP_PREEDIT_TEXT);
     e.set_client(Some("gtk4-im:firefox".into()));
     assert_eq!(replay(&type_str(&mut e, "tieengs")), "tiếng");
 }
 
 #[test]
-fn unknown_client_keeps_non_preedit() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+fn unknown_client_keeps_surrounding() {
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_capabilities(CAP_PREEDIT_TEXT);
     e.set_client(Some("gtk3-im:gedit".into()));
     assert_eq!(replay(&type_str(&mut e, "tieengs")), "tiếng");
@@ -1415,7 +1307,7 @@ fn unknown_client_keeps_non_preedit() {
 fn daemon_fake_context_is_ignored() {
     // Focus bounces through ibus-daemon's `fake` hotkey context; treating
     // it as the focused app would reset the word being typed.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:firefox".into()));
     type_str(&mut e, "vieejt");
     e.set_client(Some("fake".into()));
@@ -1424,7 +1316,7 @@ fn daemon_fake_context_is_ignored() {
 
 #[test]
 fn english_mode_forwards_everything() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_enabled(false);
     assert_eq!(e.process_char('a'), vec![Action::Forward]);
 }
@@ -1432,7 +1324,7 @@ fn english_mode_forwards_everything() {
 #[test]
 fn legacy_charset_rewrites_the_whole_word() {
     // VNI's `ế` is several chars, so the Unicode delta cannot be replayed.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_charset(Charset::Vni);
     let actions = type_str(&mut e, "vieejt");
     assert_eq!(replay(&actions), encode(Charset::Vni, "việt"));
@@ -1440,7 +1332,7 @@ fn legacy_charset_rewrites_the_whole_word() {
 
 #[test]
 fn legacy_charset_backspace_replays_correctly() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_charset(Charset::Vni);
     let mut actions = type_str(&mut e, "vieejt");
     actions.extend(e.backspace().expect("backspace"));
@@ -1450,7 +1342,7 @@ fn legacy_charset_backspace_replays_correctly() {
 
 #[test]
 fn legacy_charset_word_end_sends_nothing_extra() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_charset(Charset::Tcvn3);
     let mut actions = type_str(&mut e, "vieejt");
     let end = e.process_char(' ');
@@ -1498,11 +1390,13 @@ fn selection_reports_never_trigger_a_repair() {
 }
 
 #[test]
-fn only_surrounding_mode_repairs_from_the_report() {
-    // Plain NonPreedit must not send a repair delete: the client never
-    // asked for surrounding-text verification, and a wrong repair eats
-    // real text.
-    for mode in [Mode::Preedit, Mode::NonPreedit, Mode::Surrounding] {
+fn surrounding_repairs_from_the_report() {
+    // Preedit never sends a repair delete: the composition is still on
+    // screen, nothing to verify against. The commit-as-you-type contract
+    // verifies and repairs from the report once the walk resolves it
+    // through the protocol-delete row (a report proves the client's
+    // buffer is known).
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = Engine::new(Method::Telex, mode);
         type_str(&mut e, "tie");
         // The client reports text the engine did not write (another
@@ -1515,7 +1409,7 @@ fn only_surrounding_mode_repairs_from_the_report() {
                 Action::DeleteSurrounding { .. } | Action::RewriteByBackspace { .. }
             )
         });
-        assert_eq!(repaired, mode == Mode::Surrounding, "{mode:?}: {actions:?}");
+        assert_eq!(repaired, mode != Mode::Preedit, "{mode:?}: {actions:?}");
     }
 }
 
@@ -1652,7 +1546,7 @@ fn report_missing_the_word_is_ignored() {
     // A report that does not contain the believed word is stale (or the
     // user deleted it); the engine must NOT tear the composition down
     // over it — this is what used to eat characters when typing fast.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     type_str(&mut e, "tie");
     e.set_surrounding("tie".into(), 3);
@@ -1684,10 +1578,10 @@ fn surrounding_verify_ignores_preedit_mode() {
 
 #[test]
 fn em_dash_replaces_double_hyphen() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         em_dash: true,
-        mode: ModeConfig::NonPreedit,
+        mode: ModeConfig::Surrounding,
         ..Config::default()
     });
     assert_eq!(type_replay(&mut e, "a--b"), "a—b");
@@ -1695,16 +1589,16 @@ fn em_dash_replaces_double_hyphen() {
 
 #[test]
 fn em_dash_disabled_by_default() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     assert_eq!(type_replay(&mut e, "a--b"), "a--b");
 }
 
 #[test]
 fn double_space_inserts_period_when_enabled() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         double_space_period: true,
-        mode: ModeConfig::NonPreedit,
+        mode: ModeConfig::Surrounding,
         ..Config::default()
     });
     assert_eq!(type_replay(&mut e, "a  b"), "a. b");
@@ -1712,7 +1606,7 @@ fn double_space_inserts_period_when_enabled() {
 
 #[test]
 fn double_space_disabled_by_default() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     assert_eq!(type_replay(&mut e, "a  b"), "a  b");
 }
 
@@ -1722,18 +1616,18 @@ fn double_space_disabled_by_default() {
 /// letter before it ("a-" BS "-" turned the whole "a-" into "—").
 #[test]
 fn em_dash_after_a_backspace_stays_literal() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         em_dash: true,
-        mode: ModeConfig::NonPreedit,
+        mode: ModeConfig::Surrounding,
         ..Config::default()
     });
     assert_eq!(type_replay_backspaces(&mut e, "a-\u{8}-").0, "a-");
     // The healthy pair still rewrites: "a" + "-" + "-" (no backspace).
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         em_dash: true,
-        mode: ModeConfig::NonPreedit,
+        mode: ModeConfig::Surrounding,
         ..Config::default()
     });
     assert_eq!(type_replay(&mut e, "a--"), "a—");
@@ -1741,18 +1635,18 @@ fn em_dash_after_a_backspace_stays_literal() {
 
 #[test]
 fn double_space_after_a_backspace_stays_two_spaces() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         double_space_period: true,
-        mode: ModeConfig::NonPreedit,
+        mode: ModeConfig::Surrounding,
         ..Config::default()
     });
     assert_eq!(type_replay_backspaces(&mut e, "a \u{8} ").0, "a ");
     // The healthy pair still inserts the period.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         double_space_period: true,
-        mode: ModeConfig::NonPreedit,
+        mode: ModeConfig::Surrounding,
         ..Config::default()
     });
     assert_eq!(type_replay(&mut e, "a  b"), "a. b");
@@ -1764,10 +1658,10 @@ fn double_space_after_a_backspace_stays_two_spaces() {
 /// "fire:" ate the "x".
 #[test]
 fn emoji_shortcode_after_a_backspace_needs_its_colon() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         emoji_enabled: true,
-        mode: ModeConfig::NonPreedit,
+        mode: ModeConfig::Surrounding,
         ..Config::default()
     });
     assert_eq!(
@@ -1775,10 +1669,10 @@ fn emoji_shortcode_after_a_backspace_needs_its_colon() {
         "xfire:"
     );
     // A shortcode whose ':' is still on screen keeps rewriting.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         emoji_enabled: true,
-        mode: ModeConfig::NonPreedit,
+        mode: ModeConfig::Surrounding,
         ..Config::default()
     });
     assert_eq!(type_replay(&mut e, "x:fire:"), "x🔥");
@@ -1786,7 +1680,7 @@ fn emoji_shortcode_after_a_backspace_needs_its_colon() {
 
 #[test]
 fn auto_capitalize_after_sentence_end() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         auto_capitalize: true,
         ..Config::default()
@@ -1796,7 +1690,7 @@ fn auto_capitalize_after_sentence_end() {
 
 #[test]
 fn auto_capitalize_also_uppercases_transformed_letters() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         auto_capitalize: true,
         ..Config::default()
@@ -1806,7 +1700,7 @@ fn auto_capitalize_also_uppercases_transformed_letters() {
 
 #[test]
 fn auto_capitalize_disabled_by_default() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     assert_eq!(type_replay(&mut e, ". tieengs "), ". tiếng ");
 }
 
@@ -1814,7 +1708,7 @@ fn auto_capitalize_disabled_by_default() {
 
 #[test]
 fn macro_expands_on_word_end() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         time_format: "%H".into(),
         ..Config::default()
@@ -1829,7 +1723,7 @@ fn macro_expands_on_word_end() {
 
 #[test]
 fn macro_can_be_disabled() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         macro_enabled: false,
         ..Config::default()
@@ -1843,14 +1737,14 @@ fn macro_can_be_disabled() {
 fn macro_on_valid_word_is_opt_in() {
     // Default: a shorthand keyed like a real word ("cam") never expands —
     // the word itself wins, in every core mode.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(mode, Config::default());
         e.macros
             .set_entries([("cam".to_string(), "cảm ơn".to_string())].into_iter());
         assert_eq!(type_replay(&mut e, "cam "), "cam ", "{mode:?}");
     }
     // Opt in (`macro_expand_valid_words`): the same key expands.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(
             mode,
             Config {
@@ -1868,7 +1762,7 @@ fn macro_on_valid_word_is_opt_in() {
 #[test]
 fn extra_url_char_bypass_is_opt_in() {
     // Default: a backtick is not URL context — `` `vieejt` `` composes.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(mode, Config::default());
         assert_eq!(type_replay(&mut e, "`vieejt` "), "`việt` ", "{mode:?}");
         // With the character added, the word between the backticks stays raw.
@@ -1890,7 +1784,7 @@ fn extra_url_chars_never_accept_a_hyphen() {
     // `-` is filtered out of the start set so `--` keeps becoming an em
     // dash, even when a hand-edited file smuggles it in.
     let mut e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             em_dash: true,
             experimental_features: true,
@@ -1913,13 +1807,11 @@ fn experimental_gate_forces_every_feature_off() {
     // like the defaults — the saved switches and values stay in the file
     // but apply nothing.
     let mut e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             macro_expand_valid_words: true,
             extra_url_chars_enabled: true,
             extra_url_chars: "`".into(),
-            clipboard_restore_delay_enabled: true,
-            clipboard_restore_delay_ms: 1500,
             echo_stale_enabled: true,
             echo_stale_ms: 400,
             ..Config::default()
@@ -1933,13 +1825,12 @@ fn experimental_gate_forces_every_feature_off() {
         "`việt` ",
         "no extra bypass"
     );
-    assert_eq!(e.clipboard_restore_delay_ms(), 600, "default delay");
     assert_eq!(e.echo_stale(), Duration::from_millis(150), "default window");
     assert!(!e.macro_expand_valid_words && !e.idle_commit_enabled);
     assert!(e.extra_url_chars.is_empty() && e.extra_capitalize_after.is_empty());
     // Gate open: the same switches apply again.
     let mut e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             experimental_features: true,
             macro_expand_valid_words: true,
@@ -1957,43 +1848,12 @@ fn experimental_gate_forces_every_feature_off() {
 }
 
 #[test]
-fn clipboard_restore_delay_is_flag_gated() {
-    // Default: the built-in 600 ms, whatever a hand edit put in the value.
-    let e = engine(Mode::NonPreedit, Config::default());
-    assert_eq!(e.clipboard_restore_delay_ms(), 600);
-    let e = engine(
-        Mode::NonPreedit,
-        Config {
-            clipboard_restore_delay_enabled: false,
-            clipboard_restore_delay_ms: 1500,
-            ..Config::default()
-        },
-    );
-    assert_eq!(
-        e.clipboard_restore_delay_ms(),
-        600,
-        "the switch off must ignore the stored value"
-    );
-    // Switch on: the custom value applies.
-    let e = engine(
-        Mode::NonPreedit,
-        Config {
-            experimental_features: true,
-            clipboard_restore_delay_enabled: true,
-            clipboard_restore_delay_ms: 1500,
-            ..Config::default()
-        },
-    );
-    assert_eq!(e.clipboard_restore_delay_ms(), 1500);
-}
-
-#[test]
 fn echo_stale_window_is_flag_gated() {
     // Default: the built-in 150 ms, whatever a hand edit put in the value.
-    let e = engine(Mode::NonPreedit, Config::default());
+    let e = engine(Mode::Surrounding, Config::default());
     assert_eq!(e.echo_stale(), Duration::from_millis(150));
     let e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             echo_stale_enabled: false,
             echo_stale_ms: 400,
@@ -2007,7 +1867,7 @@ fn echo_stale_window_is_flag_gated() {
     );
     // Switch on: the custom window applies.
     let e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             experimental_features: true,
             echo_stale_enabled: true,
@@ -2111,7 +1971,7 @@ fn idle_commit_disabled_by_default_and_terminators_reset_reentry() {
 #[test]
 fn extra_capitalize_triggers_are_opt_in() {
     // Default: a colon does not start a sentence.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(
             mode,
             Config {
@@ -2142,7 +2002,7 @@ fn macro_rewrite_never_deletes_past_the_text() {
     // again made the next word end ask the client to delete more
     // characters than it held — mutter aborts on that ("before >= start")
     // and the desktop hangs until a hard reset.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(mode, Config::default());
         e.macros
             .set_entries([("ttlt".to_string(), "Tôi tên là Tùng".to_string())].into_iter());
@@ -2156,11 +2016,15 @@ fn macro_rewrite_never_deletes_past_the_text() {
 fn protocol_delete_is_clamped_to_the_last_report() {
     // Hard rule: a protocol delete may never reach past what the last
     // SetSurroundingText says exists, whatever the engine believes.
-    let mut e = engine(Mode::NonPreedit, Config::default());
+    let mut e = engine(Mode::Surrounding, Config::default());
     e.macros
         .set_entries([("ttlt".to_string(), "Tôi tên là Tùng".to_string())].into_iter());
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    // A real client reports at focus-in, before the first key: the word
+    // resolves through the walk's protocol-delete row, whose delete the
+    // clamp below guards.
+    e.set_surrounding(String::new(), 0);
     for c in "ttlt".chars() {
         e.process_char(c);
     }
@@ -2179,7 +2043,7 @@ fn protocol_delete_is_clamped_to_the_last_report() {
 
 #[test]
 fn macro_in_off_mode() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         macro_in_off_mode: true,
         ..Config::default()
@@ -2198,7 +2062,7 @@ fn macro_in_off_mode() {
 fn auto_restore_returns_english_word() {
     // With auto-correct off, a tone key on an English word bends it; the
     // restore puts the raw keystrokes back.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         auto_correct: false,
         ..Config::default()
@@ -2210,7 +2074,7 @@ fn auto_restore_returns_english_word() {
 
 #[test]
 fn auto_restore_keeps_vietnamese_words() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         auto_restore: true,
         ..Config::default()
@@ -2223,7 +2087,7 @@ fn a_valid_prefix_is_kept_in_every_display_mode() {
     // `đuo` is not a complete syllable but is still a valid prefix, so it
     // must not be reverted to the raw keys at the word end. ibus-bamboo
     // keeps it (its preedit fallback uses the prefix check).
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut config = Config {
             auto_restore: true,
             ..Config::default()
@@ -2270,7 +2134,7 @@ fn undone_mark_is_not_restored_at_word_end() {
     // mark-undo chain "tô" + 'o' + 'l' (internally "toool", visibly
     // "tool"). Check every display mode: preedit used to commit bamboo's
     // poisoned internal string instead of the visible one.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut config = Config {
             auto_restore: true,
             ..Config::default()
@@ -2298,7 +2162,7 @@ fn undone_mark_is_not_restored_at_word_end() {
 fn english_word_without_undo_is_still_restored() {
     // The undo exemption must not disable auto-restore altogether: a
     // plain invalid word still gets its raw keys back.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         auto_correct: false,
         ..Config::default()
@@ -2310,13 +2174,13 @@ fn english_word_without_undo_is_still_restored() {
 fn adjacent_digits_are_all_forwarded() {
     // Regression: digits used to delete the text before them (bamboo
     // clears its composition); each digit after another digit must land.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     assert_eq!(type_replay(&mut e, "1223344"), "1223344");
 }
 
 #[test]
 fn digit_after_a_word_keeps_the_word() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     assert_eq!(type_replay(&mut e, "xin chào9"), "xin chào9");
 }
 
@@ -2326,7 +2190,7 @@ fn underscore_ends_the_word_and_is_kept() {
     // word must be finished at '_' and the '_' itself forwarded (it used
     // to delete the word). The letters after it start a new word, as with
     // any terminator.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         assert_eq!(typed(mode, "abc_bcd2"), "abc_bcd2", "{mode:?}");
         assert_eq!(typed(mode, "xin chào_"), "xin chào_", "{mode:?}");
     }
@@ -2337,8 +2201,8 @@ fn repeated_letters_do_not_duplicate_in_any_mode() {
     // Bug 1: "teen"/"tool"/"need" — typing the repeated key that undoes
     // a mark (ee → ê → e) used to add an extra character on screen and
     // again at the word boundary. The visible word must stay exactly
-    // what the user sees, in all three display modes.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    // what the user sees, in every display mode.
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         assert_eq!(typed(mode, "teeen "), "teen ", "{mode:?}");
         assert_eq!(typed(mode, "teee "), "tee ", "{mode:?}");
         assert_eq!(typed(mode, "toool "), "tool ", "{mode:?}");
@@ -2456,7 +2320,7 @@ fn unknown_client_without_surrounding_uses_injection() {
     // FocusInId: client=None and no surrounding report. Injection is the
     // only working delete transport there, and `None` is not a
     // mutter-relayed context.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_capabilities(CAP_PREEDIT_TEXT);
     e.set_uinput_available(true);
     assert_eq!(e.client(), None);
@@ -2474,7 +2338,7 @@ fn unknown_client_without_surrounding_uses_injection() {
 fn mutter_client_without_surrounding_never_deletes() {
     // Same shape as above, but a known mutter relay has no working
     // transport before its first report: raw-forward instead.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT);
     e.set_uinput_available(true);
@@ -2493,7 +2357,7 @@ fn toolbox_keeps_single_letter_after_an_undone_mark() {
     // Preedit used to show "tooolbox": the undone circumflex left bamboo's
     // internal output longer than the visible text, and the tracker
     // trusted it. Both spellings must come out as typed.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         assert_eq!(typed(mode, "tooolbox "), "toolbox ", "{mode:?}");
         assert_eq!(typed(mode, "toolbox "), "toolbox ", "{mode:?}");
         assert_eq!(typed(mode, "tooolb "), "toolb ", "{mode:?}");
@@ -2506,7 +2370,7 @@ fn every_mode_keeps_text_when_digits_arrive() {
     // as "delete the whole word". Digits now end the word and are always
     // forwarded — including consecutive digits and digits after a word
     // with no space before them. Same for '_' (Shift+-).
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         assert_eq!(typed(mode, "1234"), "1234", "{mode:?}");
         assert_eq!(typed(mode, "1223344"), "1223344", "{mode:?}");
         assert_eq!(typed(mode, "xin chào9"), "xin chào9", "{mode:?}");
@@ -2569,7 +2433,7 @@ fn apply_config_mode_switch_commits_pending_preedit() {
         e.process_char(c);
     }
     let config = Config {
-        mode: Mode::NonPreedit.into(),
+        mode: Mode::Surrounding.into(),
         ..Config::default()
     };
     let actions = e.apply_config(&config);
@@ -2581,7 +2445,7 @@ fn apply_config_mode_switch_commits_pending_preedit() {
 
 #[test]
 fn auto_restore_can_be_disabled() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         auto_restore: false,
         auto_correct: false,
@@ -2603,7 +2467,7 @@ fn dictionary_words_are_never_restored() {
     // The dictionary gate in `on_finish`: a word in the dictionary must
     // not be restored even when it is invalid and differs from the raw
     // keys. The restore condition with a dictionary hit must be false.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         auto_correct: false,
         dictionary_enabled: true,
@@ -2623,7 +2487,7 @@ fn dictionary_words_are_never_restored() {
 
 #[test]
 fn w2u_and_bracket_flow_through_the_config() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         w2u: crate::config::W2uConfig::Everywhere,
         ..Config::default()
@@ -2635,7 +2499,7 @@ fn w2u_and_bracket_flow_through_the_config() {
 fn tail_tracks_forwarded_and_committed_chars() {
     // Regression guard: `tail` must count plain passthrough letters too,
     // or macro/restore deletions would miss them.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     type_str(&mut e, "ab");
     assert_eq!(e.tail, "ab");
 }
@@ -2665,7 +2529,13 @@ fn off_mode_backspace_belongs_to_the_app() {
 }
 
 #[test]
-fn flow_falls_back_to_preedit_without_uinput() {
+fn flow_without_backend_types_through_forward_backspace() {
+    // Flow without /dev/uinput: the walk downgrades to the forwarded
+    // transport — commit-as-you-type with the tone rewrites erasing
+    // through forwarded Backspaces; preedit never stands in. The guard
+    // keeps this test's own fallback log line out of the counting test's
+    // redirected log file (they share the process-wide log globals).
+    let _guard = crate::debug_log::test_guard();
     let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_uinput_available(false);
     e.set_capabilities(CAP_PREEDIT_TEXT);
@@ -2673,9 +2543,17 @@ fn flow_falls_back_to_preedit_without_uinput() {
     assert!(
         actions
             .iter()
-            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
-        "no uinput -> must render as preedit: {actions:?}"
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "the downgrade must serve the word: {actions:?}"
     );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
+        "no backend never renders preedit: {actions:?}"
+    );
+    assert!(e.flow_needs_backend());
+    assert_eq!(replay(&actions), "việt");
 }
 
 #[test]
@@ -2683,62 +2561,33 @@ fn flow_runs_on_the_relay() {
     // The 31/10 belief ("injection never reaches a relayed app") was
     // refuted by the 08/11 re-measurement: injection, echoes, deletes and
     // commits all land on a mutter relay — what raced was the ordering,
-    // fixed by the parked commit and the batch-carried terminator. A
-    // relayed context now types through the uinput modes like a direct
-    // one.
+    // fixed by the parked batch. A relayed context now types through the
+    // uinput mode like a direct one.
     let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.flow_per_key = false;
     e.set_uinput_available(true);
     // A mutter-owned IBus context (type_str would replace None).
     e.set_client(Some("gnome-shell:gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT);
     let actions = type_str(&mut e, "vieetj ");
     assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(6))),
-        "the relay must run the flow rewrite: {actions:?}"
-    );
-    assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "việt ")),
-        "the terminator rides the parked commit: {actions:?}"
-    );
-    assert!(
         !actions
             .iter()
             .any(|a| matches!(a, Action::UpdatePreedit { .. })),
         "{actions:?}"
     );
-}
-
-#[test]
-fn flow_word_end_carries_the_terminator_in_the_commit() {
-    // The terminator travels inside the parked commit so it is applied
-    // strictly after the deletes; a forwarded key raced ahead of the
-    // Backspaces on the relay, the erase ate it and one raw letter
-    // survived ("ttiếng"), and the terminator's own injected-key echo
-    // never returned through the relay's ibus path at all. No key may be
-    // forwarded past the rewrite.
-    let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.flow_per_key = false;
-    e.set_uinput_available(true);
-    let actions = type_str(&mut e, "vieetj.");
-    let inject = actions
-        .iter()
-        .position(|a| matches!(a, Action::InjectBackspaces(_)))
-        .expect("the rewrite must inject Backspaces");
-    let commit = actions
-        .iter()
-        .position(|a| matches!(a, Action::Commit(t) if t == "việt."))
-        .expect("the commit must carry the word and the terminator: {actions:?}");
-    assert!(commit > inject, "{actions:?}");
-    let last_forward = actions
-        .iter()
-        .rposition(|a| matches!(a, Action::Forward))
-        .expect("the raw keys are forwarded while typing");
-    assert!(last_forward < inject, "{actions:?}");
+    let batch = e
+        .per_key_park
+        .as_ref()
+        .map(|(_, t)| t.clone())
+        .expect("the relay must run the per-key rewrite");
+    assert_eq!(
+        batch, "việt ",
+        "the word and its terminator coalesce into the parked batch"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::Forward)),
+        "no forwarded key races the parked batch: {actions:?}"
+    );
 }
 
 #[test]
@@ -2792,7 +2641,6 @@ fn per_key_engine(mode: Mode) -> Engine {
         mode,
         Config {
             experimental_features: true,
-            flow_per_key: true,
             ..Config::default()
         },
     );
@@ -2882,7 +2730,6 @@ fn per_key_delay_follows_the_configured_value() {
         Mode::Flow,
         Config {
             experimental_features: true,
-            flow_per_key: true,
             flow_per_key_delay_ms: 200,
             ..Config::default()
         },
@@ -2905,7 +2752,6 @@ fn per_key_delay_clamps_out_of_range_values() {
     let e = engine(
         Mode::Flow,
         Config {
-            flow_per_key: true,
             flow_per_key_delay_ms: 0,
             ..Config::default()
         },
@@ -2914,7 +2760,6 @@ fn per_key_delay_clamps_out_of_range_values() {
     let e = engine(
         Mode::Flow,
         Config {
-            flow_per_key: true,
             flow_per_key_delay_ms: 700,
             ..Config::default()
         },
@@ -2928,17 +2773,19 @@ fn per_key_delay_clamps_out_of_range_values() {
 }
 
 #[test]
-fn flow_backspace_retrack_lets_a_mark_key_keep_editing() {
-    // The shipped Flow/Turbo look (per-key display on): `tungf` ␣ commits
-    // `tùng `; Backspace deletes the last screen character — the experiment
-    // re-tracks the shortened screen when the pop search cannot (a tone
-    // outliving its key), and the next tone key keeps editing the word:
-    // `tùn` + `s` lands `tún ` at word end, not the literal `tùns`.
+fn flow_backspace_retrack_works_without_the_switch() {
+    // Retrack is standard Flow code, not an experiment: `tungf` ␣ commits
+    // `tùng `; Backspace deletes the last screen character — the shortened
+    // screen is re-tracked when the pop search cannot (a tone outliving its
+    // key), and the next tone key keeps editing the word: `tùn` + `s` lands
+    // `tún ` at word end, not the literal `tùns`. No experimental switch
+    // involved (default config, gate closed). UnikeyWalk is the setting
+    // whose Backspace reaches that shortened screen: ToneFirst drops the
+    // tone first (`tùng` -> `tung`, pinned by the probe suite).
     let mut e = engine(
-        Mode::Turbo,
+        Mode::Flow,
         Config {
-            experimental_features: true,
-            flow_backspace_retrack: true,
+            backspace_tone: BackspaceToneConfig::UnikeyWalk,
             ..Config::default()
         },
     );
@@ -2975,46 +2822,80 @@ fn flow_backspace_retrack_lets_a_mark_key_keep_editing() {
 }
 
 #[test]
-fn flow_backspace_retrack_off_keeps_the_legacy_plain_text() {
-    // The experiment off: today's behavior byte for byte — the word stays
-    // dead after the Backspace and the tone key starts a fresh plain word.
-    let mut e = engine(Mode::Turbo, Config::default());
+fn flow_backspace_restores_the_undone_mark_without_the_switch() {
+    // The restore is standard code too: `chào` + `f` undoes the mark (the
+    // screen shows the raw `chaof`); Backspace pops that key and the
+    // deferred correction gives the mark back with the user's "Backspace
+    // xóa dấu" setting — `chào` returns, like the inline modes. No
+    // experimental switch involved (default config, gate closed).
+    let mut e = engine(Mode::Flow, Config::default());
     e.set_uinput_available(true);
-    type_str(&mut e, "tungf ");
+    type_str(&mut e, "chaoff");
     flush_per_key(&mut e);
-    assert_eq!(e.tail, "tùng ");
-    e.backspace();
-    assert_eq!(e.tail, "tùng");
+    assert_eq!(e.tail, "chaof");
+    let actions = e.backspace().expect("backspace");
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
     assert!(
-        !e.wrapper.has_composition(),
-        "the legacy path never re-tracks"
+        e.deferred_fix.is_some(),
+        "the mark restore must be scheduled"
     );
-    type_str(&mut e, "s ");
+    // The correction waits for the key release, then lands on the main
+    // loop: the rewrite erases the raw key and re-commits the marked word.
+    e.note_backspace_released();
+    if let Some((deadline, _)) = e.deferred_fix.as_mut() {
+        *deadline = Instant::now() - Duration::from_millis(1);
+    }
+    let actions = e.tick();
+    assert!(e.deferred_fix.is_none(), "the fix must have landed");
+    assert_eq!(
+        actions,
+        vec![Action::InjectBackspaces(2)],
+        "the fix erases the raw key's screen chars: {actions:?}"
+    );
+    assert_eq!(e.tail, "chào");
+    assert!(
+        e.wrapper.has_composition(),
+        "the word is live again, ready for the next mark key"
+    );
     let actions = flush_per_key(&mut e);
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::CommitNow(t) if t.starts_with("tún"))),
-        "no mark editing without the experiment: {actions:?}"
-    );
+    assert_eq!(actions, vec![Action::CommitNow("ào".into())], "{actions:?}");
 }
 
 #[test]
-fn flow_backspace_retrack_needs_the_gate() {
-    // Like every experimental feature: gate off forces the legacy path
-    // whatever the switch says (the switch state stays saved).
-    let mut e = engine(
-        Mode::Turbo,
-        Config {
-            flow_backspace_retrack: true,
-            experimental_features: false,
-            ..Config::default()
-        },
-    );
+fn flow_per_key_tonefirst_fold_keeps_every_screen_char() {
+    // A key typed inside the restore window after a ToneFirst Flow
+    // Backspace folds the pending tone fix into its batch. The pop keeps
+    // in the wrapper the letter the user's Backspace deleted from the
+    // screen (`tung` in the wrapper, `tùn` on screen), so the fold must
+    // not apply the wrapper's delta to the screen directly: that erased
+    // the leading `t` (`InjectBackspaces(3)`, screen `úng`).
+    let mut e = engine(Mode::Flow, Config::default());
     e.set_uinput_available(true);
     type_str(&mut e, "tungf ");
-    e.backspace();
-    assert!(!e.wrapper.has_composition());
+    flush_per_key(&mut e); // "tùng " lands
+    assert_eq!(e.tail, "tùng ");
+    e.backspace(); // the terminator goes; the word comes back live
+    assert_eq!(e.tail, "tùng");
+    let actions = e.backspace().expect("backspace");
+    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
+    assert!(e.deferred_fix.is_some(), "the tone fix must be scheduled");
+    assert_eq!(e.tail, "tùn");
+    // Fast `s` lands inside the window: the fix folds into this key's
+    // batch and the screen keeps every character.
+    let actions = type_str(&mut e, "s");
+    assert_eq!(actions, vec![Action::InjectBackspaces(2)], "{actions:?}");
+    assert_eq!(e.tail, "túng");
+    assert!(
+        e.deferred_fix.is_none(),
+        "the fix folded into the key's batch"
+    );
+    let actions = flush_per_key(&mut e);
+    assert_eq!(
+        actions,
+        vec![Action::CommitNow("úng".into())],
+        "{actions:?}"
+    );
+    assert_eq!(e.tail, "túng");
 }
 
 #[test]
@@ -3044,7 +2925,15 @@ fn flow_per_key_backspace_forwards_and_keeps_tracking() {
     // its last character through the pass-through path — zero injections,
     // the transport that loses echo presses on a relay is gone entirely.
     // The reverse-map pops the mark key so the word stays tracked.
-    let mut e = per_key_engine(Mode::Flow);
+    // WholeChar is the setting whose Backspace IS that screen-character
+    // delete; under ToneFirst the Backspace undoes the raw key instead and
+    // the screen correction lands deferred (the probe suite pins it).
+    let mut e = tone_engine(
+        MethodConfig::Telex,
+        Mode::Flow,
+        BackspaceToneConfig::WholeChar,
+    );
+    e.set_uinput_available(true);
     type_str(&mut e, "tie");
     flush_per_key(&mut e); // "tie" lands
     let actions = type_str(&mut e, "e"); // the mark: erase the landed `e`
@@ -3069,30 +2958,6 @@ fn flow_per_key_backspace_forwards_and_keeps_tracking() {
     );
     flush_per_key(&mut e);
     assert_eq!(e.tail, "tie");
-}
-
-#[test]
-fn smoothforward_per_key_backspace_forwards_and_keeps_tracking() {
-    // The same per-key Backspace contract as Flow, on the forward transport:
-    // zero injections — the user's real key deletes and tracking survives;
-    // the retyped key rides the inline commit instead of the park.
-    let mut e = per_key_engine(Mode::SmoothForward);
-    type_str(&mut e, "tiee"); // the mark applies inline on this transport
-    assert_eq!(e.tail, "tiê");
-    let actions = e.backspace().expect("backspace");
-    assert_eq!(actions, vec![Action::Forward], "{actions:?}");
-    assert!(e.per_key_park.is_none());
-    // The screen's last character (`ê`) is gone — the reverse-map popped
-    // both raw `e` keys behind it.
-    assert_eq!(e.tail, "ti");
-    // Tracking survived: the retyped key appends through the forward batch.
-    let actions = type_str(&mut e, "e");
-    assert!(
-        actions.contains(&Action::Commit("e".to_string())),
-        "the retyped key rides the inline commit: {actions:?}"
-    );
-    assert_eq!(e.tail, "tie");
-    assert!(!e.has_deferred());
 }
 
 #[test]
@@ -3234,15 +3099,9 @@ fn flow_per_key_backspace_releases_words_it_cannot_remap() {
 
 #[test]
 fn flow_per_key_applies_without_the_experimental_gate() {
-    // The switch graduated from the experimental set: it shapes the typing
-    // even with the master gate closed.
-    let mut e = engine(
-        Mode::Flow,
-        Config {
-            flow_per_key: true,
-            ..Config::default()
-        },
-    );
+    // The display is not part of the experimental set: the master gate
+    // closed must not force it off (it shapes the typing either way).
+    let mut e = engine(Mode::Flow, Config::default());
     e.set_uinput_available(true);
     let _ = type_str(&mut e, "vie");
     let actions = flush_per_key(&mut e);
@@ -3253,38 +3112,193 @@ fn flow_per_key_applies_without_the_experimental_gate() {
     );
 }
 
+// --- Mode resolution walk (replaces the effective_mode heuristic chain) ---
+
 #[test]
-fn select_falls_back_to_preedit_without_surrounding_report() {
-    let mut e = Engine::new(Method::Telex, Mode::Select);
-    e.set_uinput_available(true);
+fn preedit_without_capability_walks_to_surrounding() {
+    // caps without CAP_PREEDIT_TEXT, requested Preedit: the walk moves on
+    // to the commit-as-you-type contract (Surrounding) instead of dropping
+    // to raw keystrokes, and the words still commit — through the protocol
+    // delete the report proves, like a real client's report at focus-in.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
     e.set_client(Some("gtk4-im:test".into()));
-    // No surrounding-text capability: Select cannot know the tail length.
-    e.set_capabilities(CAP_PREEDIT_TEXT);
-    let actions = type_str(&mut e, "vieetj");
+    e.set_capabilities(CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
+    assert_eq!(e.effective_mode(), Mode::Surrounding);
+    let mut buf: Vec<char> = Vec::new();
+    for c in "tieengs".chars() {
+        for a in e.process_char(c) {
+            match a {
+                Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(n as usize)),
+                Action::Commit(t) => buf.extend(t.chars()),
+                Action::UpdatePreedit { .. } => {
+                    panic!("no preedit without the capability: {a:?}")
+                }
+                _ => {}
+            }
+        }
+        let text: String = buf.iter().collect();
+        e.set_surrounding(text, buf.len() as u32);
+    }
+    assert_eq!(buf.iter().collect::<String>(), "tiếng");
+}
+
+#[test]
+fn surrounding_without_report_uses_injected_deletes_when_a_backend_exists() {
+    // No ST report but a backend: the walk keeps Surrounding and the
+    // rewrites go through the no-ST injection path — the DeleteBefore
+    // actions the server delivers as real Backspace key presses.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    assert_eq!(e.effective_mode(), Mode::Surrounding);
+    let actions = type_raw(&mut e, "tieengs");
     assert!(
         actions
             .iter()
-            .any(|a| matches!(a, Action::UpdatePreedit { .. })),
-        "no text report -> must render as preedit: {actions:?}"
+            .any(|a| matches!(a, Action::DeleteBefore(n) if *n > 0)),
+        "the no-ST rewrite path: {actions:?}"
+    );
+    assert!(!actions
+        .iter()
+        .any(|a| matches!(a, Action::UpdatePreedit { .. })));
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn surrounding_on_a_capability_less_client_forwards_backspaces() {
+    // No ST report and no backend: the walk terminates on the forwarded
+    // transport — Surrounding is served by ForwardBackspaces, it does not
+    // fall back to preedit.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(0);
+    assert_eq!(e.effective_mode(), Mode::ForwardBackspace);
+    let actions = type_raw(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "terminal transport: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn flow_without_backend_serves_forward_backspace_and_logs_once() {
+    // Flow without a backend: the walk downgrades to the forwarded
+    // transport and logs the fallback once per session — two resolutions,
+    // one line.
+    let _guard = crate::debug_log::test_guard();
+    let dir = std::env::temp_dir().join(format!("ibus-mangrs-walk-log-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_uinput_available(false);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    assert_eq!(e.effective_mode(), Mode::ForwardBackspace);
+    assert!(e.flow_needs_backend());
+    // A second resolution must not log the fallback again.
+    assert_eq!(e.effective_mode(), Mode::ForwardBackspace);
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("flow without a backend"))
+            .count(),
+        1,
+        "one fallback line for two resolutions: {text}"
+    );
+    assert_eq!(
+        replay(&type_raw(&mut e, "tieengs")),
+        "tiếng",
+        "the downgrade serves the word"
+    );
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_dir(&dir);
+}
+
+#[test]
+fn forward_backspace_never_falls_back() {
+    // caps 0, no ST report, no backend: the ForwardBackspace request is
+    // terminal — the walk keeps it, nothing stands in.
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(0);
+    e.set_uinput_available(false);
+    assert_eq!(e.effective_mode(), Mode::ForwardBackspace);
+    let actions = type_raw(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "{actions:?}"
+    );
+    assert!(!actions
+        .iter()
+        .any(|a| matches!(a, Action::UpdatePreedit { .. })));
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn listed_delete_dropping_clients_keep_the_preedit_outcome() {
+    // Matrix row: a listed delete-dropping client with preedit capability
+    // keeps today's outcome — the word shows inline instead of being
+    // rewritten with a delete the client drops. The Surrounding request
+    // runs the commit-as-you-type walk, whose first stop is this preedit
+    // stand-in.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_client(Some("gtk4-im:chrome".into()));
+    assert_eq!(e.effective_mode(), Mode::Preedit);
+    let actions = type_str(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdatePreedit { text, .. } if text == "tiếng")),
+        "{actions:?}"
     );
 }
 
 #[test]
-fn select_stays_select_with_a_text_report() {
-    let mut e = Engine::new(Method::Telex, Mode::Select);
-    e.set_uinput_available(true);
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-    // The fallback checks the actual report, not just the capability.
-    e.set_surrounding(String::new(), 0);
-    assert_eq!(e.effective_mode(), Mode::Select);
+fn compositor_routed_backend_is_exempt_from_the_relay_ban() {
+    // The relay ban exists because uinput keys never reach a relayed
+    // context; a compositor-routed backend (Libei / wlr virtual keyboard)
+    // rides the compositor's own routing, so its deletes are allowed —
+    // symmetrically on both ban consumers: the deletes_allowed gate and
+    // the may_inject gate the server's inject routing reads. Without the
+    // exemption the same context forwards instead.
+    for (safe, want_delete) in [(false, false), (true, true)] {
+        let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_uinput_available(true);
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        e.set_injection_relay_safe(safe);
+        assert_eq!(e.deletes_allowed(), want_delete, "safe={safe}");
+        // No report on this client, so the second may_inject condition
+        // (delete proof or no report) holds and the exemption decides.
+        assert_eq!(e.may_inject(), want_delete, "safe={safe}");
+        let actions = type_raw(&mut e, "tiee");
+        assert_eq!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::DeleteBefore(n) if *n > 0)),
+            want_delete,
+            "safe={safe}: {actions:?}"
+        );
+    }
 }
 
 // --- URL/email/path bypass (spell-check round, phase 2-3) ---
 
 #[test]
 fn url_bypass_can_be_disabled() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         bypass_url: false,
         ..Config::default()
@@ -3296,7 +3310,7 @@ fn url_bypass_can_be_disabled() {
 fn url_bypass_releases_at_the_next_space() {
     // The word after the URL ends must type Vietnamese again
     // ("nhieeuf" → "nhiều" — huyền from the f).
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     assert_eq!(
         type_replay(&mut e, "https://x.tieeng nhieeuf "),
         "https://x.tieeng nhiều "
@@ -3308,7 +3322,7 @@ fn url_bypass_releases_when_backspace_erases_the_word() {
     // `www.abc` types raw inside the URL span; erasing the bypassed word
     // with Backspace must release it — space/enter used to be the only way
     // out (deleting a mis-typed address left every following letter raw).
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(mode, Config::default());
         let (out, oor) = type_replay_backspaces(&mut e, "www.abc\u{8}\u{8}\u{8}vieetj ");
         assert!(!oor, "{mode:?}");
@@ -3320,7 +3334,10 @@ fn url_bypass_releases_when_backspace_erases_the_word() {
 fn url_bypass_releases_after_backspace_in_flow() {
     // The per-key tail spans whole words, so the release cannot key on an
     // empty tail — the bypass span is measured from its arm point. The next
-    // key must compose, not forward raw.
+    // key must compose, not forward raw. The guard keeps this test's own
+    // fallback log line (Flow without a backend, resolved per keystroke
+    // here) out of the counting test's redirected log file.
+    let _guard = crate::debug_log::test_guard();
     let mut e = engine(Mode::Flow, Config::default());
     let _ = type_replay_backspaces(&mut e, "https://abc\u{8}\u{8}\u{8}\u{8}\u{8}");
     let actions = e.process_char('v');
@@ -3332,7 +3349,7 @@ fn url_bypass_releases_after_backspace_in_flow() {
 fn url_bypass_survives_a_backspace_inside_the_word() {
     // Deleting part of the address keeps the span: the rest is still on
     // screen and the next keys stay raw (`https://ab\b c ` → `https://ac `).
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(mode, Config::default());
         let (out, oor) = type_replay_backspaces(&mut e, "https://ab\u{8}c ");
         assert!(!oor, "{mode:?}");
@@ -3345,7 +3362,7 @@ fn url_bypass_spans_hyphenated_segments() {
     // The segment after the hyphen used to be composed as Vietnamese, so
     // a Telex mark key there stuck: "alo-tungf" → "alo-tùng",
     // "vi-mangrs" → "vi-máng". The address stays raw.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         assert_eq!(
             typed(mode, "https://alo-tungf.com "),
             "https://alo-tungf.com ",
@@ -3364,7 +3381,7 @@ fn url_bypass_keeps_the_em_dash_outside_urls() {
     // `-` does not start a bypass, so `--` in normal text still becomes
     // one em dash.
     let mut e = engine(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             em_dash: true,
             ..Config::default()
@@ -3378,16 +3395,16 @@ fn prose_punctuation_no_longer_starts_the_bypass() {
     // No character starts a bypass any more: words glued straight onto
     // prose punctuation must compose again (the owner's exact cases).
     assert_eq!(
-        typed(Mode::NonPreedit, "mucj tieeu:phats trieenr "),
+        typed(Mode::Surrounding, "mucj tieeu:phats trieenr "),
         "mục tiêu:phát triển "
     );
-    assert_eq!(typed(Mode::NonPreedit, "x=coongj "), "x=cộng ");
-    assert_eq!(typed(Mode::NonPreedit, "#Bangwf "), "#Bằng ");
-    assert_eq!(typed(Mode::NonPreedit, "?tungf "), "?tùng ");
-    assert_eq!(typed(Mode::NonPreedit, "_tungf "), "_tùng ");
-    assert_eq!(typed(Mode::NonPreedit, "@tungf "), "@tùng ");
-    assert_eq!(typed(Mode::NonPreedit, ".tungf "), ".tùng ");
-    assert_eq!(typed(Mode::NonPreedit, "/tungf "), "/tùng ");
+    assert_eq!(typed(Mode::Surrounding, "x=coongj "), "x=cộng ");
+    assert_eq!(typed(Mode::Surrounding, "#Bangwf "), "#Bằng ");
+    assert_eq!(typed(Mode::Surrounding, "?tungf "), "?tùng ");
+    assert_eq!(typed(Mode::Surrounding, "_tungf "), "_tùng ");
+    assert_eq!(typed(Mode::Surrounding, "@tungf "), "@tùng ");
+    assert_eq!(typed(Mode::Surrounding, ".tungf "), ".tùng ");
+    assert_eq!(typed(Mode::Surrounding, "/tungf "), "/tùng ");
 }
 
 #[test]
@@ -3396,7 +3413,7 @@ fn url_span_holds_query_and_fragment_raw() {
     // included — and the next word after a space types Vietnamese again.
     assert_eq!(
         typed(
-            Mode::NonPreedit,
+            Mode::Surrounding,
             "https://vi-mangrs.com/x?taikhoanf=1&y=2#top nhieeuf "
         ),
         "https://vi-mangrs.com/x?taikhoanf=1&y=2#top nhiều "
@@ -3408,7 +3425,7 @@ fn url_span_releases_at_sentence_punctuation() {
     // Sentence punctuation ends the span; the URL-internal separators
     // (`. / : @ _ ~ = # & % ? - +`) do not.
     assert_eq!(
-        typed(Mode::NonPreedit, "https://x.com, nhieeuf "),
+        typed(Mode::Surrounding, "https://x.com, nhieeuf "),
         "https://x.com, nhiều "
     );
 }
@@ -3418,7 +3435,10 @@ fn www_opens_the_url_span() {
     // A scheme-less address still holds the query raw through the `www.`
     // evidence.
     assert_eq!(
-        typed(Mode::NonPreedit, "www.vi-mangrs.com/x?taikhoanf=1 nhieeuf "),
+        typed(
+            Mode::Surrounding,
+            "www.vi-mangrs.com/x?taikhoanf=1 nhieeuf "
+        ),
         "www.vi-mangrs.com/x?taikhoanf=1 nhiều "
     );
 }
@@ -3426,7 +3446,7 @@ fn www_opens_the_url_span() {
 #[test]
 fn uppercase_scheme_opens_the_url_span() {
     assert_eq!(
-        typed(Mode::NonPreedit, "HTTPS://x.com?taikhoanf=1 nhieeuf "),
+        typed(Mode::Surrounding, "HTTPS://x.com?taikhoanf=1 nhieeuf "),
         "HTTPS://x.com?taikhoanf=1 nhiều "
     );
 }
@@ -3436,37 +3456,39 @@ fn digits_before_the_scheme_do_not_open_the_span() {
     // A scheme starts with a letter: `12:34/…` is a time, not a URL — the
     // word after `?` must compose (the old set blocked it via `?`).
     assert_eq!(
-        typed(Mode::NonPreedit, "12:34/x?tieengs "),
+        typed(Mode::Surrounding, "12:34/x?tieengs "),
         "12:34/x?tiếng "
     );
 }
 
 #[test]
 fn url_span_in_flow_holds_the_query_raw() {
-    // The span forwards raw in the uinput modes too: no rewrite batch for
-    // the address, and the word after the span composes.
+    // The span forwards raw in the uinput mode too: no rewrite batch for
+    // the address, and the word after the span composes through the
+    // per-key batch.
     let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.flow_per_key = false;
     e.set_uinput_available(true);
     let url_actions = type_str(&mut e, "https://x.com?taikhoanf=1 ");
     assert!(
-        !url_actions
-            .iter()
-            .any(|a| matches!(a, Action::Commit(_) | Action::InjectBackspaces(_))),
+        !url_actions.iter().any(|a| matches!(
+            a,
+            Action::Commit(_) | Action::CommitNow(_) | Action::InjectBackspaces(_)
+        )),
         "{url_actions:?}"
     );
-    let word_actions = type_str(&mut e, "nhieeuf ");
+    type_str(&mut e, "nhieeuf ");
+    let flushed = flush_per_key(&mut e);
     assert!(
-        word_actions
+        flushed
             .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "nhiều ")),
-        "{word_actions:?}"
+            .any(|a| matches!(a, Action::CommitNow(t) if t == "nhiều ")),
+        "the word after the span still composes: {flushed:?}"
     );
 }
 
 #[test]
 fn macro_does_not_expand_valid_vietnamese_words() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.macros
         .set_entries([("cam".to_string(), "CLIP".to_string())].into_iter());
     assert_eq!(type_replay(&mut e, "cam "), "cam ");
@@ -3478,7 +3500,7 @@ fn macro_does_not_expand_valid_vietnamese_words() {
 
 #[test]
 fn macro_still_expands_nonvietnamese_keys_in_off_mode() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         macro_in_off_mode: true,
         ..Config::default()
@@ -3487,39 +3509,6 @@ fn macro_still_expands_nonvietnamese_keys_in_off_mode() {
     e.macros
         .set_entries([("gs".to_string(), "giờ sáng".to_string())].into_iter());
     assert_eq!(type_replay(&mut e, "gs "), "giờ sáng ");
-}
-
-#[test]
-fn flow_forwards_raw_keys_and_rewrites_at_word_end() {
-    let mut e = Engine::new(Method::Telex, Mode::Flow);
-    // The word-end rewrite contract: pin the non-per-key display, which the
-    // per-key default replaced.
-    e.flow_per_key = false;
-    e.set_uinput_available(true);
-    let actions = type_str(&mut e, "vieetj ");
-    // Mid-word: nothing but forwards — the app shows the raw keys.
-    let word_end = actions
-        .iter()
-        .position(|a| matches!(a, Action::InjectBackspaces(_)))
-        .unwrap();
-    assert!(
-        actions[..word_end]
-            .iter()
-            .all(|a| matches!(a, Action::Forward | Action::Consumed)),
-        "raw keys must be forwarded while typing: {:?}",
-        &actions[..word_end]
-    );
-    // Word end: erase the 6 raw keys, commit the Vietnamese word.
-    assert!(actions
-        .iter()
-        .any(|a| matches!(a, Action::InjectBackspaces(6))));
-    assert!(actions
-        .iter()
-        .any(|a| matches!(a, Action::Commit(t) if t == "việt ")));
-    assert!(actions.iter().any(|a| matches!(a, Action::PostDelay(_))));
-    assert!(!actions
-        .iter()
-        .any(|a| matches!(a, Action::UpdatePreedit { .. })));
 }
 
 #[test]
@@ -3536,108 +3525,82 @@ fn flow_leaves_english_words_alone() {
 }
 
 #[test]
-fn flow_modes_auto_capitalize_at_sentence_start() {
-    for mode in [Mode::Flow, Mode::Turbo, Mode::Select] {
-        let mut e = engine(
-            mode,
-            Config {
-                auto_capitalize: true,
-                flow_per_key: false,
-                ..Config::default()
-            },
-        );
-        e.set_uinput_available(true);
-        // Select only resolves with a surrounding report before the
-        // first key.
-        e.set_client(Some("gtk4-im:test".into()));
-        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-        e.set_surrounding(String::new(), 0);
-        let actions = type_str(&mut e, "xin chao. tieengs ");
-        assert!(
-            actions
-                .iter()
-                .any(|a| matches!(a, Action::Commit(t) if t == "Tiếng ")),
-            "{mode:?}: the sentence must start capitalized: {actions:?}"
-        );
-        assert!(
-            !actions
-                .iter()
-                .any(|a| matches!(a, Action::Commit(t) if t == "tiếng")),
-            "{mode:?}: lowercase word committed: {actions:?}"
-        );
-    }
-}
-
-#[test]
-fn flow_backspace_forwards_and_pops_the_raw_key() {
-    let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.flow_per_key = false;
+fn flow_auto_capitalizes_at_sentence_start() {
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            auto_capitalize: true,
+            ..Config::default()
+        },
+    );
     e.set_uinput_available(true);
-    type_str(&mut e, "vieetj");
-    assert!(e.backspace().is_none(), "the app deletes its own key");
-    let actions = type_str(&mut e, " ");
-    // raw after the pop is "vieet" (5 keys), not "vieetj".
+    type_str(&mut e, "xin chao. ");
+    flush_per_key(&mut e); // the first sentence lands
+    type_str(&mut e, "tieengs ");
+    let flushed = flush_per_key(&mut e);
     assert!(
-        actions
+        flushed
             .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(5))),
-        "{actions:?}"
+            .any(|a| matches!(a, Action::CommitNow(t) if t == "Tiếng ")),
+        "the sentence must start capitalized: {flushed:?}"
+    );
+    assert_eq!(
+        e.tail, "Tiếng ",
+        "the capital only exists in the landed batch, never the live tail"
     );
 }
 
 #[test]
-fn select_uses_selection_then_delete() {
-    let mut e = Engine::new(Method::Telex, Mode::Select);
-    e.set_uinput_available(true);
-    // Prime the client and a text report BEFORE the first key: the word
-    // mode locks at word start, and only a report makes Select resolve.
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
-    e.set_surrounding(String::new(), 0);
-    let actions = type_str(&mut e, "vieetj ");
-    assert!(actions.iter().any(|a| matches!(a, Action::SelectLeft(6))));
-    assert!(actions.iter().any(|a| matches!(a, Action::PressDelete)));
-    assert!(actions
-        .iter()
-        .any(|a| matches!(a, Action::Commit(t) if t == "việt ")));
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(_))),
-        "Select must not press Backspaces: {actions:?}"
-    );
-}
-
-#[test]
-fn super_uinput_rewrites_even_with_app_suggestions() {
-    let mut e = Engine::new(Method::Telex, Mode::Turbo);
-    e.flow_per_key = false;
-    e.set_uinput_available(true);
-    // Prime the client first: set_client clears the suggestion flag and
-    // type_str sets the client when it is None.
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_suggestions(true);
-    let actions = type_str(&mut e, "vieetj ");
-    assert!(actions
-        .iter()
-        .any(|a| matches!(a, Action::InjectBackspaces(6))));
-    assert!(actions
-        .iter()
-        .any(|a| matches!(a, Action::Commit(t) if t == "việt ")));
-}
-
-#[test]
-fn flow_holds_back_when_the_app_autofills() {
+fn flow_types_through_app_autofill() {
+    // No app-autofill hold-back: the per-key rewrites are backward-only (a
+    // suggestion sits after the caret), so with the app appending suggestion
+    // text the word still composes and lands through the parked batch — and
+    // every rewrite delete derives from the tail diff, never past it.
     let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.set_uinput_available(true);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_suggestions(true);
-    let actions = type_str(&mut e, "vieetj ");
+    let all = type_str(&mut e, "vieetj ");
     assert!(
-        !actions
+        !all.iter().any(|a| matches!(a, Action::Forward)),
+        "no forwarded key races the batch: {all:?}"
+    );
+    let batch = e
+        .per_key_park
+        .as_ref()
+        .map(|(_, t)| t.clone())
+        .expect("the batch is pending");
+    assert_eq!(batch, "việt ", "the word and its terminator ride the batch");
+    // The deletes derive only from the tail diff: the burst landed nothing
+    // of ours, so the diff needed no delete at all.
+    let deletes: Vec<u32> = all
+        .iter()
+        .filter_map(|a| match a {
+            Action::InjectBackspaces(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        deletes.is_empty(),
+        "the app held nothing of ours while the burst typed: {deletes:?} in {all:?}"
+    );
+    let flushed = flush_per_key(&mut e);
+    assert!(
+        flushed
             .iter()
-            .any(|a| matches!(a, Action::InjectBackspaces(_))),
-        "rewriting would eat the suggestion text: {actions:?}"
+            .any(|a| matches!(a, Action::CommitNow(t) if t == "việt ")),
+        "{flushed:?}"
+    );
+    // With the batch landed, the next rewrite deletes exactly the landed
+    // diff — inside the tracked tail, never reaching past it (the
+    // suggestion after the caret is out of reach by construction).
+    type_str(&mut e, "cam");
+    flush_per_key(&mut e); // "cam" lands
+    let actions = type_str(&mut e, "r");
+    assert_eq!(
+        actions,
+        vec![Action::InjectBackspaces(2)],
+        "the mark delete erases the landed diff inside the tail: {actions:?}"
     );
 }
 
@@ -3723,17 +3686,12 @@ fn abbreviation_keeps_its_d_in_the_preedit_and_on_caret_move() {
         "{actions:?}"
     );
 
-    for mode in [Mode::NonPreedit, Mode::Surrounding] {
-        let config = Config {
-            mode: mode.into(),
-            ..Config::default()
-        };
-        assert_eq!(
-            type_replay(&mut engine(mode, config), "ddc "),
-            "đc ",
-            "{mode:?}"
-        );
-    }
+    // The commit-as-you-type mode expands abbreviations at the word end
+    // like preedit does.
+    assert_eq!(
+        type_replay(&mut engine(Mode::Surrounding, Config::default()), "ddc "),
+        "đc "
+    );
 }
 
 #[test]
@@ -3806,11 +3764,14 @@ fn preedit_shows_the_restored_raw_keys_for_a_non_vietnamese_word() {
 #[test]
 fn app_rule_wins_over_the_global_mode() {
     // A rule pins the client to preedit; the global mode must not run even
-    // though the client could not render preedit without the rule.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
+    // though the client could not render preedit without the rule. Off is
+    // the global mode (the config must carry it — apply_config resets the
+    // mode to its own otherwise): an inert engine would leave every key raw.
+    let mut e = Engine::new(Method::Telex, Mode::Off);
     e.set_client(Some("gtk4-im:ruleclient".into()));
     e.set_capabilities(0);
     e.apply_config(&Config {
+        mode: ModeConfig::Off,
         app_rules: vec![crate::config::AppRule {
             pattern: "ruleclient".into(),
             mode: ModeConfig::Preedit,
@@ -3818,14 +3779,13 @@ fn app_rule_wins_over_the_global_mode() {
         ..Config::default()
     });
     // The rule requests Preedit; without preedit caps the hard fallback
-    // still applies (the rule does not bypass physics) — the global mode,
-    // on the other hand, is never consulted: no Shift+Left transport may
-    // appear.
+    // still applies (the rule does not bypass physics) and the word rides
+    // the walk's terminal transport — the global mode, on the other hand,
+    // is never consulted: raw keys, no commit.
     let actions: Vec<Action> = "vieetj ".chars().flat_map(|c| e.process_char(c)).collect();
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::ForwardSelectLeft(_))),
+    assert_eq!(
+        replay(&actions),
+        "việt",
         "a pinned rule must bypass the global mode: {actions:?}"
     );
 }
@@ -3834,7 +3794,7 @@ fn app_rule_wins_over_the_global_mode() {
 /// rules must invalidate it or the old mode sticks until the app refocuses.
 #[test]
 fn app_rule_cache_follows_a_config_reload() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:chrome".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     // The built-in safety net pins chrome to Preedit.
@@ -3860,7 +3820,7 @@ fn vni_digit_after_a_complete_syllable_keeps_the_word() {
     // bamboo's auto_correct revert resurrected the digits consumed as tone
     // marks. Every core display mode keeps the composed word and lands the
     // digit literally.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let config = Config {
             method: crate::config::MethodConfig::Vni,
             ..Config::default()
@@ -3877,7 +3837,7 @@ fn vni_digit_after_a_complete_syllable_keeps_the_word() {
 fn vni_english_digit_runs_stay_raw() {
     // English typing has no consumed marks: the raw keys survive verbatim
     // in every core display mode.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let config = Config {
             method: crate::config::MethodConfig::Vni,
             ..Config::default()
@@ -3900,7 +3860,7 @@ fn vni_backspace_over_a_kept_word_recomposes() {
         method: crate::config::MethodConfig::Vni,
         ..Config::default()
     };
-    let mut e = engine(Mode::NonPreedit, config);
+    let mut e = engine(Mode::Surrounding, config);
     assert_eq!(type_replay(&mut e, "hao123456x"), "hạo6x");
     let actions = e.backspace().expect("backspace");
     e.set_surrounding("hạo6".into(), 3);
@@ -3917,7 +3877,7 @@ fn telex_english_word_with_marks_still_returns_raw() {
     // The guard covers only the VNI-family digit keys: Telex tone keys on
     // an incomplete syllable keep the raw revert that English typing leans
     // on ("strê" + t -> "street", never "strêt").
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     assert_eq!(type_replay(&mut e, "street "), "street ");
 }
 
@@ -3932,8 +3892,8 @@ fn with_emoji(mode: Mode, config: Config) -> Engine {
 }
 
 #[test]
-fn emoji_shortcode_rewrites_in_the_three_core_modes() {
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+fn emoji_shortcode_rewrites_in_every_core_mode() {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = with_emoji(
             mode,
             Config {
@@ -3955,7 +3915,6 @@ fn emoji_rewrite_in_flow_injects_backspaces_without_the_closing_colon() {
         Mode::Flow,
         Config {
             emoji_enabled: true,
-            flow_per_key: false,
             ..Config::default()
         },
     );
@@ -3979,7 +3938,7 @@ fn emoji_rewrite_in_flow_injects_backspaces_without_the_closing_colon() {
 #[test]
 fn emoji_unknown_name_stays_literal() {
     let mut e = with_emoji(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             emoji_enabled: true,
             ..Config::default()
@@ -3991,7 +3950,7 @@ fn emoji_unknown_name_stays_literal() {
 #[test]
 fn emoji_word_ends_at_a_space_without_a_rewrite() {
     let mut e = with_emoji(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             emoji_enabled: true,
             ..Config::default()
@@ -4003,7 +3962,7 @@ fn emoji_word_ends_at_a_space_without_a_rewrite() {
 #[test]
 fn digits_after_a_colon_stay_raw() {
     let mut e = with_emoji(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             emoji_enabled: true,
             ..Config::default()
@@ -4015,7 +3974,7 @@ fn digits_after_a_colon_stay_raw() {
 #[test]
 fn macro_wins_over_the_emoji_table() {
     let mut e = with_emoji(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             emoji_enabled: true,
             ..Config::default()
@@ -4029,7 +3988,7 @@ fn macro_wins_over_the_emoji_table() {
 #[test]
 fn user_emoji_table_overrides_the_embedded_one() {
     let mut e = with_emoji(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             emoji_enabled: true,
             ..Config::default()
@@ -4048,7 +4007,7 @@ fn emoji_disabled_types_after_a_colon_normally() {
     // Config::default() has emoji_enabled = false and `:` no longer blocks
     // marks: a word after ':' composes; shortcodes only rewrite with the
     // feature on.
-    let mut e = with_emoji(Mode::NonPreedit, Config::default());
+    let mut e = with_emoji(Mode::Surrounding, Config::default());
     assert_eq!(type_replay(&mut e, ":tieeng:"), ":tiêng:");
 }
 
@@ -4057,7 +4016,7 @@ fn emoji_candidate_composes_vietnamese_and_releases_on_backspace() {
     // emoji on (the owner's config): a word after ':' composes like any
     // word, and erasing it with Backspace releases the candidate — the old
     // raw-forward candidate kept `x:abc` + 3 Backspace + `vieetj` raw.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = with_emoji(
             mode,
             Config {
@@ -4081,7 +4040,7 @@ fn emoji_miss_keeps_the_shortcode_as_typed() {
     // A name that matches nothing stays literal — the raw keys, not the
     // composed word (`tungf` composes to `tùng` while typing).
     let mut e = with_emoji(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             emoji_enabled: true,
             ..Config::default()
@@ -4091,9 +4050,10 @@ fn emoji_miss_keeps_the_shortcode_as_typed() {
 }
 
 #[test]
-fn emoji_candidate_composes_in_flow() {
-    // The candidate keeps the plain raw-forward display in the uinput modes
-    // (per-key coalescing off for it) and the word-end rewrite composes it.
+fn emoji_candidate_composes_live_in_per_key_modes() {
+    // The candidate word joins the per-key display — the marks appear
+    // while typing (`:tungf` shows `:tùng` before any space) and the word
+    // end only appends the terminator.
     let mut e = with_emoji(
         Mode::Flow,
         Config {
@@ -4101,109 +4061,80 @@ fn emoji_candidate_composes_in_flow() {
             ..Config::default()
         },
     );
-    e.flow_per_key = false;
     e.set_uinput_available(true);
-    let actions = type_str(&mut e, "x:phats ");
+    type_str(&mut e, "x:tungf");
+    assert_eq!(e.tail, "tùng", "the word must show live");
+    let actions = type_str(&mut e, " ");
+    assert_eq!(e.tail, "tùng ");
     assert!(
-        actions
+        !actions
             .iter()
-            .any(|a| matches!(a, Action::Commit(t) if t == "phát ")),
-        "{actions:?}"
+            .any(|a| matches!(a, Action::InjectBackspaces(_))),
+        "no erase is needed at the word end: {actions:?}"
+    );
+    let flushed = flush_per_key(&mut e);
+    assert!(
+        flushed.iter().any(|a| matches!(
+            a,
+            Action::Commit(t) | Action::CommitNow(t) if t == "tùng "
+        )),
+        "{flushed:?}"
     );
 }
 
 #[test]
-fn emoji_candidate_composes_live_in_per_key_modes() {
-    // flow_per_key ON (the default): the candidate word joins the per-key
-    // display — the marks appear while typing (`:tungf` shows `:tùng`
-    // before any space) and the word end only appends the terminator.
-    for mode in [Mode::Flow, Mode::Turbo] {
-        let mut e = with_emoji(
-            mode,
-            Config {
-                emoji_enabled: true,
-                ..Config::default()
-            },
-        );
-        e.set_uinput_available(true);
-        type_str(&mut e, "x:tungf");
-        assert_eq!(e.tail, "tùng", "{mode:?}: the word must show live");
-        let actions = type_str(&mut e, " ");
-        assert_eq!(e.tail, "tùng ", "{mode:?}");
-        assert!(
-            !actions
-                .iter()
-                .any(|a| matches!(a, Action::InjectBackspaces(_))),
-            "{mode:?}: no erase is needed at the word end: {actions:?}"
-        );
-        let flushed = flush_per_key(&mut e);
-        assert!(
-            flushed.iter().any(|a| matches!(
-                a,
-                Action::Commit(t) | Action::CommitNow(t) if t == "tùng "
-            )),
-            "{mode:?}: {flushed:?}"
-        );
-    }
-}
-
-#[test]
 fn emoji_close_rewrites_with_the_colon_in_per_key_modes() {
-    // flow_per_key ON: the committed ':' sits one char before the
-    // candidate's region — the close lands the in-flight batch and erases
-    // both, or the emoji would keep the leading colon (`:😀`).
-    for mode in [Mode::Flow, Mode::Turbo] {
-        let mut e = with_emoji(
-            mode,
-            Config {
-                emoji_enabled: true,
-                ..Config::default()
-            },
-        );
-        e.set_uinput_available(true);
-        e.emojis
-            .set_entries([("cuoi".to_string(), "😀".to_string())].into_iter());
-        let actions = type_str(&mut e, ":cuoi:");
-        assert!(
-            actions
-                .iter()
-                .any(|a| matches!(a, Action::Commit(t) if t == "😀")),
-            "{mode:?}: {actions:?}"
-        );
-        assert_eq!(e.tail, "😀", "{mode:?}");
-    }
+    // The committed ':' sits one char before the candidate's region — the
+    // close lands the in-flight batch and erases both, or the emoji would
+    // keep the leading colon (`:😀`).
+    let mut e = with_emoji(
+        Mode::Flow,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    e.emojis
+        .set_entries([("cuoi".to_string(), "😀".to_string())].into_iter());
+    let actions = type_str(&mut e, ":cuoi:");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Commit(t) if t == "😀")),
+        "{actions:?}"
+    );
+    assert_eq!(e.tail, "😀");
 }
 
 #[test]
 fn emoji_miss_restores_the_raw_keys_in_per_key_modes() {
-    // flow_per_key ON: a name that matches nothing types back out of the
-    // composed display through the batch (`:tungf:` stays literal).
-    for mode in [Mode::Flow, Mode::Turbo] {
-        let mut e = with_emoji(
-            mode,
-            Config {
-                emoji_enabled: true,
-                ..Config::default()
-            },
-        );
-        e.set_uinput_available(true);
-        type_str(&mut e, ":tungf:");
-        assert_eq!(e.tail, "tungf:", "{mode:?}");
-        let flushed = flush_per_key(&mut e);
-        assert!(
-            flushed.iter().any(|a| matches!(
-                a,
-                Action::Commit(t) | Action::CommitNow(t) if t == "tungf:"
-            )),
-            "{mode:?}: {flushed:?}"
-        );
-    }
+    // A name that matches nothing types back out of the composed display
+    // through the batch (`:tungf:` stays literal).
+    let mut e = with_emoji(
+        Mode::Flow,
+        Config {
+            emoji_enabled: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    type_str(&mut e, ":tungf:");
+    assert_eq!(e.tail, "tungf:");
+    let flushed = flush_per_key(&mut e);
+    assert!(
+        flushed.iter().any(|a| matches!(
+            a,
+            Action::Commit(t) | Action::CommitNow(t) if t == "tungf:"
+        )),
+        "{flushed:?}"
+    );
 }
 
 #[test]
 fn backspaces_inside_the_shortcode_keep_the_rewrite_in_range() {
     let mut e = with_emoji(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             emoji_enabled: true,
             ..Config::default()
@@ -4222,7 +4153,7 @@ fn emoji_pick_after_a_colon_disarms_the_shortcode_branch() {
     // bookkeeping must follow, or a pick right after a literal ':' leaves
     // the shortcode branch armed and the next word types raw.
     let mut e = with_emoji(
-        Mode::NonPreedit,
+        Mode::Surrounding,
         Config {
             emoji_enabled: true,
             ..Config::default()
@@ -4245,7 +4176,6 @@ fn tone_engine(method: MethodConfig, mode: Mode, tone: BackspaceToneConfig) -> E
         mode: mode.into(),
         method,
         backspace_tone: tone,
-        flow_per_key: false,
         ..Config::default()
     });
     e.set_client(Some("gtk4-im:test".into()));
@@ -4260,14 +4190,14 @@ fn backspace_tone_first_strips_the_tone_in_one_step() {
     // walk would pass through every intermediate tone instead.
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::ToneFirst,
     );
     assert_eq!(type_replay_backspaces(&mut e, "hasfxjr\u{8}").0, "ha");
     // The word stays editable: one more Backspace takes the letter.
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::ToneFirst,
     );
     assert_eq!(type_replay_backspaces(&mut e, "hasfxjr\u{8}\u{8}").0, "h");
@@ -4278,7 +4208,7 @@ fn backspace_whole_char_deletes_the_marked_letter() {
     // `hạ` -> `h`: the marked character goes with its tone, one step.
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::WholeChar,
     );
     assert_eq!(type_replay_backspaces(&mut e, "hasfxjr\u{8}").0, "h");
@@ -4290,7 +4220,7 @@ fn backspace_unikey_walk_undoes_the_last_raw_key() {
     // tone walks back through every tone it passed.
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::UnikeyWalk,
     );
     // bamboo telex: x=ngã, j=nặng, r=hỏi — popping r lands on j's tone.
@@ -4303,7 +4233,7 @@ fn backspace_tone_skip_leaves_tone_free_words_alone() {
     // unikey undo pops `m` even with the skip on.
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::ToneFirst,
     );
     assert_eq!(type_replay_backspaces(&mut e, "hoom\u{8}").0, "hô");
@@ -4315,7 +4245,7 @@ fn backspace_tone_first_keeps_the_final_consonant() {
     // final n stay.
     let mut e = tone_engine(
         MethodConfig::Vni,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::ToneFirst,
     );
     assert_eq!(type_replay_backspaces(&mut e, "ha6n2\u{8}").0, "hân");
@@ -4329,7 +4259,7 @@ fn backspace_whole_char_rebuilds_uncomposable_text() {
     // exactly one character.
     let mut e = tone_engine(
         MethodConfig::Vni,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::WholeChar,
     );
     assert_eq!(type_replay_backspaces(&mut e, "ha6n2\u{8}").0, "hầ");
@@ -4342,13 +4272,13 @@ fn backspace_whole_char_deletes_the_screen_character() {
     // character is deleted, then goes with it.
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::WholeChar,
     );
     assert_eq!(type_replay_backspaces(&mut e, "hungf\u{8}").0, "hùn");
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::WholeChar,
     );
     assert_eq!(
@@ -4363,13 +4293,13 @@ fn backspace_whole_char_works_on_long_words() {
     // no tone-cycle walk on long words.
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::WholeChar,
     );
     assert_eq!(type_replay_backspaces(&mut e, "vieejt\u{8}").0, "việ");
     let mut e = tone_engine(
         MethodConfig::Telex,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::WholeChar,
     );
     assert_eq!(
@@ -4383,7 +4313,7 @@ fn backspace_whole_char_on_kept_compositions() {
     // `hạo6`: popping the literal 6 lands exactly on the kept word.
     let mut e = tone_engine(
         MethodConfig::Vni,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::WholeChar,
     );
     assert_eq!(type_replay_backspaces(&mut e, "hao123456\u{8}").0, "hạo");
@@ -4415,29 +4345,15 @@ fn backspace_tone_skip_leaves_kept_compositions_alone() {
     // pops the 6, the skip must not eat them.
     let mut e = tone_engine(
         MethodConfig::Vni,
-        Mode::NonPreedit,
+        Mode::Surrounding,
         BackspaceToneConfig::ToneFirst,
     );
     assert_eq!(type_replay_backspaces(&mut e, "hao123456\u{8}").0, "hạo");
 }
 
 #[test]
-fn uinput_modes_keep_the_unikey_undo_under_tone_skip() {
-    // The uinput modes show the raw keys: the wrapper must pop exactly one
-    // key per Backspace, whatever the dropdown says.
-    let mut e = tone_engine(
-        MethodConfig::Telex,
-        Mode::Flow,
-        BackspaceToneConfig::WholeChar,
-    );
-    e.set_uinput_available(true);
-    let _ = type_replay_backspaces(&mut e, "hasfxjr\u{8}");
-    assert_eq!(e.wrapper.raw(), "hasfxj");
-}
-
-#[test]
 fn per_key_backspace_ignores_the_tone_skip() {
-    // flow_per_key keeps the reverse-map pass-through regardless of the
+    // The per-key reverse-map pass-through runs regardless of the
     // dropdown: the real Backspace deletes the screen's last character.
     let mut e = tone_engine(
         MethodConfig::Telex,
@@ -4448,7 +4364,6 @@ fn per_key_backspace_ignores_the_tone_skip() {
     e.apply_config(&Config {
         mode: Mode::Flow.into(),
         experimental_features: true,
-        flow_per_key: true,
         backspace_tone: BackspaceToneConfig::WholeChar,
         ..Config::default()
     });
@@ -4505,7 +4420,7 @@ fn dd_undo_keeps_the_composition_at_word_end() {
     // The word end must commit the composition `dd` in every committed-text
     // display mode — the auto-restore must not resurrect `ddd` over an
     // undone đ.
-    for mode in [Mode::NonPreedit, Mode::Preedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = engine(mode, Config::default());
         assert_eq!(type_replay(&mut e, "ddd "), "dd ", "{mode:?}");
     }
@@ -4513,21 +4428,19 @@ fn dd_undo_keeps_the_composition_at_word_end() {
 
 #[test]
 fn dd_undo_rewrites_flowat_word_end() {
-    // Flow shows the raw keys while typing; the word end rewrites them to
-    // the composition `dd` — the undone đ must not keep `ddd` on screen.
-    let mut e = engine(
-        Mode::Flow,
-        Config {
-            flow_per_key: false,
-            ..Config::default()
-        },
-    );
+    // The per-key display shows the composition live; the word end parks
+    // it with the terminator — the undone đ must not keep `ddd` on screen.
+    let mut e = engine(Mode::Flow, Config::default());
     e.set_uinput_available(true);
-    let mut actions = type_str(&mut e, "ddd");
-    actions.extend(e.process_char(' '));
-    // The word-end terminator travels inside the parked commit.
+    type_str(&mut e, "ddd");
+    let _ = e.process_char(' ');
+    // The word-end terminator travels inside the parked batch.
+    let flushed = flush_per_key(&mut e);
     assert!(
-        actions.contains(&Action::Commit("dd ".into())),
-        "{actions:?}"
+        flushed
+            .iter()
+            .any(|a| matches!(a, Action::CommitNow(t) if t == "dd ")),
+        "{flushed:?}"
     );
+    assert_eq!(e.tail, "dd ", "the composition replaced the raw keys");
 }

@@ -32,7 +32,7 @@ fn full_keys_workload_commits_the_lone_x_exactly_once_per_mode() {
         }
     }
 
-    for mode in [Mode::Preedit, Mode::NonPreedit, Mode::Surrounding] {
+    for mode in [Mode::Preedit, Mode::Surrounding] {
         let mut e = Engine::new(Method::Telex, mode);
         e.set_client(None);
         e.set_capabilities(0b101001);

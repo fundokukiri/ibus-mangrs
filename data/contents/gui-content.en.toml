@@ -63,7 +63,7 @@ reset_button = "Restore"
 other_icon_toast_hidden = "Hidden from the app menu"
 other_icon_toast_shown = "Shown in the app menu again"
 dbus_error = "Could not connect to D-Bus: {e}"
-focus_ext_error = "Could not query the MăngRS Focus extension (data/gnome-shell-extension)"
+focus_ext_error = "Could not query the MăngRS Focus extension (data/extension)"
 focus_none = "No window has focus"
 logout_button = "Log out"
 
@@ -100,7 +100,7 @@ subtitle = "How typed text reaches the app"
 
 [rows.mode_visibility]
 title = "Displayed modes"
-subtitle = "{n}/10 modes shown"
+subtitle = "{n}/5 modes shown"
 
 [rows.charset]
 title = "Character set"
@@ -196,10 +196,6 @@ subtitle = "Custom characters listed in the right box"
 title = "Capitalize after extra characters"
 subtitle = "Extra characters listed in the right box"
 
-[rows.clipboard_restore]
-title = "Restore clipboard after a paste (ms)"
-subtitle = "Delay before the old clipboard returns"
-
 [rows.echo_stale]
 title = "Flush commits on stale echo (ms)"
 subtitle = "Echo wait limit before the text flushes"
@@ -248,20 +244,17 @@ title = "Delete tones with Backspace"
 subtitle = "Default: the tone is deleted first, the word stays (hạ becomes ha). Or delete the tone and the letter (hạ becomes h), or walk back one key like Unikey."
 
 [rows.nav_key_while_preedit]
-title = "Navigation keys while composing"
+title = "Navigation while a word is open"
 subtitle = "The first arrow key while a word is open"
 
-[rows.flow_per_key]
-title = "Per-key marks in Flow"
-subtitle = "Marks appear as you type in Flow/Turbo"
+[rows.flow_per_key_delay]
+title = "Per-step marks (ms)"
 
-[rows.flow_backspace_retrack]
-title = "Mark editing after Backspace (Flow/Turbo)"
-subtitle = "Erase one key, a mark key keeps editing"
+[rows.flow_backspace_restore_delay]
+title = "Mark restore after Backspace (ms)"
 
-[rows.flow_backspace_restore]
-title = "Restore the mark after Backspace (Flow/Turbo)"
-subtitle = "Erase the key that undid it, the mark returns"
+[rows.flow_delay]
+subtitle = "Defaults: {n}"
 
 [rows.macro_enabled]
 title = "Enable shorthand"
@@ -330,7 +323,7 @@ description = "Switch to the target app and back — its name dims into the inpu
 [groups.rules.list]
 title = "Rule list"
 description = "The first rule wins; none = the app reports no name."
-tooltip = "Only apps using the GTK IM module report their own name; Wayland apps appear as gnome-shell, X11/others as none. Install the MăngRS Focus extension (data/gnome-shell-extension) to get native Wayland app names."
+tooltip = "Only apps using the GTK IM module report their own name; Wayland apps appear as gnome-shell, X11/others as none. Install the MăngRS Focus extension (data/extension) to get native Wayland app names."
 
 [groups.rules.preview]
 title = "Test a rule"
@@ -434,7 +427,7 @@ kind_entry = "Entry"
 
 [groups.tune.pacing]
 title = "uinput tuning"
-description = "Applies only to Flow, Turbo and Select."
+description = "Applies only to Flow."
 
 [groups.tune.channel]
 title = "Text channel"
@@ -530,10 +523,6 @@ title = "Backspace pace"
 [rows.post_delay]
 title = "Post-word delay"
 
-[rows.unicode_channel]
-title = "Vietnamese word channel"
-subtitle = "Clipboard temporarily overwrites your clipboard content."
-
 # --- page About ---------------------------------------------------------------
 
 [about]
@@ -576,7 +565,7 @@ hotkey_settings = "Open Settings"
 [tips]
 enabled = "Toggles the whole input method. When off, every key goes straight into the app as if MăngRS were not installed."
 method = "The typing method decides how accented text is built from the keys: Telex (ss → á), VNI (a1 → á) or VIQR."
-mode = "How the in-flight text is displayed: preedit (underlined) works in every app; the uinput modes send real keys but can drift per app. Smooth (Forward) deletes via keys forwarded over IBus — no /dev/uinput; not for games or XIM clients."
+mode = "Underline (preedit): inline underlined text, committed at word end — needs client preedit support; without it the engine falls back to Surrounding. Surrounding text: every key commits at once, the word tail is repaired via text deletion — needs the client to report surrounding text; clients that never report get the tail erased through the injected or forwarded delete transport instead. Flow: raw keys pass straight through, marks appear per step, the word commits at word end — needs an injection backend (uinput/Wayland); without one it runs like Forward Backspace. Forward Backspace: every key commits at once, the tail is repaired with Backspace keys forwarded over IBus — never switches modes on its own, works with every client including terminals/XIM. OFF: Vietnamese processing off, macros still run."
 mode_visibility = "Turn a mode off to hide it from the menu, hotkey cycle, per-app rules and mode pickers. The active mode moves to the first still-visible entry."
 charset = "The character table: Unicode for every normal use; the VNI/TCVN3 tables are only needed when reading old text files."
 hide_underline = "Hides the preedit underline for apps that draw it broken (some games, terminals)."
@@ -602,7 +591,6 @@ preedit_xim = "Uses a separate preedit window for XIM apps (Java/JetBrains) that
 commit_interval = "The per-word send pace in uinput modes — lower it if an app loses text, raise it if it stalls."
 backspace_interval = "The Backspace send pace in uinput modes — lower it if deletion lags, raise it if the app cannot keep up."
 post_delay = "Waits after rewriting a whole word before the next character, for apps with slow key handling."
-unicode_channel = "How words with special characters are sent: CommitText is safe; Clipboard uses Ctrl+V and temporarily overwrites the clipboard."
 export = "Saves the whole configuration, shorthand and dictionary to one JSON file to carry to another machine."
 import = "Reads back an exported JSON file: overwrites the current configuration, shorthand and dictionary."
 desktop_icon = "Show or hide the “MăngRS Settings” entry in GNOME's app grid (GNOME takes a few seconds to notice)."
@@ -613,10 +601,9 @@ experimental_features = "The master switch of the Experimental tab: off locks ev
 macro_valid_words = "The Shorthand feature: a shortcut colliding with a real Vietnamese word (e.g. \"cam\") does not expand, so normal typing is never blocked. On, shorthand wins — to type the real word, Backspace once and retype that key."
 extra_url_chars = "The No-tone-after-URL feature by default keeps only real URLs (https://, www.) raw. This row adds your OWN characters: a word typed right after one of them stays raw (no tones). Flip the left switch and list the characters in the right box (e.g. ` ' !); '-' is rejected so -- stays an em dash."
 auto_capitalize_after = "The Auto-capitalize feature (after . ! ? and Enter): this row adds custom characters to that set. Flip the left switch and list the characters in the right box (e.g. : ”); no letters, digits or spaces."
-clipboard_restore = "The clipboard-restore feature: pasting marked text over the Clipboard channel overwrites the clipboard for a moment — the right number is how long before the old clipboard comes back. Only effective when the send channel is Clipboard.Only effective when the send channel is Clipboard. 100–5000 ms, default 600."
 echo_stale = "The commit-flush guard on Wayland: the engine waits for the virtual Backspace keys (echoes) to return before the committed text lands in the app. The right number is the wait limit — past it the text flushes anyway instead of hanging.past it the text flushes anyway instead of hanging. 50–1000 ms, too low risks losing text, too high delays it. Default 150 ms."
 idle_commit = "The commit-on-pause feature: pausing long enough on an underlined word commits it, as if Space was pressed. The right number is the pause threshold.The right number is the pause threshold. 300–2000 ms."
-flow_per_key = "The per-key marks feature in Flow: Flow/Turbo show the accented letter as you type (ee → ê) instead of holding the raw keys until word end. Very fast typing merges the steps, the text appears when you pause. The right number is the delay before marked text lands in the document — lower shows marks sooner, higher types smoother. 0–500 ms, default 20. A too-low value can reorder text on Wayland. Select is unchanged."
-flow_backspace_retrack = "The mark-editing-after-Backspace feature in Flow/Turbo: erase one character of a finished word and type a mark key — the word keeps transforming (tùn + s → tún) instead of falling back to plain letters. Needs per-key marks on."
-flow_backspace_restore = "The restore-mark-after-Backspace feature: type chào, press f again (the mark is undone, the screen shows chaof), then Backspace brings the mark back (chào) — following your \"Backspace xóa dấu\" setting: Unikey and Tone first restore the mark, Whole char deletes one character. The right number is how long to wait after Backspace before rewriting the screen (0–1000, default 150). Needs Mark editing after Backspace on too."
-nav_key_while_preedit = "The nav-key-while-a-word-is-typed feature: with a word still underlined, the first arrow key swallows to commit first (default, press twice to move) or moves the caret right away. If text lands in the wrong place, go back to Swallow."
+flow_per_key = "Flow shows the accented letter as you type (ee → ê) instead of holding the raw keys until word end — always on, no switch. Very fast typing merges the steps, the text appears when you pause. The number in the box is the delay before marked text lands in the document — lower shows marks sooner, higher types smoother. 0–500 ms, default 20. A too-low value can reorder text on Wayland."
+flow_backspace_retrack = "Mark editing after Backspace in Flow: erase one character of a finished word and type a mark key — the word keeps transforming (tùn + s → tún) instead of falling back to plain letters. Always on in Flow."
+flow_backspace_restore = "Restore the mark after Backspace, standard in Flow: type chào, press f again (the mark is undone, the screen shows chaof), then Backspace brings the mark back (chào) — following the \"Delete tones with Backspace\" setting: Unikey and Tone first restore the mark, Whole char deletes one character. The number in the box is how long to wait after Backspace before rewriting the screen (0–1000, default 150)."
+nav_key_while_preedit = "Navigation while a word is open: with a word still underlined, the first arrow key moves the caret right away by default (ibus-bamboo's sequence) — the commit rides the same reply, ahead of the key. If text lands in the wrong place in some app, go back to Swallow: the first press only commits the word, the second one moves."

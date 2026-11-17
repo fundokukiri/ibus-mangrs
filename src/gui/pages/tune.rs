@@ -1,39 +1,39 @@
 //! Page "Tinh chỉnh": the technical knobs most users never touch — the
-//! uinput pacing (Flow / Turbo / Select only), the delivery
-//! channel and the X11/XIM workarounds. The rows themselves come from
-//! `build`; this page groups them and keeps subtitles to two lines.
+//! uinput pacing (Flow only) and the X11/XIM workarounds. The rows
+//! themselves come from `build`; this page groups them and keeps subtitles
+//! to two lines.
 
 use super::*;
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
-    // uinput pacing plus the per-key display switch: everything only the
+    // uinput pacing plus the per-key park delay: everything only the
     // uinput modes use.
     let pacing = adw::PreferencesGroup::builder()
         .title(t("groups.tune.pacing.title", "Cấu hình uinput"))
-        .description(t(
-            "groups.tune.pacing.description",
-            "Chỉ áp dụng cho Flow, Turbo và Select.",
-        ))
+        .description(t("groups.tune.pacing.description", "Chỉ áp dụng cho Flow."))
         .build();
     pacing.add(&ui.pacing_row);
-    // The per-key display row lives with the pacing knobs: it shapes the
-    // same uinput word rendering. One merged row — the switch and its delay
-    // — outside the experimental gate, like the merged rows elsewhere. The
-    // pinned title width puts its divider column where the Experimental
-    // tab's merged rows sit.
-    pacing.add(&ui.flow_per_key_row);
-    uniform_title_width(&ui.flow_per_key_row);
+    // The two Flow delays share the pacing row's caption-column shape: the
+    // per-key park delay paces the same uinput word rendering, the restore
+    // delay paces the same screen rewriting, both outside the gate.
+    pacing.add(&ui.flow_delay_row);
     {
-        // The switch saves through the central `wire_switch_saves`; the spin
-        // is new here and needs its own value hook, like the pacing spins.
+        // The spins need their own value hooks, like the pacing spins.
         let s = ui.save_cb.clone();
         ui.flow_per_key_spin.connect_value_notify(move |_| {
             if let Some(save) = s.borrow().as_ref() {
                 save();
             }
         });
+        let s = ui.save_cb.clone();
+        ui.flow_backspace_restore_spin
+            .connect_value_notify(move |_| {
+                if let Some(save) = s.borrow().as_ref() {
+                    save();
+                }
+            });
     }
     for spin in [&ui.commit_interval, &ui.backspace_interval, &ui.post_delay] {
         let s = ui.save_cb.clone();
@@ -44,19 +44,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         });
     }
     page.add(&pacing);
-
-    // The delivery channel is not a speed knob: its own group keeps the
-    // pacing description from crowding the selected value. The experimental
-    // pairs that used to sit under it moved to the "Thử nghiệm" tab.
-    let channel = adw::PreferencesGroup::builder()
-        .title(t("groups.tune.channel.title", "Kênh gửi chữ"))
-        .build();
-    channel.add(&ui.unicode_channel);
-    ui.unicode_channel.set_subtitle(&t(
-        "rows.unicode_channel.subtitle",
-        "Clipboard sẽ tạm ghi đè nội dung clipboard của bạn.",
-    ));
-    page.add(&channel);
 
     // X11/XIM workarounds.
     let xim = adw::PreferencesGroup::builder()

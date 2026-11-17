@@ -28,7 +28,7 @@ pub const TYPE_SEPARATOR: u32 = 4;
 pub const STATE_UNCHECKED: u32 = 0;
 pub const STATE_CHECKED: u32 = 1;
 
-/// Project homepage — must match `data/ibus-mangrs.xml`.
+/// Project homepage — must match `data/system/ibus-mangrs.xml`.
 pub const HOMEPAGE: &str = "https://github.com/fundokukiri/ibus-mangrs";
 
 pub const KEY_ABOUT: &str = "about";
@@ -86,17 +86,14 @@ pub const METHODS: &[(&str, &str, &str)] = &[
 /// (menu key, Vietnamese label, English label) for every display mode. The
 /// menu popup shows the user's `config.menu_modes` selection (default: the
 /// four main entries); the rest are reachable through the GUI — duplicated
-/// near-identical choices only widen the popup.
+/// near-identical choices only widen the popup. Canonical keys only: the
+/// keys land in saved menu designs, and `ModeConfig::key()` is the one
+/// canonical spelling.
 pub const MODES: &[(&str, &str, &str)] = &[
-    ("nonpreedit", "Không gạch chân", "No underline"),
     ("preedit", "Gạch chân (preedit)", "Underline (preedit)"),
     ("surrounding", "Surrounding text", "Surrounding text"),
-    ("flow", "Flow (uinput)", "Flow (uinput)"),
-    ("turbo", "Turbo (uinput)", "Turbo (uinput)"),
-    ("select", "Select (uinput)", "Select (uinput)"),
-    ("smoothforward", "Smooth (Forward)", "Smooth (Forward)"),
-    ("forwardkeyevent", "Forward Backspace", "Forward Backspace"),
-    ("forwardselect", "Forward Selection", "Forward Selection"),
+    ("flow", "Flow", "Flow"),
+    ("forwardbackspace", "Forward Backspace", "Forward Backspace"),
     ("off", "OFF", "OFF"),
 ];
 
@@ -464,6 +461,27 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                     } else {
                         keys.clone()
                     };
+                    // A saved design or menu_modes list may still carry a
+                    // removed mode's spelling (`nonpreedit`, `turbo`): the
+                    // migration map resolves it onto the canonical key so the
+                    // entry that spelling names shows instead of vanishing,
+                    // and a mapping that lands on an already-listed entry
+                    // dedups. Unknown keys pass through and are skipped by
+                    // radio_items below.
+                    let fallback = if group.as_str() == "display" {
+                        let mut mapped: Vec<String> = Vec::new();
+                        for key in fallback {
+                            let key = ModeConfig::from_key(&key)
+                                .map(|mode| mode.key().to_string())
+                                .unwrap_or(key);
+                            if !mapped.contains(&key) {
+                                mapped.push(key);
+                            }
+                        }
+                        mapped
+                    } else {
+                        fallback
+                    };
                     // Nothing to show (e.g. display with an empty
                     // menu_modes, or every listed mode hidden): skip rather
                     // than render an empty submenu.
@@ -707,10 +725,11 @@ mod tests {
         let display = props.iter().find(|p| p.key == KEY_DISPLAY).unwrap();
         assert_eq!(display.sub.len(), 4);
 
-        // A design that lists only hidden modes renders no empty submenu.
+        // A design that lists only hidden modes renders no empty submenu
+        // (the explicit subset hides Flow, a shipped mode).
         let config = Config {
             visible_modes: Some(vec!["preedit".into(), "off".into()]),
-            menu_modes: vec!["turbo".into()],
+            menu_modes: vec!["flow".into()],
             ..Config::default()
         };
         assert!(
@@ -899,6 +918,73 @@ mod tests {
             props[5].sub.iter().all(|p| p.state == STATE_UNCHECKED),
             "the active mode absent from the list marks nothing"
         );
+    }
+
+    #[test]
+    fn display_submenu_walks_the_five_modes() {
+        // The full panel list: every canonical key in order, one radio each —
+        // the GUI dropdown, the cycle hotkey and the rule picker walk the
+        // same five.
+        let config = Config {
+            menu_modes: crate::config::DEFAULT_VISIBLE_MODES
+                .iter()
+                .map(|k| k.to_string())
+                .collect(),
+            ..Config::default()
+        };
+        let props = properties(&config);
+        let display = &props[5];
+        assert_eq!(
+            display
+                .sub
+                .iter()
+                .map(|p| p.key.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "display:preedit",
+                "display:surrounding",
+                "display:flow",
+                "display:forwardbackspace",
+                "display:off",
+            ]
+        );
+    }
+
+    #[test]
+    fn menu_modes_map_removed_spellings_onto_the_five() {
+        // An old panel menu listing a removed spelling (`nonpreedit`,
+        // `turbo`) gets the entry that spelling now names — the migration
+        // map resolves it through from_key — instead of a dropped entry.
+        let config = Config {
+            menu_modes: vec!["preedit".into(), "nonpreedit".into(), "turbo".into()],
+            ..Config::default()
+        };
+        let props = properties(&config);
+        let display = &props[5];
+        assert_eq!(
+            display
+                .sub
+                .iter()
+                .map(|p| p.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["display:preedit", "display:surrounding", "display:flow"],
+            "the mapped spelling shows its mode's entry, not a dropped one"
+        );
+        // The check mark follows the mapped entry too: a file whose mode is
+        // a removed spelling checks the radio that spelling maps onto.
+        let config = Config {
+            mode: crate::config::ModeConfig::Flow,
+            menu_modes: vec!["preedit".into(), "turbo".into()],
+            ..Config::default()
+        };
+        let props = properties(&config);
+        let checked: Vec<&str> = props[5]
+            .sub
+            .iter()
+            .filter(|p| p.state == STATE_CHECKED)
+            .map(|p| p.key.as_str())
+            .collect();
+        assert_eq!(checked, vec!["display:flow"]);
     }
 
     #[test]

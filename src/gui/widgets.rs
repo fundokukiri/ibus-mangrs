@@ -38,7 +38,7 @@ pub(super) fn focused_app_name() -> Result<(String, String), String> {
         .map_err(|_| {
             t(
                 "misc.focus_ext_error",
-                "Không hỏi được extension MăngRS Focus (data/gnome-shell-extension)",
+                "Không hỏi được extension MăngRS Focus (data/extension)",
             )
         })?;
     let (class, title) = reply
@@ -143,9 +143,7 @@ pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
     value.set_valign(gtk4::Align::Center);
     // A vertical divider draws the boundary between the two halves — the
     // switch half and the value half — instead of an invisible gap.
-    let divider = gtk4::Separator::new(gtk4::Orientation::Vertical);
-    divider.set_margin_start(8);
-    divider.set_margin_end(8);
+    let divider = pacing_divider();
     row.add_suffix(&switch);
     row.add_suffix(&divider);
     row.add_suffix(value);
@@ -217,6 +215,32 @@ pub(super) fn spin_button(min: f64, max: f64, step: f64) -> gtk4::SpinButton {
     let spin = gtk4::SpinButton::new(Some(&adjustment), step, 0);
     spin.set_size_request(VALUE_WIDTH_PX, -1);
     spin
+}
+
+/// The vertical divider between two pacing columns of a merged row — the
+/// same separator `switch_value_row` draws between its halves.
+pub(super) fn pacing_divider() -> gtk4::Separator {
+    let divider = gtk4::Separator::new(gtk4::Orientation::Vertical);
+    divider.set_margin_start(8);
+    divider.set_margin_end(8);
+    divider
+}
+
+/// One pacing column of a merged row: the caption above the spin. The
+/// caller places the column (dividers go between columns). The spin is
+/// centered, not the default Fill: the vertical box hands a filling child
+/// the whole column width — the caption's width — so a long caption
+/// ("Hoàn dấu sau Backspace (ms)") stretches its input while its siblings
+/// stay short. Centered, every spin renders at the shared VALUE_WIDTH_PX.
+pub(super) fn pacing_column(caption: &str, spin: &gtk4::SpinButton) -> gtk4::Box {
+    let label = gtk4::Label::new(Some(caption));
+    label.add_css_class("caption");
+    label.set_halign(gtk4::Align::Center);
+    spin.set_halign(gtk4::Align::Center);
+    let column = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    column.append(&label);
+    column.append(spin);
+    column
 }
 
 /// The text half of a merged row: a plain entry sized to the shared value

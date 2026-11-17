@@ -31,7 +31,7 @@ use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
 use crate::ibus_text::{plain_text, text_from_variant, text_variant, Attr};
 use crate::keymap;
-use crate::uinput::Uinput;
+use crate::transport::{preference_order, Injection, Kind};
 
 mod hotkey;
 mod prop;
@@ -60,7 +60,7 @@ pub const ENGINE_PATH: &str = "/org/freedesktop/IBus/Engine/1";
 pub const ENGINE_IFACE: &str = "org.freedesktop.IBus.Engine";
 pub const FACTORY_IFACE: &str = "org.freedesktop.IBus.Factory";
 
-/// The MăngRS focus extension (`data/gnome-shell-extension`): a session-bus
+/// The MăngRS focus extension (`data/extension`): a session-bus
 /// service naming the focused window. Wayland-native apps reach IBus only as
 /// a mutter relay, and GNOME offers no other name source for them (Shell
 /// Introspect is denied; the wlroots protocol ibus-bamboo uses is absent).
@@ -111,12 +111,17 @@ impl Server {
         // be sent and the message claimed (return `true`) inside the filter.
         let handler = std::rc::Rc::new(std::cell::RefCell::new(EngineHandler {
             engine: Arc::clone(&engine),
+            injection: Injection::new(),
             last_config_check: Instant::now(),
             last_config_mtime: None,
             hotkeys: Vec::new(),
             last_fire: Vec::new(),
             picker: None,
             emoji_picker: None,
+            burst: BurstWatch::default(),
+            burst_buffer: BurstBuffer::default(),
+            bounce_deadline: None,
+            stash: None,
             focus_ext: None,
         }));
         handler.borrow_mut().last_config_mtime = Config::path()
@@ -124,6 +129,18 @@ impl Server {
             .and_then(|m| m.modified().ok());
         let initial = Config::load();
         handler.borrow_mut().refresh_hotkey_cache(&initial);
+        // Startup: pick the injection backend before the first key; the
+        // engine's availability flag is fed from the holder's answer, not
+        // from a static device probe.
+        handler.borrow_mut().injection.select(&preference_order());
+        let selected = handler.borrow().injection.current();
+        lock_engine(&engine).set_uinput_available(selected.is_some());
+        // A compositor-routed backend delivers its keys through the
+        // compositor itself, so the relay ban on injection does not apply.
+        lock_engine(&engine).set_injection_relay_safe(matches!(
+            selected,
+            Some(Kind::Libei | Kind::WlrVirtualKeyboard)
+        ));
         let handler_for_cb = std::rc::Rc::clone(&handler);
         conn.replace_message_callback(Some(Box::new(move |conn, msg| {
             if msg.msg_type() != MessageType::MethodCall {
@@ -149,22 +166,82 @@ impl Server {
             // instead of sleeping a fixed second past it. lock_engine, not
             // .ok(): a poisoned mutex must degrade one keystroke, not stop
             // the loop's stale-echo flushes for the rest of the session.
-            let timeout = lock_engine(&self.engine)
-                .ms_until_tick()
-                .map_or(1000, |ms| ms.min(1000)) as i32;
+            let timeout = {
+                let e = lock_engine(&self.engine);
+                let handler = self.handler.borrow();
+                // The burst watchdog's deadline joins the engine's own
+                // deadlines: a lost burst must wake the loop on its own
+                // clock, not the 1s poll. The bounce deadline folds the same
+                // way: an expired bounce window aborts promptly.
+                let engine_ms = e.ms_until_tick().map_or(1000, |ms| ms.min(1000));
+                let watch_ms = handler.burst.ms_until().map_or(1000, |ms| ms.min(1000));
+                let bounce_ms = handler.bounce_deadline.map_or(1000, |d| {
+                    d.saturating_duration_since(Instant::now())
+                        .as_millis()
+                        .max(1) as u64
+                });
+                (engine_ms.min(watch_ms).min(bounce_ms)) as i32
+            };
             for item in self.conn.iter(timeout) {
                 if matches!(item, dbus::ffidisp::ConnectionItem::Nothing) {
                     break;
                 }
             }
-            let out = {
+            let mut out = Vec::new();
+            {
                 let mut e = lock_engine(&self.engine);
-                let actions = e.tick();
-                let mut out = Vec::new();
-                let injected = emit(&mut e, &actions, &mut out);
-                e.add_injected(injected);
-                out
-            };
+                let mut handler = self.handler.borrow_mut();
+                // Split into disjoint field borrows: the burst state, the
+                // bounce state and the key buffer are separate, and a RefMut
+                // reborrow per field would trip the borrow checker.
+                let EngineHandler {
+                    injection,
+                    burst,
+                    burst_buffer,
+                    bounce_deadline,
+                    stash,
+                    ..
+                } = &mut *handler;
+                // Bounce resolution first: an expired window aborts the
+                // deferred reset before the watchdog or the tick can deliver
+                // the parked commits (they belong to the stash now).
+                if bounce_deadline.is_some_and(|d| Instant::now() >= d) {
+                    *bounce_deadline = None;
+                    abort_deferred_focus_out(&mut e, burst, burst_buffer);
+                }
+                // Inside the bounce window the reset is deferred: neither
+                // the watchdog nor the tick may deliver anything and the
+                // held keys do not replay — every parked commit belongs to
+                // the bounce and is already copied into the stash, and a
+                // burst that completes mid-window (its echo debt settles
+                // with no parked commit left) must not send the held keys
+                // to the wire while the focus is still in flight.
+                if bounce_deadline.is_none() {
+                    // The per-burst echo watchdog runs beside the tick: a
+                    // burst whose echoes stopped arriving is declared lost on
+                    // its deadline and its parked commits flush before the
+                    // engine's own stale pass looks at the counters.
+                    burst_watch_pass(&mut e, burst, &mut out);
+                    let actions = e.tick();
+                    let injected = emit(&mut e, injection, &actions, &mut out);
+                    add_injected_batch(&mut e, burst, injected);
+                    // Both burst completion routes converge on this pass: the
+                    // watchdog expiry completes inside burst_watch_pass above,
+                    // the echo-settle route when the tick delivers the last
+                    // parked commit. One flush point replays the held keys.
+                    replay_buffered_keys(&mut e, injection, burst, burst_buffer, &mut out);
+                }
+                // The stash expires without a reconciling report: drop, log
+                // once (the drop is the gate).
+                if let Some(s) = stash {
+                    if Instant::now() >= s.deadline {
+                        debug_log::log(
+                            "stashed rewrite dropped: no report within the reconcile window",
+                        );
+                        *stash = None;
+                    }
+                }
+            }
             for msg in out {
                 send(&self.conn, msg);
             }
@@ -230,6 +307,12 @@ fn address_from_dir(dir: &std::path::Path) -> Option<String> {
 
 struct EngineHandler {
     engine: SharedEngine,
+    /// The selected injection backend: `emit`'s transports route through it,
+    /// and the engine's availability flag is fed from `current()`. Selected
+    /// at startup; re-selected with denials cleared on config apply/focus-in;
+    /// the uinput denial is additionally retried per keystroke (the
+    /// cheap-probe self-heal).
+    injection: Injection,
     /// Config file hot-reload: check the mtime at most once a second, on key
     /// events, so GUI/menu edits apply without a focus change or restart.
     last_config_check: Instant,
@@ -249,6 +332,21 @@ struct EngineHandler {
     /// caret; see emoji_picker.rs) — the same menu shape, digits pick,
     /// typing searches.
     emoji_picker: Option<EmojiPickerState>,
+    /// Per-burst echo watchdog: the server's view of the rewrite burst in
+    /// flight (expected echoes + their deadline). Armed beside every
+    /// `add_injected`, re-armed per forwarded echo, expired on the tick
+    /// path — see `BurstWatch`.
+    burst: BurstWatch,
+    /// Keystrokes typed while that burst was in flight, held for the
+    /// ordered replay — see `BurstBuffer`.
+    burst_buffer: BurstBuffer,
+    /// Deadline while a FocusOut during a burst has deferred the reset: a
+    /// FocusIn inside the window resumes the burst, expiry aborts it (see
+    /// `defer_focus_out_during_burst`).
+    bounce_deadline: Option<Instant>,
+    /// The rewrite stashed by an aborted burst, reconciled against the next
+    /// client's surrounding-text report — see `StashedRewrite`.
+    stash: Option<StashedRewrite>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
 }
@@ -371,7 +469,7 @@ impl EngineHandler {
         match member {
             "PropertyActivate" => {
                 if let Ok((name, state)) = msg.read2::<String, u32>() {
-                    activate_property(&mut engine, &name, state, out);
+                    activate_property(&mut engine, &self.injection, &name, state, out);
                 } else {
                     eprintln!("ibus-mangrs: PropertyActivate read2 FAILED");
                 }
@@ -393,10 +491,34 @@ impl EngineHandler {
                             brief(engine.tail()),
                             brief(&s),
                         ));
+                        // The text before the caret, taken before the report
+                        // moves into the engine: the stashed rewrite
+                        // reconciles against exactly this view.
+                        let prefix_end = s
+                            .char_indices()
+                            .nth(cursor as usize)
+                            .map_or(s.len(), |(byte, _)| byte);
+                        let actual = s[..prefix_end].to_string();
                         // The report can resolve a deferred click-Reset
                         // (park mode): the resulting HidePreedit must go out.
                         let actions = engine.set_surrounding_with_anchor(s, cursor, anchor);
-                        emit(&mut engine, &actions, out);
+                        emit(&mut engine, &self.injection, &actions, out);
+                        // The stashed rewrite reconciles against this report —
+                        // only a caret-aligned one (a selection says nothing
+                        // about the word, the same rule the engine's own
+                        // repair applies) and only after the bounce window
+                        // closed: while it is open the burst is still live
+                        // and the stash is just the abort's fallback.
+                        if anchor == cursor && self.bounce_deadline.is_none() {
+                            reconcile_stashed_rewrite(
+                                &mut engine,
+                                &self.injection,
+                                &mut self.burst,
+                                &mut self.stash,
+                                &actual,
+                                out,
+                            );
+                        }
                     }
                 }
                 msg.method_return()
@@ -405,16 +527,40 @@ impl EngineHandler {
             // FocusId property is true. `client` looks like `gtk4-im:chrome`
             // and is the only way to know which app is typing.
             "FocusIn" | "Enable" | "FocusInId" => {
+                // The incoming client id, read before set_client moves the
+                // engine's view: the bounce resume compares it against the
+                // context that left.
+                let incoming_client = if member == "FocusInId" {
+                    msg.read2::<String, String>().ok().map(|(_, client)| client)
+                } else {
+                    None
+                };
+                // Bounce resolution before any reset work: the same context
+                // back inside the window resumes the deferred burst untouched;
+                // anything else aborts it now (the stash survives for the
+                // reconcile at this focus's own ST report).
+                let resumed = resolve_focus_bounce_on_focus_in(
+                    &mut engine,
+                    &mut self.burst,
+                    &mut self.burst_buffer,
+                    &mut self.bounce_deadline,
+                    &mut self.stash,
+                    incoming_client.as_deref(),
+                );
                 if member == "FocusInId" {
-                    if let Ok((_, client)) = msg.read2::<String, String>() {
+                    if let Some(client) = incoming_client {
                         engine.set_client(Some(client));
                         note_client(msg);
                     }
                 }
                 // A new context may not support surrounding text at all; data
                 // left over from the previous client would let the engine send
-                // protocol deletes to it (mutter segfaults on those).
-                engine.clear_buffer_state();
+                // protocol deletes to it (mutter segfaults on those). Skipped
+                // when a bounce resumed the same context: its buffer state
+                // (the delete-dropped proof) survives the round trip.
+                if !resumed {
+                    engine.clear_buffer_state();
+                }
                 // Name the focused app beyond the IBus client string: the
                 // focus extension covers Wayland-native apps (they arrive as
                 // a mutter relay or unnamed), xprop covers X11 when the
@@ -454,9 +600,26 @@ impl EngineHandler {
                 self.hotkeys = hotkey_registry(&config);
                 self.last_fire.clear();
                 debug_log::log(&format!("focus-in client={:?}", engine.client()));
+                // Re-select the injection backend next to the config apply:
+                // a new focus may follow an environment change (device ACL,
+                // session type), so denials clear and every kind is
+                // re-attempted once — their constructor failures are fast
+                // and this is a rare event (the per-keystroke self-heal
+                // stays uinput-only). emit's inject gate reads the flag fed
+                // from the holder's answer.
+                self.injection.re_request();
+                self.injection.select(&preference_order());
+                engine.set_uinput_available(self.injection.current().is_some());
+                // A compositor-routed backend delivers its keys through the
+                // compositor itself, so the relay ban on injection does not
+                // apply.
+                engine.set_injection_relay_safe(matches!(
+                    self.injection.current(),
+                    Some(Kind::Libei | Kind::WlrVirtualKeyboard)
+                ));
                 let actions = engine.apply_config(&config);
                 engine.set_enabled(config.enabled);
-                emit(&mut engine, &actions, out);
+                emit(&mut engine, &self.injection, &actions, out);
                 // The panel shows the menu; rebuild it from the saved config so
                 // radio/toggle check marks survive engine restarts.
                 register_properties(&config, out);
@@ -477,6 +640,22 @@ impl EngineHandler {
                     out.push(signal("HideLookupTable"));
                     out.push(signal("HideAuxiliaryText"));
                 }
+                // Focus-bounce tolerance: a burst in flight defers the whole
+                // reset for the bounce window. A quick unfocus/refocus of the
+                // same context resumes it untouched in FocusIn; a real switch
+                // aborts on the loop pass with the rewrite stashed for
+                // reconcile. The branch emits nothing: the parked commits
+                // must not reach the wire while the focus is in flight.
+                if member != "Disable"
+                    && defer_focus_out_during_burst(
+                        &mut engine,
+                        &mut self.burst,
+                        &mut self.bounce_deadline,
+                        &mut self.stash,
+                    )
+                {
+                    return msg.method_return();
+                }
                 // Commits still waiting for their Backspace echoes: echoes will
                 // not follow a focus change, so deliver them now (late but not
                 // never).
@@ -492,7 +671,7 @@ impl EngineHandler {
                 // arrive first and wipe the word (same as ibus-bamboo's no-op
                 // FocusOut).
                 let actions = engine.focus_out();
-                emit(&mut engine, &actions, out);
+                emit(&mut engine, &self.injection, &actions, out);
                 // Only `Disable` (the panel toggle) switches the wrapper off.
                 // FocusOut must not: focus events get coalesced (a quick
                 // unfocus/refocus of one context never re-sends them — see the
@@ -501,6 +680,10 @@ impl EngineHandler {
                 // raw Latin typing until the engine is toggled or restarted.
                 if member == "Disable" {
                     engine.set_enabled(false);
+                    // A pending bounce dies with the Disable: the parks
+                    // flush below and nothing is left to defer or reconcile.
+                    self.bounce_deadline = None;
+                    self.stash = None;
                 }
                 engine.set_client(None);
                 // Drop the context's buffer data: the next focus may be a
@@ -511,6 +694,17 @@ impl EngineHandler {
                 // them here made every later rewrite take the broken
                 // injection path ("xin chaà" session).
                 engine.clear_buffer_state();
+                // Keys held for the burst belonged to the context going
+                // away: replaying them after the next FocusIn would type
+                // them into the wrong window. Disable keeps the context —
+                // the held keys still replay there, raw once the engine
+                // is off. Non-Disable reaches here only with NO burst live
+                // (the bounce branch above returns first): a burst's keys
+                // drop in `abort_deferred_focus_out` when its window
+                // expires, and survive a bounced focus.
+                if member != "Disable" {
+                    self.burst_buffer.clear();
+                }
                 debug_log::log(if member == "Disable" {
                     "disable"
                 } else {
@@ -536,9 +730,14 @@ impl EngineHandler {
                 for text in engine.flush_deferred() {
                     out.push(signal("CommitText").append1(plain_text(&text)));
                 }
+                // A click repositioned the caret (and the client already
+                // committed the word): the held keys belonged to the
+                // pre-click word — replaying them would type at the new
+                // caret.
+                self.burst_buffer.clear();
                 let actions = engine.on_client_reset();
-                let injected = emit(&mut engine, &actions, out);
-                engine.add_injected(injected);
+                let injected = emit(&mut engine, &self.injection, &actions, out);
+                add_injected_batch(&mut engine, &mut self.burst, injected);
                 msg.method_return()
             }
             "SetCapabilities" => {
@@ -604,9 +803,42 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
     );
 }
 
+/// Push both engine backend flags from the holder's current state — the
+/// self-heal and the paced Flow re-request share it, so every re-select
+/// refreshes both (a stale relay-safe mark would let injection back onto
+/// a relay the new backend does not serve).
+fn refresh_backend_flags(engine: &mut Engine, injection: &Injection) {
+    engine.set_uinput_available(injection.current().is_some());
+    engine.set_injection_relay_safe(matches!(
+        injection.current(),
+        Some(Kind::Libei | Kind::WlrVirtualKeyboard)
+    ));
+}
+
+/// One key event as `ProcessKeyEvent` carries it: keysym, evdev keycode,
+/// modifier state. The burst buffer stores the same triple, so a replayed
+/// key reconstructs the event the user actually made.
+struct KeyEvent {
+    keyval: u32,
+    keycode: u32,
+    state: u32,
+}
+
 /// Handle one key event, pushing resulting signals into `out`.
 /// Returns whether the engine consumed the key.
-fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Message>) -> bool {
+fn process_key(
+    engine: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    ev: KeyEvent,
+    out: &mut Vec<Message>,
+) -> bool {
+    let KeyEvent {
+        keyval,
+        keycode,
+        state,
+    } = ev;
     // Hottest log site (every key event, every mode): the format! would
     // allocate per keystroke even with the log off, so gate it first.
     if debug_log::enabled() {
@@ -622,21 +854,39 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         }
         return false;
     }
-    // The session ACL for `/dev/uinput` is applied by logind around login, so
-    // the open at engine start can be too early. Pick the device up as soon as
-    // it becomes available instead of keeping the startup answer for the whole
-    // session; while it stays unavailable the check is throttled inside
-    // `Uinput::available`.
-    if !engine.uinput_available() && Uinput::available() {
-        engine.set_uinput_available(true);
+    // The engine's flag is pulled mid-session when an injection fails on a
+    // delete-swallowing client; the holder still owns the backend it built,
+    // so its answer — not a static device probe — decides when to re-mark
+    // it. Backends the holder could not build stay denied (see `select`)
+    // and never reach this re-mark — except uinput: the old static probe
+    // picked a /dev/uinput grant up mid-session (logind's ACL can land
+    // minutes after engine spawn), and losing that self-heal is a
+    // regression the holder must not reintroduce.
+    if !engine.uinput_available() {
+        if injection.current().is_some() {
+            refresh_backend_flags(engine, injection);
+        } else {
+            // Only the uinput denial clears here: its constructor is a
+            // cheap device probe, while the other backends' failures are
+            // environment-fixed (no mutter, no compositor global, no
+            // DISPLAY) and retrying them per keystroke would pay their
+            // full acquisition cost for nothing.
+            injection.retry_denied(Kind::Uinput);
+            if injection.select(&[Kind::Uinput]).is_some() {
+                debug_log::log("uinput arrived mid-session — backend selected");
+                refresh_backend_flags(engine, injection);
+            }
+        }
     }
     // Ctrl/Alt/Super combinations are application shortcuts.
     if state & keymap::SHORTCUT_MASK != 0 {
-        // The Ctrl+V of a clipboard-channel paste comes back as a shortcut:
-        // it is our own injection and must reach the application untouched.
-        if let Some(commits) = engine.take_nav_echo(keymap::V) {
-            park_nav_commits(engine, commits);
-            return false;
+        // Held like any keystroke: replaying the shortcut after the keys
+        // already held keeps the user's sequence — resetting the engine
+        // now would orphan them past the caret move the shortcut makes.
+        // Echoes never reach this branch (they carry no modifier mask).
+        if buffer.holds_keystroke(engine, burst) {
+            buffer.push(keyval, keycode, state);
+            return true;
         }
         if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
@@ -644,8 +894,8 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
             }
         }
         let actions = engine.reset();
-        let injected = emit(engine, &actions, out);
-        engine.add_injected(injected);
+        let injected = emit(engine, injection, &actions, out);
+        add_injected_batch(engine, burst, injected);
         return false;
     }
 
@@ -660,56 +910,45 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         // An echo of a Backspace we injected ourselves: pass it to the
         // application — that key press IS the deletion mechanism. Once the
         // last echo of a rewrite is forwarded, its deferred commit can go.
-        if engine.take_injected_echo() {
-            // The reply carries the forwarded key out immediately; the
-            // commit must NOT ride the same dispatch — on a mutter relay
-            // the commit channel beats the key events and the commit
-            // overtook the last deletes ("titiến"). Park it for the main
-            // loop to emit after the app has applied the deletes.
-            for text in engine.note_echo_forwarded() {
-                engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
-            }
+        if note_burst_echo(engine, burst) {
             return false;
+        }
+        // A real Backspace typed mid-burst: held like any keystroke. The
+        // check sits after the echo test on purpose — an echo must never
+        // hold, or the burst would never settle.
+        if buffer.holds_keystroke(engine, burst) {
+            buffer.push(keyval, keycode, state);
+            return true;
         }
         return match engine.backspace() {
             Some(actions) => {
-                let injected = emit(engine, &actions, out);
-                engine.add_injected(injected);
+                let injected = emit(engine, injection, &actions, out);
+                add_injected_batch(engine, burst, injected);
                 !actions.contains(&Action::Forward)
             }
             None => false,
         };
     }
 
-    // A real key (never an echo): deliver deferred commits whose Backspace
-    // echoes are all in, or whose echoes have gone stale (apps that receive
-    // injected keys without routing them through ibus would otherwise eat
-    // every later Backspace and never see the commit).
+    // A real key (never an echo): while the burst is in flight it must not
+    // process against the mid-rewrite screen — hold it for the replay. The
+    // check is the hot path's only cost when nothing is armed.
+    if buffer.holds_keystroke(engine, burst) {
+        buffer.push(keyval, keycode, state);
+        return true;
+    }
+    // Deliver deferred commits whose Backspace echoes are all in, or whose
+    // echoes have gone stale (apps that receive injected keys without
+    // routing them through ibus would otherwise eat every later Backspace
+    // and never see the commit).
     if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
         for text in engine.flush_deferred() {
             out.push(signal("CommitText").append1(plain_text(&text)));
         }
     }
 
-    // A nav echo whose keyval is neither an editing key nor a shortcut
-    // has no other consumption site; forward it once rather than letting
-    // process_char treat it as a real keystroke.
-    if let Some(commits) = engine.take_nav_echo(keyval) {
-        park_nav_commits(engine, commits);
-        return false;
-    }
-
     // Arrows, Tab, Escape, Delete... end the word and belong to the app.
     if keymap::is_editing_key(keyval) {
-        // Echoes of keys the uinput modes injected (Select's Shift+Left and
-        // Delete): forward them so the selection/erase actually happens.
-        // Their commits park like the Backspace path's — an inline commit
-        // overtook the selection+delete on the relay and the word erased
-        // itself right after landing ("xin chaofchào " → "xin chaof").
-        if let Some(commits) = engine.take_nav_echo(keyval) {
-            park_nav_commits(engine, commits);
-            return false;
-        }
         if engine.take_stale_injection(engine.echo_stale()) || !engine.pending_echoes() {
             for text in engine.flush_deferred() {
                 out.push(signal("CommitText").append1(plain_text(&text)));
@@ -718,17 +957,18 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
         // A preedit commit and the forwarded navigation key travel different
         // transports on relayed contexts; a burst of arrows moves the caret
         // before the commit lands and the word is inserted mid-text
-        // ("em tên tùng" → "etùngm tên"). The shipped swallow consumes the
-        // first press so the commit lands while the caret is still in place;
-        // the experimental `nav_key_while_preedit` values trade that for an
-        // immediate caret move.
+        // ("em tên tùng" → "etùngm tên"). The default `forward` trades that
+        // for an immediate caret move — the commit signals above are already
+        // in `out`, so the forwarded key cannot overtake them; `swallow`
+        // consumes the first press instead so the commit lands with the
+        // caret still in place.
         let nav_pending = keymap::is_navigation_key(keyval)
             && engine.relay_context()
             && engine.preedit_commit_pending();
         let nav_behavior = engine.nav_key_while_preedit();
         let actions = engine.reset();
-        let injected = emit(engine, &actions, out);
-        engine.add_injected(injected);
+        let injected = emit(engine, injection, &actions, out);
+        add_injected_batch(engine, burst, injected);
         if nav_pending {
             match nav_behavior {
                 NavKeyWhilePreedit::Forward => {
@@ -765,9 +1005,533 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
     };
     let actions = engine.process_char(c);
     let consumed = !actions.contains(&Action::Forward);
-    let injected = emit(engine, &actions, out);
-    engine.add_injected(injected);
+    let injected = emit(engine, injection, &actions, out);
+    add_injected_batch(engine, burst, injected);
+    // Char path only, after the actions are emitted: a backend arriving
+    // must not disturb the word in flight (its lock serves the rest of it;
+    // the next word resolves through the walk) — a downgraded Flow word
+    // discovered via Backspace re-requests on the next char key.
+    flow_fallback_re_request(engine, injection);
     consumed
+}
+
+/// The Flow fallback's paced backend re-request: the mode walk downgrades
+/// Flow for lack of an injection backend and raises `flow_needs_backend`;
+/// each later word then retries the constructor table — paced by
+/// `re_request_paced` (a mutter/Libei acquisition costs seconds, the
+/// uinput probe is cheap) — and the engine flags follow the holder's
+/// answer.
+fn flow_fallback_re_request(engine: &mut Engine, injection: &mut Injection) {
+    if engine.flow_needs_backend() && injection.re_request_paced() {
+        injection.select(&preference_order());
+        refresh_backend_flags(engine, injection);
+    }
+}
+
+/// Built-in grace of the per-burst echo watchdog: after the burst arms
+/// (or its latest echo), the remaining echoes get this long before the
+/// burst is declared lost. Derived from the engine's built-in lost-echo
+/// window so the watchdog and the stale flush cannot drift; a custom
+/// window (`echo_stale_enabled`) replaces it with the user's value.
+pub const ECHO_WATCHDOG_GRACE_MS: u64 = Engine::DEFAULT_ECHO_STALE_MS;
+
+/// The watchdog window: how long the remaining echoes of an injected
+/// burst survive past the burst arming or its latest echo. The next echo
+/// of a batch paced `backspace_interval_ms` apart should arrive within
+/// one gap, so the window is the gap plus a grace; a custom lost-echo
+/// window (`echo_stale_enabled`) replaces the grace with the user's
+/// value — the same fold `Engine::echo_stale` applies to the stale
+/// flushes.
+fn burst_watch_window(engine: &Engine) -> Duration {
+    let grace = if engine.echo_stale_custom() {
+        engine.echo_stale()
+    } else {
+        Duration::from_millis(ECHO_WATCHDOG_GRACE_MS)
+    };
+    Duration::from_millis(engine.backspace_interval_ms()) + grace
+}
+
+/// Per-burst echo watchdog: the server's view of the rewrite burst in
+/// flight — how many echoes it still expects and when they are declared
+/// lost. The engine counts the same echoes (`pending_injected`); the
+/// deadline is the server's addition, re-armed by every arriving echo,
+/// so an app that echoes slowly keeps its burst alive while one that
+/// stops echoing gets its burst aborted on the tick path (the engine's
+/// stale window measures from the batch arming, not from the last echo).
+#[derive(Default)]
+struct BurstWatch {
+    /// Echoes still expected from the armed burst(s).
+    expected: u32,
+    /// When the remaining echoes are declared lost; `None` = no burst
+    /// armed.
+    deadline: Option<Instant>,
+}
+
+impl BurstWatch {
+    /// Arm/extend the watchdog for a batch that injected `n` keys.
+    fn arm(&mut self, engine: &Engine, n: u32) {
+        if n > 0 {
+            self.expected += n;
+            self.deadline = Some(Instant::now() + burst_watch_window(engine));
+        }
+    }
+
+    /// One echo was forwarded: the burst shrinks and its deadline moves
+    /// out; the last echo settles the burst.
+    fn note_echo(&mut self, engine: &Engine) {
+        self.expected = self.expected.saturating_sub(1);
+        self.deadline = if self.expected > 0 {
+            Some(Instant::now() + burst_watch_window(engine))
+        } else {
+            None
+        };
+    }
+
+    /// Whether a rewrite burst is still in flight — echoes are still
+    /// expected. The key-buffering consumer reads this alongside the
+    /// engine's `has_deferred()` (parked commits are the other in-flight
+    /// half).
+    fn in_flight(&self) -> bool {
+        self.expected > 0
+    }
+
+    /// Echoes the armed burst still expects — the readable count for the
+    /// key-buffering consumer.
+    fn expected_echoes(&self) -> u32 {
+        self.expected
+    }
+
+    /// Whether the armed burst's echoes are declared lost.
+    fn expired(&self) -> bool {
+        self.in_flight() && self.deadline.is_some_and(|d| Instant::now() >= d)
+    }
+
+    /// Milliseconds until the watchdog deadline — folded into the main
+    /// loop's wake timeout so a lost burst is its own wake-up, not a 1 s
+    /// poll away.
+    fn ms_until(&self) -> Option<u64> {
+        self.deadline.map(|d| {
+            d.saturating_duration_since(Instant::now())
+                .as_millis()
+                .max(1) as u64
+        })
+    }
+
+    fn disarm(&mut self) {
+        self.expected = 0;
+        self.deadline = None;
+    }
+}
+
+/// Capacity of the per-burst key buffer. A burst whose echoes never come
+/// back holds keys only until the watchdog aborts it (about one window), so
+/// 64 is far past anything real typing produces in that time; the bound
+/// keeps a stuck state from accumulating without limit.
+const BURST_BUFFER_CAP: usize = 64;
+
+/// Keystrokes held while a rewrite burst was in flight, replayed in order
+/// once it completes (see `replay_buffered_keys`). Presses only: releases
+/// carry no composition ("key releases are never ours") and keep flowing,
+/// so the application's key-state tracking stays live during the burst.
+#[derive(Default)]
+struct BurstBuffer {
+    /// `(keyval, keycode, state)` of each held press, arrival order.
+    keys: Vec<(u32, u32, u32)>,
+    /// Log-once gate for the overflow: one line per overflow episode,
+    /// reset when the buffer drains.
+    overflow_logged: bool,
+    /// Set while `replay_buffered_keys` drains: the replayed keys are
+    /// consecutive user keystrokes and must process even though each one
+    /// parks its own commit (the parked half of the in-flight state) —
+    /// re-holding them here would stall the drain to one key per
+    /// completion pass.
+    replaying: bool,
+}
+
+impl BurstBuffer {
+    /// Hold one key press. Past the cap the NEWEST key is the drop: the
+    /// first keys are the ones the engine's word state was built around,
+    /// so the replay must keep them and lose the latest presses instead.
+    fn push(&mut self, keyval: u32, keycode: u32, state: u32) {
+        if self.keys.len() >= BURST_BUFFER_CAP {
+            if !self.overflow_logged {
+                self.overflow_logged = true;
+                debug_log::log(&format!(
+                    "burst buffer full ({BURST_BUFFER_CAP}): dropping keys typed during the rewrite burst"
+                ));
+            }
+            return;
+        }
+        self.keys.push((keyval, keycode, state));
+    }
+
+    /// Whether a keystroke must wait for the rewrite burst: echoes of the
+    /// injected batch are still in flight, a parked commit has not landed
+    /// yet (the parked half of the in-flight state), or keys are already
+    /// held — they must replay first, order being the point of the buffer.
+    /// Idle typing pays a few field reads and never holds.
+    fn holds_keystroke(&self, engine: &Engine, burst: &BurstWatch) -> bool {
+        !self.replaying && (burst.in_flight() || engine.has_deferred() || !self.keys.is_empty())
+    }
+
+    /// Drain in arrival order for the replay; the overflow gate resets so
+    /// a fresh episode logs again.
+    fn take(&mut self) -> Vec<(u32, u32, u32)> {
+        self.overflow_logged = false;
+        std::mem::take(&mut self.keys)
+    }
+
+    /// Drop everything: the held keys belonged to a context or a word that
+    /// is going away (focus out, client reset) — replaying them would type
+    /// into the wrong place.
+    fn clear(&mut self) {
+        self.overflow_logged = false;
+        self.keys.clear();
+    }
+}
+
+/// How long a FocusOut during a burst waits for the context to come back
+/// before the deferred reset runs as a real switch. Quick unfocus/refocus
+/// of one context lands well inside this window (the logs show the pair
+/// 1ms apart); a user switching apps takes longer.
+const FOCUS_BOUNCE_MS: u64 = 100;
+
+/// How long the rewrite stashed by an aborted burst waits for a focus-in
+/// whose client report can reconcile it. lotus's
+/// `reconcileAbortedUinputReplacement` semantics: the report still showing
+/// the stashed state means the rewrite never landed and is re-applied;
+/// anything else means it is unsafe or pointless to rewrite.
+const RECONCILE_WINDOW: Duration = Duration::from_secs(2);
+
+/// The smallest anchor the reconcile accepts. A one-character anchor is
+/// satisfiable by a single stray keystroke in ANY context — alt-tab away
+/// mid-burst, type one matching letter, and the repair would fire its
+/// deletes and commit into the wrong document — so the match must require
+/// two ordered characters to coincide. The cost is bounded: a refused
+/// one-character rewrite stays raw (the pre-bounce outcome), never corrupts.
+const MIN_ANCHOR_CHARS: usize = 2;
+
+/// The rewrite a burst had in flight when a real focus switch aborted it:
+/// the parked commit text and the screen states needed to reconcile it
+/// against the next client report.
+struct StashedRewrite {
+    /// The rewrite text the burst still owed the screen (the parked commit).
+    text: String,
+    /// The state the client's buffer should still show for the repair to be
+    /// safe — what the application certainly held when the batch armed
+    /// (nothing landed), or the deletes-landed state when the anchor falls
+    /// back to the tail without the parked insert. The reconcile matches the
+    /// report's text before the caret against this.
+    expected_tail: String,
+    /// The believed text before the caret once the rewrite lands — the
+    /// re-anchor value for the engine's tail after the repair.
+    tail: String,
+    /// The client the burst belonged to (`FocusInId`'s string): a live
+    /// client naming a DIFFERENT context refuses the reconcile, so a
+    /// confirmed foreign report can never drive the repair.
+    client: Option<String>,
+    /// When the stash expires; the drop is the log-once gate.
+    deadline: Instant,
+}
+
+/// The burst-completion flush: when the rewrite burst has fully completed
+/// (no echoes expected, nothing parked) replay the held keys through
+/// `process_key` in arrival order, then the buffer clears. One flush point
+/// for both completion routes — the watchdog expiry completes inside
+/// `burst_watch_pass` (its flush delivers the parked commits), the
+/// echo-settle route when the tick delivers the last parked commit — and
+/// the run loop's post-tick pass reaches both.
+///
+/// The replay respects the engine's word-mode lock: `key_mode()` returns
+/// the locked mode for the whole word and only a word end, a reset or a
+/// focus drop releases it (the burst flushes never do), so replayed
+/// character keys continue the same word the burst was rewriting.
+fn replay_buffered_keys(
+    engine: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    out: &mut Vec<Message>,
+) {
+    if buffer.replaying || buffer.keys.is_empty() || burst.in_flight() || engine.has_deferred() {
+        return;
+    }
+    buffer.replaying = true;
+    for (keyval, keycode, state) in buffer.take() {
+        let ev = KeyEvent {
+            keyval,
+            keycode,
+            state,
+        };
+        if !process_key(engine, injection, burst, buffer, ev, out) {
+            // The engine passed the key through (an editing key, a disabled
+            // engine, plain Latin): the original ProcessKeyEvent reply would
+            // have handed it to the application, but the replay rides the
+            // tick path — forward it explicitly.
+            push_forward_keys(out, keyval, keycode, state);
+        }
+    }
+    buffer.replaying = false;
+}
+
+/// One pass of the per-burst echo watchdog on the tick path. A burst
+/// whose echoes stopped arriving is declared lost on its deadline: the
+/// parked commits flush through the same path the stale windows use
+/// (`flush_deferred` — the mutter-safe parked order), the burst counters
+/// clear through the stale machinery, and the expiry logs once (the
+/// disarm is the gate — a deadline cannot fire twice). The pass also
+/// reconciles a burst the engine's own stale flush already ended on a
+/// key path or an earlier tick, keeping the in-flight view honest for
+/// the key-buffering consumer.
+fn burst_watch_pass(engine: &mut Engine, burst: &mut BurstWatch, out: &mut Vec<Message>) {
+    // Reconcile first: the engine's stale pass may have consumed the
+    // burst already — a flush here would be empty, but the state must
+    // settle.
+    if burst.in_flight() && !engine.pending_echoes() {
+        burst.disarm();
+        return;
+    }
+    if !burst.expired() {
+        return;
+    }
+    debug_log::log(&format!(
+        "echo watchdog: burst lost, {} echoes never came back → flush parked commits",
+        burst.expected_echoes()
+    ));
+    // Clear the burst counters through the existing stale machinery and
+    // deliver what the burst parked — the same flush FocusOut and Reset
+    // run.
+    engine.take_stale_injection(Duration::ZERO);
+    for text in engine.flush_deferred() {
+        out.push(signal("CommitText").append1(plain_text(&text)));
+    }
+    burst.disarm();
+}
+
+/// One injected-backspace echo arriving through ProcessKeyEvent: the key
+/// goes to the application untouched (that key press IS the deletion
+/// mechanism) and the burst watchdog re-arms. Once the last echo of a
+/// rewrite is forwarded, its deferred commit can go — but the reply
+/// carrying the forwarded key must not also carry the commit: on a
+/// mutter relay the commit channel beats the key events and the commit
+/// overtook the last deletes ("titiến"). Park it for the main loop to
+/// emit after the app has applied the deletes. Returns whether the key
+/// was an echo.
+fn note_burst_echo(engine: &mut Engine, burst: &mut BurstWatch) -> bool {
+    if !engine.take_injected_echo() {
+        return false;
+    }
+    burst.note_echo(engine);
+    for text in engine.note_echo_forwarded() {
+        engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
+    }
+    true
+}
+
+/// Account one injected batch: the engine counts the echoes it must
+/// forward (they arrive as ProcessKeyEvent and must be forwarded, not
+/// processed) and the burst watchdog arms its deadline beside it — the
+/// two counters must never drift apart.
+fn add_injected_batch(engine: &mut Engine, burst: &mut BurstWatch, n: u32) {
+    engine.add_injected(n);
+    burst.arm(engine, n);
+}
+
+/// The FocusOut arm's bounce branch, called only for a non-`Disable` focus
+/// loss. A burst in flight (echoes expected or commits parked — the same
+/// pair the key buffer holds on) defers the whole reset: the engine keeps
+/// its composition, tail, buffer state and parked commits, the held keys
+/// stay in the buffer (the branch deliberately clears nothing), and the
+/// in-flight rewrite is captured for the reconcile in case this turns out
+/// to be a real switch. Returns whether the branch took the focus-out.
+fn defer_focus_out_during_burst(
+    engine: &mut Engine,
+    burst: &mut BurstWatch,
+    bounce_deadline: &mut Option<Instant>,
+    stash: &mut Option<StashedRewrite>,
+) -> bool {
+    // The burst half alone is not enough — the echo counters may already
+    // have settled while the commit is still parked behind its grace.
+    if !(engine.has_deferred() || burst.in_flight()) {
+        return false;
+    }
+    *stash = stash_in_flight_rewrite(engine);
+    *bounce_deadline = Some(Instant::now() + Duration::from_millis(FOCUS_BOUNCE_MS));
+    debug_log::log("focus-out during a burst → reset deferred for the bounce window");
+    true
+}
+
+/// Capture the rewrite a live burst owes the screen, for the reconcile
+/// after a real-switch abort. Only a single parked text is reconcilable
+/// (stacked parks from fast multi-key edits have no single rewrite text);
+/// and the anchor must carry evidence — an empty expected tail cannot
+/// distinguish the stashed state in a foreign report.
+fn stash_in_flight_rewrite(engine: &Engine) -> Option<StashedRewrite> {
+    let parked = engine.parked_commits();
+    let [insert] = parked.as_slice() else {
+        return None;
+    };
+    let tail = engine.tail().to_string();
+    // The anchor: what the client certainly holds. The per-key batch's
+    // landed state is exact while one is parked; otherwise the tail without
+    // the parked insert is the deletes-landed state of the echo-gated
+    // transports — valid only while the parked text really is the tail's
+    // suffix: a park from another producer (a macro/emoji timed park) may
+    // not be, and stripping it would manufacture a garbage anchor from an
+    // unrelated prefix.
+    let expected_tail = match engine.in_flight_landed() {
+        Some(h) => h.to_string(),
+        None if tail.ends_with(insert) => tail
+            .chars()
+            .take(tail.chars().count() - insert.chars().count())
+            .collect(),
+        None => return None,
+    };
+    // A one-character anchor cannot evidence the departed screen (see
+    // MIN_ANCHOR_CHARS).
+    if expected_tail.chars().count() < MIN_ANCHOR_CHARS {
+        return None;
+    }
+    Some(StashedRewrite {
+        text: insert.to_string(),
+        expected_tail,
+        tail,
+        client: engine.client().map(str::to_string),
+        deadline: Instant::now() + RECONCILE_WINDOW,
+    })
+}
+
+/// The FocusIn arm's bounce resolution, before any reset work. Inside the
+/// window and the same context (a `FocusInId` naming another client is a
+/// real switch; `FocusIn`/`Enable` carry no id and are indistinguishable
+/// from the bounce), the burst resumes untouched and the fallback stash
+/// drops; anything else aborts the deferred reset now — the stash survives
+/// for the reconcile at this focus's own ST report. Returns whether a
+/// pending bounce resumed.
+fn resolve_focus_bounce_on_focus_in(
+    engine: &mut Engine,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    bounce_deadline: &mut Option<Instant>,
+    stash: &mut Option<StashedRewrite>,
+    incoming_client: Option<&str>,
+) -> bool {
+    let Some(deadline) = *bounce_deadline else {
+        return false;
+    };
+    *bounce_deadline = None;
+    // The bounce belongs to the context that left: a same-client refocus
+    // resumes it. XIM names every client `xim`, so a same-string comparison
+    // cannot distinguish two XIM apps — accepted, the window is 100ms.
+    let same_client = match (incoming_client, engine.client()) {
+        (Some(incoming), Some(held)) => incoming == held,
+        _ => true,
+    };
+    if Instant::now() < deadline && same_client {
+        *stash = None;
+        debug_log::log("focus bounce: the context returned inside the window → burst resumed");
+        return true;
+    }
+    abort_deferred_focus_out(engine, burst, buffer);
+    false
+}
+
+/// The deferred FocusOut reset, run when a bounce window expired without a
+/// refocus (or a different context refocused inside it): a real switch.
+/// Emits nothing — a commit here would land in whatever context focused
+/// since; the parked commits go to the stash instead (dropped when it holds
+/// nothing reconcilable), and the held keys die with the context.
+fn abort_deferred_focus_out(engine: &mut Engine, burst: &mut BurstWatch, buffer: &mut BurstBuffer) {
+    // The echoes of the aborted batch will never come back — clear the
+    // counters the same way the watchdog's expiry does.
+    engine.take_stale_injection(Duration::ZERO);
+    // Drop the parks without emitting: the stash holds the rewrite text.
+    for _ in engine.flush_deferred() {}
+    // The deferred reset itself: focus_out emits nothing on a focus change
+    // by contract (no HidePreedit — the client owns the display).
+    let _ = engine.focus_out();
+    engine.clear_buffer_state();
+    // The departed client's identity dies with the abort: a plain-FocusIn
+    // (non-FocusInId) next client would otherwise inherit the stale string,
+    // which feeds the relay ban and app-rule resolution (the injection-
+    // onto-relay class, "xin chaà"). Safe here: the FocusIn resolution
+    // compares the incoming client BEFORE this runs, and the loop-pass
+    // expiry needs no client.
+    engine.set_client(None);
+    burst.disarm();
+    // Keys held for the burst belonged to the context going away: replaying
+    // them after the next FocusIn would type them into the wrong window.
+    // Task 12's drop moved here from the FocusOut arm when the bounce
+    // window landed: a bounced focus keeps the keys, a real switch drops
+    // them — the coordination note from Task 12's round.
+    buffer.clear();
+    debug_log::log("focus bounce closed without the context → burst aborted, rewrite stashed");
+}
+
+/// Chars of the common prefix of two strings — the same derivation
+/// `per_key_coalesce` applies to split a rewrite into an erase and an
+/// insert.
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    a.chars().zip(b.chars()).take_while(|(x, y)| x == y).count()
+}
+
+/// Reconcile the stashed rewrite against the client's report (the text
+/// before the caret). Match: the rewrite never completed — repair by
+/// re-emitting it (the deletes the batch still owes plus the stashed text)
+/// and re-anchor the engine's belief. Mismatch: unsafe or pointless to
+/// rewrite — drop, log once (the drop is the gate).
+fn reconcile_stashed_rewrite(
+    engine: &mut Engine,
+    injection: &Injection,
+    burst: &mut BurstWatch,
+    stash: &mut Option<StashedRewrite>,
+    actual: &str,
+    out: &mut Vec<Message>,
+) {
+    let Some(s) = stash else {
+        return;
+    };
+    if Instant::now() > s.deadline {
+        debug_log::log("stashed rewrite dropped: no report within the reconcile window");
+        *stash = None;
+        return;
+    }
+    // The stash belongs to the context that left: a live client naming a
+    // DIFFERENT one refuses it — the report describes a foreign buffer, and
+    // the repair would fire its deletes and commit into the wrong document.
+    if let (Some(held), Some(live)) = (&s.client, engine.client()) {
+        if held != live {
+            debug_log::log("stashed rewrite dropped: it belongs to another context");
+            *stash = None;
+            return;
+        }
+    }
+    // The report must still show the stashed state — the rewrite never
+    // completed, so re-emitting it is safe. The capture already guarantees
+    // the anchor carries evidence (MIN_ANCHOR_CHARS).
+    if actual.ends_with(&s.expected_tail) {
+        // The erase the batch still owes: the same split per_key_coalesce
+        // applies. When the deletes already landed (the anchor is the tail
+        // without the insert), the common prefix covers the anchor and this
+        // is zero — the repair is a plain commit.
+        let erase = s.expected_tail.chars().count() - common_prefix_len(&s.expected_tail, &s.tail);
+        let insert = s.text.clone();
+        let mut actions = Vec::new();
+        if erase > 0 {
+            actions.push(Action::InjectBackspaces(erase as u32));
+        }
+        actions.push(Action::Commit(insert.clone()));
+        let injected = emit(engine, injection, &actions, out);
+        add_injected_batch(engine, burst, injected);
+        // The engine's belief follows the repair: the screen will hold the
+        // stashed tail once it lands.
+        engine.reanchor_tail(s.tail.clone());
+        engine.note_committed(&insert);
+        debug_log::log("stashed rewrite reconciled: report matches → repair emitted");
+    } else {
+        debug_log::log("stashed rewrite dropped: the report does not match the stashed state");
+    }
+    *stash = None;
 }
 
 /// Turn engine actions into the signals IBus expects.
@@ -776,40 +1540,25 @@ fn process_key(engine: &mut Engine, keyval: u32, state: u32, out: &mut Vec<Messa
 /// `UpdatePreeditText(v u b u)`. Wrapping every argument in a variant (the
 /// old `(v...)` helper) makes ibus-daemon drop the call, which is why preedit
 /// text never appeared until the word was committed.
-fn emit(engine: &mut Engine, actions: &[Action], out: &mut Vec<Message>) -> u32 {
+fn emit(
+    engine: &mut Engine,
+    injection: &Injection,
+    actions: &[Action],
+    out: &mut Vec<Message>,
+) -> u32 {
     let transports = Transports {
-        backspaces: &|n, gap| Uinput::inject_backspaces(n, gap),
-        keys: &|keys, gap| Uinput::press_keys(keys, gap),
-        select_left: &|n, gap| Uinput::select_left(n, gap),
-        paste: &|text, delay| crate::paste::paste_and_restore(text, &|| Uinput::ctrl_v(), delay),
+        backspaces: &|n, gap| injection.backspaces(n, gap),
     };
     emit_with(engine, actions, out, &transports)
 }
 
-/// Park the commits a nav-echo flush just made deliverable — the same
-/// grace as the Backspace path. On a mutter relay the app applies the
-/// forwarded keys a beat behind the commit channel, and an inline commit
-/// landed before the selection+erase that clears the raw tail (the
-/// Select rewrite's word deleted itself right after landing).
-fn park_nav_commits(engine: &mut Engine, commits: Vec<String>) {
-    for text in commits {
-        engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
-    }
-}
-
-/// A paced key-press transport: (keycode, shift) pairs and the gap in ms.
-type PressKeys<'a> = &'a dyn Fn(&[(u16, bool)], u64) -> bool;
-
-/// Key transports so tests can exercise the injection paths without a
-/// writable `/dev/uinput`. `backspaces(n, gap)` presses Backspace `n` times
-/// `gap` ms apart; `keys` presses (keycode, shift) pairs; `select_left`
-/// Shift+Left `n` times; `paste` puts text on the clipboard (with restore)
-/// around a Ctrl+V and reports success.
+/// Key transports shaped like the selected backend's ops. Production builds
+/// them over the server's `Injection`, which forwards to the backend it
+/// holds; tests build them over stubs to exercise the injection paths
+/// without a writable `/dev/uinput`. `backspaces(n, gap)` presses Backspace
+/// `n` times `gap` ms apart.
 struct Transports<'a> {
     backspaces: &'a dyn Fn(u32, u64) -> bool,
-    keys: PressKeys<'a>,
-    select_left: &'a dyn Fn(u32, u64) -> bool,
-    paste: &'a dyn Fn(&str, u64) -> bool,
 }
 
 /// `emit` with injectable transports. Tests use it to exercise the injection
@@ -832,7 +1581,6 @@ fn emit_with(
     let bs_gap = engine.backspace_interval_ms();
     let mut injected_since_commit = 0u32;
     let mut injected_total = 0u32;
-    let mut nav_since_commit = 0usize;
     // Set when a rewrite delete could not be delivered to a client proven
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
@@ -844,7 +1592,6 @@ fn emit_with(
                 out,
                 text.clone(),
                 &mut delete_failed,
-                &mut nav_since_commit,
                 &mut injected_since_commit,
             ),
             Action::DeleteBefore(n) if inject => {
@@ -862,8 +1609,8 @@ fn emit_with(
                     // opened once) and the client swallows the protocol
                     // delete: neither transport works. Keep the raw text,
                     // suppress the paired commit, and let the engine know —
-                    // its mode resolution moves the following words to
-                    // preedit, which needs no delete.
+                    // the mode walk serves the following words through the
+                    // forwarded-Backspace transport.
                     debug_log::log(
                         "delete-before inject FAILED on a delete-dropping client → keep raw",
                     );
@@ -996,69 +1743,21 @@ fn emit_with(
                     ));
                 }
             }
-            // ForwardKeyEvent mode's delete transport: Backspace key events
+            // ForwardBackspace mode's delete transport: Backspace key events
             // sent through IBus, so the client's own IM context applies them
             // like real presses. They ride the same connection as the Commit
             // that follows, which keeps them ordered; no echo comes back
             // (the key goes to the application, not to the engine).
-            // ForwardKeyEvent (mode I) commits with its deletes in one
+            // ForwardBackspace (mode I) commits with its deletes in one
             // batch, as shipped: pacing here made JetBrains' XIM bridge
             // apply the commit into a stale view (the mark-coded vowel
             // vanished from screen yet Backspace revealed it — the buffer
-            // and the display desynced). The pacing stays on the
-            // select-and-erase mode only.
+            // and the display desynced). The pacing stays on the injected
+            // Backspace transport only.
             Action::ForwardBackspaces(n) => {
                 debug_log::log(&format!("forward-backspaces n={n}"));
                 for _ in 0..*n {
                     push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
-                }
-            }
-            // ForwardSelect: Shift+Left moves the application's own selection
-            // over the raw tail, then one forwarded Backspace erases it.
-            // A CommitText does NOT replace an application-side selection (the
-            // selection lives in the widget, the commit goes through the input
-            // context), so without the erase the raw keys stayed and the word
-            // was duplicated ("chao" + "chào" = "chàoao"). Backspace over a
-            // selection deletes the selection in every toolkit, and it is the
-            // transport already proven to land in these clients.
-            Action::ForwardSelectLeft(n) => {
-                debug_log::log(&format!("forward-select-left n={n} + erase"));
-                for _ in 0..*n {
-                    push_forward_keys(out, keymap::LEFT, LEFT_KEYCODE, keymap::SHIFT_MASK);
-                }
-                push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
-            }
-            Action::SelectLeft(n) => {
-                if (t.select_left)(*n, bs_gap) {
-                    debug_log::log(&format!("select rewrite: shift+left n={n}"));
-                    let echoes = vec![keymap::LEFT; *n as usize];
-                    engine.add_injected_nav(&echoes);
-                    nav_since_commit += *n as usize;
-                } else if engine.surrounding_data_ok() {
-                    debug_log::log(&format!("select-left inject FAILED → protocol -{n}"));
-                    let mut m = signal("DeleteSurroundingText");
-                    m = m.append1(-(*n as i32)).append1(*n);
-                    out.push(m);
-                } else {
-                    debug_log::log(&format!(
-                        "select-left inject FAILED and no report: deletion dropped n={n}"
-                    ));
-                }
-            }
-            Action::PressDelete => {
-                if (t.keys)(&[(crate::uinput::KEYCODE_DELETE, false)], 0) {
-                    debug_log::log("select rewrite: delete");
-                    engine.add_injected_nav(&[keymap::DELETE]);
-                    nav_since_commit += 1;
-                } else if (t.backspaces)(1, bs_gap) {
-                    // Every toolkit deletes the current selection on
-                    // Backspace, which is exactly what the Delete was for.
-                    // The paired commit still has to wait for this key.
-                    debug_log::log("press-delete FAILED → backspace over the selection");
-                    injected_since_commit += 1;
-                    injected_total += 1;
-                } else {
-                    debug_log::log("press-delete FAILED: selection stays selected");
                 }
             }
             // The per-key batch's parked commit: its deletes were injected
@@ -1067,28 +1766,6 @@ fn emit_with(
             // directly.
             Action::CommitNow(text) => {
                 out.push(signal("CommitText").append1(plain_text(text)));
-            }
-            Action::Paste(text) => {
-                if (t.paste)(text, engine.clipboard_restore_delay_ms()) {
-                    // Length only: the word itself is what the user just
-                    // typed, and the paste result is visible on screen.
-                    debug_log::log(&format!("paste channel len={}", text.chars().count()));
-                    // The Ctrl+V we injected comes back as a key event; forward it.
-                    engine.add_injected_nav(&[keymap::V]);
-                } else {
-                    debug_log::log("paste channel FAILED → CommitText fallback");
-                    // Same deferrals as a plain commit: this fallback usually
-                    // follows injected Backspaces, and overtaking them makes
-                    // the accent flash and revert.
-                    push_commit(
-                        engine,
-                        out,
-                        text.clone(),
-                        &mut delete_failed,
-                        &mut nav_since_commit,
-                        &mut injected_since_commit,
-                    );
-                }
             }
             Action::PostDelay(ms) => {
                 if *ms > 0 {
@@ -1117,16 +1794,10 @@ fn push_commit(
     out: &mut Vec<Message>,
     text: String,
     delete_failed: &mut bool,
-    nav_since_commit: &mut usize,
     injected_since_commit: &mut u32,
 ) {
     if std::mem::take(delete_failed) {
         debug_log::log("commit suppressed: its rewrite delete was not deliverable");
-    } else if *nav_since_commit > 0 {
-        // A commit right after injected selection keys can land before the
-        // app erased the selection.
-        engine.defer_nav_commit(*nav_since_commit, text);
-        *nav_since_commit = 0;
     } else if *injected_since_commit > 0 {
         // The injected Backspaces travel through the compositor while this
         // commit would go straight over D-Bus — a synchronous commit here
@@ -1159,14 +1830,8 @@ const INTROSPECT_XML: &str = r#"<node>
   </interface>
 </node>"#;
 
-/// Fake transports for tests: every key press "succeeds", the clipboard
-/// does not exist (Paste falls back to CommitText).
+/// Fake transports for tests: every key press "succeeds".
 #[cfg(test)]
 fn fake_transports<'a>(backspaces: &'a dyn Fn(u32, u64) -> bool) -> Transports<'a> {
-    Transports {
-        backspaces,
-        keys: &|_, _| true,
-        select_left: &|_, _| true,
-        paste: &|_, _| false,
-    }
+    Transports { backspaces }
 }

@@ -3,6 +3,7 @@ use super::x11::*;
 use super::*;
 use crate::bamboo_wrapper::Method;
 use crate::engine::Mode;
+use crate::transport::{BackendOps, Injection, Kind};
 use dbus::arg::{RefArg, Variant};
 
 #[test]
@@ -130,9 +131,9 @@ fn visible_cycle_skips_hidden_modes_and_wraps() {
         "wraps to the first"
     );
     assert_eq!(
-        next_visible_mode(&visible, ModeConfig::Turbo),
+        next_visible_mode(&visible, ModeConfig::Flow),
         ModeConfig::Preedit,
-        "a hidden current mode lands on the first visible entry"
+        "a mode outside the visible list lands on the first visible entry"
     );
 }
 
@@ -216,10 +217,12 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
     // toggle) may switch the wrapper off.
     let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
     // The daemon sends SetCapabilities before any key; without
-    // CAP_PREEDIT_TEXT the engine resolves Preedit down to NonPreedit.
+    // CAP_PREEDIT_TEXT the engine resolves Preedit down to the
+    // commit-as-you-type walk.
     lock_engine(&engine).set_capabilities(1);
     let mut handler = EngineHandler {
         engine: Arc::clone(&engine),
+        injection: Injection::new(),
         // Fresh clock: maybe_reload_config stays inside its 1s gate, so
         // the test never touches the real config file.
         last_config_check: Instant::now(),
@@ -228,6 +231,10 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
         last_fire: Vec::new(),
         picker: None,
         emoji_picker: None,
+        burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
         focus_ext: None,
     };
     let press = |handler: &mut EngineHandler, keyval: u32| {
@@ -289,12 +296,12 @@ fn emitted(actions: &[Action]) -> Vec<Message> {
     // delete; anything else falls back to key injection (no D-Bus signal).
     let mut e = crate::engine::Engine::new(
         crate::bamboo_wrapper::Method::Telex,
-        crate::engine::Mode::NonPreedit,
+        crate::engine::Mode::Surrounding,
     );
     e.set_capabilities(32); // CAP_SURROUNDING_TEXT
     e.set_surrounding("word".into(), 4);
     let mut out = Vec::new();
-    emit(&mut e, actions, &mut out);
+    emit(&mut e, &Injection::new(), actions, &mut out);
     out
 }
 
@@ -342,7 +349,7 @@ fn hide_preedit_reuses_the_preedit_signal() {
 
 #[test]
 fn hide_underline_drops_the_underline_attribute() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.apply_config(&Config {
         hide_underline: true,
         ..Config::default()
@@ -350,6 +357,7 @@ fn hide_underline_drops_the_underline_attribute() {
     let mut out = Vec::new();
     emit(
         &mut e,
+        &Injection::new(),
         &[Action::UpdatePreedit {
             text: "tiếng".into(),
             cursor: 5,
@@ -375,7 +383,7 @@ fn no_surrounding_data_routes_deletes_to_injection() {
     // A client without surrounding data must never see a protocol
     // DeleteSurroundingText (mutter segfaults on contexts whose buffer it
     // never saw — the search-bar logout); uinput is the delete transport.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(32); // CAP_SURROUNDING_TEXT, but no data reported
     e.set_uinput_available(true);
@@ -411,7 +419,7 @@ fn unknown_client_routes_deletes_to_injection() {
     // Backspace transport instead of raw-forwarding the tone keys.
     let mut e = Engine::new(
         crate::bamboo_wrapper::Method::Telex,
-        crate::engine::Mode::NonPreedit,
+        crate::engine::Mode::Surrounding,
     );
     e.set_capabilities(1);
     e.set_uinput_available(true);
@@ -438,7 +446,7 @@ fn commit_after_injection_waits_for_backspace_echoes() {
     // outruns the compositor round trip — the echo then deletes the
     // freshly committed word ("accent flashes and reverts"). The commit
     // must be deferred until the last echo is forwarded.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_uinput_available(true); // no surrounding data → injection
     let mut out = Vec::new();
@@ -466,49 +474,6 @@ fn commit_after_injection_waits_for_backspace_echoes() {
     let ready = e.note_echo_forwarded();
     assert_eq!(ready, vec!["ế".to_string()]);
     assert!(!e.has_deferred());
-}
-
-#[test]
-fn commit_after_selection_waits_for_nav_echoes() {
-    // The Select rewrite injects Shift+Left presses and a Delete; a
-    // synchronous commit would land before the app erased the selection.
-    // The commit must wait until every injected nav-key echo has been
-    // forwarded, then flush.
-    let mut e = Engine::new(Method::Telex, Mode::Select);
-    e.set_client(Some("gtk4-im:test".into()));
-    e.set_uinput_available(true);
-    e.set_surrounding(String::new(), 0);
-    let mut out = Vec::new();
-    let bs = |_: u32, _: u64| true;
-    let t = fake_transports(&bs);
-    emit_with(
-        &mut e,
-        &[
-            Action::SelectLeft(3),
-            Action::PressDelete,
-            Action::Commit("việt".into()),
-        ],
-        &mut out,
-        &t,
-    );
-    assert!(
-        !out.iter()
-            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
-        "commit must be deferred, got {:?}",
-        out.iter()
-            .map(|m| m.member().map(|m| m.to_string()))
-            .collect::<Vec<_>>()
-    );
-    assert!(e.has_deferred());
-    assert!(e.pending_nav_echoes());
-    // The three Left echoes come back, then the Delete echo: the commit
-    // is only ready after the last one.
-    for _ in 0..3 {
-        assert!(e.take_nav_echo(keymap::LEFT).unwrap().is_empty());
-    }
-    assert!(e.take_nav_echo(keymap::DELETE).unwrap() == vec!["việt".to_string()]);
-    assert!(!e.has_deferred());
-    assert!(!e.pending_nav_echoes());
 }
 
 #[test]
@@ -610,82 +575,1881 @@ fn registry_uses_the_newest_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// --- emit over the selected injection backend ---
+
+/// The injected ops, recorded by [`RecordingBackend`]. One entry per call,
+/// so `Backspaces(2)` is one paced batch, not two presses.
+#[derive(Debug, PartialEq)]
+enum RecordedOp {
+    Backspaces(u32),
+}
+
+/// Test double for the backend the server's `Injection` selects: records
+/// every op into a log shared with the test, which cannot read the backend
+/// back out of the holder.
+struct RecordingBackend {
+    kind: Kind,
+    ops: Arc<Mutex<Vec<RecordedOp>>>,
+}
+
+impl BackendOps for RecordingBackend {
+    fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    fn available(&self) -> bool {
+        true
+    }
+
+    fn backspaces(&self, n: u32, _gap_ms: u64) -> bool {
+        self.ops.lock().unwrap().push(RecordedOp::Backspaces(n));
+        true
+    }
+
+    // Whitelist surface: Delete stays a backend op, but no engine action
+    // reaches it anymore, so there is nothing to record.
+    fn delete(&self, _n: u32) -> bool {
+        true
+    }
+}
+
+/// An `Injection` holding a [`RecordingBackend`], built through the real
+/// `select_with` seam (the holder itself is the test setter), plus the
+/// shared op log.
+///
+/// The routing tests drive production `emit` through this holder: if routing
+/// ever regressed to the uinput statics, the failing test would inject real
+/// Backspaces into whatever window is focused — that failure mode is the
+/// point of the pin, but be aware of it when running these alone.
+fn recorded_injection() -> (Injection, Arc<Mutex<Vec<RecordedOp>>>) {
+    let ops = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&ops);
+    let mut injection = Injection::new();
+    let stub = |kind: Kind| -> Option<Box<dyn BackendOps>> {
+        Some(Box::new(RecordingBackend {
+            kind,
+            ops: Arc::clone(&ops),
+        }))
+    };
+    assert_eq!(
+        injection.select_with(&[Kind::XTest], &stub),
+        Some(Kind::XTest)
+    );
+    (injection, log)
+}
+
 #[test]
-fn failed_press_delete_falls_back_to_backspace() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static PRESSES: AtomicUsize = AtomicUsize::new(0);
-    PRESSES.store(0, Ordering::SeqCst);
-    let mut e = Engine::new(Method::Telex, Mode::Select);
+fn emit_uses_the_selected_backend_not_uinput_statics() {
+    // emit builds its transports over the server's Injection: a rewrite
+    // whose delete succeeds on the selected backend must reach the
+    // application as exactly that Backspace batch and never ALSO as a
+    // protocol delete of the same region (double deletion erased words).
+    let (injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_uinput_available(true);
     let mut out = Vec::new();
-    let t = Transports {
-        backspaces: &|n, _| {
-            PRESSES.fetch_add(n as usize, Ordering::SeqCst);
-            true
-        },
-        keys: &|_, _| false,
-        select_left: &|_, _| true,
-        paste: &|_, _| false,
-    };
-    // No SelectLeft: the only pending injection is the fallback key.
-    emit_with(
+    let injected = emit(
         &mut e,
-        &[Action::PressDelete, Action::Commit("việt".into())],
+        &injection,
+        &[Action::RewriteByBackspace {
+            backspaces: 2,
+            commit: "ê".into(),
+        }],
         &mut out,
-        &t,
     );
-    assert_eq!(PRESSES.load(Ordering::SeqCst), 1, "one backspace");
+    assert_eq!(injected, 2, "the batch counts toward the echo deferral");
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(2)],
+        "exactly one Backspace batch through the selected backend"
+    );
     assert!(
-        e.has_deferred(),
-        "the commit must wait for the fallback key"
+        !out.iter().any(|m| m
+            .member()
+            .map(|m| m == "DeleteSurroundingText")
+            .unwrap_or(false)),
+        "the same region must not also be protocol-deleted: {:?}",
+        member_names(&out)
     );
 }
 
 #[test]
-fn paste_failure_falls_back_to_commit() {
-    // Without a clipboard tool the Paste transport fails; the word must
-    // still reach the application (CommitText fallback).
-    let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.set_client(Some("gtk4-im:test".into()));
+fn relay_context_never_attempts_injection() {
+    // Relayed Wayland clients lose injected keys; the engine bans
+    // injection there (injection_forbidden). Even with a backend selected
+    // and the availability flag fed, emit must not find a way around the
+    // ban: the record stays empty while the commit still lands.
+    let (injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gnome-shell".into()));
     e.set_uinput_available(true);
     let mut out = Vec::new();
-    let bs = |_: u32, _: u64| true;
-    let t = fake_transports(&bs);
-    emit_with(&mut e, &[Action::Paste("việt".into())], &mut out, &t);
+    emit(
+        &mut e,
+        &injection,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+    );
+    assert!(
+        ops.lock().unwrap().is_empty(),
+        "no injection may be attempted on a relayed client"
+    );
     assert!(
         out.iter()
             .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
-        "{:?}",
-        out.iter()
-            .map(|m| m.member().map(|m| m.to_string()))
-            .collect::<Vec<_>>()
+        "the commit still lands: {:?}",
+        member_names(&out)
     );
 }
 
 #[test]
-fn paste_fallback_after_injected_backspaces_is_deferred() {
-    // The flow rewrite erases the raw keys with injected Backspaces,
-    // then the paste fails. The fallback commit must not overtake the
-    // echoes, or the app deletes the freshly committed word.
-    let mut e = Engine::new(Method::Telex, Mode::Flow);
-    e.set_client(Some("gtk4-im:test".into()));
+fn compositor_routed_backend_injects_on_a_relayed_context() {
+    // The ban's reason is device-injected (uinput/XTest) keys getting
+    // lost between the compositor and a relayed client. A compositor-
+    // routed backend delivers through the compositor itself, so the
+    // exemption must hold on the inject path too: the DeleteBefore the
+    // engine emits on the no-report path is served by real Backspace
+    // presses through the selected backend, with the commit parked
+    // behind the echoes like on any injected path. Without the
+    // exemption the same batch stays banned (relay ban test above).
+    let (injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_uinput_available(true);
+    e.set_injection_relay_safe(true);
+    let mut out = Vec::new();
+    let injected = emit(
+        &mut e,
+        &injection,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+    );
+    assert_eq!(injected, 2, "the exempt backend serves the delete");
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(2)],
+        "real Backspace presses through the compositor-routed backend"
+    );
+    assert!(
+        !out.iter().any(|m| m
+            .member()
+            .map(|m| m == "DeleteSurroundingText")
+            .unwrap_or(false)),
+        "no protocol delete on the no-report path: {:?}",
+        member_names(&out)
+    );
+    assert!(e.has_deferred(), "the commit waits for the echoes");
+
+    // Without the exemption the relay ban holds: the same batch is not
+    // injected and the commit lands ungated.
+    let (injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gnome-shell".into()));
     e.set_uinput_available(true);
     let mut out = Vec::new();
+    emit(
+        &mut e,
+        &injection,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+    );
+    assert!(
+        ops.lock().unwrap().is_empty(),
+        "no injection without the compositor-routed exemption"
+    );
+    assert!(
+        out.iter()
+            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+        "the commit still lands: {:?}",
+        member_names(&out)
+    );
+}
+
+#[test]
+fn stale_echo_flushes_parked_commit() {
+    // A rewrite's echo never comes back (injection lost) and no key
+    // arrives: the main-loop tick must still deliver the parked commit
+    // through emit, without attempting another injection on the way out.
+    let (injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.apply_config(&Config {
+        experimental_features: true,
+        echo_stale_enabled: true,
+        echo_stale_ms: 1,
+        ..Config::default()
+    });
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    e.defer_commit(2, "tiếng".into());
+    e.add_injected(2);
+    assert!(e.take_injected_echo(), "the first echo arrives");
+    assert!(
+        e.note_echo_forwarded().is_empty(),
+        "the second echo never comes: the commit stays parked"
+    );
+    assert!(e.has_deferred());
+    std::thread::sleep(Duration::from_millis(5)); // past the 1ms stale window
+    let actions = e.tick();
+    assert_eq!(
+        actions,
+        vec![Action::Commit("tiếng".into())],
+        "the stale tick hands the parked commit to emit: {actions:?}"
+    );
+    let mut out = Vec::new();
+    emit(&mut e, &injection, &actions, &mut out);
+    assert!(
+        out.iter()
+            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+        "the parked commit lands: {:?}",
+        member_names(&out)
+    );
+    assert!(
+        ops.lock().unwrap().is_empty(),
+        "the flush must not inject anything"
+    );
+    assert!(!e.has_deferred() && !e.pending_echoes());
+}
+
+#[test]
+fn watchdog_flushes_a_lost_burst_after_the_deadline() {
+    // A rewrite burst on a client without surrounding data: the deletes
+    // are injected and the commit parks behind their echoes. When the
+    // echoes never come back (the relay ate the batch), the burst
+    // watchdog declares the burst lost on its deadline — the parked
+    // commit flushes and the counters clear — while a burst whose echoes
+    // keep arriving is never tripped: each echo re-arms the deadline.
+    let _guard = crate::debug_log::test_guard();
+    // Clear the log globals first: LOG_FILE caches the open handle for
+    // the process lifetime, and a handle left over from a parallel test
+    // (opened against the real cache file) would swallow every line this
+    // test's machinery writes — the override is only consulted on open.
+    crate::debug_log::test_reset();
+    let dir = std::env::temp_dir().join(format!("ibus-mangrs-watchdog-log-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true); // no surrounding data → injection
     let bs = |_: u32, _: u64| true;
     let t = fake_transports(&bs);
-    emit_with(
+    let mut burst = BurstWatch::default();
+
+    // Lost burst: the batch is injected, no echo ever arrives.
+    let mut out = Vec::new();
+    let injected = emit_with(
         &mut e,
-        &[Action::InjectBackspaces(6), Action::Paste("việt".into())],
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
         &mut out,
         &t,
     );
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert_eq!(injected, 2);
+    assert!(burst.in_flight(), "the burst is armed");
     assert!(
         !out.iter()
             .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
-        "the fallback commit must wait for the Backspace echoes"
+        "the commit parks behind the echoes: {:?}",
+        member_names(&out)
     );
     assert!(e.has_deferred());
+    // Well past the deadline (one pacing gap + the grace).
+    std::thread::sleep(Duration::from_millis(190));
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(
+        out.iter()
+            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+        "the parked commit lands: {:?}",
+        member_names(&out)
+    );
+    assert!(!burst.in_flight(), "the burst is settled");
+    assert!(!e.pending_echoes(), "counters cleared");
+    assert!(!e.has_deferred());
+    // A pass after settling emits nothing and logs nothing: the disarm
+    // is the log-once gate.
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(out.is_empty());
+
+    // Healthy burst: the echoes arrive, each re-arms the deadline.
+    let mut out = Vec::new();
+    let injected = emit_with(
+        &mut e,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+        &t,
+    );
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert_eq!(injected, 2);
+    // The first echo arrives near the end of the original window: the
+    // deadline moves out and the burst survives its old deadline.
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        note_burst_echo(&mut e, &mut burst),
+        "the first echo arrives"
+    );
+    std::thread::sleep(Duration::from_millis(60)); // past the old deadline
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(
+        out.is_empty(),
+        "the re-armed deadline holds: {:?}",
+        member_names(&out)
+    );
+    assert!(burst.in_flight(), "one echo is still expected");
+    // The second echo settles the burst; nothing flushes behind it.
+    assert!(note_burst_echo(&mut e, &mut burst));
+    assert!(!burst.in_flight());
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(out.is_empty());
+
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines().filter(|l| l.contains("echo watchdog")).count(),
+        1,
+        "one watchdog line for one lost burst: {text}"
+    );
+}
+
+#[test]
+fn watchdog_rearms_the_deadline_on_each_arriving_echo() {
+    // The deadline is echo-anchored, not arming-anchored: an echo
+    // arriving near the end of the window moves it out and the burst
+    // survives its old deadline; only a window that passes with echoes
+    // still expected aborts the burst.
+    // The expiry logs: hold the debug-log guard so parallel tests that
+    // assert log lines never see this test's lines (process-wide state),
+    // and start from cleared globals so this test's own lines can never
+    // land in a handle a previous test left open.
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let bs = |_: u32, _: u64| true;
+    let t = fake_transports(&bs);
+    let mut burst = BurstWatch::default();
+    let mut out = Vec::new();
+    let injected = emit_with(
+        &mut e,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+        &t,
+    );
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert!(burst.in_flight());
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(note_burst_echo(&mut e, &mut burst), "the echo arrives");
+    std::thread::sleep(Duration::from_millis(80)); // past the old deadline
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(
+        out.is_empty(),
+        "the re-armed deadline holds: {:?}",
+        member_names(&out)
+    );
+    assert!(burst.in_flight(), "one echo is still expected");
+    // No further echo: the re-armed deadline passes and the burst is
+    // declared lost after all.
+    std::thread::sleep(Duration::from_millis(100));
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(
+        out.iter()
+            .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
+        "the parked commit still lands once the re-armed window passes: {:?}",
+        member_names(&out)
+    );
+    assert!(!burst.in_flight());
+    assert!(!e.pending_echoes() && !e.has_deferred());
+}
+
+#[test]
+fn watchdog_window_follows_the_custom_stale_window() {
+    // Built-in: one pacing gap plus the grace constant. A custom
+    // lost-echo window (experimental gate) replaces the grace with the
+    // user's value — the same fold `Engine::echo_stale` applies.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    assert_eq!(
+        burst_watch_window(&e),
+        Duration::from_millis(e.backspace_interval_ms() + ECHO_WATCHDOG_GRACE_MS)
+    );
+    e.apply_config(&Config {
+        experimental_features: true,
+        echo_stale_enabled: true,
+        echo_stale_ms: 900,
+        ..Config::default()
+    });
+    assert_eq!(
+        burst_watch_window(&e),
+        Duration::from_millis(e.backspace_interval_ms() + 900)
+    );
+}
+
+#[test]
+fn watchdog_pass_settles_a_burst_the_stale_flush_already_ended() {
+    // The engine's arm-anchored stale pass (inside tick, and on the key
+    // paths) can drop the pending echoes before the watchdog deadline;
+    // the watchdog pass must reconcile instead of flushing a second time.
+    // The machinery logs: hold the debug-log guard (see the re-arm test).
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let bs = |_: u32, _: u64| true;
+    let t = fake_transports(&bs);
+    let mut burst = BurstWatch::default();
+    let mut out = Vec::new();
+    let injected = emit_with(
+        &mut e,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+        &t,
+    );
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert!(burst.in_flight());
+    // The stale window elapsed: tick's stale block drops the pending
+    // echoes and flushes the parked commits (replicated here).
+    std::thread::sleep(Duration::from_millis(190));
+    assert!(e.take_stale_injection(e.echo_stale()));
+    assert!(e.flush_deferred().len() == 1, "tick's flush delivered it");
+    // The watchdog pass sees the burst already ended: disarm, no output.
+    let mut out = Vec::new();
+    burst_watch_pass(&mut e, &mut burst, &mut out);
+    assert!(out.is_empty(), "no double flush: {:?}", member_names(&out));
+    assert!(!burst.in_flight());
+    assert!(!e.pending_echoes());
+}
+
+// --- keys held during a burst, replayed on completion ---
+
+/// One run-loop pass over the burst state, mirroring `run`: the watchdog
+/// pass, the tick, the emit and the replay. The tests drive the same
+/// sequence the live loop executes (the loop itself needs a bus).
+fn burst_pass(
+    e: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    out: &mut Vec<Message>,
+) {
+    bounce_pass(e, injection, burst, buffer, &mut None, &mut None, out);
+}
+
+/// The full run-loop pass, bounce state included: bounce resolution (an
+/// expired window aborts before anything can deliver), the freeze while the
+/// window is open (watchdog, tick and the held-key replay all skipped — the
+/// parked commits belong to the bounce and a mid-window burst completion
+/// must not send the held keys to the wire), the burst sequence, the replay
+/// and the stash expiry. No bounce pending behaves exactly like
+/// `burst_pass`.
+fn bounce_pass(
+    e: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    bounce_deadline: &mut Option<Instant>,
+    stash: &mut Option<StashedRewrite>,
+    out: &mut Vec<Message>,
+) {
+    if bounce_deadline.is_some_and(|d| Instant::now() >= d) {
+        *bounce_deadline = None;
+        abort_deferred_focus_out(e, burst, buffer);
+    }
+    if bounce_deadline.is_none() {
+        burst_watch_pass(e, burst, out);
+        let actions = e.tick();
+        let injected = emit(e, injection, &actions, out);
+        add_injected_batch(e, burst, injected);
+        replay_buffered_keys(e, injection, burst, buffer, out);
+    }
+    if let Some(s) = stash {
+        if Instant::now() >= s.deadline {
+            debug_log::log("stashed rewrite dropped: no report within the reconcile window");
+            *stash = None;
+        }
+    }
+}
+
+/// One keystroke through the real `process_key` path.
+fn press_key(
+    e: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    buffer: &mut BurstBuffer,
+    keyval: u32,
+    keycode: u32,
+    out: &mut Vec<Message>,
+) -> bool {
+    process_key(
+        e,
+        injection,
+        burst,
+        buffer,
+        KeyEvent {
+            keyval,
+            keycode,
+            state: 0,
+        },
+        out,
+    )
+}
+
+#[test]
+fn keys_during_a_burst_replay_in_order_after_it() {
+    // Keys typed while a rewrite burst is in flight must not process
+    // against the mid-rewrite screen: they hold in the burst buffer and
+    // replay through process_key in arrival order once the burst fully
+    // completes (echo settled, parked insert delivered). The replayed
+    // keys join the locked Flow word — the word-mode lock outlives the
+    // burst, so u, o, c compose onto đ instead of starting new words.
+    let (mut injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut out = Vec::new();
+
+    // Start the Flow word: 'd' parks its per-key insert, no batch yet.
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'd' as u32,
+        30,
+        &mut out
+    ));
+    assert!(
+        buffer.keys.is_empty(),
+        "idle typing never holds: {:?}",
+        buffer.keys
+    );
+    // The pass lands the park: the arming 'd' can only inject once the
+    // screen holds the landed 'd' (a pending park is swapped, not deleted).
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    burst_pass(&mut e, &mut injection, &mut burst, &mut buffer, &mut out);
+    assert!(!e.has_deferred(), "the park landed");
+
+    // Arm the rewrite batch: the second 'd' composes đ — one injected
+    // Backspace erases the landed 'd', the insert parks behind the echo.
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'd' as u32,
+        30,
+        &mut out
+    ));
+    assert!(burst.in_flight(), "the rewrite batch is armed");
+    assert_eq!(burst.expected_echoes(), 1);
+
+    // Three keys typed mid-burst: held in order, nothing processed.
+    for c in ['u', 'o', 'c'] {
+        assert!(
+            press_key(
+                &mut e,
+                &mut injection,
+                &mut burst,
+                &mut buffer,
+                c as u32,
+                30,
+                &mut out
+            ),
+            "a held key is swallowed"
+        );
+    }
+    assert_eq!(
+        buffer.keys,
+        vec![
+            ('u' as u32, 30, 0),
+            ('o' as u32, 30, 0),
+            ('c' as u32, 30, 0)
+        ],
+        "the three keys hold in arrival order"
+    );
+    assert_eq!(e.tail(), "đ", "nothing may process mid-burst: {}", e.tail());
+
+    // Settle: the injected Backspace's echo comes back through
+    // ProcessKeyEvent and is forwarded untouched — never held.
+    assert!(
+        !press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            keymap::BACKSPACE,
+            14,
+            &mut out
+        ),
+        "the echo is forwarded to the application"
+    );
+    assert!(!burst.in_flight(), "the echo settled the burst");
+    assert_eq!(buffer.keys.len(), 3, "the echo is not a keystroke");
+
+    // The burst completes when the parked insert lands: the pass delivers
+    // "đ" and the buffer replays in one sweep, in order.
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    burst_pass(&mut e, &mut injection, &mut burst, &mut buffer, &mut out);
+    assert!(buffer.keys.is_empty(), "the buffer cleared");
+    assert_eq!(
+        e.tail(),
+        "đuoc",
+        "the three keys composed onto the word in order: {}",
+        e.tail()
+    );
+
+    // The final insert lands on the next pass: the word is complete and
+    // the replay armed no new batch (u, o, c were plain appends).
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    burst_pass(&mut e, &mut injection, &mut burst, &mut buffer, &mut out);
+    assert!(
+        !e.has_deferred(),
+        "every insert landed: {:?}",
+        member_names(&out)
+    );
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(1)],
+        "exactly the arming batch was injected"
+    );
+}
+
+#[test]
+fn keys_buffered_during_a_burst_replay_after_the_watchdog_expiry() {
+    // The second completion route: the echoes never come back, the
+    // watchdog declares the burst lost and flushes the parked commit —
+    // the held keys then replay in the same pass. Keys the engine passes
+    // through are forwarded explicitly: the replay rides the tick path,
+    // so there is no ProcessKeyEvent reply to hand them over. The burst
+    // state is constructed directly here (the machinery is mode
+    // independent); Off mode makes the replayed letters pass through, so
+    // their arrival order is visible on the wire.
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let (mut injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Off);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut out = Vec::new();
+
+    // Arm a rewrite batch: deletes injected, commit parked behind echoes.
+    let injected = emit(
+        &mut e,
+        &injection,
+        &[Action::DeleteBefore(2), Action::Commit("tiếng".into())],
+        &mut out,
+    );
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert_eq!(injected, 2);
+    assert!(burst.in_flight());
+
+    // Three keys mid-burst: held in order, no processing.
+    for (keyval, keycode) in [('u' as u32, 30), ('o' as u32, 32), ('c' as u32, 33)] {
+        assert!(
+            press_key(
+                &mut e,
+                &mut injection,
+                &mut burst,
+                &mut buffer,
+                keyval,
+                keycode,
+                &mut out
+            ),
+            "a held key is swallowed"
+        );
+    }
+    assert_eq!(buffer.keys.len(), 3);
+
+    // The watchdog window passes with no echo: the expiry pass completes
+    // the burst (parked commit flushed) and the replay follows in it.
+    std::thread::sleep(Duration::from_millis(190));
+    burst_pass(&mut e, &mut injection, &mut burst, &mut buffer, &mut out);
+    assert!(buffer.keys.is_empty(), "the buffer cleared");
+    assert!(!burst.in_flight() && !e.pending_echoes() && !e.has_deferred());
+    let members = member_names(&out);
+    assert!(
+        members.iter().any(|m| m == "CommitText"),
+        "the parked commit landed on the expiry: {members:?}"
+    );
+    let forwards: Vec<(u32, u32, u32)> = out
+        .iter()
+        .filter(|m| m.member().map(|m| m == "ForwardKeyEvent").unwrap_or(false))
+        .filter_map(|m| m.read3::<u32, u32, u32>().ok())
+        .filter(|(_, _, state)| state & keymap::RELEASE_MASK == 0)
+        .collect();
+    assert_eq!(
+        forwards,
+        vec![
+            ('u' as u32, 30, 0),
+            ('o' as u32, 32, 0),
+            ('c' as u32, 33, 0)
+        ],
+        "the held keys land in original order: {forwards:?}"
+    );
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(2)],
+        "the replay armed no new batch"
+    );
+}
+
+#[test]
+fn burst_buffer_cap_drops_the_newest_and_logs_once() {
+    // A stuck burst must not accumulate without limit: past the cap the
+    // newest key drops and the overflow logs ONCE per episode — the gate
+    // resets when the buffer drains, so a fresh episode logs again.
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let dir = std::env::temp_dir().join(format!(
+        "ibus-mangrs-burst-buffer-log-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+
+    let mut buffer = BurstBuffer::default();
+    for i in 0..BURST_BUFFER_CAP as u32 {
+        buffer.push(0x61 + i, 30, 0);
+    }
+    assert_eq!(buffer.keys.len(), BURST_BUFFER_CAP);
+    buffer.push(0x99, 31, 0);
+    assert_eq!(
+        buffer.keys.len(),
+        BURST_BUFFER_CAP,
+        "the newest key is the drop"
+    );
+    assert_eq!(
+        buffer.keys.last().map(|k| k.0),
+        Some(0x60 + BURST_BUFFER_CAP as u32),
+        "the earliest keys survive"
+    );
+    for _ in 0..10 {
+        buffer.push(0x99, 31, 0);
+    }
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("burst buffer full"))
+            .count(),
+        1,
+        "one line per overflow episode: {text}"
+    );
+
+    // The drain resets the gate: a fresh overflow logs again.
+    buffer.take();
+    for i in 0..=BURST_BUFFER_CAP as u32 {
+        buffer.push(0x61 + i, 30, 0);
+    }
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("burst buffer full"))
+            .count(),
+        2,
+        "a fresh episode logs again: {text}"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn idle_typing_never_buffers() {
+    // No burst armed, nothing parked: every key processes immediately —
+    // the hold check is the hot path's only cost when nothing is armed.
+    let mut injection = Injection::new();
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(1);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut out = Vec::new();
+    for c in ['t', 'i', 'e'] {
+        assert!(
+            press_key(
+                &mut e,
+                &mut injection,
+                &mut burst,
+                &mut buffer,
+                c as u32,
+                30,
+                &mut out
+            ),
+            "the key composes the preedit"
+        );
+    }
+    assert!(buffer.keys.is_empty(), "nothing held");
+    assert!(!burst.in_flight() && !e.has_deferred());
+    assert_eq!(
+        member_names(&out)
+            .iter()
+            .filter(|m| *m == "UpdatePreeditText")
+            .count(),
+        3,
+        "each key processed at once: {:?}",
+        member_names(&out)
+    );
+}
+
+// --- focus-bounce tolerance during a burst ---
+
+#[test]
+fn focus_bounce_within_the_window_continues_the_burst() {
+    // FocusOut mid-burst, FocusIn inside the bounce window: the reset is
+    // deferred, not run — the composition, the parked commits and the held
+    // keys all survive, nothing reaches the wire while the focus is in
+    // flight, and the word still completes as if nothing happened.
+    let (mut injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Start the Flow word: two keys land a two-character prefix — the stash
+    // anchor must span MIN_ANCHOR_CHARS (a one-character anchor captures
+    // nothing; see stash_in_flight_rewrite).
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        't' as u32,
+        30,
+        &mut out
+    ));
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'a' as u32,
+        30,
+        &mut out
+    ));
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(!e.has_deferred(), "both parks landed");
+
+    // Arm the rewrite batch: 's' composes tá — one injected Backspace
+    // erases the landed 'a' (the common prefix is "t"), the insert "á"
+    // parks behind the echo.
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        's' as u32,
+        30,
+        &mut out
+    ));
+    assert!(burst.in_flight(), "the rewrite batch is armed");
+    assert_eq!(burst.expected_echoes(), 1);
+    let out_len = out.len();
+
+    // FocusOut mid-burst: the reset defers and the rewrite is stashed.
+    assert!(
+        defer_focus_out_during_burst(&mut e, &mut burst, &mut bounce_deadline, &mut stash,),
+        "a live burst defers the focus-out reset"
+    );
+    assert!(
+        bounce_deadline.is_some(),
+        "the reset defers for the bounce window"
+    );
+    let stashed = stash.as_ref().expect("the rewrite is stashed");
+    assert_eq!(stashed.text, "á", "the parked insert is the rewrite text");
+    assert_eq!(
+        stashed.expected_tail, "ta",
+        "the anchor is what the app certainly holds"
+    );
+    assert_eq!(
+        stashed.tail, "tá",
+        "the re-anchor value is the believed tail"
+    );
+    assert_eq!(
+        stashed.client.as_deref(),
+        Some("gtk4-im:test"),
+        "the departed client is recorded for the foreign guard"
+    );
+
+    // A key typed during the bounce: held, order preserved.
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'u' as u32,
+        30,
+        &mut out
+    ));
+    assert_eq!(buffer.keys.len(), 1, "the held key survives the bounce");
+
+    // A pass inside the window delivers nothing: the freeze holds the park
+    // (past its own deadline) and the replay — nothing may reach the wire
+    // mid-bounce.
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(10));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(
+        out.len() == out_len,
+        "no signal may fly during the bounce window: {:?}",
+        member_names(&out[out_len..])
+    );
+    assert!(e.has_deferred(), "the park stays parked through the freeze");
+    assert_eq!(
+        e.tail(),
+        "tá",
+        "the composition survives the deferred reset"
+    );
+    assert!(burst.in_flight(), "the burst itself is untouched");
+
+    // FocusIn inside the window, same client: the burst resumes untouched.
+    assert!(
+        resolve_focus_bounce_on_focus_in(
+            &mut e,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            Some("gtk4-im:test"),
+        ),
+        "the same context back inside the window resumes"
+    );
+    assert!(
+        bounce_deadline.is_none() && stash.is_none(),
+        "resumed: the deadline clears and the fallback stash drops"
+    );
+    assert_eq!(buffer.keys.len(), 1, "the held key still waits");
+    assert_eq!(e.tail(), "tá");
+    assert_eq!(
+        e.client(),
+        Some("gtk4-im:test"),
+        "the resume keeps the departed client held through the window"
+    );
+
+    // The burst continues as if nothing happened: the echo settles it, the
+    // pass lands the parked insert and replays the held key in order.
+    assert!(
+        !press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            keymap::BACKSPACE,
+            14,
+            &mut out
+        ),
+        "the echo is forwarded to the application"
+    );
+    assert!(!burst.in_flight(), "the echo settled the burst");
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(buffer.keys.is_empty(), "the held key replayed");
+    assert_eq!(e.tail(), "táu", "the word still completes: {}", e.tail());
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(!e.has_deferred(), "every insert landed");
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(1)],
+        "exactly the arming batch was injected"
+    );
+}
+
+#[test]
+fn stashed_rewrite_reconciles_within_the_window_or_drops() {
+    // FocusOut mid-burst, the window expires: the burst aborts and the
+    // stash survives RECONCILE_WINDOW. FocusIn with a matching report
+    // (the screen still shows the stashed state) repairs by rewrite; a
+    // mismatching report drops it; no report drops it at expiry — logged
+    // once per drop. Every arming word lands a two-character prefix first:
+    // the stash anchor must span MIN_ANCHOR_CHARS to carry evidence.
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let dir = std::env::temp_dir().join(format!("ibus-mangrs-bounce-log-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+
+    let (mut injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Arm "ta" -> tá exactly like the bounce test: land "ta", then 's'
+    // composes tá — one injected Backspace erases the landed 'a', the
+    // insert "á" parks behind the echo.
+    for c in ['t', 'a'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        's' as u32,
+        30,
+        &mut out
+    ));
+    assert!(burst.in_flight());
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    let stashed = stash.as_ref().expect("stash armed");
+    assert_eq!(
+        stashed.client.as_deref(),
+        Some("gtk4-im:test"),
+        "the departed client is recorded"
+    );
+    let out_len = out.len();
+
+    // The window expires without a refocus: a real switch. The abort drops
+    // the composition, disarms the burst and holds every parked commit —
+    // the stash owns the rewrite now, the wire sees nothing.
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(
+        bounce_deadline.is_none(),
+        "the expired window aborts the deferral"
+    );
+    assert!(stash.is_some(), "the stash survives the abort");
+    assert!(
+        !burst.in_flight() && !e.pending_echoes(),
+        "the burst aborted with the context"
+    );
+    assert!(!e.has_deferred(), "the parks dropped without emitting");
+    assert_eq!(
+        e.tail(),
+        "",
+        "the deferred reset ran: the composition is gone"
+    );
+    assert!(
+        out.len() == out_len,
+        "the parked rewrite must not flush to the wire on abort: {:?}",
+        member_names(&out[out_len..])
+    );
+
+    // FocusIn within the window, matching report ("ta" — the landed prefix
+    // is all the screen ever held): repair by rewrite.
+    reconcile_stashed_rewrite(&mut e, &injection, &mut burst, &mut stash, "ta", &mut out);
+    assert!(stash.is_none(), "the stash is consumed by the reconcile");
+    assert_eq!(
+        e.tail(),
+        "tá",
+        "the believed tail re-anchored to the stashed target"
+    );
+    assert!(burst.in_flight(), "the repair arms its own echo burst");
+    assert!(
+        e.has_deferred(),
+        "the repair's commit parks behind its echo"
+    );
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(1), RecordedOp::Backspaces(1)],
+        "the repair re-emits the erase batch"
+    );
+    // The repair's echo comes back; the pass delivers the rewritten word.
+    assert!(!press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        keymap::BACKSPACE,
+        14,
+        &mut out
+    ));
+    std::thread::sleep(
+        Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS) + Duration::from_millis(20),
+    );
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(!e.has_deferred(), "the repaired word landed");
+    assert!(
+        member_names(&out).iter().any(|m| m == "CommitText"),
+        "the repair reaches the wire as a commit: {:?}",
+        member_names(&out)
+    );
+
+    // Second cycle, matching report with a commit-only repair: land "ng",
+    // then 'h' parks its append — the repair is a plain commit, no erase
+    // needed.
+    for c in ['n', 'g'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'h' as u32,
+        30,
+        &mut out
+    ));
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    let stashed = stash.as_ref().expect("stash armed");
+    assert_eq!(
+        (stashed.text.as_str(), stashed.expected_tail.as_str()),
+        ("h", "ng")
+    );
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    let out_len = out.len();
+    reconcile_stashed_rewrite(&mut e, &injection, &mut burst, &mut stash, "ng", &mut out);
+    assert!(stash.is_none());
+    assert_eq!(e.tail(), "ngh", "the re-anchor carries the full word");
+    assert!(
+        !burst.in_flight(),
+        "a commit-only repair arms no echo burst"
+    );
+    assert!(
+        out.len() == out_len + 1 && member_names(&out[out_len..]) == vec!["CommitText".to_string()],
+        "the repair is exactly one commit: {:?}",
+        member_names(&out[out_len..])
+    );
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(1), RecordedOp::Backspaces(1)],
+        "no new erase batch"
+    );
+
+    // Third cycle: a mismatching report drops the stash. The abort wiped
+    // the composition, so the word needs a landed two-character prefix
+    // before the parked key for the anchor to carry evidence.
+    for c in ['x', 'y'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'z' as u32,
+        30,
+        &mut out
+    ));
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    let stashed = stash.as_ref().expect("stash armed");
+    assert_eq!(stashed.expected_tail, "xy");
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    let out_len = out.len();
+    reconcile_stashed_rewrite(&mut e, &injection, &mut burst, &mut stash, "abc", &mut out);
+    assert!(stash.is_none(), "a foreign report drops the stash");
+    assert!(
+        out.len() == out_len,
+        "nothing is rewritten on a mismatch: {:?}",
+        member_names(&out[out_len..])
+    );
+
+    // Fourth cycle: no report at all — the stash expires on the pass.
+    for c in ['b', 'o'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'n' as u32,
+        30,
+        &mut out
+    ));
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    // Expire the stash without sleeping out the 2s window.
+    let stashed = stash.as_mut().expect("stash armed");
+    stashed.deadline = Instant::now() - Duration::from_secs(1);
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(stash.is_none(), "the expired stash drops");
+
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("stashed rewrite dropped"))
+            .count(),
+        2,
+        "one drop line per drop, mismatch and expiry: {text}"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn real_switch_drops_the_held_keys_a_bounce_keeps_them() {
+    // Task 12's context-death drop, moved into the bounce machinery: a
+    // bounced focus keeps the held keys (the burst resumes and replays
+    // them); a real switch drops them with the context — and the departed
+    // client's identity dies with the abort (a plain-FocusIn next client
+    // must not inherit the stale string: it feeds the relay ban and
+    // app-rule resolution).
+    let (mut injection, _ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Land a two-character prefix, then arm the batch ('s' composes tá).
+    for c in ['t', 'a'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        's' as u32,
+        30,
+        &mut out
+    ));
+    // Two keys mid-burst, then the focus leaves: the buffer keeps them.
+    for c in ['u', 'o'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+    }
+    assert_eq!(buffer.keys.len(), 2);
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    assert_eq!(buffer.keys.len(), 2, "a bounced focus keeps the held keys");
+    assert_eq!(
+        e.client(),
+        Some("gtk4-im:test"),
+        "the deferred reset holds the client through the window"
+    );
+    // The window expires: the real-switch abort drops them.
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(
+        buffer.keys.is_empty(),
+        "a real switch drops the held keys with the context"
+    );
+    assert!(stash.is_some(), "the rewrite stays stashed for reconcile");
+    assert_eq!(
+        e.client(),
+        None,
+        "the abort ends the departed client: a plain-FocusIn next client \
+         starts with no identity, not the stale string"
+    );
+}
+
+#[test]
+fn idle_focus_out_never_defers_or_stashes() {
+    // Focus changes without a burst behave exactly as today: the branch
+    // declines, no deadline arms, no stash is captured.
+    let mut injection = Injection::new();
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(1);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        't' as u32,
+        30,
+        &mut out
+    ));
+    assert!(!e.has_deferred() && !burst.in_flight(), "idle typing");
+    assert!(
+        !defer_focus_out_during_burst(&mut e, &mut burst, &mut bounce_deadline, &mut stash,),
+        "an idle focus-out takes today's path"
+    );
+    assert!(
+        bounce_deadline.is_none() && stash.is_none(),
+        "no deferral, no stash"
+    );
+    // The engine-level FocusOut pin (enabled stays on, keys still compose)
+    // lives in focus_out_keeps_the_engine_enabled_only_disable_turns_it_off,
+    // which drives the real arm with an idle engine.
+}
+
+#[test]
+fn focus_out_arm_defers_the_reset_for_a_live_burst() {
+    // The arm wiring: an engine_call FocusOut with a burst live takes the
+    // bounce branch — no flush reaches the wire, the parks and composition
+    // stay, the deadline and the stash arm on the handler.
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Flow)));
+    let mut handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        injection: Injection::new(),
+        last_config_check: Instant::now(),
+        last_config_mtime: None,
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
+        focus_ext: None,
+    };
+    // A live burst, constructed directly: one echo expected, one commit
+    // parked behind it, the tail believing "chaò" (the parked "ò" is its
+    // suffix — the anchor falls back to the deletes-landed state "cha").
+    {
+        let mut e = lock_engine(&engine);
+        e.reanchor_tail("chaò".into());
+        e.defer_commit(1, "ò".into());
+        handler.burst.expected = 1;
+        handler.burst.deadline = Some(Instant::now() + Duration::from_secs(10));
+    }
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+    assert!(
+        handler.bounce_deadline.is_some(),
+        "the arm defers the reset for the bounce window"
+    );
+    let stashed = handler.stash.as_ref().expect("the rewrite is stashed");
+    assert_eq!(stashed.text, "ò");
+    assert_eq!(stashed.expected_tail, "cha");
+    assert!(
+        out.is_empty(),
+        "the arm must not flush the parked commit: {:?}",
+        member_names(&out)
+    );
+    let e = lock_engine(&engine);
+    assert!(e.has_deferred(), "the park stays with the bounce");
+    assert_eq!(e.tail(), "chaò", "the composition stays with the bounce");
+}
+
+#[test]
+fn the_freeze_holds_the_replay_until_the_window_resolves() {
+    // The replay sits INSIDE the freeze gate: a burst that completes
+    // mid-window — echo debt settles while no parked commit remains (the
+    // per-key retract shape: the empty insert cancelled the park while the
+    // InjectBackspaces were still out) — must not send the held keys to the
+    // wire while the focus is still in flight. A genuine bounce is exactly
+    // when the old app's echoes arrive, so the settle-inside-the-window
+    // order is the realistic one; the resume replays them.
+    let (mut injection, _ops) = recorded_injection();
+    // Off mode makes the replayed letters pass through, so the delivery is
+    // observable on the wire (the machinery is mode independent).
+    let mut e = Engine::new(Method::Telex, Mode::Off);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Echo debt, no parked commit: the retract batch's shape.
+    let injected = emit(&mut e, &injection, &[Action::DeleteBefore(1)], &mut out);
+    add_injected_batch(&mut e, &mut burst, injected);
+    assert_eq!(injected, 1);
+    assert!(burst.in_flight() && !e.has_deferred());
+
+    // A key mid-burst: held.
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'u' as u32,
+        30,
+        &mut out
+    ));
+    assert_eq!(buffer.keys.len(), 1);
+
+    // FocusOut mid-burst: the reset defers.
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    // The echo arrives — a genuine bounce is exactly when echoes come back —
+    // and settles the burst with no parked commit behind it.
+    assert!(!press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        keymap::BACKSPACE,
+        14,
+        &mut out
+    ));
+    assert!(!burst.in_flight() && !e.has_deferred());
+
+    // The next pass, window still open: the replay must NOT run.
+    let out_len = out.len();
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(
+        out.len() == out_len,
+        "the freeze holds the replay: {:?}",
+        member_names(&out[out_len..])
+    );
+    assert_eq!(buffer.keys.len(), 1, "the held key waits for the window");
+
+    // FocusIn resumes: the deadline clears and the replay goes.
+    assert!(resolve_focus_bounce_on_focus_in(
+        &mut e,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        Some("gtk4-im:test"),
+    ));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(
+        buffer.keys.is_empty(),
+        "the held key replayed after the resume"
+    );
+    let forwards: Vec<(u32, u32, u32)> = out[out_len..]
+        .iter()
+        .filter(|m| m.member().map(|m| m == "ForwardKeyEvent").unwrap_or(false))
+        .filter_map(|m| m.read3::<u32, u32, u32>().ok())
+        .filter(|(_, _, state)| state & keymap::RELEASE_MASK == 0)
+        .collect();
+    assert_eq!(
+        forwards,
+        vec![('u' as u32, 30, 0)],
+        "the held key lands exactly once, after the resume: {forwards:?}"
+    );
+}
+
+#[test]
+fn foreign_client_refuses_the_stashed_rewrite() {
+    // The stash records the departed client: a live client naming a
+    // DIFFERENT context refuses the reconcile — the report describes a
+    // foreign buffer, and the repair would fire its deletes and commit
+    // into the wrong document. Drop, logged once.
+    let _guard = crate::debug_log::test_guard();
+    crate::debug_log::test_reset();
+    let dir = std::env::temp_dir().join(format!("ibus-mangrs-foreign-log-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+
+    let (mut injection, ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Land "ta", arm "tá", FocusOut, window expires: the stash is armed.
+    for c in ['t', 'a'] {
+        assert!(press_key(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            c as u32,
+            30,
+            &mut out
+        ));
+        std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+        bounce_pass(
+            &mut e,
+            &mut injection,
+            &mut burst,
+            &mut buffer,
+            &mut bounce_deadline,
+            &mut stash,
+            &mut out,
+        );
+    }
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        's' as u32,
+        30,
+        &mut out
+    ));
+    assert!(defer_focus_out_during_burst(
+        &mut e,
+        &mut burst,
+        &mut bounce_deadline,
+        &mut stash,
+    ));
+    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(stash.is_some(), "the stash survives the abort");
+
+    // The next focus names a different app (a confirmed-different client):
+    // even a matching report must not drive the repair.
+    e.set_client(Some("gtk4-im:other".into()));
+    let out_len = out.len();
+    reconcile_stashed_rewrite(&mut e, &injection, &mut burst, &mut stash, "ta", &mut out);
+    assert!(stash.is_none(), "the foreign context drops the stash");
+    assert!(
+        out.len() == out_len,
+        "no repair may reach the wire for a foreign context: {:?}",
+        member_names(&out[out_len..])
+    );
+    assert_eq!(
+        *ops.lock().unwrap(),
+        vec![RecordedOp::Backspaces(1)],
+        "no repair batch through the backend"
+    );
+
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("stashed rewrite dropped"))
+            .count(),
+        1,
+        "the foreign refusal logs once: {text}"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn weak_or_garbage_anchors_arm_no_stash() {
+    // A one-character anchor cannot evidence the departed screen: a single
+    // stray keystroke in ANY context satisfies the suffix match, so the
+    // capture refuses it (MIN_ANCHOR_CHARS). And a parked text that is not
+    // the tail's suffix (a macro/emoji timed park) must not manufacture a
+    // garbage anchor by stripping. Both deferrals still arm — only the
+    // reconcile fallback is declined.
+    let (mut injection, _ops) = recorded_injection();
+    let mut burst = BurstWatch::default();
+    let mut buffer = BurstBuffer::default();
+    let mut bounce_deadline = None;
+    let mut stash = None;
+    let mut out = Vec::new();
+
+    // Weak anchor: the landed prefix is one character.
+    let mut e = Engine::new(Method::Telex, Mode::Flow);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_uinput_available(true);
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        't' as u32,
+        30,
+        &mut out
+    ));
+    std::thread::sleep(e.per_key_delay() + Duration::from_millis(20));
+    bounce_pass(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        &mut bounce_deadline,
+        &mut stash,
+        &mut out,
+    );
+    assert!(press_key(
+        &mut e,
+        &mut injection,
+        &mut burst,
+        &mut buffer,
+        'a' as u32,
+        30,
+        &mut out
+    ));
+    assert!(
+        defer_focus_out_during_burst(&mut e, &mut burst, &mut bounce_deadline, &mut stash,),
+        "the deferral itself still arms"
+    );
+    assert!(stash.is_none(), "a one-character anchor captures nothing");
+    assert!(
+        bounce_deadline.is_some(),
+        "the deferral stands without the stash"
+    );
+
+    // Garbage anchor: the parked text is not the tail's suffix — stripping
+    // it would leave an unrelated prefix as the anchor.
+    let mut e2 = Engine::new(Method::Telex, Mode::Flow);
+    e2.set_client(Some("gtk4-im:test".into()));
+    e2.set_uinput_available(true);
+    e2.reanchor_tail("abcdef".into());
+    e2.defer_commit(1, "xyz".into());
+    let mut burst2 = BurstWatch::default();
+    burst2.arm(&e2, 1);
+    let mut bounce_deadline2 = None;
+    let mut stash2 = None;
+    assert!(
+        defer_focus_out_during_burst(&mut e2, &mut burst2, &mut bounce_deadline2, &mut stash2,),
+        "the echo debt still defers the reset"
+    );
+    assert!(
+        stash2.is_none(),
+        "a non-suffix parked text manufactures no anchor"
+    );
 }
 
 #[test]
@@ -694,7 +2458,7 @@ fn forward_key_event_emits_backspace_press_and_release() {
     // keycode themselves, so it must be the evdev scancode 14 — sending
     // the X keycode 22 made them use evdev KEY_U and type a `u` per
     // forwarded Backspace.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardKeyEvent);
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_client(Some("gnome-shell".into()));
     let mut out = Vec::new();
     emit_with(
@@ -728,12 +2492,12 @@ fn x11_delete_opt_in_reaches_the_wire_without_a_report() {
     // delete even though it never reported its buffer. Without the switch
     // the same action is dropped (raw keystrokes instead).
     for (enabled, want_delete) in [(false, false), (true, true)] {
-        let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+        let mut e = Engine::new(Method::Telex, Mode::Surrounding);
         e.apply_config(&Config {
             x11_delete_without_report: enabled,
             ..Config::default()
         });
-        e.set_mode(Mode::NonPreedit);
+        e.set_mode(Mode::Surrounding);
         e.set_client(Some("gtk3-im:sublime_text".into()));
         e.set_capabilities(1 << 5); // IBUS_CAP_SURROUNDING_TEXT
         let mut out = Vec::new();
@@ -753,61 +2517,8 @@ fn x11_delete_opt_in_reaches_the_wire_without_a_report() {
 }
 
 #[test]
-fn forward_select_selects_then_erases() {
-    // ForwardKeyEvent II's wire shape: Left with the shift held on the
-    // press, plain release (scancode 105; clients add 8 themselves), then
-    // one Backspace that erases the selection the Left keys made — the
-    // commit alone does not replace an application-side selection.
-    let mut e = Engine::new(Method::Telex, Mode::ForwardSelect);
-    e.set_client(Some("xim".into()));
-    let mut out = Vec::new();
-    emit_with(
-        &mut e,
-        &[Action::ForwardSelectLeft(2)],
-        &mut out,
-        &fake_transports(&|_, _| true),
-    );
-    let keys: Vec<(u32, u32, u32)> = out
-        .iter()
-        .filter(|m| m.member().map(|x| x == "ForwardKeyEvent").unwrap_or(false))
-        .filter_map(|m| m.read3::<u32, u32, u32>().ok())
-        .collect();
-    assert_eq!(keys.len(), 6, "two Lefts plus the erase: {keys:?}");
-    let lefts: Vec<_> = keys
-        .iter()
-        .filter(|(keyval, _, _)| *keyval == 0xff51)
-        .collect();
-    assert_eq!(lefts.len(), 4, "press and release per Left: {keys:?}");
-    assert!(
-        lefts.iter().all(|(_, keycode, _)| *keycode == 105),
-        "Left keyval with its scancode: {keys:?}"
-    );
-    assert_eq!(
-        keys.iter()
-            .filter(|(keyval, _, _)| *keyval == 0xff08)
-            .count(),
-        2,
-        "one Backspace press and release erases the selection: {keys:?}"
-    );
-    assert_eq!(
-        keys.iter()
-            .filter(|(_, _, state)| *state == keymap::SHIFT_MASK)
-            .count(),
-        2,
-        "only the Left presses carry the shift: {keys:?}"
-    );
-    assert_eq!(
-        keys.iter()
-            .filter(|(_, _, state)| *state == keymap::RELEASE_MASK)
-            .count(),
-        3,
-        "three plain releases (two Lefts, one Backspace): {keys:?}"
-    );
-}
-
-#[test]
 fn forced_flush_delivers_lost_echo_commits() {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.defer_commit(2, "word".into());
     assert!(e.has_deferred());
     // One echo arrives, one is lost: a focus change forces delivery.
@@ -820,7 +2531,7 @@ fn forced_flush_delivers_lost_echo_commits() {
 /// An engine proven (report proof) to talk to a delete-swallowing client.
 #[cfg(test)]
 fn delete_dropped_engine() -> Engine {
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(32); // CAP_SURROUNDING_TEXT
     e.set_uinput_available(true);
@@ -886,7 +2597,7 @@ fn dead_device_suppresses_rewrite_by_backspace_on_swallowers() {
 fn inject_failure_keeps_the_protocol_fallback_for_healthy_clients() {
     // A client that has never swallowed a delete honors the protocol:
     // when injection fails, the protocol delete is the correct fallback.
-    let mut e = Engine::new(Method::Telex, Mode::NonPreedit);
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(32);
     e.set_uinput_available(true);
@@ -913,17 +2624,44 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
     // The preedit commit and the forwarded key travel different
     // transports on mutter-relayed contexts; a burst of arrows used to
     // move the caret before the commit landed ("em tên tùng" → "etùngm
-    // tên"). The first navigation key is consumed so the commit lands
-    // while the caret is still in place.
+    // tên"). The `swallow` value consumes the first navigation key so
+    // the commit lands while the caret is still in place — the safe
+    // opt-in next to the shipped `forward` default.
     let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        nav_key_while_preedit: "swallow".into(),
+        ..Config::default()
+    });
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, c as u32, 0, &mut Vec::new());
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: c as u32,
+                keycode: 0,
+                state: 0,
+            },
+            &mut Vec::new(),
+        );
     }
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, 0xff51, 0, &mut out),
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: 0xff51,
+                keycode: 0,
+                state: 0,
+            },
+            &mut out,
+        ),
         "Left must be consumed"
     );
     assert!(
@@ -936,24 +2674,61 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
     );
     // The composition is gone: the next arrow is forwarded normally.
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+    assert!(!process_key(
+        &mut e,
+        &mut Injection::new(),
+        &mut BurstWatch::default(),
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: 0,
+        },
+        &mut out
+    ));
 }
 
 #[test]
 fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
     // The daemon flips capabilities mid-word. The preedit is already on
-    // screen (word-mode lock), so a navigation key must still commit it
-    // and swallow that one press to keep it from landing at the moved
-    // caret.
+    // screen (word-mode lock), so a navigation key must still commit it;
+    // with `swallow` that one press is consumed to keep the text from
+    // landing at the moved caret.
     let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        nav_key_while_preedit: "swallow".into(),
+        ..Config::default()
+    });
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b100001); // PREEDIT|SURROUNDING
     for c in "tung".chars() {
-        process_key(&mut e, c as u32, 0, &mut Vec::new());
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: c as u32,
+                keycode: 0,
+                state: 0,
+            },
+            &mut Vec::new(),
+        );
     }
     e.set_capabilities(0b100000); // preedit bit gone, preedit still visible
     let mut out = Vec::new();
-    assert!(process_key(&mut e, 0xff51, keymap::SHIFT_MASK, &mut out));
+    assert!(process_key(
+        &mut e,
+        &mut Injection::new(),
+        &mut BurstWatch::default(),
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: keymap::SHIFT_MASK,
+        },
+        &mut out
+    ));
     assert!(
         out.iter()
             .any(|m| m.member().map(|m| m == "CommitText").unwrap_or(false)),
@@ -970,7 +2745,18 @@ fn navigation_key_forwards_normally_without_pending_preedit() {
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+    assert!(!process_key(
+        &mut e,
+        &mut Injection::new(),
+        &mut BurstWatch::default(),
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: 0,
+        },
+        &mut out
+    ));
 }
 
 #[test]
@@ -981,26 +2767,58 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, c as u32, 0, &mut Vec::new());
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: c as u32,
+                keycode: 0,
+                state: 0,
+            },
+            &mut Vec::new(),
+        );
     }
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+    assert!(!process_key(
+        &mut e,
+        &mut Injection::new(),
+        &mut BurstWatch::default(),
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: 0,
+        },
+        &mut out
+    ));
 }
 
-// --- experimental nav_key_while_preedit values ---
+// --- nav_key_while_preedit values ---
 
 /// Type "tung" into a relayed Preedit engine configured with `value`.
-fn pending_preedit_engine(value: &str, experimental: bool) -> Engine {
+fn pending_preedit_engine(value: &str) -> Engine {
     let mut e = Engine::new(Method::Telex, Mode::Preedit);
     e.apply_config(&Config {
-        experimental_features: experimental,
         nav_key_while_preedit: value.into(),
         ..Config::default()
     });
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(0b101001);
     for c in "tung".chars() {
-        process_key(&mut e, c as u32, 0, &mut Vec::new());
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: c as u32,
+                keycode: 0,
+                state: 0,
+            },
+            &mut Vec::new(),
+        );
     }
     e
 }
@@ -1015,10 +2833,21 @@ fn member_names(out: &[Message]) -> Vec<String> {
 fn forward_mode_commits_and_forwards_the_first_navigation_key() {
     // The forward value: commit and key ride one reply — ibus-bamboo's
     // sequence. The caret moves on the first press.
-    let mut e = pending_preedit_engine("forward", true);
+    let mut e = pending_preedit_engine("forward");
     let mut out = Vec::new();
     assert!(
-        !process_key(&mut e, 0xff51, 0, &mut out),
+        !process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: 0xff51,
+                keycode: 0,
+                state: 0,
+            },
+            &mut out,
+        ),
         "Left must be forwarded"
     );
     let members = member_names(&out);
@@ -1028,7 +2857,18 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
     );
     // The second press is still a plain forward (nothing pending).
     let mut out = Vec::new();
-    assert!(!process_key(&mut e, 0xff51, 0, &mut out));
+    assert!(!process_key(
+        &mut e,
+        &mut Injection::new(),
+        &mut BurstWatch::default(),
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: 0,
+        },
+        &mut out
+    ));
 }
 
 #[test]
@@ -1036,10 +2876,21 @@ fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
     // The replay value: the key is consumed and re-emitted as a
     // ForwardKeyEvent press+release pair AFTER the commit signals, so the
     // caret still moves on the first physical press.
-    let mut e = pending_preedit_engine("replay", true);
+    let mut e = pending_preedit_engine("replay");
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, 0xff51, 0, &mut out),
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: 0xff51,
+                keycode: 0,
+                state: 0,
+            },
+            &mut out,
+        ),
         "Left must be consumed"
     );
     let members = member_names(&out);
@@ -1068,9 +2919,20 @@ fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
 fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
     // The relay drops modifier state on forwarded keys: a replayed
     // Shift+Left would move instead of select, so the swallow stands.
-    let mut e = pending_preedit_engine("replay", true);
+    let mut e = pending_preedit_engine("replay");
     let mut out = Vec::new();
-    assert!(process_key(&mut e, 0xff51, keymap::SHIFT_MASK, &mut out));
+    assert!(process_key(
+        &mut e,
+        &mut Injection::new(),
+        &mut BurstWatch::default(),
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0xff51,
+            keycode: 0,
+            state: keymap::SHIFT_MASK,
+        },
+        &mut out
+    ));
     let members = member_names(&out);
     assert!(
         members.iter().all(|m| m != "ForwardKeyEvent"),
@@ -1083,20 +2945,50 @@ fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
 }
 
 #[test]
-fn the_experimental_gate_forces_the_nav_key_swallow_back_on() {
-    // Gate off: the chosen value stays saved but the engine keeps the
-    // shipped swallow, like every other gated feature.
-    let mut e = pending_preedit_engine("forward", false);
+fn the_nav_key_choice_applies_without_the_experimental_gate() {
+    // Graduated: the choice applies like every config value, no master
+    // gate needed. The default forward sends the first key in the reply;
+    // a saved swallow still consumes it.
+    let mut e = pending_preedit_engine("forward");
     let mut out = Vec::new();
     assert!(
-        process_key(&mut e, 0xff51, 0, &mut out),
-        "Left must be consumed with the gate off"
+        !process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: 0xff51,
+                keycode: 0,
+                state: 0,
+            },
+            &mut out,
+        ),
+        "Left must be forwarded without the gate"
     );
     let members = member_names(&out);
     assert!(
-        members.iter().all(|m| m != "ForwardKeyEvent"),
-        "no key may be replayed: {members:?}"
+        members.iter().any(|m| m == "CommitText"),
+        "the pending word must still be committed: {members:?}"
     );
+    let mut e = pending_preedit_engine("swallow");
+    let mut out = Vec::new();
+    assert!(
+        process_key(
+            &mut e,
+            &mut Injection::new(),
+            &mut BurstWatch::default(),
+            &mut BurstBuffer::default(),
+            KeyEvent {
+                keyval: 0xff51,
+                keycode: 0,
+                state: 0,
+            },
+            &mut out,
+        ),
+        "Left must be consumed with a saved swallow"
+    );
+    let members = member_names(&out);
     assert!(
         members.iter().any(|m| m == "CommitText"),
         "the pending word must still be committed: {members:?}"
@@ -1403,10 +3295,15 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
         eprintln!("server: SKIP (no config.toml to watch)");
         return;
     }
+    // maybe_reload_config flips the process-wide debug-log state (it
+    // mirrors the config): hold the same guard the log-asserting tests
+    // hold, or a parallel test's log capture gets clobbered mid-flight.
+    let _guard = crate::debug_log::test_guard();
     let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
     lock_engine(&engine).set_capabilities(1);
     let mut handler = EngineHandler {
         engine: Arc::clone(&engine),
+        injection: Injection::new(),
         // A stale clock: maybe_reload_config gets past its 1s gate.
         last_config_check: Instant::now() - Duration::from_secs(2),
         // Older than the real file's mtime: the first pass sees a change.
@@ -1415,6 +3312,10 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
         last_fire: Vec::new(),
         picker: None,
         emoji_picker: None,
+        burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
         focus_ext: None,
     };
     let mut out = Vec::new();
@@ -1439,5 +3340,88 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
             .iter()
             .any(|m| String::as_str(m) == "RegisterProperties"),
         "a mid-session re-register is ignored by GNOME — per-item updates only: {members:?}"
+    );
+}
+
+#[test]
+fn self_heal_picks_uinput_up_mid_session() {
+    // The Task 3 ruling's binding deliverable at the wiring level: a
+    // keystroke must retry the Uinput denial and re-select through the
+    // holder — the old static probe's mid-session ACL pickup, restored.
+    // The real constructor runs, so skip on uinput-less machines like the
+    // device probe test does.
+    if !crate::uinput::Uinput::available() {
+        return;
+    }
+    let mut engine = Engine::new(Method::Telex, Mode::Preedit);
+    engine.set_uinput_available(false);
+    let mut injection = Injection::new();
+    // Everything denied, nothing held: the shape left by an environment
+    // where every constructor failed once.
+    injection.select_with(&[Kind::Uinput], &|_: Kind| None);
+    let mut out = Vec::new();
+    assert!(super::process_key(
+        &mut engine,
+        &mut injection,
+        &mut BurstWatch::default(),
+        &mut BurstBuffer::default(),
+        KeyEvent {
+            keyval: 0x61,
+            keycode: 0,
+            state: 0,
+        },
+        &mut out
+    ));
+    assert_eq!(injection.current(), Some(Kind::Uinput));
+    assert!(engine.uinput_available());
+}
+
+#[test]
+fn flow_fallback_re_requests_the_backend_on_later_words() {
+    // The paced re-request walks the real constructor table, so the story
+    // only completes where a constructor can answer — the same skip the
+    // self-heal test uses. The flag is raised at the engine level and the
+    // arm is driven directly: inside process_key the top self-heal would
+    // heal the real device before any word could resolve downgraded.
+    if !crate::uinput::Uinput::available() {
+        return;
+    }
+    let _guard = crate::debug_log::test_guard();
+    let mut engine = Engine::new(Method::Telex, Mode::Flow);
+    engine.set_client(Some("gtk4-im:test".into()));
+    engine.set_capabilities(1); // CAP_PREEDIT_TEXT
+    engine.set_uinput_available(false);
+    let mut injection = Injection::new();
+    // Word 1 starts with no backend: the walk downgrades Flow to the
+    // forwarded transport and raises the flag the re-request reads.
+    let _ = engine.process_char('v');
+    assert!(engine.flow_needs_backend(), "word 1 resolved downgraded");
+    // A later Flow word re-requests the backend; the flags follow the
+    // holder's answer whichever kind the environment offers.
+    flow_fallback_re_request(&mut engine, &mut injection);
+    assert!(
+        injection.current().is_some(),
+        "the re-request built a backend"
+    );
+    assert!(
+        engine.uinput_available(),
+        "flags refreshed from the holder's answer"
+    );
+    assert_eq!(
+        engine.injection_relay_safe(),
+        matches!(
+            injection.current(),
+            Some(Kind::Libei | Kind::WlrVirtualKeyboard)
+        ),
+        "relay-safe must track the built kind"
+    );
+    // The arm must not clear the flag itself: the word in flight rides its
+    // locked downgrade until the next resolution.
+    assert!(engine.flow_needs_backend());
+    let _ = engine.process_char(' ');
+    let _ = engine.process_char('n');
+    assert!(
+        !engine.flow_needs_backend(),
+        "the next word resolves through the walk with the backend"
     );
 }

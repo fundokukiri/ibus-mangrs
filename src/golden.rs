@@ -1,7 +1,10 @@
 //! Golden behaviour tests (TODO.MD Giai đoạn 0): a table of keystroke
 //! sequences and the exact text the engine must leave in the application.
+//! Baseline: 894 cases — 294 rows x 3 case variants + 12 MsLayout rows;
+//! the four core tables alone are the old 678-case baseline.
 //!
-//! Every row runs through the real `Engine` in non-preedit mode with Unicode
+//! Every row runs through the real `Engine` in Surrounding mode (the
+//! commit-as-you-type contract) with Unicode
 //! output and is replayed against a simulated application buffer, so a
 //! failure means the on-screen text would be wrong, not just the internal
 //! state. Three case variants per word: lowercase, Capitalized, UPPER.
@@ -384,10 +387,14 @@ const TELEX_W: &[(&str, &str)] = &[
 /// key whose actions contain `Forward` inserts the raw character.
 #[cfg(test)]
 fn typed_word(method: Method, keys: &str) -> String {
-    let mut e = Engine::new(method, Mode::NonPreedit);
-    // Non-relayed in-process client: golden cases exercise the protocol path.
+    let mut e = Engine::new(method, Mode::Surrounding);
+    // Non-relayed in-process client: golden cases exercise the protocol
+    // path. A real client reports right after RequireSurroundingText,
+    // before the first keystroke — the protocol-delete row serves the
+    // word from key 1 (the priming report below).
     e.set_client(Some("gtk4-im:golden".into()));
     e.set_capabilities(0b100001); // PREEDIT_TEXT | SURROUNDING_TEXT
+    e.set_surrounding(String::new(), 0);
     let mut buf: Vec<char> = Vec::new();
     for c in keys.chars() {
         let actions = e.process_char(c);
@@ -474,7 +481,8 @@ fn run_table(method: Method, table: &[(&str, &str)], case_variants: bool) -> Vec
 struct Faults {
     /// Never sends SetSurroundingText (XWayland / Sublime / XIM clients).
     no_st: bool,
-    /// Lacks IBUS_CAP_PREEDIT_TEXT: preedit must fall back to NonPreedit.
+    /// Lacks IBUS_CAP_PREEDIT_TEXT: preedit must fall back to the
+    /// commit-as-you-type walk.
     no_preedit_cap: bool,
     /// Swallows protocol deletes (Chrome/Electron-style clients).
     drop_delete: bool,
@@ -501,9 +509,6 @@ struct FakeClient {
     protocol_deletes: u32,
     /// Deletes the client swallowed (drop_delete).
     deletes_swallowed: u32,
-    /// Characters selected from the caret to the right (Shift+Left); the next
-    /// commit replaces them, which is how the Select rewrites delete.
-    selection: usize,
 }
 
 impl FakeClient {
@@ -515,7 +520,6 @@ impl FakeClient {
             last_report: None,
             protocol_deletes: 0,
             deletes_swallowed: 0,
-            selection: 0,
         }
     }
 
@@ -529,14 +533,6 @@ impl FakeClient {
         for a in actions {
             match a {
                 Action::Commit(t) => {
-                    // A commit replaces the selection a Shift+Left rewrite
-                    // made; without this the selected tail survives and the
-                    // word is duplicated.
-                    if self.selection > 0 {
-                        let end = (self.caret + self.selection).min(self.buf.len());
-                        self.buf.drain(self.caret..end);
-                        self.selection = 0;
-                    }
                     let n = t.chars().count();
                     self.buf
                         .splice(self.caret..self.caret, t.chars().collect::<Vec<char>>());
@@ -591,27 +587,13 @@ impl FakeClient {
                     self.buf.drain(start..self.caret);
                     self.caret = start;
                 }
-                // ForwardKeyEvent mode: Backspace key events handled by the
+                // ForwardBackspace mode: Backspace key events handled by the
                 // client's own IM context — real deletions, never protocol
                 // ones, so the drop_delete fault does not apply.
                 Action::ForwardBackspaces(n) => {
                     let start = self.caret.saturating_sub(*n as usize);
                     self.buf.drain(start..self.caret);
                     self.caret = start;
-                }
-                Action::SelectLeft(n) | Action::ForwardSelectLeft(n) => {
-                    // Shift+Left in the application: the caret moves left over
-                    // the tail and leaves it selected for the next commit.
-                    self.caret = self.caret.saturating_sub(*n as usize);
-                    self.selection += *n as usize;
-                }
-                Action::PressDelete => {
-                    self.buf.drain(self.caret..self.caret);
-                }
-                Action::Paste(t) => {
-                    self.buf
-                        .splice(self.caret..self.caret, t.chars().collect::<Vec<char>>());
-                    self.caret += t.chars().count();
                 }
                 // The per-key batch's parked commit: delivered as text.
                 Action::CommitNow(t) => {
@@ -667,9 +649,9 @@ impl FakeClient {
             Some(actions) => {
                 // A Forward here means the engine handed the real key back —
                 // the server forwards it and the application deletes one
-                // character itself (the smooth modes' per-key path works
-                // exactly like that). Without the pop the golden model
-                // desynced from the wire ("tien" instead of "tin").
+                // character itself (Flow's per-key path works exactly like
+                // that). Without the pop the golden model desynced from the
+                // wire ("tien" instead of "tin").
                 let forwards_key = actions.iter().any(|a| matches!(a, Action::Forward));
                 self.apply(&actions, None);
                 if forwards_key {
@@ -865,13 +847,18 @@ mod matrix {
     #[test]
     fn ideal_clients_reproduce_the_golden_text_in_every_mode() {
         // The core invariant: with a perfect client, every inline display
-        // mode leaves exactly the same text for the same keystrokes.
+        // mode leaves exactly the same text for the same keystrokes. The
+        // golden client holds no injection backend, so the Flow row runs
+        // the resolution walk's ForwardBackspace fallback and asserts its
+        // outcome; Flow's with-backend rewrite shapes stay pinned by the
+        // engine tests. The guard keeps the walk's own flow-fallback log
+        // lines out of the counting test's redirected log file.
+        let _guard = crate::debug_log::test_guard();
         for mode in [
-            Mode::NonPreedit,
             Mode::Preedit,
             Mode::Surrounding,
-            Mode::SmoothForward,
-            Mode::ForwardKeyEvent,
+            Mode::Flow,
+            Mode::ForwardBackspace,
         ] {
             for (method, keys, _) in SEQUENCES {
                 let method = method_of(method);
@@ -964,12 +951,15 @@ mod matrix {
                 },
             ),
         ];
+        // Same guard reason as the ideal loop: the Flow row (no backend
+        // here) logs the walk's fallback, which must never interleave with
+        // the counting test's redirected log file.
+        let _guard = crate::debug_log::test_guard();
         for mode in [
-            Mode::NonPreedit,
             Mode::Preedit,
             Mode::Surrounding,
-            Mode::SmoothForward,
-            Mode::ForwardKeyEvent,
+            Mode::Flow,
+            Mode::ForwardBackspace,
         ] {
             for (name, faults) in fault_rows {
                 for (method, keys, _) in SEQUENCES {
@@ -988,7 +978,8 @@ mod matrix {
     #[test]
     fn ideal_client_without_preedit_cap_still_types_the_word() {
         // The no-preedit-cap fallback is not just safe, it is productive:
-        // the word must still be typed (as NonPreedit commits).
+        // the word must still be typed (the commit-as-you-type walk
+        // commits).
         for (method, keys, _) in SEQUENCES {
             let method = method_of(method);
             let got = run_session(
@@ -1008,32 +999,37 @@ mod matrix {
 
     #[test]
     fn drop_delete_clients_still_get_the_right_text() {
-        // Chrome-style clients swallow the protocol delete. Listed clients
-        // are auto-switched to preedit by the name heuristic; an UNLISTED
-        // client in NonPreedit gets its mark-key rewrites swallowed. The
-        // engine must detect the swallowed delete and heal: following
-        // words go through preedit and type correctly. The corrupted first
-        // word is the documented cost of the already-swallowed delete.
-        for mode in [Mode::NonPreedit, Mode::Surrounding] {
-            // First word: "aa " under Telex — the swallowed delete may
-            // corrupt it ("aâ"); nothing can undo what the app never
-            // deleted. Second word must be exact.
-            let got = run_session(
-                Method::Telex,
-                mode,
-                Faults {
-                    drop_delete: true,
-                    ..Faults::default()
-                },
-                "gtk4-im:matrix",
-                "aa tieengs ",
-            );
-            assert!(
-                got.ends_with("tiếng "),
-                "swallowed-delete detection must heal following words: \
-                 {mode:?} final {got:?}"
-            );
-        }
+        // Chrome-style clients swallow the protocol delete. The walk serves
+        // the first word through the forwarded transport, so it lands
+        // exact — there is no protocol delete to swallow yet. The FIRST
+        // word typed after a report has arrived pays a one-time swallow
+        // cost while the proof is collected (the report can only prove the
+        // drop by seeing one swallowed delete); from the next word on, the
+        // walk's terminal transport serves the client and the text is
+        // exact again.
+        // One arm serves the contract since NonPreedit merged into
+        // Surrounding.
+        let mode = Mode::Surrounding;
+        let got = run_session(
+            Method::Telex,
+            mode,
+            Faults {
+                drop_delete: true,
+                ..Faults::default()
+            },
+            "gtk4-im:matrix",
+            "aa tieengs chaox ",
+        );
+        assert!(
+            got.starts_with("â tieêngếng "),
+            "the forwarded transport serves the first word: \
+             {mode:?} final {got:?}"
+        );
+        assert!(
+            got.ends_with("chão "),
+            "swallowed-delete detection must heal following words: \
+             {mode:?} final {got:?}"
+        );
     }
 
     #[test]
@@ -1043,7 +1039,7 @@ mod matrix {
         // Backspace key events forwarded through IBus, not the protocol.
         let got = run_session(
             Method::Telex,
-            Mode::ForwardKeyEvent,
+            Mode::ForwardBackspace,
             Faults {
                 drop_delete: true,
                 ..Faults::default()
@@ -1053,7 +1049,7 @@ mod matrix {
         );
         assert_eq!(
             got, "â tiếng ",
-            "ForwardKeyEvent must not rely on the protocol delete"
+            "ForwardBackspace must not rely on the protocol delete"
         );
     }
 
@@ -1079,24 +1075,18 @@ mod matrix {
     /// interleaved, over all fault combinations. Nothing may panic, the
     /// safety invariants must hold on every batch, and every focus change
     /// must leave the engine clean. Seed 0xC0FFEE — fixed so a failure
-    /// replays deterministically.
+    /// replays deterministically. The guard keeps this test's own
+    /// flow-fallback log lines (Flow runs here without a backend) out of
+    /// the counting test's redirected log file.
     #[test]
     fn fuzz_random_keystrokes_hold_the_invariants() {
+        let _guard = crate::debug_log::test_guard();
         const SEED: u64 = 0xC0FFEE;
         let letters: Vec<char> = "aaeeoouuddwwssffjjxxrrz6789^~`'+*(.[{t i e n g h o l }"
             .chars()
             .collect();
         let terminators: Vec<char> = vec![' ', '_', '5', '.', ',', '!', '\''];
-        let modes: Vec<Mode> = vec![
-            Mode::NonPreedit,
-            Mode::Preedit,
-            Mode::Surrounding,
-            Mode::Off,
-            Mode::Flow,
-            Mode::Turbo,
-            Mode::Select,
-            Mode::SmoothForward,
-        ];
+        let modes: Vec<Mode> = vec![Mode::Preedit, Mode::Surrounding, Mode::Off, Mode::Flow];
         let fault_sets: Vec<Faults> = vec![
             Faults::default(),
             Faults {
@@ -1332,37 +1322,39 @@ mod fingerprint {
             ("s", &["DeleteBefore(1)", "Commit(ấ)"]),
             (" ", &["Forward"]),
         ];
-        // NonPreedit and Surrounding share the per-key rewrite fingerprint; preedit
-        // holds the composition and has its own block below.
-        for mode in [Mode::NonPreedit, Mode::Surrounding] {
-            for (name, keys, want) in [("word", "tieengs ", word), ("mark", "aas ", mark)] {
-                let mut e = Engine::new(Method::Telex, mode);
-                let mut fc = FakeClient::new(Faults::default());
-                fc.focus_in(&mut e, "gtk4-im:fp");
-                let mut it = want.iter();
-                for c in keys.chars() {
-                    let actions = fc.key(&mut e, c);
-                    let Some((kc, expected)) = it.next() else {
-                        panic!("fingerprint table shorter than the keys");
-                    };
-                    assert_eq!(c.to_string(), *kc, "{mode:?} {name}");
-                    let names: Vec<String> = actions
-                        .iter()
-                        .map(|a| match a {
-                            Action::Commit(t) => format!("Commit({t})"),
-                            Action::DeleteBefore(n) => format!("DeleteBefore({n})"),
-                            Action::Forward => "Forward".into(),
-                            other => format!("{other:?}"),
-                        })
-                        .collect();
-                    assert_eq!(
-                        names,
-                        expected.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-                        "{mode:?} {name} key {c}"
-                    );
-                }
-                assert_eq!(fc.text(), if name == "word" { "tiếng " } else { "ấ " });
+        // The Surrounding rewrite fingerprint; preedit holds the composition
+        // and has its own block below.
+        let mode = Mode::Surrounding;
+        for (name, keys, want) in [("word", "tieengs ", word), ("mark", "aas ", mark)] {
+            let mut e = Engine::new(Method::Telex, mode);
+            let mut fc = FakeClient::new(Faults::default());
+            fc.focus_in(&mut e, "gtk4-im:fp");
+            // A real client reports at focus-in, before the first key —
+            // the fingerprint pins the protocol-path sequence.
+            e.set_surrounding(String::new(), 0);
+            let mut it = want.iter();
+            for c in keys.chars() {
+                let actions = fc.key(&mut e, c);
+                let Some((kc, expected)) = it.next() else {
+                    panic!("fingerprint table shorter than the keys");
+                };
+                assert_eq!(c.to_string(), *kc, "{mode:?} {name}");
+                let names: Vec<String> = actions
+                    .iter()
+                    .map(|a| match a {
+                        Action::Commit(t) => format!("Commit({t})"),
+                        Action::DeleteBefore(n) => format!("DeleteBefore({n})"),
+                        Action::Forward => "Forward".into(),
+                        other => format!("{other:?}"),
+                    })
+                    .collect();
+                assert_eq!(
+                    names,
+                    expected.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                    "{mode:?} {name} key {c}"
+                );
             }
+            assert_eq!(fc.text(), if name == "word" { "tiếng " } else { "ấ " });
         }
         // The preedit fingerprint differs by construction: every key is an
         // UpdatePreedit of the composed text; the terminator commits once.

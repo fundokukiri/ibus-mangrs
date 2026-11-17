@@ -5,17 +5,19 @@
 //!
 //! # Display modes
 //!
-//! * **NonPreedit** — no underline at all. Text is committed to the
-//!   application immediately and rewritten with `DeleteSurroundingText`
-//!   followed by `CommitText`. This is the default.
-//! * **Preedit** — the application shows the composition inline with an
-//!   underline. Each keystroke sends `UpdatePreeditText`; nothing is
-//!   committed until the word ends.
-//! * **Surrounding** — non-preedit, but the engine verifies the application's
-//!   `SetSurroundingText` reports against what it believes it committed and
-//!   repairs drift (swallowed deletes, edits the application made). Useful
-//!   for clients that ignore `DeleteSurroundingText` but do report
-//!   surrounding text.
+//! * **Preedit** — the factory default. The application shows the
+//!   composition inline with an underline. Each keystroke sends
+//!   `UpdatePreeditText`; nothing is committed until the word ends.
+//! * **Surrounding** — commit as you type, no underline: text is committed
+//!   to the application immediately and rewritten with the best working
+//!   delete transport. When the application reports surrounding text, the
+//!   engine verifies the report against what it believes it committed and
+//!   repairs drift (swallowed deletes, edits the application made).
+//!
+//! The removed NonPreedit mode was merged into Surrounding: it was the same
+//! commit-as-you-type contract without the verification, and the mode
+//! resolution walk already served both identically. Old `nonpreedit` config
+//! keys and app rules alias to Surrounding.
 //!
 //! Per-application rules (`AppRule`) can force a mode for a matched client;
 //! clients without a rule fall back to the built-in heuristic.
@@ -23,7 +25,7 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
-use crate::config::{AppRule, BackspaceToneConfig, Config, UnicodeChannel};
+use crate::config::{AppRule, BackspaceToneConfig, Config};
 use crate::debug_log::{self, brief};
 use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
@@ -51,52 +53,47 @@ use self::helpers::*;
 /// Display mode, selected in the GUI/menu and persisted in the config file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
-    /// Commit as you type, no underline.
-    #[default]
-    NonPreedit,
     /// Show the composition inline until the word ends.
+    // The enum's Default mirrors the config's factory default mode.
+    #[default]
     Preedit,
-    /// Non-preedit with surrounding-text verification.
+    /// Commit as you type, no underline: every key commits immediately and
+    /// the rewrite deletes ride the best working transport; with a
+    /// surrounding-text report the engine also verifies the report and
+    /// repairs drift. The removed NonPreedit mode shared this arm.
     Surrounding,
     /// Raw keys are forwarded while typing; the latin tail is erased with
     /// real Backspaces at word end and the Vietnamese word is committed.
+    /// The removed Turbo mode (this without the app-autofill hold-back)
+    /// shared this arm, the removed Select mode (whose Shift+Left
+    /// select-and-erase became this Backspace erase) too, and the removed
+    /// SmoothForward mode (the same contract on the ordered forward
+    /// transport) as well: with a backend it types exactly this, and
+    /// without one the walk's ForwardBackspace fallback keeps its
+    /// no-`/dev/uinput` property.
     Flow,
-    /// Flow without the pre-rewrite verification.
-    Turbo,
-    /// Shift+Left selects the typed tail, Delete erases it, then the word is
-    /// committed. Needs a surrounding-text report.
-    Select,
-    /// The Smooth contract (raw keys forwarded while typing, one rewrite at
-    /// word end) with the rewrite delivered through forwarded Backspace key
-    /// events plus the commit — the same ordered IBus channel, no
-    /// `/dev/uinput` and no echo bookkeeping. Raw-key apps (games) ignore
-    /// the IM channel and XIM clients mishandle the forwarded Backspace:
-    /// pin Flow/Turbo or ForwardSelect there instead.
-    SmoothForward,
     /// Non-preedit whose tail rewrite deletes by forwarding Backspace key
     /// events through IBus instead of `DeleteSurroundingText` — works in
     /// clients that drop the protocol delete and where `/dev/uinput` cannot
     /// reach (mutter-relayed Wayland). ibus-bamboo's ForwardKeyEvent I.
-    ForwardKeyEvent,
-    /// The same, but the tail is selected with forwarded Shift+Left and the
-    /// commit replaces the selection — for apps that mishandle a forwarded
-    /// Backspace. ibus-bamboo's ForwardKeyEvent II.
-    ForwardSelect,
+    /// The removed ForwardSelect mode (ForwardKeyEvent II, the select-then-
+    /// erase contract) shared the forward transport; its apps land here.
+    ForwardBackspace,
     /// Vietnamese processing off; macros still run, auto-capitalize does
     /// not (the gap analysis documented this drift — keep the comment true).
     Off,
 }
 
 /// What the first navigation key does while a preedit commit is pending on
-/// a mutter-relayed context (the experimental `nav_key_while_preedit`).
+/// a mutter-relayed context (the `nav_key_while_preedit` config key).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NavKeyWhilePreedit {
     /// Consume the key: the commit lands while the caret is still in place,
-    /// the next press moves the caret. The shipped behavior.
-    #[default]
+    /// the next press moves the caret.
     Swallow,
     /// Send the commit and the key in one reply (ibus-bamboo's sequence):
-    /// the caret moves on the first press.
+    /// the caret moves on the first press. The shipped default.
+    #[default]
     Forward,
     /// Consume the key and re-emit it as ForwardKeyEvent signals after the
     /// commit; the ordered connection delivers the commit first.
@@ -105,12 +102,13 @@ pub enum NavKeyWhilePreedit {
 
 impl NavKeyWhilePreedit {
     /// Tolerant parse like the GUI language value: an unknown value keeps
-    /// the shipped behavior instead of failing the whole config file.
+    /// the default instead of failing the whole config file. A saved
+    /// `swallow` keeps swallowing.
     pub fn from_config_value(value: &str) -> Self {
         match value {
-            "forward" => Self::Forward,
+            "swallow" => Self::Swallow,
             "replay" => Self::Replay,
-            _ => Self::Swallow,
+            _ => Self::Forward,
         }
     }
 }
@@ -143,22 +141,11 @@ pub enum Action {
     /// protocol delete if the device died mid-session.
     InjectBackspaces(u32),
     /// Press Backspace `n` times by forwarding the key events through IBus
-    /// (`ForwardKeyEvent`) — the ForwardKeyEvent mode's delete transport.
+    /// (`ForwardKeyEvent`) — the ForwardBackspace mode's delete transport.
     /// Unlike `/dev/uinput` this reaches every client, including
     /// mutter-relayed Wayland contexts; unlike the protocol delete it works
     /// in clients that drop `DeleteSurroundingText`.
     ForwardBackspaces(u32),
-    /// Select `n` characters to the left with Shift+Left forwarded through
-    /// IBus (ForwardSelect mode); the commit that follows replaces the
-    /// selection. Same wire shape as `ForwardBackspaces`, no `/dev/uinput`.
-    ForwardSelectLeft(u32),
-    /// Select `n` characters to the left with Shift+Left (uinput, paced).
-    SelectLeft(u32),
-    /// Press the Delete key once (erases a selection made by `SelectLeft`).
-    PressDelete,
-    /// Set the clipboard to `text`, paste with injected Ctrl+V, restore the
-    /// clipboard — the clipboard Unicode channel of the uinput modes.
-    Paste(String),
     /// Idle pause (ms) after a uinput rewrite, before the app sees more keys.
     PostDelay(u64),
     /// Emit CommitText immediately, bypassing the injected-echo deferral —
@@ -219,6 +206,19 @@ pub struct Engine {
     /// Whether /dev/uinput is usable — deletions for clients without
     /// surrounding-text data go through key injection instead.
     uinput_available: bool,
+    /// True from the moment the resolution walk downgrades a Flow request
+    /// to ForwardBackspace for lack of an injection backend. Every
+    /// `effective_mode` run clears it first and re-sets it on a Flow
+    /// downgrade, so it always describes the last resolution; the paced
+    /// backend re-request reads it.
+    flow_needs_backend: bool,
+    /// One-time gate for the Flow fallback log line: once per session,
+    /// not per resolution.
+    flow_fallback_logged: bool,
+    /// The selected injection backend is routed by the compositor itself
+    /// (Libei / wlr virtual keyboard), so the relay ban on injection does
+    /// not apply to it — see `deletes_allowed`.
+    injection_relay_safe: bool,
     /// Backspace keys injected through uinput that will echo back as
     /// ProcessKeyEvent; those must be forwarded untouched.
     pending_injected: u32,
@@ -235,13 +235,6 @@ pub struct Engine {
     /// When the last batch of injections happened — echoes that have not
     /// come back within the stale window are treated as lost.
     last_inject: Option<Instant>,
-    /// Injected non-Backspace keys (arrows, Delete, V) whose echoes are
-    /// still expected, in press order.
-    pending_nav: Vec<u32>,
-    /// When the last non-Backspace injection happened (stale window).
-    last_nav_inject: Option<Instant>,
-    /// Commits waiting for injected nav-key echoes to be forwarded.
-    nav_deferred: Vec<(usize, String)>,
     /// Commits parked until a wall-clock deadline. On a mutter relay the
     /// commit channel reaches the client a beat ahead of the key events,
     /// so a rewrite commit must be emitted past the last delete of its
@@ -254,6 +247,12 @@ pub struct Engine {
     /// never be clobbered by a per-key replace. `None` = no batch in
     /// flight; the next key starts one.
     per_key_park: Option<(Instant, String)>,
+    /// What the application certainly holds while that batch is in flight:
+    /// the tail minus the pending insert, as `per_key_coalesce` computed it
+    /// when the batch armed (the screen state before the batch's deletes
+    /// land). Read by the server's focus-bounce stash; meaningful only while
+    /// `per_key_park` is `Some` (the getter gates on it).
+    in_flight_landed: String,
     // --- settings, mirrors of the config file ---
     app_rules: Vec<AppRule>,
     auto_restore: bool,
@@ -287,12 +286,6 @@ pub struct Engine {
     commit_interval_ms: u64,
     backspace_interval_ms: u64,
     post_delay_ms: u64,
-    /// How the Vietnamese word reaches the app in the uinput modes.
-    unicode_channel: UnicodeChannel,
-    /// Custom clipboard restore delay (ms); the built-in default applies
-    /// while the switch is off.
-    clipboard_restore_delay_enabled: bool,
-    clipboard_restore_delay_ms: u64,
     /// Custom lost-echo stale window (ms); the built-in default applies
     /// while the switch is off. Too small risks flushing the deferred
     /// commit over late echoes (lost characters); too large makes every
@@ -302,32 +295,19 @@ pub struct Engine {
     /// Commit a paused preedit word after `idle_commit_ms` of no keys.
     idle_commit_enabled: bool,
     idle_commit_ms: u64,
-    /// The uinput modes show the composed word progressively: every
-    /// composition-changing key erases the committed tail and commits the
-    /// new one through the injected transport. Mirror of
-    /// `config.flow_per_key`, on by default and outside the
-    /// experimental gate.
-    flow_per_key: bool,
-    /// How long the per-key batch stays parked before it lands. Plain config:
-    /// the delay row shares the switch's Tuning-tab row, outside the
+    /// How long the per-key batch stays parked before it lands. Plain
+    /// config: the delay row stands alone in the Tuning tab, outside the
     /// experimental gate.
     flow_per_key_delay_ms: u64,
-    /// Experimental: a Backspace on a committed uinput word re-tracks the
-    /// shortened screen so the next mark key keeps editing. Off keeps the
-    /// legacy plain-text behavior byte for byte; apply_config bakes the
-    /// flag with the gate.
-    flow_backspace_retrack: bool,
-    /// Experimental (needs the flag above): a Backspace that removes a key
-    /// which undid a mark gives the mark back. Off keeps the plain result.
-    flow_backspace_restore: bool,
-    /// How long the restore waits before rewriting the screen (ms); 0 means
-    /// the first main-loop wake. Baked with the gate like the flag.
+    /// How long the Backspace correction waits before rewriting the screen
+    /// (ms); 0 means the first main-loop wake. Plain config: the delay row
+    /// stands alone in the Tuning tab, outside the experimental gate.
     flow_backspace_restore_delay_ms: u64,
     /// The landed screen region before the current per-key word (`chào `
-    /// while a stray `f` sits after it). The same experiment uses it to give
-    /// a finished word back to the composition when the stray key is erased.
-    /// Only filled while the switch is on, and only consulted by the
-    /// Backspace path.
+    /// while a stray `f` sits after it). The Backspace restore uses it to
+    /// give a finished word back to the composition when the stray key is
+    /// erased. Filled at every per-key word start, and only consulted by
+    /// the Backspace path.
     landed_region: String,
     /// Whether the current per-key region has produced no composition change
     /// yet — a lone key over a finished word (`f`) is litter, not a word, so
@@ -472,11 +452,12 @@ impl Engine {
     /// window with margin while staying imperceptible at word end.
     pub const ECHO_APPLY_GRACE_MS: u64 = 60;
 
-    /// How long the experimental Backspace waits before correcting the screen
-    /// after the application applied the user's own Backspace. Backspaces the
-    /// engine injects while that key is still being handled never reach the
-    /// application (measured: 3 injected presses, no echo, only the commit
-    /// landed), so the rewrite must wait until the physical key is long gone.
+    /// How long the Flow Backspace correction waits before rewriting the
+    /// screen after the application applied the user's own Backspace.
+    /// Backspaces the engine injects while that key is still being handled
+    /// never reach the application (measured: 3 injected presses, no echo,
+    /// only the commit landed), so the rewrite must wait until the physical
+    /// key is long gone. Also the engine-side default of the config knob.
     pub const DEFERRED_FIX_MS: u64 = 150;
 
     pub fn new(method: Method, mode: Mode) -> Self {
@@ -515,15 +496,16 @@ impl Engine {
             delete_dropped: false,
             awaiting_delete_proof: None,
             uinput_available: false,
+            flow_needs_backend: false,
+            flow_fallback_logged: false,
+            injection_relay_safe: false,
             pending_injected: 0,
             deferred: Vec::new(),
             echoes_forwarded: 0,
             last_inject: None,
-            pending_nav: Vec::new(),
-            last_nav_inject: None,
-            nav_deferred: Vec::new(),
             timed_commits: Vec::new(),
             per_key_park: None,
+            in_flight_landed: String::new(),
             word_mode: None,
             url_word: false,
             url_span: false,
@@ -544,17 +526,11 @@ impl Engine {
             commit_interval_ms: 20,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
-            unicode_channel: UnicodeChannel::Commit,
-            clipboard_restore_delay_enabled: false,
-            clipboard_restore_delay_ms: 600,
             echo_stale_enabled: false,
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            flow_per_key: false,
             flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
-            flow_backspace_retrack: false,
-            flow_backspace_restore: false,
             flow_backspace_restore_delay_ms: Self::DEFERRED_FIX_MS,
             landed_region: String::new(),
             region_plain: false,
@@ -657,13 +633,10 @@ impl Engine {
         self.macro_expand_valid_words = experimental && config.macro_expand_valid_words;
         self.x11_delete_without_report = config.x11_delete_without_report;
         self.preedit_for_xim = config.preedit_for_xim;
-        // Experimental: the gate forces the shipped swallow back on while
-        // the chosen value stays saved for when the gate reopens.
-        self.nav_key_while_preedit = if experimental {
-            NavKeyWhilePreedit::from_config_value(&config.nav_key_while_preedit)
-        } else {
-            NavKeyWhilePreedit::Swallow
-        };
+        // The caret choice applies like every config value; a saved
+        // `swallow` keeps swallowing.
+        self.nav_key_while_preedit =
+            NavKeyWhilePreedit::from_config_value(&config.nav_key_while_preedit);
         self.time_format = config.time_format.clone();
         self.date_format = config.date_format.clone();
         // Reload the auxiliary files only when they changed on disk (see the
@@ -688,27 +661,15 @@ impl Engine {
         self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
-        self.unicode_channel = config.unicode_channel;
-        self.clipboard_restore_delay_enabled =
-            experimental && config.clipboard_restore_delay_enabled;
-        self.clipboard_restore_delay_ms = config.clipboard_restore_delay_ms;
         self.echo_stale_enabled = experimental && config.echo_stale_enabled;
         self.echo_stale_ms = config.echo_stale_ms;
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;
         self.idle_commit_ms = config.idle_commit_ms;
-        // Not part of the experimental set anymore: the gate must not force
-        // it off or the always-visible switch would silently do nothing.
-        self.flow_per_key = config.flow_per_key;
-        // The delay shares the switch's Tuning-tab row: plain config, no
-        // gate bake-in.
+        // The per-key park delay: plain config, no gate bake-in.
         self.flow_per_key_delay_ms = config.flow_per_key_delay_ms;
-        self.flow_backspace_retrack = experimental && config.flow_backspace_retrack;
-        self.flow_backspace_restore = experimental && config.flow_backspace_restore;
-        self.flow_backspace_restore_delay_ms = if experimental {
-            config.flow_backspace_restore_delay_ms
-        } else {
-            Self::DEFERRED_FIX_MS
-        };
+        // The Backspace correction's wait: plain config too — the retrack
+        // and mark-restore it paces are standard behavior, not experiments.
+        self.flow_backspace_restore_delay_ms = config.flow_backspace_restore_delay_ms;
         // The restore state describes one per-key word boundary; a reload can
         // land mid-word, so it starts clean.
         self.landed_region.clear();
@@ -833,22 +794,6 @@ impl Engine {
         self.post_delay_ms
     }
 
-    /// How the Vietnamese word is delivered in the uinput modes.
-    pub fn unicode_channel(&self) -> UnicodeChannel {
-        self.unicode_channel
-    }
-
-    /// Effective clipboard restore delay: the custom value when the switch
-    /// is on, else the built-in default — the restore itself must always
-    /// run, or the user's clipboard stays replaced by the last word.
-    pub fn clipboard_restore_delay_ms(&self) -> u64 {
-        if self.clipboard_restore_delay_enabled {
-            self.clipboard_restore_delay_ms
-        } else {
-            crate::paste::DEFAULT_RESTORE_DELAY_MS
-        }
-    }
-
     /// The lost-echo stale window: the custom value when the switch is on,
     /// else the built-in default. The key handlers and the main-loop tick
     /// must read the SAME value or a lost echo holds the commit for
@@ -861,11 +806,17 @@ impl Engine {
         })
     }
 
+    /// Whether the user enabled a custom lost-echo window: the server's
+    /// burst watchdog derives its deadline from that window instead of
+    /// the built-in grace.
+    pub fn echo_stale_custom(&self) -> bool {
+        self.echo_stale_enabled
+    }
+
     /// The per-key display's park delay: the user value clamped to a
-    /// sane ceiling. Zero is allowed by owner decision — the knob is
-    /// experimental and gate-hidden, and a too-low value can only reorder
-    /// text for the user who set it; the two server-side rewrite parks
-    /// stay on the built-in constant and are not tunable.
+    /// sane ceiling. Zero is allowed by owner decision — a too-low value
+    /// can only reorder text for the user who set it; the two server-side
+    /// rewrite parks stay on the built-in constant and are not tunable.
     pub fn per_key_delay(&self) -> Duration {
         Duration::from_millis(self.flow_per_key_delay_ms.clamp(0, 500))
     }
@@ -908,20 +859,6 @@ impl Engine {
                 }
             }
         }
-        if !self.pending_nav.is_empty() {
-            if let Some(t) = self.last_nav_inject {
-                if t.elapsed() > max {
-                    debug_log::log(&format!(
-                        "nav injection echoes stale ({}ms) → drop {} pending",
-                        t.elapsed().as_millis(),
-                        self.pending_nav.len()
-                    ));
-                    self.pending_nav.clear();
-                    self.last_nav_inject = None;
-                    stale = true;
-                }
-            }
-        }
         stale
     }
 
@@ -938,66 +875,7 @@ impl Engine {
 
     /// Injected backspace echoes still expected to come back.
     pub fn pending_echoes(&self) -> bool {
-        self.pending_injected > 0 || !self.pending_nav.is_empty()
-    }
-
-    /// Record that non-Backspace keys (arrows, Delete, V) were injected; their
-    /// echoes must be forwarded in press order, not processed.
-    pub fn add_injected_nav(&mut self, keyvals: &[u32]) {
-        if keyvals.is_empty() {
-            return;
-        }
-        self.pending_nav.extend_from_slice(keyvals);
-        self.last_nav_inject = Some(Instant::now());
-    }
-
-    /// Consume an injected nav-key echo when it matches the press order.
-    /// True when the key is an echo and must go to the application untouched;
-    /// returned commits are those whose nav echoes are all delivered.
-    pub fn take_nav_echo(&mut self, keyval: u32) -> Option<Vec<String>> {
-        if self.pending_nav.first() == Some(&keyval) {
-            self.pending_nav.remove(0);
-            Some(self.note_nav_forwarded())
-        } else {
-            None
-        }
-    }
-
-    /// Non-Backspace injected keys still awaiting echoes.
-    pub fn pending_nav_echoes(&self) -> bool {
-        !self.pending_nav.is_empty()
-    }
-
-    /// A commit that must wait until `n` more injected nav-key echoes have
-    /// been forwarded (same transport race as `defer_commit`).
-    pub fn defer_nav_commit(&mut self, n: usize, text: String) {
-        // Length only: the queued text is the word being typed; its landing
-        // is visible on screen, the queue size is what diagnosis needs.
-        debug_log::log(&format!(
-            "defer commit after {n} nav echoes len={}",
-            text.chars().count()
-        ));
-        self.nav_deferred.push((n, text));
-    }
-
-    /// Record that one injected nav key was forwarded; returns commits whose
-    /// nav echoes have all been delivered.
-    fn note_nav_forwarded(&mut self) -> Vec<String> {
-        let mut ready = Vec::new();
-        let mut remaining = Vec::new();
-        for (left, text) in self.nav_deferred.drain(..) {
-            if left > 1 {
-                remaining.push((left - 1, text));
-            } else {
-                debug_log::log(&format!(
-                    "flush deferred commit (nav) len={}",
-                    text.chars().count()
-                ));
-                ready.push(text);
-            }
-        }
-        self.nav_deferred = remaining;
-        ready
+        self.pending_injected > 0
     }
 
     /// Queue `text` to be committed only after `n` more injected-backspace
@@ -1047,13 +925,6 @@ impl Engine {
                 text
             })
             .collect();
-        all.extend(self.nav_deferred.drain(..).map(|(_, text)| {
-            debug_log::log(&format!(
-                "flush deferred commit (nav, forced) len={}",
-                text.chars().count()
-            ));
-            text
-        }));
         // A forced flush ignores the deadline: the context is going away
         // and nobody will tick for it — delivering late beats never.
         all.extend(self.timed_commits.drain(..).map(|(_, text)| {
@@ -1074,10 +945,36 @@ impl Engine {
     }
 
     pub fn has_deferred(&self) -> bool {
-        !self.deferred.is_empty()
-            || !self.nav_deferred.is_empty()
-            || !self.timed_commits.is_empty()
-            || self.per_key_park.is_some()
+        !self.deferred.is_empty() || !self.timed_commits.is_empty() || self.per_key_park.is_some()
+    }
+
+    /// The commit texts still parked (deferred behind echoes, timed parks,
+    /// the per-key insert), in park order. Read-only: the server's
+    /// focus-bounce stash captures them without disturbing the delivery.
+    pub fn parked_commits(&self) -> Vec<&str> {
+        let mut texts: Vec<&str> = self.deferred.iter().map(|(_, t)| t.as_str()).collect();
+        texts.extend(self.timed_commits.iter().map(|(_, t)| t.as_str()));
+        if let Some((_, t)) = &self.per_key_park {
+            texts.push(t);
+        }
+        texts
+    }
+
+    /// What the application certainly holds while the per-key batch is in
+    /// flight — the state the focus-bounce stash anchors its reconcile on.
+    /// `None` whenever no per-key batch is parked, so a value left over from
+    /// a landed batch can never be read.
+    pub fn in_flight_landed(&self) -> Option<&str> {
+        self.per_key_park
+            .is_some()
+            .then_some(self.in_flight_landed.as_str())
+    }
+
+    /// Re-anchor the believed tail after the server repaired the screen
+    /// outside the key path (the focus-bounce reconcile): the next word's
+    /// coalesce diffs against this belief.
+    pub fn reanchor_tail(&mut self, tail: String) {
+        self.tail = tail;
     }
 
     /// Hold `text` back for `delay` before it may be emitted: the relay
@@ -1133,6 +1030,26 @@ impl Engine {
         self.uinput_available
     }
 
+    /// Whether the last resolution downgraded Flow for lack of an
+    /// injection backend: every `effective_mode` run clears the flag
+    /// first and re-sets it on a Flow downgrade (the paced backend
+    /// re-request reads it).
+    pub fn flow_needs_backend(&self) -> bool {
+        self.flow_needs_backend
+    }
+
+    /// Mark the selected injection backend as compositor-routed (Libei /
+    /// wlr virtual keyboard): the compositor itself routes those key
+    /// events to the focused client, so the relay ban does not apply.
+    pub fn set_injection_relay_safe(&mut self, safe: bool) {
+        self.injection_relay_safe = safe;
+    }
+
+    /// Whether the selected injection backend is compositor-routed.
+    pub fn injection_relay_safe(&self) -> bool {
+        self.injection_relay_safe
+    }
+
     /// Forget everything believed about the focused client's text buffer.
     ///
     /// Called on focus changes. The new context may not support surrounding
@@ -1186,9 +1103,12 @@ impl Engine {
     /// protocol delete demonstrably works on that path. A `None` client is an
     /// XIM/XWayland app that never sent `FocusInId`; its keys and injected
     /// backspaces do arrive (Sublime Text, JetBrains XToolkit), so it is not
-    /// lumped in with the relay.
+    /// lumped in with the relay. A compositor-routed backend is exempt: the
+    /// compositor itself routes its key events, so they cannot be lost the
+    /// way device-injected ones are (same exemption as `deletes_allowed`).
     pub fn may_inject(&self) -> bool {
-        !self.injection_forbidden() && (self.delete_dropped || self.surrounding.is_none())
+        (!self.injection_forbidden() || self.injection_relay_safe)
+            && (self.delete_dropped || self.surrounding.is_none())
     }
 
     /// Contexts where injected key events are known to be lost.
@@ -1320,10 +1240,14 @@ impl Engine {
     /// (g_utf8_offset_to_pointer out of bounds — the "logout while typing a
     /// tone mark" crash). Without a report the only alternative is key
     /// injection — and never on relayed contexts, where injected keys are
-    /// lost. Also several clients silently drop the protocol delete, which
-    /// used to duplicate words.
+    /// lost. A compositor-routed backend (Libei / wlr virtual keyboard) is
+    /// exempt from that ban: the compositor itself routes those events to
+    /// the focused client, so the relay race cannot arise. Also several
+    /// clients silently drop the protocol delete, which used to duplicate
+    /// words.
     fn deletes_allowed(&self) -> bool {
-        self.protocol_delete_ok() || (self.uinput_available && !self.injection_forbidden())
+        self.protocol_delete_ok()
+            || (self.uinput_available && (!self.injection_forbidden() || self.injection_relay_safe))
     }
 
     /// Whether the protocol delete may be sent right now.
@@ -1341,75 +1265,98 @@ impl Engine {
                 && !self.relay_context())
     }
 
-    /// Resolve the mode actually used for the focused client: hard fallbacks
-    /// first, then the app rule, then the built-in heuristic. `&mut self`
-    /// because the rule resolution is cached (see `client_rule_mode`).
+    /// Resolve the mode actually used for the focused client: the capability
+    /// fallback walk. Rules feed `requested` like the configured mode does;
+    /// the walk then serves the request with the best delete transport the
+    /// client allows, ending at the forwarded Backspace transport that
+    /// reaches every client. `&mut self` because the rule resolution is
+    /// cached (see `client_rule_mode`).
     fn effective_mode(&mut self) -> Mode {
+        // The flag describes the last resolution: a Flow downgrade here is
+        // cleared by any later run that finds a backend.
+        self.flow_needs_backend = false;
         let can_preedit = self.caps & CAP_PREEDIT_TEXT != 0;
         let ruled = self.client_rule_mode();
         let requested = ruled.unwrap_or(self.mode);
-        // Preedit is unusable when the client cannot render it — except for
-        // XIM clients, which report no preedit capability even though the XIM
-        // server draws the preedit itself (`XIMPreeditPosition`: ibus-x11
-        // shows it in its own window). Downgrading them turned every word into
-        // raw keystrokes; the opt-in keeps preedit, as ibus-bamboo does.
-        if requested == Mode::Preedit
-            && !can_preedit
-            && !(self.preedit_for_xim && self.client_name_is_opaque())
-        {
-            return Mode::NonPreedit;
+        if requested == Mode::Off {
+            return Mode::Off;
         }
-        // The uinput modes press real keys through /dev/uinput. On
-        // mutter-relayed contexts they were once believed dead (the 31/10
-        // session) and fell back to preedit; the 08/11 re-measurement
-        // refuted that — injection, echoes, deletes and commits all land
-        // on the relay. What actually raced was the ORDER between the
-        // commit channel and the key events; the server parks the rewrite
-        // commit past the last injected key (ECHO_APPLY_GRACE_MS) and the
-        // rewrite batch carries its own terminator key, so the relay runs
-        // these modes. Without the virtual device, or Select without a
-        // surrounding-text report (it sizes the selection from it),
-        // preedit still stands in.
-        if matches!(requested, Mode::Flow | Mode::Turbo | Mode::Select)
-            && (!self.uinput_available || (requested == Mode::Select && self.surrounding.is_none()))
-        {
-            return Mode::Preedit;
-        }
-        // ForwardKeyEvent carries its own delete transport (Backspace key
-        // events through IBus), so none of the delete-transport heuristics
-        // below apply — falling back to preedit would defeat the mode, which
-        // exists for apps where preedit is unusable.
         if forwards_delete(requested) {
-            return requested;
-        }
-        if ruled.is_some() {
             return requested;
         }
         // Inline autocomplete: the app appended suggestion text after the
         // caret, and its rewrite delete is dropped (repairing crashes
         // mutter). Show the following words as preedit so no rewrite delete
-        // is needed.
-        if self.suggestions && can_preedit && self.relay_context() {
+        // is needed. Unruled clients only — a rule pins its mode.
+        if ruled.is_none() && self.suggestions && can_preedit && self.relay_context() {
             return Mode::Preedit;
         }
-        // Rewriting the tail is impossible for delete-dropping clients, so
-        // show the word inline instead of letting the commits pile up.
-        if requested == Mode::NonPreedit && can_preedit && self.client_cannot_delete_surrounding() {
+        match requested {
+            // Preedit is unusable when the client cannot render it — except
+            // for XIM clients, which report no preedit capability even
+            // though the XIM server draws the preedit itself
+            // (`XIMPreeditPosition`: ibus-x11 shows it in its own window).
+            // Downgrading them turned every word into raw keystrokes; the
+            // opt-in keeps preedit, as ibus-bamboo does. Without the
+            // capability the request walks on to the commit-as-you-type
+            // contract below.
+            Mode::Preedit => {
+                if can_preedit || (self.preedit_for_xim && self.client_name_is_opaque()) {
+                    Mode::Preedit
+                } else {
+                    self.commit_as_you_type_walk(can_preedit, ruled.is_none())
+                }
+            }
+            // The commit-as-you-type contract: the walk picks the best
+            // delete transport for the client.
+            Mode::Surrounding => self.commit_as_you_type_walk(can_preedit, ruled.is_none()),
+            // The uinput modes press real keys through /dev/uinput. Without
+            // the virtual device the walk downgrades to the forwarded
+            // transport and remembers it (the paced backend re-request
+            // reads it).
+            Mode::Flow => {
+                if self.uinput_available {
+                    Mode::Flow
+                } else {
+                    self.flow_needs_backend = true;
+                    if !self.flow_fallback_logged {
+                        self.flow_fallback_logged = true;
+                        debug_log::log("flow without a backend → forward backspace");
+                    }
+                    Mode::ForwardBackspace
+                }
+            }
+            // Terminal: carries its own delete transport, walks nowhere.
+            Mode::ForwardBackspace => Mode::ForwardBackspace,
+            // Unreachable: Off returned first. Kept for exhaustiveness.
+            Mode::Off => requested,
+        }
+    }
+
+    /// The commit-as-you-type contract served by the best working delete
+    /// transport, in preference order. `unruled` gates the built-in
+    /// delete-dropper list: a rule's whole point is to bypass that
+    /// fallback (`config_rule_bypasses_the_delete_fallback`).
+    fn commit_as_you_type_walk(&mut self, can_preedit: bool, unruled: bool) -> Mode {
+        // Clients known to drop DeleteSurroundingText keep today's outcome:
+        // the word shows inline instead of being duplicated.
+        if unruled && can_preedit && self.client_cannot_delete_surrounding() {
             return Mode::Preedit;
         }
-        // A rewrite delete was proven swallowed (report proof) and real-key
-        // injection cannot take over: without a working delete transport the
-        // following words go through preedit, which needs no delete at all.
-        // Rule-matched clients keep their configured mode (they returned
-        // above); this only heals unlisted clients.
-        if matches!(requested, Mode::NonPreedit | Mode::Surrounding)
-            && can_preedit
-            && self.delete_dropped
-            && !self.uinput_available
-        {
-            return Mode::Preedit;
+        // A report (or the direct-client opt-in) proves the protocol delete
+        // safe, with drift repair as today. A client PROVEN to swallow
+        // rewrite deletes skips it: the terminal transport below serves it.
+        if self.protocol_delete_ok() && !self.delete_dropped {
+            return Mode::Surrounding;
         }
-        requested
+        // No usable report yet: injected Backspaces serve when a backend
+        // exists (the deletes_allowed gate decides per keystroke, unchanged).
+        if self.uinput_available {
+            return Mode::Surrounding;
+        }
+        // Terminal: the forwarded transport reaches clients with no report
+        // and no backend (mutter-relayed Wayland, XIM) — never preedit.
+        Mode::ForwardBackspace
     }
 
     /// Mode for the current keystroke: the word-locked mode when a word is in
@@ -1488,43 +1435,18 @@ impl Engine {
         // The tone-skip belongs to committed-text transports: the uinput
         // modes show the raw keys, and a skipped tone would desync the
         // screen from the wrapper. They keep the unikey undo.
-        self.wrapper.set_backspace_tone(
-            if matches!(
-                mode,
-                Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
-            ) {
-                BackspaceToneConfig::UnikeyWalk
-            } else {
-                self.backspace_tone
-            },
-        );
-        // uinput modes: the application owns the on-screen text — the
-        // Backspace is forwarded so it deletes the raw key shown there, and
-        // bamboo follows so the composition stays aligned (unikey
-        // convention: Backspace undoes the last raw key).
-        if matches!(
-            mode,
-            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward
-        ) {
-            // Per-key display: the app holds the composed word, so the
-            // Backspace passes through with a reverse-mapped raw buffer —
-            // the user's real key, the one transport the relay never drops.
-            if self.flow_per_key && !matches!(mode, Mode::Select) {
-                return Some(self.backspace_per_key(mode));
-            }
-            self.wrapper.backspace();
-            if !self.wrapper.has_composition() {
-                self.release_word_mode();
-                // Nothing composed: the application deletes one of its own
-                // characters — the raw forwarders (URL bypass) track the
-                // screen in `tail`, so it has to shrink with the text.
-                self.tail = replace_tail(&self.tail, 1, "");
-                self.note_backspace_forwarded();
-                // Erasing the whole candidate word drops the shortcode flag
-                // — the next word is no longer a `:name:` lookup.
-                self.emoji_word = false;
-            }
-            return None;
+        self.wrapper.set_backspace_tone(if mode == Mode::Flow {
+            BackspaceToneConfig::UnikeyWalk
+        } else {
+            self.backspace_tone
+        });
+        // Flow: the application owns the on-screen text under the per-key
+        // display, so the Backspace passes through with a reverse-mapped
+        // raw buffer — the user's real key, the one transport the relay
+        // never drops — and bamboo follows so the composition stays
+        // tracked (unikey convention: Backspace undoes the last raw key).
+        if mode == Mode::Flow {
+            return Some(self.backspace_per_key());
         }
         let Some(edit) = self.wrapper.backspace() else {
             // Nothing composed: the application deletes one of its own
@@ -1556,8 +1478,8 @@ impl Engine {
             }
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
-            Mode::Flow | Mode::Turbo | Mode::Select | Mode::SmoothForward => None,
-            Mode::NonPreedit | Mode::Surrounding | Mode::ForwardKeyEvent | Mode::ForwardSelect => {
+            Mode::Flow => None,
+            Mode::Surrounding | Mode::ForwardBackspace => {
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
                     // Backspace so the app deletes the last character itself.
@@ -1766,7 +1688,7 @@ impl Engine {
             debug_log::log("timed commit flush (per-key)");
             actions.push(action);
         }
-        // The experimental Backspace's correction: by now the user's own
+        // The Flow Backspace's correction: by now the user's own
         // Backspace has landed, so injected deletes reach the application —
         // but only once the key is UP. Injected Backspaces sent while it is
         // still down are dropped by the input stack (measured in the owner's
@@ -1779,8 +1701,7 @@ impl Engine {
             if deadline <= Instant::now() && (!self.backspace_down || overdue) {
                 self.deferred_fix = None;
                 debug_log::log("deferred backspace fix: rewrite the region");
-                let mode = self.effective_mode();
-                actions.extend(self.per_key_coalesce(mode, want));
+                actions.extend(self.per_key_coalesce(want));
             }
         }
         if self.take_stale_injection(self.echo_stale()) {
@@ -1830,20 +1751,14 @@ impl Engine {
     /// lost-echo stale window, the idle-commit deadline, or None when
     /// nothing is pending (the loop falls back to its 1 s poll).
     pub fn ms_until_tick(&self) -> Option<u64> {
-        // Both echo kinds share the stale window; the earliest deadline wins.
+        // The stale window wakes the loop for lost-echo flushes.
         let stale_ms = self.echo_stale().as_millis();
-        let mut deadlines: Vec<u64> = [
-            (self.pending_injected > 0)
-                .then_some(self.last_inject)
-                .flatten(),
-            (!self.pending_nav.is_empty())
-                .then_some(self.last_nav_inject)
-                .flatten(),
-        ]
-        .into_iter()
-        .flatten()
-        .map(|t| stale_ms as u64 - t.elapsed().as_millis().min(stale_ms) as u64)
-        .collect();
+        let mut deadlines: Vec<u64> = Vec::new();
+        if self.pending_injected > 0 {
+            if let Some(t) = self.last_inject {
+                deadlines.push(stale_ms as u64 - t.elapsed().as_millis().min(stale_ms) as u64);
+            }
+        }
         // The idle-commit deadline: a paused preedit word must wake the loop.
         if self.idle_commit_enabled && self.preedit_visible && !self.wrapper.output().is_empty() {
             if let Some(t) = self.last_key_at {

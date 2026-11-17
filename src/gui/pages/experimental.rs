@@ -51,12 +51,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let tuning = adw::PreferencesGroup::builder()
         .title(t("groups.experimental.tuning.title", "Tinh chỉnh"))
         .build();
-    tuning.add(&ui.clipboard_restore_row);
     tuning.add(&ui.echo_stale_row);
     tuning.add(&ui.idle_commit_row);
-    tuning.add(&ui.flow_backspace_retrack);
-    tuning.add(&ui.flow_backspace_restore_row);
-    tuning.add(&ui.nav_key_while_preedit);
     page.add(&tuning);
 
     // The badge marks each feature's one row — the merged rows carry it
@@ -64,24 +60,16 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.macro_valid_words);
     decorate_experimental(&ui.extra_url_chars_row);
     decorate_experimental(&ui.auto_capitalize_after_row);
-    decorate_experimental(&ui.clipboard_restore_row);
     decorate_experimental(&ui.echo_stale_row);
     decorate_experimental(&ui.idle_commit_row);
-    // A combo-only feature: the combo is its own primary row.
-    decorate_experimental(&ui.nav_key_while_preedit);
-    decorate_experimental(&ui.flow_backspace_retrack);
-    decorate_experimental(&ui.flow_backspace_restore_row);
     // The switches themselves glow the same warning amber as the badge and
     // the tab label: one look, one meaning.
     for switch in [
         ui.macro_valid_words.upcast_ref::<gtk4::Widget>(),
         ui.extra_url_chars_switch.upcast_ref::<gtk4::Widget>(),
         ui.auto_capitalize_after_switch.upcast_ref::<gtk4::Widget>(),
-        ui.clipboard_restore_switch.upcast_ref::<gtk4::Widget>(),
         ui.echo_stale_switch.upcast_ref::<gtk4::Widget>(),
         ui.idle_commit_switch.upcast_ref::<gtk4::Widget>(),
-        ui.flow_backspace_restore_switch
-            .upcast_ref::<gtk4::Widget>(),
     ] {
         switch.add_css_class("experimental");
     }
@@ -113,20 +101,12 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             ui.auto_capitalize_after_entry.upcast_ref::<gtk4::Widget>(),
         ),
         (
-            &ui.clipboard_restore_switch,
-            ui.clipboard_restore_spin.upcast_ref::<gtk4::Widget>(),
-        ),
-        (
             &ui.echo_stale_switch,
             ui.echo_stale_spin.upcast_ref::<gtk4::Widget>(),
         ),
         (
             &ui.idle_commit_switch,
             ui.idle_commit_spin.upcast_ref::<gtk4::Widget>(),
-        ),
-        (
-            &ui.flow_backspace_restore_switch,
-            ui.flow_backspace_restore_spin.upcast_ref::<gtk4::Widget>(),
         ),
     ] {
         let ui = Rc::clone(ui);
@@ -141,12 +121,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         let ui = Rc::clone(ui);
         entry.connect_changed(move |_| ui.fire_save());
     }
-    for spin in [
-        &ui.clipboard_restore_spin,
-        &ui.echo_stale_spin,
-        &ui.idle_commit_spin,
-        &ui.flow_backspace_restore_spin,
-    ] {
+    for spin in [&ui.echo_stale_spin, &ui.idle_commit_spin] {
         let ui = Rc::clone(ui);
         spin.connect_value_notify(move |_| ui.fire_save());
     }

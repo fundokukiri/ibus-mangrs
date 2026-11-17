@@ -52,6 +52,7 @@ fn gtk_widget_scenarios() {
     shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
     row_texts_render_as_plain_text();
+    flow_delay_row_shows_captions();
     rules_add_group_merges_the_focus_chip();
     rule_rows_and_preview_track_the_engine_match();
     macro_page_helpers_count_and_preview();
@@ -60,6 +61,7 @@ fn gtk_widget_scenarios() {
     toggling_off_releases_the_editor_caret();
     every_switch_triggers_save();
     mode_visibility_hides_pickers_and_moves_the_active_mode();
+    cycle_subtitle_lists_the_five_modes();
     experimental_gate_locks_rows_and_preserves_values();
     combo_value_stays_right_after_a_pick();
     popup_marks_the_selected_item();
@@ -77,19 +79,19 @@ fn gtk_widget_scenarios() {
 }
 
 /// The combo item lists (mode/charset/method/...) render in the window's
-/// language; positions stay the index contract either way.
+/// language; positions stay the index contract either way. `labels()` keeps a
+/// direct assert on one surviving list, `mode_label` on the mode helper.
 #[test]
 fn labels_follow_the_language() {
     let _g = crate::gui::text::LANG_TEST_LOCK
         .lock()
         .unwrap_or_else(|p| p.into_inner());
     set_language("vi");
-    assert_eq!(labels(CHANNELS)[0], "CommitText (an toàn)");
+    assert_eq!(labels(BACKSPACE_TONE_MODES)[0], "Xóa dấu trước");
+    assert_eq!(mode_label(ModeConfig::Preedit), "Gạch chân (preedit)");
     set_language("en");
-    assert_eq!(labels(CHANNELS)[0], "CommitText (safe)");
-    assert_eq!(mode_label(ModeConfig::NonPreedit), "No underline");
-    set_language("vi");
-    assert_eq!(mode_label(ModeConfig::NonPreedit), "Không gạch chân");
+    assert_eq!(labels(BACKSPACE_TONE_MODES)[0], "Tone first");
+    assert_eq!(mode_label(ModeConfig::Preedit), "Underline (preedit)");
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -500,7 +502,7 @@ fn refresh_round_trips_every_widget() {
     let config = Config {
         enabled: false,
         method: MethodConfig::Vni,
-        mode: ModeConfig::Select,
+        mode: ModeConfig::ForwardBackspace,
         charset: CharsetConfig::Tcvn3,
         modern_tone_style: false,
         free_tone_marking: true,
@@ -538,17 +540,12 @@ fn refresh_round_trips_every_widget() {
         commit_interval_ms: 33,
         backspace_interval_ms: 7,
         post_delay_ms: 12,
-        unicode_channel: crate::config::UnicodeChannel::Clipboard,
-        clipboard_restore_delay_enabled: true,
-        clipboard_restore_delay_ms: 1500,
+        unicode_channel: crate::config::UnicodeChannel::Commit,
         echo_stale_enabled: true,
         echo_stale_ms: 250,
         idle_commit_enabled: true,
         idle_commit_ms: 800,
-        flow_per_key: true,
         flow_per_key_delay_ms: 80,
-        flow_backspace_retrack: true,
-        flow_backspace_restore: true,
         flow_backspace_restore_delay_ms: 40,
         experimental_features: true,
         show_toasts: false,
@@ -570,18 +567,13 @@ fn refresh_round_trips_every_widget() {
         // Passes through read() untouched (see baseline above).
         quick_menu: baseline.quick_menu,
         menu_modes: baseline.menu_modes,
-        // The scenario exercises a hidden-by-default mode (Select), so its
-        // list shows every mode; refresh/read must preserve that order.
+        // The scenario lists every mode explicitly; refresh/read must
+        // preserve that order.
         visible_modes: Some(vec![
-            "nonpreedit".into(),
             "preedit".into(),
             "surrounding".into(),
             "flow".into(),
-            "turbo".into(),
-            "select".into(),
-            "smoothforward".into(),
-            "forwardkeyevent".into(),
-            "forwardselect".into(),
+            "forwardbackspace".into(),
             "off".into(),
         ]),
         // The editor always produces a design, and refresh normalizes an
@@ -616,7 +608,7 @@ fn refresh_round_trips_every_widget() {
     // positional hole to drift into.
     assert_eq!(
         MODE_LABELS[0].0,
-        ModeConfig::NonPreedit,
+        ModeConfig::Preedit,
         "the table must lead with the first display mode"
     );
     assert!(
@@ -627,15 +619,10 @@ fn refresh_round_trips_every_widget() {
         "removed modes must not linger in the table"
     );
     let all_modes = vec![
-        ModeConfig::NonPreedit,
         ModeConfig::Preedit,
         ModeConfig::Surrounding,
         ModeConfig::Flow,
-        ModeConfig::Turbo,
-        ModeConfig::Select,
-        ModeConfig::SmoothForward,
-        ModeConfig::ForwardKeyEvent,
-        ModeConfig::ForwardSelect,
+        ModeConfig::ForwardBackspace,
         ModeConfig::Off,
     ];
     for m in &all_modes {
@@ -647,24 +634,17 @@ fn refresh_round_trips_every_widget() {
             "index round-trip for {m:?}"
         );
     }
-    assert_eq!(
-        MODE_LABELS[6].0,
-        ModeConfig::SmoothForward,
-        "the new mode sits between Select and Forward Backspace"
-    );
-    // The mode's limits (design §9) must be discoverable: the mode-row tip
-    // names the transport and the game/XIM exclusions, in both content files.
-    assert!(
-        include_str!("../../data/gui-content.toml").contains("Smooth (Forward)"),
-        "the Vietnamese tip must mention Smooth (Forward)"
-    );
-    assert!(
-        include_str!("../../data/gui-content.en.toml").contains("Smooth (Forward)"),
-        "the English tip must mention Smooth (Forward)"
-    );
+    // Flow sits between Surrounding and Forward Backspace in the fixed
+    // table — by neighbors, so removing a row does not shift the claim.
+    let flow = MODE_LABELS
+        .iter()
+        .position(|(m, ..)| *m == ModeConfig::Flow)
+        .expect("Flow row");
+    assert_eq!(MODE_LABELS[flow - 1].0, ModeConfig::Surrounding);
+    assert_eq!(MODE_LABELS[flow + 1].0, ModeConfig::ForwardBackspace);
     assert_eq!(
         ui.mode.selected(),
-        mode_index(&all_modes, ModeConfig::Select),
+        mode_index(&all_modes, ModeConfig::ForwardBackspace),
         "refresh must place the config's mode at the right list position"
     );
 
@@ -711,7 +691,7 @@ fn row_texts_render_as_plain_text() {
     for markup_off in [
         !ui.bypass_url.uses_markup(),
         !ui.method.uses_markup(),
-        !ui.flow_per_key_row.uses_markup(),
+        !ui.echo_stale_row.uses_markup(),
         !ui.rule_preview.uses_markup(),
     ] {
         assert!(markup_off, "row titles and subtitles must be plain text");
@@ -719,6 +699,63 @@ fn row_texts_render_as_plain_text() {
     assert_eq!(
         ui.bypass_url.subtitle().as_deref(),
         Some("URL thật (https://, www.) giữ nguyên cả vùng tới dấu cách hoặc dấu câu")
+    );
+}
+
+/// The per-key display switch died (the per-key look is the only Flow
+/// path) and both Backspace switches died (the retrack and the mark
+/// restore are standard Flow behavior): both delay spins survive as one
+/// always-active caption row, still wired to their config keys.
+fn flow_delay_row_shows_captions() {
+    let ui = widgets();
+    assert!(
+        !ui.flow_delay_row.uses_markup(),
+        "row titles and subtitles must be plain text"
+    );
+    assert!(
+        ui.flow_delay_row.is_sensitive()
+            && ui.flow_per_key_spin.is_sensitive()
+            && ui.flow_backspace_restore_spin.is_sensitive(),
+        "the delay row has no switch left to lock it"
+    );
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("delay row save");
+        }));
+    }
+    ui.refresh(
+        &Config {
+            flow_per_key_delay_ms: 80,
+            flow_backspace_restore_delay_ms: 40,
+            ..Config::default()
+        },
+        &macros,
+        &dictionary,
+    );
+    assert_eq!(
+        ui.flow_per_key_spin.value(),
+        80.0,
+        "refresh shows the file value"
+    );
+    assert_eq!(
+        ui.flow_backspace_restore_spin.value(),
+        40.0,
+        "refresh shows the file value"
+    );
+    ui.flow_per_key_spin.set_value(200.0);
+    ui.flow_backspace_restore_spin.set_value(250.0);
+    ui.fire_save();
+    let saved = Config::load();
+    assert_eq!(
+        saved.flow_per_key_delay_ms, 200,
+        "the detached spin still saves the delay key"
+    );
+    assert_eq!(
+        saved.flow_backspace_restore_delay_ms, 250,
+        "the detached spin still saves the restore key"
     );
 }
 
@@ -731,6 +768,18 @@ fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
     let macros = Macros::load();
     let dictionary = Dictionary::load();
     ui.refresh(&config, &macros, &dictionary);
+    // The dropdown model is the shipped five, in the shipped order — the
+    // same list the panel submenu, the rule pickers and the cycle walk.
+    assert_eq!(
+        *ui.mode_choices.borrow(),
+        vec![
+            ModeConfig::Preedit,
+            ModeConfig::Surrounding,
+            ModeConfig::Flow,
+            ModeConfig::ForwardBackspace,
+            ModeConfig::Off,
+        ]
+    );
     assert_eq!(
         ui.mode_choices.borrow().len(),
         crate::config::DEFAULT_VISIBLE_MODES.len()
@@ -754,18 +803,37 @@ fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
         );
     }
 
-    // Turn on a hidden-by-default mode: it joins the end of the list.
+    // Turn on a mode hidden by an explicit subset (no variant ships hidden
+    // anymore, so the subset manufactures the hidden mode): it joins the
+    // end of the list.
+    let subset = Config {
+        visible_modes: Some(vec![
+            "preedit".into(),
+            "surrounding".into(),
+            "flow".into(),
+            "off".into(),
+        ]),
+        ..Config::default()
+    };
+    ui.refresh(&subset, &macros, &dictionary);
+    assert!(!ui
+        .mode_choices
+        .borrow()
+        .contains(&ModeConfig::ForwardBackspace));
     let index_of = |mode: ModeConfig| {
         MODE_LABELS
             .iter()
             .position(|(m, ..)| *m == mode)
             .expect("mode in table")
     };
-    ui.mode_visible_switches[index_of(ModeConfig::Select)].set_active(true);
-    assert!(ui.mode_choices.borrow().contains(&ModeConfig::Select));
+    ui.mode_visible_switches[index_of(ModeConfig::ForwardBackspace)].set_active(true);
+    assert!(ui
+        .mode_choices
+        .borrow()
+        .contains(&ModeConfig::ForwardBackspace));
     assert_eq!(
         ui.mode_choices.borrow().last(),
-        Some(&ModeConfig::Select),
+        Some(&ModeConfig::ForwardBackspace),
         "a newly enabled mode is appended"
     );
 
@@ -775,7 +843,10 @@ fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
     assert!(!ui.mode_choices.borrow().contains(&ModeConfig::Preedit));
     assert_eq!(saved.borrow().mode, ModeConfig::Surrounding);
     let visible = saved.borrow().visible_modes.clone().unwrap();
-    assert!(visible.contains(&"select".to_string()), "new mode saved");
+    assert!(
+        visible.contains(&"forwardbackspace".to_string()),
+        "new mode saved"
+    );
     assert!(
         !visible.contains(&"preedit".to_string()),
         "hidden mode dropped"
@@ -798,6 +869,38 @@ fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
     assert!(
         ui.mode_visible_switches[index_of(last)].is_active(),
         "the last visible mode must stay on"
+    );
+}
+
+/// The cycle hotkey's expander derives from the same visible list the
+/// engine cycles: the count reads five and the sequence row joins the five
+/// labels in shipped order — a mode added or removed shows up here too.
+fn cycle_subtitle_lists_the_five_modes() {
+    let ui = widgets();
+    let page = crate::gui::pages::hotkeys::build(&ui);
+    let win = gtk4::Window::new();
+    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
+    win.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let expander = descendants::<adw::ExpanderRow>(page.upcast_ref())
+        .into_iter()
+        .find(|row| row.title() == "Thứ tự khi đổi chế độ")
+        .expect("the cycle-order expander");
+    assert_eq!(
+        expander.subtitle().as_str(),
+        "5 chế độ, xoay vòng",
+        "the count follows the five visible modes"
+    );
+    let sequence = descendants::<adw::ActionRow>(expander.upcast_ref())
+        .into_iter()
+        .find(|row| row.subtitle().is_some_and(|s| s.contains(" → ")))
+        .expect("the sequence row");
+    assert_eq!(
+        sequence.subtitle().as_ref().map(|s| s.as_str()),
+        Some("Gạch chân (preedit) → Surrounding text → Flow → Forward Backspace → OFF"),
+        "the sequence joins the five labels in shipped order"
     );
 }
 
@@ -841,13 +944,11 @@ fn every_switch_triggers_save() {
     }
     // The merged "Thử nghiệm" rows carry bare GtkSwitch suffixes — same
     // wiring, different widget type.
-    let switches: [&gtk4::Switch; 6] = [
+    let switches: [&gtk4::Switch; 4] = [
         &ui.extra_url_chars_switch,
         &ui.auto_capitalize_after_switch,
-        &ui.clipboard_restore_switch,
         &ui.echo_stale_switch,
         &ui.idle_commit_switch,
-        &ui.flow_backspace_restore_switch,
     ];
     for switch in switches {
         let before = saves.get();
@@ -888,8 +989,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
         echo_stale_enabled: true,
         echo_stale_ms: 250,
         flow_per_key_delay_ms: 200,
-        flow_backspace_restore: true,
-        flow_backspace_restore_delay_ms: 40,
         ..Config::default()
     };
     saved.save().expect("seed config");
@@ -900,8 +999,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(ui.extra_url_chars_row.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
     assert_eq!(ui.echo_stale_spin.value(), 250.0);
-    assert!(ui.flow_backspace_restore_switch.is_active());
-    assert_eq!(ui.flow_backspace_restore_spin.value(), 40.0);
 
     // Off (driven through the file, as the real funnel produces it): rows
     // locked, shipped defaults on display.
@@ -915,8 +1012,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(!ui.extra_url_chars_entry.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
-    assert!(!ui.flow_backspace_restore_row.is_sensitive());
-    assert_eq!(ui.flow_backspace_restore_spin.value(), 150.0);
 
     // A save with the gate off — the funnel reads the default-displaying
     // widgets — must not wipe the file's values.
@@ -926,8 +1021,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert_eq!(closed.extra_url_chars, "`", "no wipe on save");
     assert_eq!(closed.echo_stale_ms, 250);
     assert_eq!(closed.flow_per_key_delay_ms, 200);
-    assert!(closed.flow_backspace_restore);
-    assert_eq!(closed.flow_backspace_restore_delay_ms, 40);
 
     // Reopen (what the real toggle does: flip the switch, then the
     // presentation runs in the handler's order — restore first, sensitivity
@@ -1061,8 +1154,8 @@ fn language_row_round_trips() {
     assert_eq!(ui.read().language, "vi", "an unknown value behaves as vi");
 }
 
-/// The experimental nav-key combo: the config value selects the item and
-/// the pick reads back as the config value.
+/// The nav-key combo: the config value selects the item and the pick reads
+/// back as the config value — a normal row now, no gate needed.
 fn nav_key_row_round_trips() {
     let ui = widgets();
     let macros = Macros::load();
@@ -1070,10 +1163,7 @@ fn nav_key_row_round_trips() {
 
     ui.refresh(
         &Config {
-            // The nav-key row is experimental: its round trip runs with the
-            // gate on, or read() would report the file's value instead.
-            experimental_features: true,
-            nav_key_while_preedit: "forward".into(),
+            nav_key_while_preedit: "swallow".into(),
             ..Config::default()
         },
         &macros,
@@ -1082,16 +1172,30 @@ fn nav_key_row_round_trips() {
     assert_eq!(
         ui.nav_key_while_preedit.selected(),
         1,
-        "forward selects index 1"
+        "swallow selects index 1"
     );
-    assert_eq!(ui.read().nav_key_while_preedit, "forward");
+    assert_eq!(ui.read().nav_key_while_preedit, "swallow");
     ui.refresh(&Config::default(), &macros, &dictionary);
     assert_eq!(
         ui.nav_key_while_preedit.selected(),
         0,
         "the default selects index 0"
     );
-    assert_eq!(ui.read().nav_key_while_preedit, "swallow");
+    assert_eq!(ui.read().nav_key_while_preedit, "forward");
+    ui.refresh(
+        &Config {
+            nav_key_while_preedit: "replay".into(),
+            ..Config::default()
+        },
+        &macros,
+        &dictionary,
+    );
+    assert_eq!(
+        ui.nav_key_while_preedit.selected(),
+        2,
+        "replay selects index 2"
+    );
+    assert_eq!(ui.read().nav_key_while_preedit, "replay");
     // A hand-edited value behaves as the default.
     ui.refresh(
         &Config {
@@ -1108,8 +1212,8 @@ fn nav_key_row_round_trips() {
     );
     assert_eq!(
         ui.read().nav_key_while_preedit,
-        "swallow",
-        "an unknown value behaves as swallow"
+        "forward",
+        "an unknown value behaves as forward"
     );
 }
 

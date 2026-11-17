@@ -23,8 +23,31 @@ static TEXT_ENABLED: AtomicBool = AtomicBool::new(false);
 /// create_dir_all) per line put several syscalls of overhead on every
 /// keystroke — exactly when latency was being diagnosed.
 static LOG_FILE: Mutex<Option<File>> = Mutex::new(None);
+/// Test-only redirect so tests can assert log lines without touching the
+/// user's cache dir; engine tests set it through `test_guard` below.
 #[cfg(test)]
-static PATH_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
+pub(crate) static PATH_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// Serializes every test that flips the process-wide log state (the
+/// debug_log unit tests and the engine tests asserting log lines).
+#[cfg(test)]
+static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Hold this while flipping `ENABLED`/`PATH_OVERRIDE` in a test: the
+/// debug_log unit tests use the same lock, so the globals never race.
+#[cfg(test)]
+pub(crate) fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Restore the process-wide log state after a test that asserted log
+/// lines, so later tests in the same binary start clean.
+#[cfg(test)]
+pub(crate) fn test_reset() {
+    *LOG_FILE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    *PATH_OVERRIDE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    ENABLED.store(false, Ordering::Relaxed);
+    TEXT_ENABLED.store(false, Ordering::Relaxed);
+}
 
 /// Enable or disable logging (mirrors `Config::debug_log`).
 pub fn set_enabled(on: bool) {
@@ -119,15 +142,6 @@ pub fn brief(s: &str) -> std::borrow::Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The tests below share process-wide state (`ENABLED`, `LOG_FILE`,
-    /// `PATH_OVERRIDE`); running them in parallel made the log assertions
-    /// flake. Serialize them.
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
-    fn test_guard() -> std::sync::MutexGuard<'static, ()> {
-        TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
-    }
 
     #[test]
     fn disabled_by_default_and_never_panics() {
