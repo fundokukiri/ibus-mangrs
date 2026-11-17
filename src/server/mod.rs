@@ -60,7 +60,7 @@ pub const ENGINE_PATH: &str = "/org/freedesktop/IBus/Engine/1";
 pub const ENGINE_IFACE: &str = "org.freedesktop.IBus.Engine";
 pub const FACTORY_IFACE: &str = "org.freedesktop.IBus.Factory";
 
-/// The MăngRS focus extension (`data/gnome-shell-extension`): a session-bus
+/// The MăngRS focus extension (`data/extension`): a session-bus
 /// service naming the focused window. Wayland-native apps reach IBus only as
 /// a mutter relay, and GNOME offers no other name source for them (Shell
 /// Introspect is denied; the wlroots protocol ibus-bamboo uses is absent).

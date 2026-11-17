@@ -133,7 +133,7 @@ duplicating text. Give such an app a different mode by adding your own rule.
 
 Chrome and Firefox on GNOME Wayland are reported to IBus only as an anonymous relay: matching
 them by name needs the companion GNOME Shell extension
-(`data/gnome-shell-extension/README.md`), then a logout/login.
+(`data/extension/README.md`), then a logout/login.
 
 ## Shortcuts
 

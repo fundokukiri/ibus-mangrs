@@ -82,7 +82,7 @@ pub(crate) fn build() -> adw::PreferencesPage {
     hero.set_halign(gtk4::Align::Center);
     hero.set_margin_top(18);
     hero.set_margin_bottom(6);
-    const LOGO: &[u8] = include_bytes!("../../../data/assets/logo.png");
+    const LOGO: &[u8] = include_bytes!("../../../data/icons/logo.png");
     if let Ok(texture) = gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(LOGO)) {
         let image = gtk4::Image::from_paintable(Some(&texture));
         image.set_pixel_size(176);

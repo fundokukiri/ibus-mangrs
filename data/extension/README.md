@@ -16,7 +16,7 @@ working — per-app rules just cannot target Wayland-native apps by name.
 
 ```sh
 mkdir -p ~/.local/share/gnome-shell/extensions
-cp -r data/gnome-shell-extension/mangrs-focus@fundokukiri ~/.local/share/gnome-shell/extensions/
+cp -r data/extension/mangrs-focus@fundokukiri ~/.local/share/gnome-shell/extensions/
 gnome-extensions enable mangrs-focus@fundokukiri
 ```
 
@@ -28,7 +28,7 @@ If the names still do not show up after enabling, log out and back in
 Copy the files over the installed copy again after pulling:
 
 ```sh
-cp -r data/gnome-shell-extension/mangrs-focus@fundokukiri ~/.local/share/gnome-shell/extensions/
+cp -r data/extension/mangrs-focus@fundokukiri ~/.local/share/gnome-shell/extensions/
 ```
 
 Then log out and back in. `gnome-extensions disable` + `enable` is **not**

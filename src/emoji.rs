@@ -1,6 +1,6 @@
 //! Emoji shortcodes, in two tables next to `config.toml` and `macros.toml`:
 //!
-//! * the embedded table (`data/assets/emoji.toml`, generated once by
+//! * the embedded table (`data/contents/emoji.toml`, generated once by
 //!   `tools/gen_emoji.py` from the CLDR annotations) — ~1.9k emoji with
 //!   Vietnamese and English keywords, compiled into the binary with
 //!   `include_str!` so no data file needs installing;
@@ -38,7 +38,7 @@ struct EmojiFile {
 pub fn embedded() -> &'static [EmojiRow] {
     static EMBEDDED: OnceLock<Vec<EmojiRow>> = OnceLock::new();
     EMBEDDED.get_or_init(|| {
-        const DATA: &str = include_str!("../data/assets/emoji.toml");
+        const DATA: &str = include_str!("../data/contents/emoji.toml");
         toml::from_str::<EmojiFile>(DATA)
             .map(|f| f.emoji)
             .unwrap_or_default()

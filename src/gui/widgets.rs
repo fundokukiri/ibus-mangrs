@@ -38,7 +38,7 @@ pub(super) fn focused_app_name() -> Result<(String, String), String> {
         .map_err(|_| {
             t(
                 "misc.focus_ext_error",
-                "Không hỏi được extension MăngRS Focus (data/gnome-shell-extension)",
+                "Không hỏi được extension MăngRS Focus (data/extension)",
             )
         })?;
     let (class, title) = reply

@@ -63,7 +63,7 @@ reset_button = "Restore"
 other_icon_toast_hidden = "Hidden from the app menu"
 other_icon_toast_shown = "Shown in the app menu again"
 dbus_error = "Could not connect to D-Bus: {e}"
-focus_ext_error = "Could not query the MăngRS Focus extension (data/gnome-shell-extension)"
+focus_ext_error = "Could not query the MăngRS Focus extension (data/extension)"
 focus_none = "No window has focus"
 logout_button = "Log out"
 
@@ -323,7 +323,7 @@ description = "Switch to the target app and back — its name dims into the inpu
 [groups.rules.list]
 title = "Rule list"
 description = "The first rule wins; none = the app reports no name."
-tooltip = "Only apps using the GTK IM module report their own name; Wayland apps appear as gnome-shell, X11/others as none. Install the MăngRS Focus extension (data/gnome-shell-extension) to get native Wayland app names."
+tooltip = "Only apps using the GTK IM module report their own name; Wayland apps appear as gnome-shell, X11/others as none. Install the MăngRS Focus extension (data/extension) to get native Wayland app names."
 
 [groups.rules.preview]
 title = "Test a rule"

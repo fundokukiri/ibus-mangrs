@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="data/assets/logo.png" alt="Logo MăngRS" width="360">
+  <img src="data/icons/logo.png" alt="Logo MăngRS" width="360">
 </p>
 
 # MăngRS
@@ -90,7 +90,7 @@ Script copy engine vào `/usr/lib/ibus-mangrs/`, đăng ký component cho IBus, 
 Bộ gõ nhấn **phím thật** qua `/dev/uinput` cho những app không xoá chữ được qua IBus; thiếu
 quyền ghi thì app đó không gõ được dấu. Quyền đến từ ACL của **phiên đăng nhập** (logind),
 không phải từ nhóm. Tạo `/etc/udev/rules.d/70-uinput.rules` (mẫu có sẵn trong
-`data/system/70-uinput.rules`):
+`data/rules/70-uinput.rules`):
 
 ```
 KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
@@ -148,7 +148,7 @@ vẫn còn hiệu lực. Chi tiết đầy đủ: [SECURITY.md](SECURITY.md).
 - [ARCHITECTURE.md](ARCHITECTURE.md) — kiến trúc engine (dành cho người sửa code).
 - [CHANGELOG.md](CHANGELOG.md) — thay đổi theo từng bản phát hành.
 - Phím tắt mở bằng GUI; luật cho Chrome/Firefox trên GNOME Wayland cần GNOME Shell extension
-  kèm theo (`data/gnome-shell-extension/README.md`).
+  kèm theo (`data/extension/README.md`).
 
 ## Bản quyền
 

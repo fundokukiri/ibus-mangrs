@@ -1031,9 +1031,9 @@ impl Ui {
 /// The shipped focus extension, embedded so the install button works on a
 /// dev run and needs no separate data file next to the binary.
 const FOCUS_EXTENSION_JS: &str =
-    include_str!("../../data/gnome-shell-extension/mangrs-focus@fundokukiri/extension.js");
+    include_str!("../../data/extension/mangrs-focus@fundokukiri/extension.js");
 const FOCUS_EXTENSION_META: &str =
-    include_str!("../../data/gnome-shell-extension/mangrs-focus@fundokukiri/metadata.json");
+    include_str!("../../data/extension/mangrs-focus@fundokukiri/metadata.json");
 const FOCUS_EXT_DIR: &str = "gnome-shell/extensions/mangrs-focus@fundokukiri";
 
 /// Is the focus extension already installed (its directory exists)? The

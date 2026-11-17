@@ -187,7 +187,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         .build();
     list_group.set_tooltip_text(Some(&t(
         "groups.rules.list.tooltip",
-        "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/gnome-shell-extension) để nhận tên app Wayland-native.",
+        "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/extension) để nhận tên app Wayland-native.",
     )));
     list_group.add(&ui.rules_box);
     page.add(&list_group);
