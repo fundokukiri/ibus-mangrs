@@ -520,17 +520,17 @@ pub(super) fn widgets() -> Rc<Ui> {
             flow_delay_row.add_suffix(&pacing_divider());
         }
         first_flow_column = false;
-        flow_delay_row.add_suffix(&pacing_column(&caption, spin));
+        let column = pacing_column(&caption, spin);
+        // Symmetric air above and below, like the value controls of the
+        // "Thử nghiệm" rows: this column is the row's tallest child, and
+        // an exact fit would pin the caption to the top edge and the input
+        // to the bottom. The pacing row above keeps its shipped geometry.
+        column.set_margin_top(6);
+        column.set_margin_bottom(6);
+        flow_delay_row.add_suffix(&column);
         // The caption already carries (ms): the spoken label is the caption.
         spin.update_property(&[gtk4::accessible::Property::Label(&caption)]);
     }
-    // The two rows read as one aligned column block: the same title width
-    // (the flow row follows the pacing row's, which the language sets) and
-    // columns hugging the title block instead of floating at the row's
-    // right edge — the lower columns line up under the upper ones.
-    match_title_width(&pacing_row, &flow_delay_row);
-    expand_suffixes(&pacing_row);
-    expand_suffixes(&flow_delay_row);
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
