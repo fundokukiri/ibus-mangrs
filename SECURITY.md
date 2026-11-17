@@ -28,7 +28,8 @@ larger than what those channels already give an ordinary process of the account.
 | Commit text | IBus `CommitText` to the focused input context | the focused client only |
 | Write files | `~/.config/ibus-mangrs/`, `~/.cache/ibus-mangrs/`, exports from the settings window | nothing under `/usr`, `/etc`, or another user's home |
 
-The engine opens no network connections.
+The engine opens no network connections. The debug log (`debug_log = true`) is off by default
+and created `0600`; its separate typed-text tier (`debug_log_text`) can contain what you typed.
 
 ## libei on GNOME
 
