@@ -524,6 +524,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         // The caption already carries (ms): the spoken label is the caption.
         spin.update_property(&[gtk4::accessible::Property::Label(&caption)]);
     }
+    // The two rows read as one aligned column block: the same title width
+    // (the flow row follows the pacing row's, which the language sets) and
+    // columns hugging the title block instead of floating at the row's
+    // right edge — the lower columns line up under the upper ones.
+    match_title_width(&pacing_row, &flow_delay_row);
+    expand_suffixes(&pacing_row);
+    expand_suffixes(&flow_delay_row);
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(

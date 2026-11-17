@@ -179,6 +179,36 @@ where
     }
 }
 
+/// Pin `target`'s title box to `source`'s measured title width, so two
+/// caption rows of one group start their value columns at the same x.
+/// Measured instead of a shared const: the width follows the language, and
+/// a fixed pin wide enough for the pacing row would leave no room for its
+/// three caption columns on a narrow window.
+pub(crate) fn match_title_width<W, V>(source: &W, target: &V)
+where
+    W: IsA<gtk4::Widget> + IsA<adw::PreferencesRow>,
+    V: IsA<gtk4::Widget> + IsA<adw::PreferencesRow>,
+{
+    if let (Some(src), Some(dst)) = (
+        row_subtitle(source).and_then(|l| l.parent().and_downcast::<gtk4::Box>()),
+        row_subtitle(target).and_then(|l| l.parent().and_downcast::<gtk4::Box>()),
+    ) {
+        let width = src.measure(gtk4::Orientation::Horizontal, -1).1;
+        dst.set_size_request(width, -1);
+    }
+}
+
+/// The suffix box hugs the title block — children start-packed right after
+/// it, slack at the row's end — instead of floating at the row's right
+/// edge. The shared recipe of `switch_value_row`, for rows whose suffixes
+/// are built by hand; with the same pinned title width, two rows' columns
+/// line up into one block.
+pub(crate) fn expand_suffixes<W: IsA<gtk4::Widget>>(row: &W) {
+    if let (Some(suffixes), _) = find_suffixes_and_switch(row.upcast_ref()) {
+        suffixes.set_hexpand(true);
+    }
+}
+
 /// The internal suffixes box and switch of an Adw row, through the same
 /// private-child walk the badge used to take.
 fn find_suffixes_and_switch(w: &gtk4::Widget) -> (Option<gtk4::Box>, Option<gtk4::Switch>) {
@@ -238,6 +268,12 @@ pub(super) fn pacing_column(caption: &str, spin: &gtk4::SpinButton) -> gtk4::Box
     label.set_halign(gtk4::Align::Center);
     spin.set_halign(gtk4::Align::Center);
     let column = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    // Symmetric air above and below: the caption column is often the
+    // row's tallest child, and an exact-fit column pins the caption to
+    // the top edge and the input to the bottom — unlike every other value
+    // control, which floats centered with room around it.
+    column.set_margin_top(6);
+    column.set_margin_bottom(6);
     column.append(&label);
     column.append(spin);
     column
