@@ -521,16 +521,21 @@ pub(super) fn widgets() -> Rc<Ui> {
         }
         first_flow_column = false;
         let column = pacing_column(&caption, spin);
-        // Symmetric air above and below, like the value controls of the
-        // "Thử nghiệm" rows: this column is the row's tallest child, and
-        // an exact fit would pin the caption to the top edge and the input
-        // to the bottom. The pacing row above keeps its shipped geometry.
-        column.set_margin_top(6);
-        column.set_margin_bottom(6);
+        // Center the column vertically: the default Fill stretches it to
+        // the row's height and top-packs the caption, leaving all the
+        // slack below the input.
+        column.set_valign(gtk4::Align::Center);
         flow_delay_row.add_suffix(&column);
         // The caption already carries (ms): the spoken label is the caption.
         spin.update_property(&[gtk4::accessible::Property::Label(&caption)]);
     }
+    // The caption column is the row's tallest child: an exact-fit row pins
+    // the caption to the top edge and the input to the bottom. Growing the
+    // row past its natural height floats the column vertically centered —
+    // 12px of air above and below, the same balance the "Thử nghiệm" value
+    // controls get from their centered valign.
+    let row_height = flow_delay_row.measure(gtk4::Orientation::Vertical, -1).1;
+    flow_delay_row.set_size_request(-1, row_height + 24);
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
