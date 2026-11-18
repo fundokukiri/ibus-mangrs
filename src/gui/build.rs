@@ -228,6 +228,22 @@ pub(super) fn widgets() -> Rc<Ui> {
             "tùng + g → tùngg thay vì tungfg",
         ),
     );
+    let preferred_backend = combo_row(
+        &t("rows.preferred_backend.title", "Backend ưu tiên"),
+        &t(
+            "rows.preferred_backend.subtitle",
+            "Backend tiêm phím được ưu tiên; không dựng được thì tự rơi về tự động",
+        ),
+        // Order pinned by preferred_backend_index: auto, uinput, xtest,
+        // wlr-virtual-keyboard, libei.
+        &[
+            "Tự động (theo môi trường)",
+            "uinput (bàn phím ảo kernel)",
+            "XTest (X11)",
+            "wlroots virtual-keyboard (Hyprland, sway...)",
+            "libei (mutter/GNOME — rủi ro crash, chỉ để thử nghiệm)",
+        ],
+    );
     // The formats are preset dropdowns like every other combo; a format
     // the old free-text rows saved that matches no preset is appended by
     // `select_format` instead of being rewritten.
@@ -745,6 +761,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Mặc định tắt."
     );
     tip!(
+        preferred_backend,
+        "tips.preferred_backend",
+        "Chọn backend tiêm phím được ưu tiên: uinput là bàn phím ảo của nhân, XTest chỉ có trên X11, wlroots cho Hyprland/sway, libei qua GNOME (đã đo thấy rủi ro crash — chỉ để thử nghiệm). Backend chọn được đặt lên đầu danh sách ưu tiên; không dựng được thì bộ gõ tự rơi về thứ tự theo môi trường. Tự động là hành vi mặc định."
+    );
+    tip!(
         extra_url_chars_row,
         "tips.extra_url_chars",
         "Tính năng Không dấu sau URL (mặc định áp dụng cho / : @ . _ ~ = # & % ?): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; dấu - bị loại để giữ -- thành gạch dài."
@@ -822,6 +843,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         macro_in_off_mode,
         macro_valid_words,
         keep_composed_words,
+        preferred_backend,
         time_format,
         date_format,
         language,

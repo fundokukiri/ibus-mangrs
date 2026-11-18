@@ -63,6 +63,7 @@ fn gtk_widget_scenarios() {
     mode_visibility_hides_pickers_and_moves_the_active_mode();
     cycle_subtitle_lists_the_five_modes();
     experimental_gate_locks_rows_and_preserves_values();
+    preferred_backend_combo_saves_loads_and_survives_the_gate();
     combo_value_stays_right_after_a_pick();
     popup_marks_the_selected_item();
     format_combos_keep_presets_and_unknowns();
@@ -512,6 +513,7 @@ fn refresh_round_trips_every_widget() {
         extended_finals: true,
         extended_onsets: true,
         keep_composed_words: true,
+        preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
         bypass_url: false,
         // The switch off must NOT wipe the stored value: refresh shows it
@@ -1050,6 +1052,72 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     // Hand the sandbox file to the later scenarios the way they expect it:
     // with the gate off, read() reports the file's experimental fields, so
     // a leftover saved value would trip their refresh asserts.
+    Config::default().save().expect("reset sandbox config");
+}
+
+/// The preferred-backend combo round-trips through read()/refresh and joins
+/// the gate's preserve/restore machinery: off locks the row and shows the
+/// auto default, and a save with the gate off must not wipe the file's
+/// choice. Item order: auto, uinput, xtest, wlr-virtual-keyboard, libei.
+fn preferred_backend_combo_saves_loads_and_survives_the_gate() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("scenario save");
+        }));
+    }
+
+    // Seed the sandbox file: the gate on, libei chosen.
+    let mut saved = Config::default();
+    saved.experimental_features = true;
+    saved.preferred_backend = crate::config::PreferredBackendConfig::Libei;
+    saved.save().expect("seed config");
+    let on = Config::load();
+    ui.refresh(&on, &macros, &dictionary);
+    assert!(ui.preferred_backend.is_sensitive());
+    assert_eq!(ui.preferred_backend.selected(), 4, "libei loads at index 4");
+
+    // Widget to config: the selected item maps back to the same variant.
+    ui.preferred_backend.set_selected(2);
+    assert_eq!(
+        ui.read().preferred_backend,
+        crate::config::PreferredBackendConfig::XTest
+    );
+    ui.preferred_backend.set_selected(4);
+
+    // Gate off: locked, auto on display, save preserves the file's value.
+    let mut off = on.clone();
+    off.experimental_features = false;
+    off.save().expect("seed off");
+    let off = Config::load();
+    ui.refresh(&off, &macros, &dictionary);
+    assert!(!ui.preferred_backend.is_sensitive());
+    assert_eq!(ui.preferred_backend.selected(), 0, "auto on display");
+    ui.fire_save();
+    let closed = Config::load();
+    assert_eq!(
+        closed.preferred_backend,
+        crate::config::PreferredBackendConfig::Libei,
+        "no wipe on save with the gate off"
+    );
+
+    // Reopen restores the saved choice; closing shows the default again.
+    ui.experimental_features.set_active(true);
+    ui.restore_experimental_saved();
+    ui.set_experimental_sensitive(true);
+    assert!(ui.preferred_backend.is_sensitive());
+    assert_eq!(
+        ui.preferred_backend.selected(),
+        4,
+        "reopening restores libei"
+    );
+    ui.experimental_features.set_active(false);
+    ui.set_experimental_sensitive(false);
+    ui.show_experimental_defaults();
+    assert_eq!(ui.preferred_backend.selected(), 0, "auto on display");
     Config::default().save().expect("reset sandbox config");
 }
 

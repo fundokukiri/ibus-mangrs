@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use crate::config::{
     BackspaceToneConfig, BracketConfig, CharsetConfig, Config, MenuNode, MethodConfig, ModeConfig,
-    W2uConfig,
+    PreferredBackendConfig, W2uConfig,
 };
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
@@ -283,6 +283,7 @@ struct Ui {
     macro_in_off_mode: adw::SwitchRow,
     macro_valid_words: adw::SwitchRow,
     keep_composed_words: adw::SwitchRow,
+    preferred_backend: adw::ComboRow,
     time_format: adw::ComboRow,
     date_format: adw::ComboRow,
     /// The interface language; picking it rebuilds the window (content.rs).
@@ -432,6 +433,18 @@ fn method_index(m: MethodConfig) -> u32 {
         MethodConfig::VniFrench => 6,
         MethodConfig::Viqr => 7,
         MethodConfig::Microsoft => 8,
+    }
+}
+
+/// Combo item order on the experimental page: auto, uinput, xtest,
+/// wlr-virtual-keyboard, libei.
+fn preferred_backend_index(c: PreferredBackendConfig) -> u32 {
+    match c {
+        PreferredBackendConfig::Auto => 0,
+        PreferredBackendConfig::Uinput => 1,
+        PreferredBackendConfig::XTest => 2,
+        PreferredBackendConfig::WlrVirtualKeyboard => 3,
+        PreferredBackendConfig::Libei => 4,
     }
 }
 
@@ -615,6 +628,8 @@ impl Ui {
             .set_active(config.macro_expand_valid_words);
         self.keep_composed_words
             .set_active(config.keep_composed_words);
+        self.preferred_backend
+            .set_selected(preferred_backend_index(config.preferred_backend));
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
         select_format(&self.date_format, DATE_FORMATS, &config.date_format);
         self.language
@@ -784,6 +799,13 @@ impl Ui {
         config.macro_in_off_mode = self.macro_in_off_mode.is_active();
         config.macro_expand_valid_words = self.macro_valid_words.is_active();
         config.keep_composed_words = self.keep_composed_words.is_active();
+        config.preferred_backend = match self.preferred_backend.selected() {
+            1 => PreferredBackendConfig::Uinput,
+            2 => PreferredBackendConfig::XTest,
+            3 => PreferredBackendConfig::WlrVirtualKeyboard,
+            4 => PreferredBackendConfig::Libei,
+            _ => PreferredBackendConfig::Auto,
+        };
         config.time_format = format_selected(&self.time_format);
         config.date_format = format_selected(&self.date_format);
         config.language = if self.language.selected() == 1 {
@@ -859,6 +881,7 @@ impl Ui {
             config.echo_stale_ms = saved_experimental.echo_stale_ms;
             config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
             config.idle_commit_ms = saved_experimental.idle_commit_ms;
+            config.preferred_backend = saved_experimental.preferred_backend;
         }
         config
     }
@@ -911,9 +934,10 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 6] = [
+        let rows: [&gtk4::Widget; 7] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
+            self.preferred_backend.upcast_ref(),
             self.extra_url_chars_row.upcast_ref(),
             self.auto_capitalize_after_row.upcast_ref(),
             self.echo_stale_row.upcast_ref(),
@@ -948,6 +972,7 @@ impl Ui {
         self.macro_valid_words
             .set_active(d.macro_expand_valid_words);
         self.keep_composed_words.set_active(d.keep_composed_words);
+        self.preferred_backend.set_selected(0);
         self.extra_url_chars_switch
             .set_active(d.extra_url_chars_enabled);
         self.extra_url_chars_entry.set_text(&d.extra_url_chars);
@@ -971,6 +996,8 @@ impl Ui {
         self.macro_valid_words
             .set_active(c.macro_expand_valid_words);
         self.keep_composed_words.set_active(c.keep_composed_words);
+        self.preferred_backend
+            .set_selected(preferred_backend_index(c.preferred_backend));
         self.extra_url_chars_switch
             .set_active(c.extra_url_chars_enabled);
         self.extra_url_chars_entry.set_text(&c.extra_url_chars);

@@ -54,6 +54,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .build();
     tuning.add(&ui.echo_stale_row);
     tuning.add(&ui.idle_commit_row);
+    tuning.add(&ui.preferred_backend);
     page.add(&tuning);
 
     // The badge marks each feature's one row — the merged rows carry it
@@ -64,6 +65,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.auto_capitalize_after_row);
     decorate_experimental(&ui.echo_stale_row);
     decorate_experimental(&ui.idle_commit_row);
+    decorate_experimental(&ui.preferred_backend);
     // The switches themselves glow the same warning amber as the badge and
     // the tab label: one look, one meaning.
     for switch in [
