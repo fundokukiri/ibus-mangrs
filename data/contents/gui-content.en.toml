@@ -160,6 +160,10 @@ subtitle = "Non-Vietnamese-syllable words return the raw key string"
 title = "Extended finals"
 subtitle = "g, k, h, nk stand for ng, c, nh: nhuwgx → nhữg"
 
+[rows.extended_onsets]
+title = "Extended onsets"
+subtitle = "f, j, w act as onsets and take marks: fos → fó"
+
 [rows.abbrev]
 title = "Keep abbreviated words"
 subtitle = "Keep đ in abbreviations: ddc → đc, ddk → đk, ddt → đt"
@@ -578,6 +582,7 @@ free = "Allows the tone to sit anywhere in the word instead of always on the nea
 auto_correct = "Syllables missing from the Vietnamese syllable table return the exact keys typed."
 auto_restore = "Foreign words (english, hello) return to the raw key string once typed instead of staying."
 extended_finals = "Let g, k, h, nk replace the finals ng, c, nh, so the tone lands the same typed before or after the final (nhuwgx → nhữg). English words may change (book → bôk); off by default."
+extended_onsets = "Let f, j, w act as onset consonants and take tone marks (fos → fó). Off by default: no Vietnamese syllable starts with them, so the off default keeps English words (fire, water) free of accidental marks."
 abbrev = "Keeps đ intact in abbreviations: ddc, ddk, ddt are not turned into đ."
 bypass_url = "Real links (https://, www.) type raw across the whole address, including the ?x=1&#tag part. No character blocks tones any more — words type Vietnamese right after any punctuation (: = # ? @ . _ / …)."
 w2u = "Typing w gives ư: w = ư, wa = ưa… handy on keyboards without a ư key."

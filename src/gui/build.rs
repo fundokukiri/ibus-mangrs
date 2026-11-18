@@ -99,6 +99,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "g, k, h, nk thay ng, c, nh: nhuwgx → nhữg",
         ),
     );
+    let extended_onsets = switch_row(
+        &t("rows.extended_onsets.title", "Âm đầu mở rộng"),
+        &t(
+            "rows.extended_onsets.subtitle",
+            "f, j, w làm âm đầu được ghi dấu: fos → fó",
+        ),
+    );
     let abbrev = switch_row(
         &t("rows.abbrev.title", "Viết tắt"),
         &t(
@@ -615,6 +622,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Cho phép g, k, h, nk đứng thay cho âm cuối ng, c, nh nên dấu thanh đúng dù gõ trước hay sau âm cuối (nhuwgx → nhữg). Từ tiếng Anh có thể đổi (book → bôk); mặc định tắt."
     );
     tip!(
+        extended_onsets,
+        "tips.extended_onsets",
+        "Cho phép f, j, w đứng làm âm đầu và nhận dấu thanh (fos → fó). Mặc định tắt: không từ tiếng Việt nào bắt đầu bằng các chữ này, tắt giúp từ tiếng Anh (fire, water) không bị ghi dấu oan."
+    );
+    tip!(
         abbrev,
         "tips.abbrev",
         "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
@@ -777,6 +789,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         auto_correct,
         auto_restore,
         extended_finals,
+        extended_onsets,
         abbrev,
         bypass_url,
         extra_url_chars_row,

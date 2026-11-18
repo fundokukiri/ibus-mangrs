@@ -30,6 +30,11 @@ pub struct Config {
     /// same typed before or after the final (`nhuwgx` -> `nhữg`). English
     /// words ending in these letters may change (`book` -> `bôk`).
     pub extended_finals: bool,
+    /// Extended phonetic onsets (bamboo-core 0.6.0, off by default): `f`,
+    /// `j`, `w` act as onset consonants and take tone marks (`fos` ->
+    /// `fỏ`). No Vietnamese syllable starts with them, so the off default
+    /// keeps English words (`fire`, `water`) free of accidental marks.
+    pub extended_onsets: bool,
     /// How Backspace treats a tone-marked word — default: the tone goes
     /// first. Never applies to the uinput modes.
     pub backspace_tone: BackspaceToneConfig,
@@ -820,6 +825,7 @@ impl Default for Config {
             free_tone_marking: true,
             auto_correct: true,
             extended_finals: false,
+            extended_onsets: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
             bypass_url: true,
@@ -990,6 +996,7 @@ impl Config {
             })
             .auto_correct(self.auto_correct)
             .extended_finals(self.extended_finals)
+            .extended_onsets(self.extended_onsets)
             .w2u_mode(match self.w2u {
                 W2uConfig::Disabled => bamboo_core::W2uMode::Disabled,
                 W2uConfig::NonStart => bamboo_core::W2uMode::NonStart,
@@ -1617,6 +1624,41 @@ children = ["preedit", "flow"]
         assert!(!c.bamboo_config().extended_finals);
         let c: Config = toml::from_str("extended_finals = true").unwrap();
         assert!(c.bamboo_config().extended_finals);
+    }
+
+    #[test]
+    fn extended_onsets_defaults_off_and_maps_to_bamboo() {
+        // New key (bamboo-core 0.6.0, core default on): ours ships off so
+        // f/j/w words never take marks unless the switch says so.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.extended_onsets);
+        assert!(!c.bamboo_config().extended_onsets);
+        let c: Config = toml::from_str("extended_onsets = true").unwrap();
+        assert!(c.bamboo_config().extended_onsets);
+    }
+
+    #[test]
+    fn extended_onsets_change_how_f_j_w_words_take_marks() {
+        // Through the engine: off keeps the keys as typed, on lets f/j/w
+        // act as onset consonants so a tone key marks them.
+        let mut off = crate::bamboo_wrapper::BambooWrapper::new(
+            Method::Telex,
+            bamboo_core::Config::builder()
+                .extended_onsets(false)
+                .build(),
+        );
+        for c in "fos".chars() {
+            off.process_char(c);
+        }
+        assert_eq!(off.output(), "fos");
+        let mut on = crate::bamboo_wrapper::BambooWrapper::new(
+            Method::Telex,
+            bamboo_core::Config::builder().extended_onsets(true).build(),
+        );
+        for c in "fos".chars() {
+            on.process_char(c);
+        }
+        assert_eq!(on.output(), "fó");
     }
 
     #[test]

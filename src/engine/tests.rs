@@ -4563,3 +4563,60 @@ fn backspace_after_the_boundary_never_touches_the_committed_word() {
     assert!(!oor, "a delete reached past the buffer");
     assert_eq!(text, "b".repeat(38));
 }
+
+#[test]
+fn extended_onsets_switch_reaches_the_engine() {
+    // bamboo-core 0.6.0: f/j/w can act as onset consonants and take marks
+    // (fos -> fó). Off by default: the keys stay as typed — no Vietnamese
+    // syllable starts with them, so English words keep raw keys.
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        assert_eq!(typed(mode, "fos "), "fos ", "{mode:?}");
+        assert_eq!(typed(mode, "jus "), "jus ", "{mode:?}");
+        assert_eq!(typed(mode, "wos "), "wos ", "{mode:?}");
+    }
+    let mut e = per_key_engine(Mode::Flow);
+    let mut buf = String::new();
+    for c in "fos ".chars() {
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => {
+                    let keep = buf.chars().count().saturating_sub(n as usize);
+                    buf = buf.chars().take(keep).collect();
+                }
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    assert_eq!(buf, "fos ");
+    // On: the tone key marks the extended onset.
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            extended_onsets: true,
+            ..Config::default()
+        },
+    );
+    assert_eq!(type_replay(&mut e, "fos "), "fó ");
+}
+
+#[test]
+fn w2u_everywhere_composes_a_word_start_w() {
+    // The auto-restore used to force raw keys over every f/j/w word: a
+    // word-start `w` under w2u=Everywhere composed `ưo` and then got
+    // restored right back to `wo`. The restore only handles invalid words
+    // now, so the w2u composition survives.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.apply_config(&Config {
+        w2u: crate::config::W2uConfig::Everywhere,
+        ..Config::default()
+    });
+    assert_eq!(type_replay(&mut e, "wo "), "ưo ");
+    assert_eq!(type_replay(&mut e, "wos "), "ứo ");
+}

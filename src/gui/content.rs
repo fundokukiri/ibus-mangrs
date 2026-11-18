@@ -885,6 +885,7 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.auto_correct);
     on_change!(ui.auto_restore);
     on_change!(ui.extended_finals);
+    on_change!(ui.extended_onsets);
     on_change!(ui.abbrev);
     on_change!(ui.bypass_url);
     on_change!(ui.extra_url_chars_switch);
