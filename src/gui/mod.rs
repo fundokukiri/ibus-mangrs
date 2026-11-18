@@ -259,6 +259,7 @@ struct Ui {
     free: adw::SwitchRow,
     auto_correct: adw::SwitchRow,
     auto_restore: adw::SwitchRow,
+    extended_finals: adw::SwitchRow,
     abbrev: adw::SwitchRow,
     bypass_url: adw::SwitchRow,
     extra_url_chars_row: adw::ActionRow,
@@ -566,6 +567,7 @@ impl Ui {
         self.free.set_active(config.free_tone_marking);
         self.auto_correct.set_active(config.auto_correct);
         self.auto_restore.set_active(config.auto_restore);
+        self.extended_finals.set_active(config.extended_finals);
         self.abbrev.set_active(config.abbreviations);
         self.bypass_url.set_active(config.bypass_url);
         self.extra_url_chars_switch
@@ -740,6 +742,7 @@ impl Ui {
         config.free_tone_marking = self.free.is_active();
         config.auto_correct = self.auto_correct.is_active();
         config.auto_restore = self.auto_restore.is_active();
+        config.extended_finals = self.extended_finals.is_active();
         config.abbreviations = self.abbrev.is_active();
         config.hide_underline = self.hide_underline.is_active();
         config.bypass_url = self.bypass_url.is_active();

@@ -25,6 +25,11 @@ pub struct Config {
     pub free_tone_marking: bool,
     /// Fall back to raw characters for invalid syllables.
     pub auto_correct: bool,
+    /// Extended finals (bamboo-core 0.6.0, off by default): `g`, `k`, `h`,
+    /// `nk` stand in for the finals `ng`, `c`, `nh`, so a tone lands the
+    /// same typed before or after the final (`nhuwgx` -> `nhữg`). English
+    /// words ending in these letters may change (`book` -> `bôk`).
+    pub extended_finals: bool,
     /// How Backspace treats a tone-marked word — default: the tone goes
     /// first. Never applies to the uinput modes.
     pub backspace_tone: BackspaceToneConfig,
@@ -814,6 +819,7 @@ impl Default for Config {
             modern_tone_style: true,
             free_tone_marking: true,
             auto_correct: true,
+            extended_finals: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
             bypass_url: true,
@@ -983,6 +989,7 @@ impl Config {
                 bamboo_core::ToneStyle::Traditional
             })
             .auto_correct(self.auto_correct)
+            .extended_finals(self.extended_finals)
             .w2u_mode(match self.w2u {
                 W2uConfig::Disabled => bamboo_core::W2uMode::Disabled,
                 W2uConfig::NonStart => bamboo_core::W2uMode::NonStart,
@@ -1599,6 +1606,39 @@ children = ["preedit", "flow"]
         let b = c.bamboo_config();
         assert_eq!(b.w2u_mode, bamboo_core::W2uMode::Everywhere);
         assert_eq!(b.bracket_mode, bamboo_core::BracketMode::NonStart);
+    }
+
+    #[test]
+    fn extended_finals_defaults_off_and_maps_to_bamboo() {
+        // New key (bamboo-core 0.6.0): an old file without it stays off,
+        // the switch maps onto the core flag.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.extended_finals);
+        assert!(!c.bamboo_config().extended_finals);
+        let c: Config = toml::from_str("extended_finals = true").unwrap();
+        assert!(c.bamboo_config().extended_finals);
+    }
+
+    #[test]
+    fn extended_finals_changes_how_finals_take_tones() {
+        // Through the engine: off keeps the keys as typed, on lets g/k/h/nk
+        // stand for ng/c/nh so the tone lands after the final too.
+        let mut off = crate::bamboo_wrapper::BambooWrapper::new(
+            Method::Telex,
+            bamboo_core::Config::default(),
+        );
+        for c in "nhuwgx".chars() {
+            off.process_char(c);
+        }
+        assert_eq!(off.output(), "nhuwgx");
+        let mut on = crate::bamboo_wrapper::BambooWrapper::new(
+            Method::Telex,
+            bamboo_core::Config::builder().extended_finals(true).build(),
+        );
+        for c in "nhuwgx".chars() {
+            on.process_char(c);
+        }
+        assert_eq!(on.output(), "nhữg");
     }
 
     #[test]

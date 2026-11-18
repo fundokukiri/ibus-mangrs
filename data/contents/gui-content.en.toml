@@ -156,6 +156,10 @@ subtitle = "Invalid syllables return the exact keys typed"
 title = "Restore foreign words"
 subtitle = "Non-Vietnamese-syllable words return the raw key string"
 
+[rows.extended_finals]
+title = "Extended finals"
+subtitle = "g, k, h, nk stand for ng, c, nh: nhuwgx → nhữg"
+
 [rows.abbrev]
 title = "Keep abbreviated words"
 subtitle = "Keep đ in abbreviations: ddc → đc, ddk → đk, ddt → đt"
@@ -573,6 +577,7 @@ modern = "The Ministry of Education's new tone standard: hòa instead of hoà, t
 free = "Allows the tone to sit anywhere in the word instead of always on the nearest vowel."
 auto_correct = "Syllables missing from the Vietnamese syllable table return the exact keys typed."
 auto_restore = "Foreign words (english, hello) return to the raw key string once typed instead of staying."
+extended_finals = "Let g, k, h, nk replace the finals ng, c, nh, so the tone lands the same typed before or after the final (nhuwgx → nhữg). English words may change (book → bôk); off by default."
 abbrev = "Keeps đ intact in abbreviations: ddc, ddk, ddt are not turned into đ."
 bypass_url = "Real links (https://, www.) type raw across the whole address, including the ?x=1&#tag part. No character blocks tones any more — words type Vietnamese right after any punctuation (: = # ? @ . _ / …)."
 w2u = "Typing w gives ư: w = ư, wa = ưa… handy on keyboards without a ư key."

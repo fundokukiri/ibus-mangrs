@@ -34,6 +34,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         ))
         .build();
     spelling.add(&ui.auto_correct);
+    spelling.add(&ui.extended_finals);
     spelling.add(&ui.auto_restore);
     spelling.add(&ui.bypass_url);
     spelling.add(&ui.abbrev);

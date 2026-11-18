@@ -158,6 +158,10 @@ subtitle = "Âm tiết không hợp lệ trả về đúng phím đã bấm"
 title = "Khôi phục từ nước ngoài"
 subtitle = "Từ không phải âm tiết Việt trả về chuỗi phím gốc"
 
+[rows.extended_finals]
+title = "Âm cuối mở rộng"
+subtitle = "g, k, h, nk thay ng, c, nh: nhuwgx → nhữg"
+
 [rows.abbrev]
 title = "Giữ các từ được viết tắt"
 subtitle = "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt"
@@ -576,6 +580,7 @@ modern = "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thu�
 free = "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên âm gần nhất."
 auto_correct = "Âm tiết không có trong từ điển tiếng Việt sẽ trả về đúng chuỗi phím đã bấm."
 auto_restore = "Từ nước ngoài (english, hello) gõ xong tự trả về chuỗi phím gốc thay vì giữ nguyên."
+extended_finals = "Cho phép g, k, h, nk đứng thay cho âm cuối ng, c, nh nên dấu thanh đúng dù gõ trước hay sau âm cuối (nhuwgx → nhữg). Từ tiếng Anh có thể đổi (book → bôk); mặc định tắt."
 abbrev = "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
 bypass_url = "Liên kết thật (https://, www.) gõ nguyên toàn bộ, kể cả phần ?x=1&#tag;. Không ký tự nào chặn gõ dấu nữa — mọi dấu câu (: = # ? @ . _ /…) đều gõ tiếng Việt bình thường ngay sau nó."
 w2u = "Gõ w nhận ư: w = ư, wa = ưa... tiện cho bàn phím không có sẵn ư."

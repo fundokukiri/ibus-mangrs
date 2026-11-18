@@ -92,6 +92,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
         ),
     );
+    let extended_finals = switch_row(
+        &t("rows.extended_finals.title", "Âm cuối mở rộng"),
+        &t(
+            "rows.extended_finals.subtitle",
+            "g, k, h, nk thay ng, c, nh: nhuwgx → nhữg",
+        ),
+    );
     let abbrev = switch_row(
         &t("rows.abbrev.title", "Viết tắt"),
         &t(
@@ -603,6 +610,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Từ nước ngoài (english, hello) gõ xong tự trả về chuỗi phím gốc thay vì giữ nguyên."
     );
     tip!(
+        extended_finals,
+        "tips.extended_finals",
+        "Cho phép g, k, h, nk đứng thay cho âm cuối ng, c, nh nên dấu thanh đúng dù gõ trước hay sau âm cuối (nhuwgx → nhữg). Từ tiếng Anh có thể đổi (book → bôk); mặc định tắt."
+    );
+    tip!(
         abbrev,
         "tips.abbrev",
         "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
@@ -764,6 +776,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         free,
         auto_correct,
         auto_restore,
+        extended_finals,
         abbrev,
         bypass_url,
         extra_url_chars_row,

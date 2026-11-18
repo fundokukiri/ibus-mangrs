@@ -509,6 +509,7 @@ fn refresh_round_trips_every_widget() {
         modern_tone_style: false,
         free_tone_marking: true,
         auto_correct: false,
+        extended_finals: true,
         auto_restore: false,
         bypass_url: false,
         // The switch off must NOT wipe the stored value: refresh shows it
