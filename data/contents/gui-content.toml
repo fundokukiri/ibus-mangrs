@@ -198,6 +198,10 @@ subtitle = "Hai dấu cách thành dấu chấm"
 title = "Giữ từ khi gõ phím lạ"
 subtitle = "tùng + g → tùngg thay vì tungfg"
 
+[rows.preferred_backend]
+title = "Backend ưu tiên"
+subtitle = "Backend tiêm phím được ưu tiên; không dựng được thì tự rơi về tự động"
+
 [rows.macro_valid_words]
 title = "Gõ tắt trên từ hợp lệ"
 subtitle = "Phím tắt trùng từ thật vẫn thành công"
@@ -591,6 +595,7 @@ auto_restore = "Từ nước ngoài (english, hello) gõ xong tự trả về ch
 extended_finals = "Cho phép g, k, h, nk đứng thay cho âm cuối ng, c, nh nên dấu thanh đúng dù gõ trước hay sau âm cuối (nhuwgx → nhữg). Từ tiếng Anh có thể đổi (book → bôk); mặc định tắt."
 extended_onsets = "Cho phép f, j, w đứng làm âm đầu và nhận dấu thanh (fos → fó). Mặc định tắt: không từ tiếng Việt nào bắt đầu bằng các chữ này, tắt giúp từ tiếng Anh (fire, water) không bị ghi dấu oan."
 keep_composed_words = "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Mặc định tắt."
+preferred_backend = "Chọn backend tiêm phím được ưu tiên: uinput là bàn phím ảo của nhân, XTest chỉ có trên X11, wlroots cho Hyprland/sway, libei qua GNOME (đã đo thấy rủi ro crash — chỉ để thử nghiệm). Backend chọn được đặt lên đầu danh sách ưu tiên; không dựng được thì bộ gõ tự rơi về thứ tự theo môi trường. Tự động là hành vi mặc định."
 abbrev = "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
 bypass_url = "Liên kết thật (https://, www.) gõ nguyên toàn bộ, kể cả phần ?x=1&#tag;. Không ký tự nào chặn gõ dấu nữa — mọi dấu câu (: = # ? @ . _ /…) đều gõ tiếng Việt bình thường ngay sau nó."
 w2u = "Gõ w nhận ư: w = ư, wa = ưa... tiện cho bàn phím không có sẵn ư."
