@@ -174,6 +174,9 @@ pub struct BambooWrapper {
     keep_repeats_raw: bool,
     /// The autorepeat detector (`keep_repeats_raw`).
     repeat_watch: Option<RepeatWatch>,
+    /// `keep_repeats_raw`: this keystroke re-established the raw trail —
+    /// the trail override must survive the per-key clear only then.
+    trail_live: bool,
     /// `abbreviations` config: whether reverted non-syllable compositions
     /// get the dd→đ transform re-applied (đc, đk, đt, đg).
     abbrev: bool,
@@ -219,6 +222,7 @@ impl BambooWrapper {
             keep_composed_words: false,
             keep_repeats_raw: false,
             repeat_watch: None,
+            trail_live: false,
             kept_composition: false,
             composing: false,
             last_output: String::new(),
@@ -371,6 +375,11 @@ impl BambooWrapper {
             });
             repeat_raw = latched;
         }
+        // A fact about THIS keystroke, not the watch's latch: a non-
+        // alphabetic mark key (VNI digits, Viqr punctuation) never
+        // re-derives the detector, so keying the trail clear off the latch
+        // would keep the stale override governing such a key.
+        self.trail_live = repeat_raw;
         // While a kept composition is live, bamboo-core sits in its raw
         // append bypass for this word: the key lands literally on the kept
         // word, and the engine only follows to stay in sync.
@@ -673,8 +682,9 @@ impl BambooWrapper {
             && !self.kept_composition
             // A detected autorepeat's trail override IS the screen (the
             // hold streams raw letters); dropping it here would flip the
-            // display back to bamboo's composed form mid-hold. The next
-            // non-repeat key re-derives the watch and clears again.
+            // display back to bamboo's composed form mid-hold. trail_live
+            // is a fact about THIS keystroke — a non-alphabetic mark key
+            // never re-derives the detector and must still clear.
             && !(self.keep_repeats_raw
                 && matches!(&self.repeat_watch, Some(w) if w.latched))
         {

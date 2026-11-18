@@ -4936,3 +4936,33 @@ fn keep_repeats_raw_backspace_after_a_hold_pops_one_raw_char() {
     let (buf, _) = type_timed(&mut e, &[(0, 'o'), (500, 'o'), (40, 'o'), (0, '\u{8}')]);
     assert_eq!(buf, "oo");
 }
+
+#[test]
+fn keep_repeats_raw_a_mark_key_after_a_hold_keeps_screen_and_word_in_sync() {
+    // Viqr punctuation never re-derives the alphabetic-only detector, and
+    // bamboo self-commits on it: whatever the transport, the committed
+    // word must equal what the screen showed — the raw trail, not some
+    // stale internal state.
+    let mut e = Engine::new(Method::Viqr, Mode::Preedit);
+    e.apply_config(&Config {
+        experimental_features: true,
+        keep_repeats_raw: true,
+        ..Config::default()
+    });
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    let mut buf = String::new();
+    for (ms, c) in [(0u64, 'o'), (500, 'o'), (40, 'o'), (0, '\''), (0, ' ')] {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        for a in e.process_char(c) {
+            match a {
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+    }
+    // The screen showed "ooo" and "ooo'" — the committed trail word and
+    // the literal quote land exactly that.
+    assert_eq!(buf, "ooo' ");
+}
