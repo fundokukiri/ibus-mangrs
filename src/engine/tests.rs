@@ -5252,8 +5252,10 @@ fn digit_words_skip_the_canon() {
 
 #[test]
 fn uppercase_word_restores_by_its_lowercase_form() {
-    // The canon is lowercase: the lookup lowercases the word, so `Sort`
-    // restores with its capital intact.
+    // The canon is lowercase: the lookup lowercases the word. `Sort`
+    // restores either way (it is no real syllable), so the pin that keeps
+    // the lowercasing honest is a capitalized REAL word: `Tooi` must hit
+    // the canon (`tôi`) and keep its composition and its capital.
     assert_eq!(typed(Mode::Surrounding, "Sort "), "Sort ", "OFF");
     assert_eq!(
         type_replay(&mut engine(Mode::Surrounding, canon_config()), "Sort "),
@@ -5262,6 +5264,14 @@ fn uppercase_word_restores_by_its_lowercase_form() {
     assert_eq!(
         flow_screen(&mut engine(Mode::Flow, canon_config()), "Sort "),
         "Sort "
+    );
+    assert_eq!(
+        type_replay(&mut engine(Mode::Surrounding, canon_config()), "Tooi "),
+        "Tôi "
+    );
+    assert_eq!(
+        flow_screen(&mut engine(Mode::Flow, canon_config()), "Tooi "),
+        "Tôi "
     );
 }
 

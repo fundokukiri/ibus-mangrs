@@ -782,7 +782,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         keep_composed_words,
         "tips.keep_composed_words",
-        "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Mặc định tắt."
+        "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Khi bật cả 'Khôi phục từ lạ', từ được giữ mà không phải từ thật vẫn bị khôi phục cuối từ; muốn giữ từ nào thì thêm vào dictionary.txt. Mặc định tắt."
     );
     tip!(
         keep_repeats_raw,
