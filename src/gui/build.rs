@@ -228,6 +228,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "tùng + g → tùngg thay vì tungfg",
         ),
     );
+    let keep_repeats_raw = switch_row(
+        &t("rows.keep_repeats_raw.title", "Giữ phím lặp nguyên bản"),
+        &t(
+            "rows.keep_repeats_raw.subtitle",
+            "giữ o → oooo… thay vì dừng ở ô",
+        ),
+    );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Backend ưu tiên"),
         &t(
@@ -761,6 +768,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Mặc định tắt."
     );
     tip!(
+        keep_repeats_raw,
+        "tips.keep_repeats_raw",
+        "Phím tự lặp khi giữ (autorepeat) đi thẳng nguyên bản thay vì ghép dấu: giữ o cho ra oooo… như bàn phím thường, ở mọi chế độ gõ. Đổi giá khi bật: hai phím giống nhau gõ cách nhau quá ~0,4 giây sẽ ở lại nguyên bản (tooi thay vì tôi). Mặc định tắt."
+    );
+    tip!(
         preferred_backend,
         "tips.preferred_backend",
         "Chọn backend tiêm phím được ưu tiên: uinput là bàn phím ảo của nhân, XTest chỉ có trên X11, wlroots cho Hyprland/sway, libei qua GNOME (đã đo thấy rủi ro crash — chỉ để thử nghiệm). Backend chọn được đặt lên đầu danh sách ưu tiên; không dựng được thì bộ gõ tự rơi về thứ tự theo môi trường. Tự động là hành vi mặc định."
@@ -843,6 +855,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         macro_in_off_mode,
         macro_valid_words,
         keep_composed_words,
+        keep_repeats_raw,
         preferred_backend,
         time_format,
         date_format,

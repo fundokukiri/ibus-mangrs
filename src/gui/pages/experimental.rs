@@ -45,6 +45,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .build();
     typing.add(&ui.macro_valid_words);
     typing.add(&ui.keep_composed_words);
+    typing.add(&ui.keep_repeats_raw);
     typing.add(&ui.extra_url_chars_row);
     typing.add(&ui.auto_capitalize_after_row);
     page.add(&typing);
@@ -61,6 +62,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // ahead of their own switch, the standalone rows on themselves.
     decorate_experimental(&ui.macro_valid_words);
     decorate_experimental(&ui.keep_composed_words);
+    decorate_experimental(&ui.keep_repeats_raw);
     decorate_experimental(&ui.extra_url_chars_row);
     decorate_experimental(&ui.auto_capitalize_after_row);
     decorate_experimental(&ui.echo_stale_row);
@@ -71,6 +73,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     for switch in [
         ui.macro_valid_words.upcast_ref::<gtk4::Widget>(),
         ui.keep_composed_words.upcast_ref::<gtk4::Widget>(),
+        ui.keep_repeats_raw.upcast_ref::<gtk4::Widget>(),
         ui.extra_url_chars_switch.upcast_ref::<gtk4::Widget>(),
         ui.auto_capitalize_after_switch.upcast_ref::<gtk4::Widget>(),
         ui.echo_stale_switch.upcast_ref::<gtk4::Widget>(),

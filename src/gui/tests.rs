@@ -516,6 +516,7 @@ fn refresh_round_trips_every_widget() {
         extended_finals: true,
         extended_onsets: true,
         keep_composed_words: true,
+        keep_repeats_raw: true,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
         bypass_url: false,

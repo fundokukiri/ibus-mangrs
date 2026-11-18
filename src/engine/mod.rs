@@ -662,6 +662,8 @@ impl Engine {
         // experimental features).
         self.wrapper
             .set_keep_composed_words(experimental && config.keep_composed_words);
+        self.wrapper
+            .set_keep_repeats_raw(experimental && config.keep_repeats_raw);
         self.hide_underline = config.hide_underline;
         self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;

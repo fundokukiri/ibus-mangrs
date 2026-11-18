@@ -195,6 +195,59 @@ fn type_replay_with_reports(e: &mut Engine, s: &str, reports: bool) -> String {
     buf.into_iter().collect()
 }
 
+/// Feed timed keystrokes like a real hold: sleep `ms` before each char,
+/// replay the actions like `type_replay_with_reports` does. `\u{8}` means
+/// Backspace. Returns the committed buffer and the last preedit text.
+fn type_timed(e: &mut Engine, script: &[(u64, char)]) -> (String, String) {
+    if e.client().is_none() {
+        e.set_client(Some("gtk4-im:test".into()));
+    }
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    let mut buf: Vec<char> = Vec::new();
+    let mut preedit = String::new();
+    for (ms, c) in script {
+        std::thread::sleep(std::time::Duration::from_millis(*ms));
+        let actions = if *c == '\u{8}' {
+            match e.backspace() {
+                Some(actions) => actions,
+                None => {
+                    buf.pop();
+                    e.set_surrounding(buf.iter().collect(), buf.len() as u32);
+                    continue;
+                }
+            }
+        } else {
+            e.process_char(*c)
+        };
+        let forwarded = actions.contains(&Action::Forward);
+        for a in &actions {
+            match a {
+                Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
+                Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
+                Action::DeleteSurrounding { offset, n } => {
+                    let start = (buf.len() as i64 + *offset as i64).max(0) as usize;
+                    let end = (start + *n as usize).min(buf.len());
+                    buf.drain(start..end);
+                }
+                Action::Commit(t) | Action::CommitNow(t) => buf.extend(t.chars()),
+                Action::UpdatePreedit { text, .. } => preedit = text.clone(),
+                Action::HidePreedit => preedit.clear(),
+                _ => {}
+            }
+        }
+        if forwarded {
+            if *c == '\u{8}' {
+                buf.pop();
+            } else {
+                buf.push(*c);
+            }
+        }
+        let text: String = buf.iter().collect();
+        e.set_surrounding(text, buf.len() as u32);
+    }
+    (buf.into_iter().collect(), preedit)
+}
+
 #[test]
 fn preedit_never_commits_mid_word() {
     let mut e = Engine::new(Method::Telex, Mode::Preedit);
@@ -4730,4 +4783,156 @@ fn keep_composed_words_keeps_in_flow() {
         }
     }
     assert_eq!(buf, "tùngg ");
+}
+
+// --- experimental keep_repeats_raw ---
+
+#[test]
+fn keep_repeats_raw_off_a_hold_still_composes() {
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            experimental_features: true,
+            ..Config::default()
+        },
+    );
+    let (buf, preedit) = type_timed(&mut e, &[(0, 'o'), (500, 'o')]);
+    assert_eq!(preedit, "ô");
+    assert_eq!(buf, "");
+}
+
+#[test]
+fn keep_repeats_raw_streams_a_hold_raw() {
+    // Preedit and Surrounding: the hold appends raw letters, no rewrite
+    // fires, the space commits exactly the raw trail, and the next word's
+    // fast pair composes — the latch died with the word.
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(
+            mode,
+            Config {
+                experimental_features: true,
+                keep_repeats_raw: true,
+                ..Config::default()
+            },
+        );
+        let (buf, preedit) = type_timed(&mut e, &[(0, 'o'), (500, 'o'), (40, 'o')]);
+        if mode == Mode::Preedit {
+            assert_eq!(preedit, "ooo", "{mode:?}");
+            assert_eq!(buf, "", "{mode:?}");
+        } else {
+            assert_eq!(buf, "ooo", "{mode:?}");
+        }
+        let (tail, tail_preedit) = type_timed(&mut e, &[(0, ' '), (0, 'o'), (0, 'o')]);
+        if mode == Mode::Preedit {
+            // The space commits the trail word; the next word's fast pair
+            // composes normally — the latch died with the word.
+            assert_eq!(format!("{buf}{tail}"), "ooo ", "{mode:?}");
+            assert_eq!(tail_preedit, "ô", "{mode:?}");
+        } else {
+            // The word already landed per key: the space only lands itself.
+            assert_eq!(format!("{buf}{tail}"), "ooo ô", "{mode:?}");
+        }
+    }
+}
+
+#[test]
+fn keep_repeats_raw_streams_a_hold_in_flow() {
+    // The owner's real scenario: per-key flow commits and rewrites per key;
+    // without the guard the first repeat fires the injected rewrite that
+    // kills the compositor's repeat. With it the hold appends raw and the
+    // injected count stays zero.
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            experimental_features: true,
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let mut buf = String::new();
+    let mut injected = 0;
+    for (ms, c) in [(0u64, 'o'), (500, 'o'), (40, 'o')] {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => injected += n,
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    assert_eq!(buf, "ooo");
+    assert_eq!(injected, 0);
+}
+
+#[test]
+fn keep_repeats_raw_fast_double_still_composes() {
+    // 150 ms gaps: a deliberate double press under the threshold, with a
+    // stall margin — a test-thread pause must eat ~250 ms more before the
+    // gap crosses the detector's 400 ms.
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            experimental_features: true,
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    let (buf, _) = type_timed(
+        &mut e,
+        &[(0, 't'), (0, 'o'), (150, 'o'), (150, 'i'), (0, ' ')],
+    );
+    assert_eq!(buf, "tôi ");
+}
+
+#[test]
+fn keep_repeats_raw_slow_double_stays_raw() {
+    // The documented trade: a deliberate pair slower than the threshold
+    // comes out raw ("too" instead of "tô").
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            experimental_features: true,
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    let (buf, _) = type_timed(&mut e, &[(0, 't'), (0, 'o'), (500, 'o'), (0, ' ')]);
+    assert_eq!(buf, "too ");
+}
+
+#[test]
+fn keep_repeats_raw_is_baked_off_without_the_gate() {
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    let (_, preedit) = type_timed(&mut e, &[(0, 'o'), (500, 'o')]);
+    assert_eq!(preedit, "ô");
+}
+
+#[test]
+fn keep_repeats_raw_backspace_after_a_hold_pops_one_raw_char() {
+    // Recomposition would collapse the trailing pair ("oo" → "ô") and eat
+    // a second visible char; the raw trail pops exactly one.
+    let mut e = engine(
+        Mode::Surrounding,
+        Config {
+            experimental_features: true,
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    let (buf, _) = type_timed(&mut e, &[(0, 'o'), (500, 'o'), (40, 'o'), (0, '\u{8}')]);
+    assert_eq!(buf, "oo");
 }

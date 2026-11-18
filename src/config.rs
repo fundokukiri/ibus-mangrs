@@ -42,6 +42,13 @@ pub struct Config {
     /// auto-restore, so the cost when on is English words whose prefix
     /// composes a marked syllable (`soft` -> `sòt`). Off by default.
     pub keep_composed_words: bool,
+    /// Experimental: an autorepeat of the key just typed (same char, a gap
+    /// of 400 ms or more) streams raw letters instead of composing —
+    /// holding a vowel yields `oooo…` like a plain keyboard and never
+    /// fires the injected rewrite that resets the compositor's repeat
+    /// timer. Off by default: today a hold stops at the composed pair
+    /// (`o` → `ô`).
+    pub keep_repeats_raw: bool,
     /// Experimental: the preferred injection backend — `auto` keeps the
     /// environment matrix; a named backend leads the selection walk and the
     /// matrix falls back when it cannot build. Off (`auto`) is exactly the
@@ -858,6 +865,7 @@ impl Default for Config {
             extended_finals: false,
             extended_onsets: false,
             keep_composed_words: false,
+            keep_repeats_raw: false,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
@@ -1704,6 +1712,16 @@ children = ["preedit", "flow"]
         assert!(!c.bamboo_config().extended_onsets);
         let c: Config = toml::from_str("extended_onsets = true").unwrap();
         assert!(c.bamboo_config().extended_onsets);
+    }
+
+    #[test]
+    fn keep_repeats_raw_defaults_off_and_round_trips() {
+        // Wrapper-level switch: no bamboo_config mapping to check — the
+        // guard sits in the wrapper, ahead of composition.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.keep_repeats_raw);
+        let c: Config = toml::from_str("keep_repeats_raw = true").unwrap();
+        assert!(c.keep_repeats_raw);
     }
 
     #[test]
