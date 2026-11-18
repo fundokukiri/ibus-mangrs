@@ -338,6 +338,9 @@ impl EngineHandler {
             debug_log::set_enabled(config.debug_log);
             debug_log::set_text_enabled(config.debug_log_text);
             self.refresh_hotkey_cache(&config);
+            // The preferred backend rides the same hot apply; the walk
+            // itself still happens at the next focus-in or paced re-request.
+            self.injection.set_preferred(preferred_kind(&config));
             let mut engine = lock_engine(&self.engine);
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
