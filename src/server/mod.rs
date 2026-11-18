@@ -129,6 +129,10 @@ impl Server {
             .and_then(|m| m.modified().ok());
         let initial = Config::load();
         handler.borrow_mut().refresh_hotkey_cache(&initial);
+        handler
+            .borrow_mut()
+            .injection
+            .set_preferred(preferred_kind(&initial));
         // Startup: pick the injection backend before the first key; the
         // engine's availability flag is fed from the holder's answer, not
         // from a static device probe.
@@ -608,6 +612,9 @@ impl EngineHandler {
                 // stays uinput-only). emit's inject gate reads the flag fed
                 // from the holder's answer.
                 self.injection.re_request();
+                // The preferred backend rides the same re-select: a fresh
+                // config value leads the next walk.
+                self.injection.set_preferred(preferred_kind(&config));
                 self.injection.select(&preference_order());
                 engine.set_uinput_available(self.injection.current().is_some());
                 // A compositor-routed backend delivers its keys through the
