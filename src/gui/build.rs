@@ -229,7 +229,10 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let keep_repeats_raw = switch_row(
-        &t("rows.keep_repeats_raw.title", "Giữ phím lặp nguyên bản"),
+        &t(
+            "rows.keep_repeats_raw.title",
+            "Giữ phím lặp nguyên bản (Flow)",
+        ),
         &t(
             "rows.keep_repeats_raw.subtitle",
             "giữ o → oooo… thay vì dừng ở ô",
@@ -770,7 +773,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         keep_repeats_raw,
         "tips.keep_repeats_raw",
-        "Phím tự lặp khi giữ (autorepeat) đi thẳng nguyên bản thay vì ghép dấu: giữ o cho ra oooo… như bàn phím thường, ở mọi chế độ gõ. Đổi giá khi bật: hai phím giống nhau gõ cách nhau quá ~0,4 giây sẽ ở lại nguyên bản (tooi thay vì tôi). Mặc định tắt."
+        "Dành riêng cho chế độ Flow: giữ một phím ở Flow chỉ lặp được một lần rồi dừng ở ô (oo → ô rồi đứng im), bật thì phím giữ chảy nguyên bản oooo… như bàn phím thường. Các chế độ gõ khác không gặp lỗi này nên không cần bật. Đổi giá khi bật: hai phím giống nhau gõ cách nhau quá ~0,4 giây sẽ ở lại nguyên bản (tooi thay vì tôi). Mặc định tắt."
     );
     tip!(
         preferred_backend,

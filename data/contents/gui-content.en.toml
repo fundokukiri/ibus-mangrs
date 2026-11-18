@@ -197,7 +197,7 @@ title = "Keep composed words"
 subtitle = "tùng + g → tùngg instead of tungfg"
 
 [rows.keep_repeats_raw]
-title = "Held keys repeat raw"
+title = "Held keys repeat raw (Flow)"
 subtitle = "hold o → oooo… instead of stopping at ô"
 
 [rows.preferred_backend]
@@ -596,7 +596,7 @@ auto_restore = "Foreign words (english, hello) return to the raw key string once
 extended_finals = "Let g, k, h, nk replace the finals ng, c, nh, so the tone lands the same typed before or after the final (nhuwgx → nhữg). English words may change (book → bôk); off by default."
 extended_onsets = "Let f, j, w act as onset consonants and take tone marks (fos → fó). Off by default: no Vietnamese syllable starts with them, so the off default keeps English words (fire, water) free of accidental marks."
 keep_composed_words = "After a complete word, a plain letter the word cannot extend joins the word instead of reverting it to the raw keys (tùng + g → tùngg). The trade when on: English words like soft stay sòt, because a kept word skips the word-end auto-restore. Off by default."
-keep_repeats_raw = "A key the system autorepeats while held (autorepeat) passes through raw instead of composing: holding o gives oooo… like a plain keyboard, in every typing mode. The trade when on: two identical keys typed more than ~0.4 s apart stay raw (tooi instead of tôi). Off by default."
+keep_repeats_raw = "For Flow mode only: holding a key in Flow repeats once and freezes at the composed pair (oo → ô); on, the held key streams raw oooo… like a plain keyboard. The other typing modes never had this problem and need no toggle. The trade when on: identical keys typed more than ~0.4 s apart stay raw (tooi instead of tôi). Off by default."
 preferred_backend = "Pick the injection backend that leads the selection: uinput is the kernel virtual keyboard, XTest is X11-only, wlroots for Hyprland/sway, libei via GNOME (measured crash risk — experimental only). The chosen backend is placed first in the preference list; when it cannot be built, the engine falls back to the environment order. Automatic is the default behavior."
 abbrev = "Keeps đ intact in abbreviations: ddc, ddk, ddt are not turned into đ."
 bypass_url = "Real links (https://, www.) type raw across the whole address, including the ?x=1&#tag part. No character blocks tones any more — words type Vietnamese right after any punctuation (: = # ? @ . _ / …)."
