@@ -49,6 +49,12 @@ pub struct Config {
     /// timer. Off by default: today a hold stops at the composed pair
     /// (`o` → `ô`).
     pub keep_repeats_raw: bool,
+    /// Experimental: at a word end, a composed word not in the bundled canon
+    /// of real Vietnamese syllables (`data/vietnamese-syllables.dict`)
+    /// restores to the raw keystrokes — English words keep their letters
+    /// (`sort` stays `sort`, not `sỏt`). Off by default: the composed form
+    /// sticks exactly as today.
+    pub restore_unknown_words: bool,
     /// Experimental: the preferred injection backend — `auto` keeps the
     /// environment matrix; a named backend leads the selection walk and the
     /// matrix falls back when it cannot build. Off (`auto`) is exactly the
@@ -871,6 +877,7 @@ impl Default for Config {
             extended_onsets: false,
             keep_composed_words: false,
             keep_repeats_raw: false,
+            restore_unknown_words: false,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
@@ -1736,6 +1743,16 @@ children = ["preedit", "flow"]
         assert!(!c.keep_repeats_raw);
         let c: Config = toml::from_str("keep_repeats_raw = true").unwrap();
         assert!(c.keep_repeats_raw);
+    }
+
+    #[test]
+    fn restore_unknown_words_defaults_off_and_round_trips() {
+        // Engine-level switch: baked `experimental && value` in set_config,
+        // like the other experimental features — this checks persistence.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.restore_unknown_words);
+        let c: Config = toml::from_str("restore_unknown_words = true").unwrap();
+        assert!(c.restore_unknown_words);
     }
 
     #[test]

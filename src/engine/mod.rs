@@ -256,6 +256,7 @@ pub struct Engine {
     // --- settings, mirrors of the config file ---
     app_rules: Vec<AppRule>,
     auto_restore: bool,
+    restore_unknown_words: bool,
     em_dash: bool,
     auto_capitalize: bool,
     double_space_period: bool,
@@ -476,6 +477,7 @@ impl Engine {
             app_name: None,
             app_rules: Vec::new(),
             auto_restore: true,
+            restore_unknown_words: false,
             em_dash: false,
             auto_capitalize: false,
             double_space_period: false,
@@ -607,6 +609,9 @@ impl Engine {
         // the switches and values stay saved for when the gate reopens.
         let experimental = config.experimental_features;
         self.auto_restore = config.auto_restore;
+        // The word-end canon restore rides the same master gate as every
+        // other experimental feature: gate closed, nothing restores.
+        self.restore_unknown_words = experimental && config.restore_unknown_words;
         self.em_dash = config.em_dash;
         self.auto_capitalize = config.auto_capitalize;
         self.extra_capitalize_after = if experimental && config.auto_capitalize_after_enabled {
