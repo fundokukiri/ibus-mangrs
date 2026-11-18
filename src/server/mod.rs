@@ -25,7 +25,7 @@ use dbus::ffidisp::{BusType, Connection, NameFlag};
 use dbus::strings::{BusName, Interface, Member, Path as DbusPath};
 use dbus::{Message, MessageType};
 
-use crate::config::{CharsetConfig, Config, MethodConfig, ModeConfig};
+use crate::config::{CharsetConfig, Config, MethodConfig, ModeConfig, PreferredBackendConfig};
 use crate::debug_log::{self, brief};
 use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
@@ -813,6 +813,18 @@ fn refresh_backend_flags(engine: &mut Engine, injection: &Injection) {
         injection.current(),
         Some(Kind::Libei | Kind::WlrVirtualKeyboard)
     ));
+}
+
+/// The config's preferred injection backend, `None` for `auto`: the
+/// experimental switch's value rides the existing selection walk.
+fn preferred_kind(config: &Config) -> Option<Kind> {
+    match config.preferred_backend {
+        PreferredBackendConfig::Auto => None,
+        PreferredBackendConfig::Uinput => Some(Kind::Uinput),
+        PreferredBackendConfig::XTest => Some(Kind::XTest),
+        PreferredBackendConfig::WlrVirtualKeyboard => Some(Kind::WlrVirtualKeyboard),
+        PreferredBackendConfig::Libei => Some(Kind::Libei),
+    }
 }
 
 /// One key event as `ProcessKeyEvent` carries it: keysym, evdev keycode,

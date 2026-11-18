@@ -42,6 +42,11 @@ pub struct Config {
     /// auto-restore, so the cost when on is English words whose prefix
     /// composes a marked syllable (`soft` -> `sòt`). Off by default.
     pub keep_composed_words: bool,
+    /// Experimental: the preferred injection backend — `auto` keeps the
+    /// environment matrix; a named backend leads the selection walk and the
+    /// matrix falls back when it cannot build. Off (`auto`) is exactly the
+    /// old selection.
+    pub preferred_backend: PreferredBackendConfig,
     /// How Backspace treats a tone-marked word — default: the tone goes
     /// first. Never applies to the uinput modes.
     pub backspace_tone: BackspaceToneConfig,
@@ -658,6 +663,25 @@ impl From<Mode> for ModeConfig {
     }
 }
 
+/// Experimental: which injection backend the selection walk leads with.
+/// `Auto` — the default — keeps the environment matrix verbatim; a named
+/// backend leads the walk and the matrix follows as fallback when its
+/// constructor cannot build. The serde names match the transport's
+/// `Kind::label` values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum PreferredBackendConfig {
+    #[default]
+    Auto,
+    Uinput,
+    // kebab-case would split this into "x-test"; the config value and the
+    // debug-log label are both "xtest".
+    #[serde(rename = "xtest")]
+    XTest,
+    WlrVirtualKeyboard,
+    Libei,
+}
+
 /// Names used in the property-menu keys (`charset:vni`, `method:microsoft`,
 /// `display:preedit`) — they match the serde names above.
 impl CharsetConfig {
@@ -834,6 +858,7 @@ impl Default for Config {
             extended_finals: false,
             extended_onsets: false,
             keep_composed_words: false,
+            preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
             bypass_url: true,
@@ -1528,6 +1553,42 @@ children = ["preedit", "flow"]
         assert!(!c.auto_restore);
         assert_eq!(c.w2u, W2uConfig::Disabled, "the bad key falls back");
         assert!(c.enabled, "missing keys take defaults");
+    }
+
+    #[test]
+    fn preferred_backend_defaults_to_auto() {
+        let c = Config::from_toml("");
+        assert_eq!(c.preferred_backend, PreferredBackendConfig::Auto);
+    }
+
+    #[test]
+    fn preferred_backend_parses_the_four_kinds() {
+        for (text, want) in [
+            ("uinput", PreferredBackendConfig::Uinput),
+            ("xtest", PreferredBackendConfig::XTest),
+            (
+                "wlr-virtual-keyboard",
+                PreferredBackendConfig::WlrVirtualKeyboard,
+            ),
+            ("libei", PreferredBackendConfig::Libei),
+        ] {
+            let c = Config::from_toml(&format!("preferred_backend = \"{text}\"\n"));
+            assert_eq!(c.preferred_backend, want, "value `{text}`");
+        }
+    }
+
+    #[test]
+    fn unknown_preferred_backend_value_is_dropped_and_the_rest_kept() {
+        let c = Config::from_toml(
+            "preferred_backend = \"typo\"\nmode = \"preedit\"\nauto_restore = false\n",
+        );
+        assert_eq!(
+            c.preferred_backend,
+            PreferredBackendConfig::Auto,
+            "the bad key falls back"
+        );
+        assert_eq!(c.mode, ModeConfig::Preedit, "the good keys must survive");
+        assert!(!c.auto_restore);
     }
 
     #[test]
