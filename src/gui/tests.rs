@@ -95,6 +95,9 @@ fn labels_follow_the_language() {
     set_language("en");
     assert_eq!(labels(BACKSPACE_TONE_MODES)[0], "Tone first");
     assert_eq!(mode_label(ModeConfig::Preedit), "Underline (preedit)");
+    // Restore for other tests; LANG is process-global and the GTK scenario
+    // runner asserts Vietnamese text in a parallel thread.
+    set_language("vi");
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
