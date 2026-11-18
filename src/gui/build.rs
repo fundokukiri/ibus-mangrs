@@ -451,6 +451,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Ghi cả nội dung đang gõ vào log — chỉ bật khi tái hiện lỗi mất chữ/sai ký tự, và không đính kèm log này lên issue",
         ),
     );
+    let debug_log_keys = switch_row(
+        &t("rows.debug_log_keys.title", "Log từng phím nhấn"),
+        &t(
+            "rows.debug_log_keys.subtitle",
+            "Mỗi phím một dòng keyval/state — chỉ bật khi gỡ lỗi đường phím (keymap, modifier, hotkey); mặc định tắt để log không đầy rác",
+        ),
+    );
     let x11_delete = switch_row(
         &t("rows.x11_delete.title", "Xoá đuôi từ ở app X11"),
         &t(
@@ -897,6 +904,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         hide_underline,
         debug_log,
         debug_log_text,
+        debug_log_keys,
         x11_delete,
         preedit_xim,
         pacing_row,

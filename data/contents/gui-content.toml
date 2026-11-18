@@ -525,6 +525,10 @@ subtitle_markup = "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangr
 title = "Log cả nội dung đang gõ"
 subtitle = "Ghi cả nội dung đang gõ vào log — chỉ bật khi tái hiện lỗi mất chữ/sai ký tự, và không đính kèm log này lên issue"
 
+[rows.debug_log_keys]
+title = "Log từng phím nhấn"
+subtitle = "Mỗi phím một dòng keyval/state — chỉ bật khi gỡ lỗi đường phím; mặc định tắt để log không đầy rác"
+
 [rows.x11_delete]
 title = "Xoá đuôi từ ở app X11"
 subtitle = "App X11 xoá đuôi từ mà không báo cáo, giống ibus-bamboo. Có thể xoá nhầm ký tự nếu con trỏ bị đổi chỗ."
@@ -614,6 +618,7 @@ macro_in_off_mode = "Gõ tắt vẫn hoạt động khi tiếng Việt đang t�
 emoji_enabled = "Gõ :smile: thành emoji. Từ sau dấu hai chấm vẫn gõ dấu bình thường; khi gõ dấu hai chấm đóng, tên được tra theo phím gốc — khớp thì thành emoji, không khớp thì giữ nguyên văn."
 dictionary_enabled = "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc."
 debug_log = "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
+debug_log_keys = "Ghi từng phím nhấn (keyval/state) vào log — chỉ cần khi gỡ lỗi đường phím (keymap, modifier, hotkey). Mặc định tắt để log không đầy rác; log cũng tự xoay 5 MB một file (bản cũ giữ ở debug.log.old)."
 x11_delete = "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."
 preedit_xim = "Dùng cửa sổ preedit riêng cho app XIM (Java/JetBrains) vốn không hỗ trợ preedit của IBus."
 commit_interval = "Nhịp gửi từng chữ ở mode uinput — giảm nếu app bị mất chữ, tăng nếu bị đơ."

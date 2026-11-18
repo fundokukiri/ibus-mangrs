@@ -368,6 +368,8 @@ struct Ui {
     /// Second log tier: typed-text lines (verify diffs, surrounding content).
     /// Only effective while `debug_log` is on — see `Config::debug_log_text`.
     debug_log_text: adw::SwitchRow,
+    /// Only effective while `debug_log` is on — see `Config::debug_log_keys`.
+    debug_log_keys: adw::SwitchRow,
     /// App-grid icon visibility ("Cài đặt khác"). Filesystem state, not a
     /// config key: the override file under ~/.local/share/applications.
     desktop_icon: adw::SwitchRow,
@@ -643,6 +645,7 @@ impl Ui {
             .set_active(config.dictionary_enabled);
         self.debug_log.set_active(config.debug_log);
         self.debug_log_text.set_active(config.debug_log_text);
+        self.debug_log_keys.set_active(config.debug_log_keys);
         // Not a config key: the app-grid override file on disk decides.
         *self.desktop_icon_loading.borrow_mut() = true;
         self.desktop_icon.set_active(!desktop_icon_hidden());
@@ -758,6 +761,7 @@ impl Ui {
         config.app_rule_hotkey = self.app_rule_hotkey_value.borrow().clone();
         config.debug_log = self.debug_log.is_active();
         config.debug_log_text = self.debug_log_text.is_active();
+        config.debug_log_keys = self.debug_log_keys.is_active();
         config.x11_delete_without_report = self.x11_delete.is_active();
         config.preedit_for_xim = self.preedit_xim.is_active();
         config.modern_tone_style = self.modern.is_active();

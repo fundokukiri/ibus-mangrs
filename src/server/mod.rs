@@ -607,7 +607,9 @@ impl EngineHandler {
                 // cannot be called here.
                 self.hotkeys = hotkey_registry(&config);
                 self.last_fire.clear();
-                debug_log::log(&format!("focus-in client={:?}", engine.client()));
+                if debug_log::enabled() {
+                    debug_log::log(&format!("focus-in client={:?}", engine.client()));
+                }
                 // Re-select the injection backend next to the config apply:
                 // a new focus may follow an environment change (device ACL,
                 // session type), so denials clear and every kind is

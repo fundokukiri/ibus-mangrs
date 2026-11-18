@@ -522,6 +522,10 @@ subtitle_markup = "Logs the engine's decisions to <tt>~/.cache/ibus-mangrs/debug
 title = "Log the in-flight text too"
 subtitle = "Logs the text being typed as well — enable only when reproducing lost-text/wrong-character bugs, and do not attach this log to an issue"
 
+[rows.debug_log_keys]
+title = "Log every key press"
+subtitle = "One keyval/state line per key — only for debugging the input path; off by default so the log stays clean"
+
 [rows.x11_delete]
 title = "Delete word tails on X11 apps"
 subtitle = "X11 apps delete word tails without reporting, like ibus-bamboo. May delete a wrong character if the caret was moved."
@@ -611,6 +615,7 @@ macro_in_off_mode = "Shorthand keeps working while Vietnamese typing is off."
 emoji_enabled = "Typing :smile: becomes an emoji. A word after the colon types tones normally; when the closing colon arrives, the name is looked up by the raw keys — a match becomes the emoji, a miss keeps the text as typed."
 dictionary_enabled = "Enables my dictionary: words in the list are never restored to raw keys."
 debug_log = "Logs the engine's decisions to ~/.cache/ibus-mangrs/debug.log for bug reports."
+debug_log_keys = "Logs one keyval/state line per key press — only needed when debugging the input path (keymaps, modifiers, hotkeys). Off by default so the log stays clean; the log also rotates at 5 MB per file (the previous one is kept as debug.log.old)."
 x11_delete = "How words are deleted on direct X11 apps: delete the word tail like ibus-bamboo, or delete only as reported by the app."
 preedit_xim = "Uses a separate preedit window for XIM apps (Java/JetBrains) that lack IBus preedit support."
 commit_interval = "The per-word send pace in uinput modes — lower it if an app loses text, raise it if it stalls."

@@ -912,6 +912,7 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.hide_underline);
     on_change!(ui.debug_log);
     on_change!(ui.debug_log_text);
+    on_change!(ui.debug_log_keys);
     on_change!(ui.x11_delete);
     on_change!(ui.preedit_xim);
 }
