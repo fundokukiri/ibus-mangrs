@@ -24,6 +24,5 @@ pub mod ibus_text;
 pub mod keymap;
 pub mod macros;
 pub mod server;
-pub mod syllables;
 pub mod transport;
 pub mod uinput;

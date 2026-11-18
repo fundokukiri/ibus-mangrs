@@ -238,13 +238,6 @@ pub(super) fn widgets() -> Rc<Ui> {
             "giữ o → oooo… thay vì dừng ở ô",
         ),
     );
-    let restore_unknown_words = switch_row(
-        &t("rows.restore_unknown_words.title", "Khôi phục từ lạ"),
-        &t(
-            "rows.restore_unknown_words.subtitle",
-            "sort giữ nguyên thay vì thành sỏt",
-        ),
-    );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Backend ưu tiên"),
         &t(
@@ -782,17 +775,12 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         keep_composed_words,
         "tips.keep_composed_words",
-        "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Khi bật cả 'Khôi phục từ lạ', từ được giữ mà không phải từ thật vẫn bị khôi phục cuối từ; muốn giữ từ nào thì thêm vào dictionary.txt. Mặc định tắt."
+        "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Mặc định tắt."
     );
     tip!(
         keep_repeats_raw,
         "tips.keep_repeats_raw",
         "Dành riêng cho chế độ Flow: giữ một phím ở Flow chỉ lặp được một lần rồi dừng ở ô (oo → ô rồi đứng im), bật thì phím giữ chảy nguyên bản oooo… như bàn phím thường. Các chế độ gõ khác không gặp lỗi này nên không cần bật. Đổi giá khi bật: hai phím giống nhau gõ cách nhau quá ~0,4 giây sẽ ở lại nguyên bản (tooi thay vì tôi). Mặc định tắt."
-    );
-    tip!(
-        restore_unknown_words,
-        "tips.restore_unknown_words",
-        "Dùng cho mọi chế độ gõ: khi kết thúc từ, từ ghép không có trong bảng 7.884 âm tiết tiếng Việt sẽ được khôi phục về phím gốc — sort giữ nguyên thay vì thành sỏt. Từ thật vẫn giữ nguyên. Từ được 'Giữ từ khi gõ phím lạ' giữ lại cũng được khôi phục nếu không phải từ thật; muốn giữ từ nào thì thêm vào dictionary.txt. Mặc định tắt."
     );
     tip!(
         preferred_backend,
@@ -878,7 +866,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         macro_valid_words,
         keep_composed_words,
         keep_repeats_raw,
-        restore_unknown_words,
         preferred_backend,
         time_format,
         date_format,

@@ -211,7 +211,6 @@ impl Engine {
                 raw,
                 valid,
                 valid_prefix,
-                exempt,
             } => {
                 if self.emoji_word && c == ':' {
                     // The closing ':' of a shortcode: try the rewrite while
@@ -229,11 +228,8 @@ impl Engine {
                         mode,
                         word,
                         raw,
-                        WordVerdicts {
-                            valid,
-                            valid_prefix,
-                            exempt,
-                        },
+                        valid,
+                        valid_prefix,
                         CandidateEnd::Close,
                     ));
                     self.note_char(c);
@@ -248,17 +244,7 @@ impl Engine {
                 // The word just ended on this terminator: record URL
                 // evidence (`://` scheme, `www.`) before the state is cleared.
                 self.note_url_pending(&raw, c);
-                actions.extend(self.on_finish(
-                    mode,
-                    word,
-                    raw,
-                    WordVerdicts {
-                        valid,
-                        valid_prefix,
-                        exempt,
-                    },
-                    candidate,
-                ));
+                actions.extend(self.on_finish(mode, word, raw, valid, valid_prefix, candidate));
                 // The terminator itself reaches the application last.
                 self.note_char(c);
                 actions
@@ -505,12 +491,7 @@ impl Engine {
         if let Some(exp) = self.expand_macro(raw, valid) {
             return exp;
         }
-        let verdicts = WordVerdicts {
-            valid,
-            valid_prefix: self.wrapper.is_valid_prefix(),
-            exempt: self.wrapper.restore_exempt(),
-        };
-        if self.should_auto_restore(&word, raw, &verdicts, false) {
+        if self.should_auto_restore(&word, raw, self.wrapper.is_valid_prefix()) {
             return raw.to_string();
         }
         word
@@ -527,35 +508,11 @@ impl Engine {
     /// valid prefix, so English words restore through the generic path; with
     /// the switch on the owner opted in — `fỏ` stays, and the switch's tip
     /// warns English words may compose (`fire` -> `fỉe`).
-    fn should_auto_restore(
-        &self,
-        word: &str,
-        raw: &str,
-        verdicts: &WordVerdicts,
-        at_word_end: bool,
-    ) -> bool {
+    fn should_auto_restore(&self, word: &str, raw: &str, valid_prefix: bool) -> bool {
         if !self.auto_restore || word.is_empty() || word == raw {
             return false;
         }
-        // Experimental: the bundled syllable canon decides at the word end
-        // — a word the language does not write goes back to the raw keys
-        // even though bamboo's shape check passed and even though the keep
-        // feature landed it (`sỏt` is a kept word). The user dictionary, an
-        // undone mark, and an abbreviation still win; digit-kept words
-        // (`hạo6`) are not syllables and skip the canon entirely.
-        if at_word_end
-            && self.restore_unknown_words
-            && word.chars().all(|c| c.is_alphabetic())
-            && !verdicts.exempt
-            && !self.wrapper.undo_in_word()
-            && !self
-                .dictionary
-                .as_ref()
-                .is_some_and(|d| d.contains(&word.to_lowercase()))
-        {
-            return !crate::syllables::contains(&word.to_lowercase());
-        }
-        if verdicts.valid_prefix {
+        if valid_prefix {
             return false;
         }
         let dict_hit = self
@@ -674,13 +631,9 @@ impl Engine {
                 actions
             }
             Outcome::Finish {
-                word,
-                raw,
-                valid,
-                exempt,
-                ..
+                word, raw, valid, ..
             } => {
-                actions.extend(self.on_finish_uinput(mode, word, raw, valid, exempt, c));
+                actions.extend(self.on_finish_uinput(mode, word, raw, valid, c));
                 actions
             }
         }
@@ -950,7 +903,6 @@ impl Engine {
         word: String,
         raw: String,
         valid: bool,
-        exempt: bool,
         c: char,
     ) -> Vec<Action> {
         let _ = valid;
@@ -1005,17 +957,11 @@ impl Engine {
         // Vietnamese syllable (English typing). The raw keys already sit in
         // the application — keep them instead of rewriting the word into a
         // syllable the user never meant (same gate as the inline modes).
-        let lower = word.to_lowercase();
-        let dict_hit = self.dictionary.as_ref().is_some_and(|d| d.contains(&lower));
-        // Experimental: the canon outranks a kept word too — the sticking
-        // `sỏt` is exactly a keep-landed fake. Flag off costs nothing: the
-        // clause short-circuits before the table lookup.
-        let unknown = self.restore_unknown_words
-            && word.chars().all(|c| c.is_alphabetic())
-            && !exempt
-            && !dict_hit
-            && !crate::syllables::contains(&lower);
-        if self.auto_restore && (!valid || unknown) && !self.wrapper.undo_in_word() {
+        let dict_hit = self
+            .dictionary
+            .as_ref()
+            .is_some_and(|d| d.contains(&word.to_lowercase()));
+        if self.auto_restore && !valid && !dict_hit && !self.wrapper.undo_in_word() {
             self.wrapper.reset();
             // Auto-capitalize still needs the rewrite — otherwise the
             // sentence starts lowercase. The app holds the composed word,
@@ -1064,10 +1010,10 @@ impl Engine {
         mode: Mode,
         word: String,
         raw: String,
-        verdicts: WordVerdicts,
+        valid: bool,
+        valid_prefix: bool,
         candidate: CandidateEnd,
     ) -> Vec<Action> {
-        let valid = verdicts.valid;
         let mut actions = self.hide_if_visible();
         let inline = mode != Mode::Preedit;
         let skip_macro = !matches!(candidate, CandidateEnd::None);
@@ -1111,7 +1057,7 @@ impl Engine {
         // `should_auto_restore`; the prefix verdict keeps `đuo` composed).
         // `force_raw` (a shortcode close that matched nothing) restores the
         // raw keys regardless of validity.
-        if (force_raw || self.should_auto_restore(&word, &raw, &verdicts, true))
+        if (force_raw || self.should_auto_restore(&word, &raw, valid_prefix))
             // Inline restore rewrites committed text; without a delete
             // transport the raw keys are already on screen, so there is
             // nothing to restore.

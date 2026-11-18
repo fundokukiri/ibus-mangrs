@@ -155,15 +155,6 @@ pub enum Action {
     CommitNow(String),
 }
 
-/// The word-end verdicts `Outcome::Finish` captures — and the idle/config
-/// paths re-derive live: full and prefix validity plus the abbreviation
-/// exemption the experimental canon restore honors.
-pub struct WordVerdicts {
-    pub valid: bool,
-    pub valid_prefix: bool,
-    pub exempt: bool,
-}
-
 pub struct Engine {
     wrapper: BambooWrapper,
     mode: Mode,
@@ -265,7 +256,6 @@ pub struct Engine {
     // --- settings, mirrors of the config file ---
     app_rules: Vec<AppRule>,
     auto_restore: bool,
-    restore_unknown_words: bool,
     em_dash: bool,
     auto_capitalize: bool,
     double_space_period: bool,
@@ -486,7 +476,6 @@ impl Engine {
             app_name: None,
             app_rules: Vec::new(),
             auto_restore: true,
-            restore_unknown_words: false,
             em_dash: false,
             auto_capitalize: false,
             double_space_period: false,
@@ -585,11 +574,8 @@ impl Engine {
                 Mode::Preedit,
                 pending.clone(),
                 raw,
-                WordVerdicts {
-                    valid,
-                    valid_prefix,
-                    exempt: self.wrapper.restore_exempt(),
-                },
+                valid,
+                valid_prefix,
                 candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));
@@ -621,9 +607,6 @@ impl Engine {
         // the switches and values stay saved for when the gate reopens.
         let experimental = config.experimental_features;
         self.auto_restore = config.auto_restore;
-        // The word-end canon restore rides the same master gate as every
-        // other experimental feature: gate closed, nothing restores.
-        self.restore_unknown_words = experimental && config.restore_unknown_words;
         self.em_dash = config.em_dash;
         self.auto_capitalize = config.auto_capitalize;
         self.extra_capitalize_after = if experimental && config.auto_capitalize_after_enabled {
@@ -1595,11 +1578,8 @@ impl Engine {
                 Mode::Preedit,
                 pending.clone(),
                 raw,
-                WordVerdicts {
-                    valid,
-                    valid_prefix,
-                    exempt: self.wrapper.restore_exempt(),
-                },
+                valid,
+                valid_prefix,
                 candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));
@@ -1758,11 +1738,8 @@ impl Engine {
                 Mode::Preedit,
                 pending.clone(),
                 raw.clone(),
-                WordVerdicts {
-                    valid,
-                    valid_prefix,
-                    exempt: self.wrapper.restore_exempt(),
-                },
+                valid,
+                valid_prefix,
                 candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));

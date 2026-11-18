@@ -907,7 +907,6 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.macro_valid_words);
     on_change!(ui.keep_composed_words);
     on_change!(ui.keep_repeats_raw);
-    on_change!(ui.restore_unknown_words);
     on_change!(ui.emoji_enabled);
     on_change!(ui.dictionary_enabled);
     on_change!(ui.hide_underline);

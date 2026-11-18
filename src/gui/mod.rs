@@ -284,7 +284,6 @@ struct Ui {
     macro_valid_words: adw::SwitchRow,
     keep_composed_words: adw::SwitchRow,
     keep_repeats_raw: adw::SwitchRow,
-    restore_unknown_words: adw::SwitchRow,
     preferred_backend: adw::ComboRow,
     time_format: adw::ComboRow,
     date_format: adw::ComboRow,
@@ -633,8 +632,6 @@ impl Ui {
         self.keep_composed_words
             .set_active(config.keep_composed_words);
         self.keep_repeats_raw.set_active(config.keep_repeats_raw);
-        self.restore_unknown_words
-            .set_active(config.restore_unknown_words);
         self.preferred_backend
             .set_selected(preferred_backend_index(config.preferred_backend));
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
@@ -809,7 +806,6 @@ impl Ui {
         config.macro_expand_valid_words = self.macro_valid_words.is_active();
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
-        config.restore_unknown_words = self.restore_unknown_words.is_active();
         config.preferred_backend = match self.preferred_backend.selected() {
             1 => PreferredBackendConfig::Uinput,
             2 => PreferredBackendConfig::XTest,
@@ -945,11 +941,10 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 9] = [
+        let rows: [&gtk4::Widget; 8] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
-            self.restore_unknown_words.upcast_ref(),
             self.preferred_backend.upcast_ref(),
             self.extra_url_chars_row.upcast_ref(),
             self.auto_capitalize_after_row.upcast_ref(),
@@ -986,8 +981,6 @@ impl Ui {
             .set_active(d.macro_expand_valid_words);
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
-        self.restore_unknown_words
-            .set_active(d.restore_unknown_words);
         self.preferred_backend.set_selected(0);
         self.extra_url_chars_switch
             .set_active(d.extra_url_chars_enabled);
@@ -1013,8 +1006,6 @@ impl Ui {
             .set_active(c.macro_expand_valid_words);
         self.keep_composed_words.set_active(c.keep_composed_words);
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
-        self.restore_unknown_words
-            .set_active(c.restore_unknown_words);
         self.preferred_backend
             .set_selected(preferred_backend_index(c.preferred_backend));
         self.extra_url_chars_switch
