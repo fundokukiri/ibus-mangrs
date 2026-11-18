@@ -35,6 +35,13 @@ pub struct Config {
     /// `fỏ`). No Vietnamese syllable starts with them, so the off default
     /// keeps English words (`fire`, `water`) free of accidental marks.
     pub extended_onsets: bool,
+    /// Experimental: after a complete valid syllable, a plain-letter key
+    /// bamboo-core cannot extend reverts the composition to the raw keys
+    /// (`tùng` + `g` -> `tungfg`). On: the word stays and the key appends
+    /// literally (`tùngg`). A kept word is exempt from the word-end
+    /// auto-restore, so the cost when on is English words whose prefix
+    /// composes a marked syllable (`soft` -> `sòt`). Off by default.
+    pub keep_composed_words: bool,
     /// How Backspace treats a tone-marked word — default: the tone goes
     /// first. Never applies to the uinput modes.
     pub backspace_tone: BackspaceToneConfig,
@@ -826,6 +833,7 @@ impl Default for Config {
             auto_correct: true,
             extended_finals: false,
             extended_onsets: false,
+            keep_composed_words: false,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
             bypass_url: true,

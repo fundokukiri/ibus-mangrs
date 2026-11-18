@@ -282,6 +282,7 @@ struct Ui {
     capitalize_macro: adw::SwitchRow,
     macro_in_off_mode: adw::SwitchRow,
     macro_valid_words: adw::SwitchRow,
+    keep_composed_words: adw::SwitchRow,
     time_format: adw::ComboRow,
     date_format: adw::ComboRow,
     /// The interface language; picking it rebuilds the window (content.rs).
@@ -612,6 +613,8 @@ impl Ui {
         self.macro_in_off_mode.set_active(config.macro_in_off_mode);
         self.macro_valid_words
             .set_active(config.macro_expand_valid_words);
+        self.keep_composed_words
+            .set_active(config.keep_composed_words);
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
         select_format(&self.date_format, DATE_FORMATS, &config.date_format);
         self.language
@@ -780,6 +783,7 @@ impl Ui {
         config.capitalize_macro = self.capitalize_macro.is_active();
         config.macro_in_off_mode = self.macro_in_off_mode.is_active();
         config.macro_expand_valid_words = self.macro_valid_words.is_active();
+        config.keep_composed_words = self.keep_composed_words.is_active();
         config.time_format = format_selected(&self.time_format);
         config.date_format = format_selected(&self.date_format);
         config.language = if self.language.selected() == 1 {
@@ -907,8 +911,9 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 5] = [
+        let rows: [&gtk4::Widget; 6] = [
             self.macro_valid_words.upcast_ref(),
+            self.keep_composed_words.upcast_ref(),
             self.extra_url_chars_row.upcast_ref(),
             self.auto_capitalize_after_row.upcast_ref(),
             self.echo_stale_row.upcast_ref(),
@@ -942,6 +947,7 @@ impl Ui {
         self.suppress_save.set(true);
         self.macro_valid_words
             .set_active(d.macro_expand_valid_words);
+        self.keep_composed_words.set_active(d.keep_composed_words);
         self.extra_url_chars_switch
             .set_active(d.extra_url_chars_enabled);
         self.extra_url_chars_entry.set_text(&d.extra_url_chars);
@@ -964,6 +970,7 @@ impl Ui {
         self.suppress_save.set(true);
         self.macro_valid_words
             .set_active(c.macro_expand_valid_words);
+        self.keep_composed_words.set_active(c.keep_composed_words);
         self.extra_url_chars_switch
             .set_active(c.extra_url_chars_enabled);
         self.extra_url_chars_entry.set_text(&c.extra_url_chars);

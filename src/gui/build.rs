@@ -221,6 +221,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Phím tắt trùng từ thật vẫn nở",
         ),
     );
+    let keep_composed_words = switch_row(
+        &t("rows.keep_composed_words.title", "Giữ từ khi gõ phím lạ"),
+        &t(
+            "rows.keep_composed_words.subtitle",
+            "tùng + g → tùngg thay vì tungfg",
+        ),
+    );
     // The formats are preset dropdowns like every other combo; a format
     // the old free-text rows saved that matches no preset is appended by
     // `select_format` instead of being rewritten.
@@ -733,6 +740,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Tính năng Gõ tắt: phím tắt trùng một từ tiếng Việt thật (vd “cam”) không nở để không cản gõ từ thường. Bật thì gõ tắt vẫn thắng — muốn gõ từ thật, Backspace một phím rồi gõ lại phím đó."
     );
     tip!(
+        keep_composed_words,
+        "tips.keep_composed_words",
+        "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Mặc định tắt."
+    );
+    tip!(
         extra_url_chars_row,
         "tips.extra_url_chars",
         "Tính năng Không dấu sau URL (mặc định áp dụng cho / : @ . _ ~ = # & % ?): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; dấu - bị loại để giữ -- thành gạch dài."
@@ -809,6 +821,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         capitalize_macro,
         macro_in_off_mode,
         macro_valid_words,
+        keep_composed_words,
         time_format,
         date_format,
         language,

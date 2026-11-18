@@ -4620,3 +4620,114 @@ fn w2u_everywhere_composes_a_word_start_w() {
     assert_eq!(type_replay(&mut e, "wo "), "ưo ");
     assert_eq!(type_replay(&mut e, "wos "), "ứo ");
 }
+
+// --- experimental keep_composed_words ---
+
+#[test]
+fn keep_composed_words_off_keeps_today_s_revert() {
+    // Default off: the refused letter still reverts the word to its raw
+    // keys, and the English revert is untouched — the flag changes nothing.
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        assert_eq!(typed(mode, "tungfg "), "tungfg ", "{mode:?}");
+        assert_eq!(typed(mode, "isq "), "isq ", "{mode:?}");
+        assert_eq!(typed(mode, "soft "), "soft ", "{mode:?}");
+        assert_eq!(typed(mode, "sort "), "sort ", "{mode:?}");
+    }
+}
+
+#[test]
+fn keep_composed_words_keeps_a_refused_letter() {
+    // On: a plain letter a complete valid syllable cannot extend appends
+    // literally, marks intact (`tùng` + `g` -> `tùngg`). The undo behaviors
+    // bamboo-core handles itself (base-letter and same-tone repeats) stay
+    // correct, and the kept word survives the word-end auto-restore.
+    let config = || Config {
+        experimental_features: true,
+        keep_composed_words: true,
+        ..Config::default()
+    };
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "tungfg "), "tùngg ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "haamk "), "hâmk ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "uocwsq "), "ướcq ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "isq "), "íq ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "huongwa "), "hươnga ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "haama "), "hama ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "tungff "), "tungf ", "{mode:?}");
+    }
+}
+
+#[test]
+fn keep_composed_words_survives_backspace_and_the_word_end() {
+    // Backspace after a keep pops the stray key and the mark returns
+    // (`tùngg` + BS -> `tùng`), and the kept word is exempt from the
+    // word-end auto-restore (`tungfg` must not come back at the space).
+    let (text, oor) = type_replay_backspaces(
+        &mut engine(
+            Mode::Surrounding,
+            Config {
+                experimental_features: true,
+                keep_composed_words: true,
+                ..Config::default()
+            },
+        ),
+        "tungfg\u{8}",
+    );
+    assert!(!oor, "a delete reached past the buffer");
+    assert_eq!(text, "tùng");
+}
+
+#[test]
+fn keep_composed_words_is_baked_off_without_the_gate() {
+    // The experimental master gate forces the keep off: with the gate
+    // closed the row's value is inert, exactly like the other features.
+    let mut e = engine(
+        Mode::Surrounding,
+        Config {
+            experimental_features: false,
+            keep_composed_words: true,
+            ..Config::default()
+        },
+    );
+    assert_eq!(type_replay(&mut e, "tungfg "), "tungfg ");
+}
+
+#[test]
+fn keep_composed_words_keeps_in_flow() {
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            experimental_features: true,
+            keep_composed_words: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let mut buf = String::new();
+    for c in "tungfg ".chars() {
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => {
+                    let keep = buf.chars().count().saturating_sub(n as usize);
+                    buf = buf.chars().take(keep).collect();
+                }
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    assert_eq!(buf, "tùngg ");
+}

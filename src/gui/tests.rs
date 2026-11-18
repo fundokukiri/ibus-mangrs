@@ -511,6 +511,7 @@ fn refresh_round_trips_every_widget() {
         auto_correct: false,
         extended_finals: true,
         extended_onsets: true,
+        keep_composed_words: true,
         auto_restore: false,
         bypass_url: false,
         // The switch off must NOT wipe the stored value: refresh shows it

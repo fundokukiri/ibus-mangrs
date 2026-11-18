@@ -192,6 +192,10 @@ subtitle = "After . ! ? and Enter"
 title = "Double Space becomes a period"
 subtitle = "Two spaces become a period"
 
+[rows.keep_composed_words]
+title = "Keep composed words"
+subtitle = "tùng + g → tùngg instead of tungfg"
+
 [rows.macro_valid_words]
 title = "Shorthand: expands on real words too"
 subtitle = "A shortcut on a real word still expands"
@@ -583,6 +587,7 @@ auto_correct = "Syllables missing from the Vietnamese syllable table return the 
 auto_restore = "Foreign words (english, hello) return to the raw key string once typed instead of staying."
 extended_finals = "Let g, k, h, nk replace the finals ng, c, nh, so the tone lands the same typed before or after the final (nhuwgx → nhữg). English words may change (book → bôk); off by default."
 extended_onsets = "Let f, j, w act as onset consonants and take tone marks (fos → fó). Off by default: no Vietnamese syllable starts with them, so the off default keeps English words (fire, water) free of accidental marks."
+keep_composed_words = "After a complete word, a plain letter the word cannot extend joins the word instead of reverting it to the raw keys (tùng + g → tùngg). The trade when on: English words like soft stay sòt, because a kept word skips the word-end auto-restore. Off by default."
 abbrev = "Keeps đ intact in abbreviations: ddc, ddk, ddt are not turned into đ."
 bypass_url = "Real links (https://, www.) type raw across the whole address, including the ?x=1&#tag part. No character blocks tones any more — words type Vietnamese right after any punctuation (: = # ? @ . _ / …)."
 w2u = "Typing w gives ư: w = ư, wa = ưa… handy on keyboards without a ư key."

@@ -154,6 +154,9 @@ pub struct BambooWrapper {
     /// auto_correct reverted and the wrapper re-fixed (`ddc` → `đc`): not a
     /// valid syllable, so the word-end auto-restore must leave it alone.
     abbrev_fixed: bool,
+    /// Experimental `keep_composed_words`: refused plain letters append to a
+    /// complete valid syllable instead of reverting it. Off by default.
+    keep_composed_words: bool,
     /// `abbreviations` config: whether reverted non-syllable compositions
     /// get the dd→đ transform re-applied (đc, đk, đt, đg).
     abbrev: bool,
@@ -196,6 +199,7 @@ impl BambooWrapper {
             undo_in_word: false,
             abbrev_fixed: false,
             abbrev: true,
+            keep_composed_words: false,
             kept_composition: false,
             composing: false,
             last_output: String::new(),
@@ -300,6 +304,13 @@ impl BambooWrapper {
         self.abbrev = on;
     }
 
+    /// Experimental `keep_composed_words`: after a complete valid syllable a
+    /// refused plain letter appends literally instead of reverting the word
+    /// to its raw keys. See the guard in `feed_compose`.
+    pub fn set_keep_composed_words(&mut self, on: bool) {
+        self.keep_composed_words = on;
+    }
+
     /// Feed one in-word key to bamboo-core and return the visible output.
     ///
     /// Shared by `process_char`, the `backspace` recomposition and
@@ -362,6 +373,39 @@ impl BambooWrapper {
             if new_output == self.raw {
                 new_output = format!("{prev}{c}");
             }
+            self.output_override = Some(new_output.clone());
+            self.kept_composition = true;
+        }
+        // Experimental `keep_composed_words`: a plain letter a complete valid
+        // syllable cannot extend (`tùng` + `g`) reverts the composition to
+        // the raw keys (`tungfg`); keep the word and land the key literally
+        // (`tùngg`) instead. Tone keys keep their undo/replace semantics and
+        // the horn `w` keeps the revert — both transform vowels, and a kept
+        // word is exempt from the word-end auto-restore, so this opt-in
+        // costs English words like `soft` their revert (`sòt` stays). The
+        // revert signature is strict: output == raw AND output != prev + c —
+        // the second clause keeps plain passthrough (`tun` + `g` -> `tung`,
+        // output always == raw) out of the guard, or its keep would poison
+        // the word into the literal bypass and mute later tone keys.
+        if !self.abbrev_fixed
+            && self.keep_composed_words
+            && prev_valid_word
+            && c.is_alphabetic()
+            && !tone_keys(self.method).contains(&c.to_ascii_lowercase())
+            && !(matches!(c.to_ascii_lowercase(), 'w')
+                && matches!(
+                    self.method,
+                    Method::Telex
+                        | Method::Telex2
+                        | Method::TelexW
+                        | Method::TelexVni
+                        | Method::TelexVniViqr
+                ))
+            && new_output == self.raw
+            && new_output != format!("{prev}{c}")
+        {
+            debug_log::log("experimental keep: complete syllable survives a refused letter");
+            new_output = format!("{prev}{c}");
             self.output_override = Some(new_output.clone());
             self.kept_composition = true;
         }
