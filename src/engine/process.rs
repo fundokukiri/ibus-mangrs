@@ -593,6 +593,23 @@ impl Engine {
                 actions
             }
             Outcome::Edit(edit) => {
+                // The engine finalized the previous word at the 32-slot
+                // overflow boundary: land it the way a word end does (minus
+                // the terminator — the key that arrived starts the next
+                // word), or the coalesced rewrite would erase it at the word
+                // end together with the fresh word.
+                if let Some(word) = self.wrapper.take_pending_commit() {
+                    // A batch still in flight carries the finished word's
+                    // tail: land it now (the shortcode close's sequence), or
+                    // replacing the parked insert would drop that text.
+                    if let Some((_, text)) = self.per_key_park.take() {
+                        actions.push(Action::CommitNow(text));
+                    }
+                    self.landed_region = word;
+                    self.region_plain = true;
+                    self.tail.clear();
+                    self.undo_key_at = None;
+                }
                 // The transformed output stays internal; the composed delta
                 // applies immediately through the injected transport.
                 let want = if self.charset == Charset::Unicode {
@@ -1085,11 +1102,28 @@ impl Engine {
         if edit.is_empty() {
             return vec![Action::Consumed];
         }
+        // The engine finalized the previous word at the 32-slot overflow
+        // boundary and the edit is relative to the fresh one-char word it
+        // started: land the committed word first, or the delete below would
+        // erase it from the application (the "xóa trắng" of the overflow).
+        let mut actions = Vec::new();
+        if let Some(word) = self.wrapper.take_pending_commit() {
+            if mode == Mode::Preedit {
+                // The client holds the word only as preedit — commit it.
+                actions.push(Action::Commit(word));
+            } else {
+                // Inline modes hold it in the application already: only the
+                // tracked region ends here, and the edit below appends the
+                // fresh word the current key started.
+                self.tail.clear();
+            }
+        }
         if mode == Mode::Preedit {
             let text = self.preedit_text();
             let cursor = text.chars().count() as u32;
             self.preedit_visible = true;
-            return vec![Action::UpdatePreedit { text, cursor }];
+            actions.push(Action::UpdatePreedit { text, cursor });
+            return actions;
         }
         match self.charset {
             // Unicode is one char per char, so the delta from bamboo-core can
@@ -1111,9 +1145,9 @@ impl Engine {
                     // tracking so later keys edit the text actually shown.
                     self.wrapper.resync_output_to_raw();
                     self.tail = self.wrapper.raw().to_string();
-                    return vec![Action::Forward];
+                    actions.push(Action::Forward);
+                    return actions;
                 }
-                let mut actions = Vec::new();
                 if edit.delete_chars > 0 {
                     let insert_len = edit.insert.chars().count();
                     actions.push(self.delete_action(
@@ -1146,10 +1180,11 @@ impl Engine {
                 }
                 self.wrapper.resync_output_to_raw();
                 self.tail = self.wrapper.raw().to_string();
-                vec![Action::Forward]
+                actions.push(Action::Forward);
+                actions
             }
             _ => {
-                let actions = self.rewrite(mode);
+                actions.extend(self.rewrite(mode));
                 if let Some(c) = self.tail.chars().last() {
                     self.note_char(c);
                 }

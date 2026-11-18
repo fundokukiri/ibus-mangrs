@@ -4444,3 +4444,122 @@ fn dd_undo_rewrites_flowat_word_end() {
     );
     assert_eq!(e.tail, "dd ", "the composition replaced the raw keys");
 }
+
+// --- bamboo-core 0.6.0 #41: the 32-slot overflow commits the word ---
+
+#[test]
+fn overflow_boundary_commits_the_word_in_preedit() {
+    // The preedit owns the word; at the 32-slot boundary the engine commits
+    // it underneath. The client must receive it as committed text before
+    // the fresh preedit replaces it, or the word vanishes from the screen.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    let mut buf = String::new();
+    let mut preedit = String::new();
+    for c in "b".repeat(35).chars() {
+        for a in e.process_char(c) {
+            match a {
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::UpdatePreedit { text, .. } => preedit = text,
+                Action::HidePreedit => preedit.clear(),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+    }
+    // Mid-word, one boundary in: everything typed is still on screen.
+    assert_eq!(buf, "b".repeat(32));
+    assert_eq!(preedit, "b".repeat(3));
+    for c in " vieejt ".chars() {
+        for a in e.process_char(c) {
+            match a {
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::UpdatePreedit { text, .. } => preedit = text,
+                Action::HidePreedit => preedit.clear(),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(buf, format!("{} việt ", "b".repeat(35)));
+    assert!(preedit.is_empty(), "the terminators land everything");
+}
+
+#[test]
+fn overflow_boundary_keeps_every_char_in_surrounding() {
+    // The commit-as-you-type display replays deltas literally: a boundary
+    // delta that deletes the word erased the committed characters (the
+    // "xóa trắng"). Every character must survive the boundary, and the
+    // word after it must still compose.
+    let mut e = engine(Mode::Surrounding, Config::default());
+    // Mid-word, one boundary in: every committed character must still be
+    // there — the destructive delta used to white the word out right here
+    // (the word-end auto-restore only happened to put the raw keys back).
+    let mid = type_replay(&mut e, &"b".repeat(35));
+    assert_eq!(mid, "b".repeat(35));
+    let rest = type_replay(&mut e, " vieejt ");
+    assert_eq!(format!("{mid}{rest}"), format!("{} việt ", "b".repeat(35)));
+}
+
+#[test]
+fn overflow_boundary_lands_the_word_in_flow() {
+    // The per-key display: the boundary word must land as committed text
+    // (the fresh word appends after it), and the word-end rewrite may only
+    // cover the fresh word — never the committed one.
+    let mut e = per_key_engine(Mode::Flow);
+    let mut buf = String::new();
+    let mut keys = String::new();
+    for c in "b".repeat(35).chars() {
+        keys.push(c);
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => {
+                    let keep = buf.chars().count().saturating_sub(n as usize);
+                    buf = buf.chars().take(keep).collect();
+                }
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    // Mid-word, one boundary in: everything typed is still on screen.
+    assert_eq!(buf, "b".repeat(35));
+    for c in " chaof ".chars() {
+        keys.push(c);
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => {
+                    let keep = buf.chars().count().saturating_sub(n as usize);
+                    buf = buf.chars().take(keep).collect();
+                }
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    assert_eq!(buf, format!("{} chào ", "b".repeat(35)));
+}
+
+#[test]
+fn backspace_after_the_boundary_never_touches_the_committed_word() {
+    // After the boundary the wrapper's raw holds only the fresh word's
+    // keys: Backspace recomposes that word alone — the committed word
+    // keeps every character, and no delete reaches past the buffer.
+    let mut e = engine(Mode::Surrounding, Config::default());
+    let (text, oor) = type_replay_backspaces(&mut e, &format!("{}\u{8}\u{8}", "b".repeat(40)));
+    assert!(!oor, "a delete reached past the buffer");
+    assert_eq!(text, "b".repeat(38));
+}
