@@ -5007,3 +5007,262 @@ fn keep_repeats_raw_a_mark_key_after_a_hold_keeps_screen_and_word_in_sync() {
     // the literal quote land exactly that.
     assert_eq!(buf, "ooo' ");
 }
+
+// --- restore_unknown_words: the word-end canon check (experimental) ---
+
+/// The Flow screen: injected erases cut the buffer, commits land, a
+/// forwarded key appends its raw char; the parked batch flushes at the end.
+fn flow_screen(e: &mut Engine, keys: &str) -> String {
+    e.set_uinput_available(true);
+    let mut buf: Vec<char> = Vec::new();
+    for c in keys.chars() {
+        flow_apply(&mut buf, e.process_char(c), Some(c));
+    }
+    flow_apply(&mut buf, flush_per_key(e), None);
+    buf.iter().collect()
+}
+
+fn flow_apply(buf: &mut Vec<char>, actions: Vec<Action>, raw: Option<char>) {
+    for a in actions {
+        match a {
+            Action::InjectBackspaces(n) => buf.truncate(buf.len() - n as usize),
+            Action::Commit(t) | Action::CommitNow(t) => buf.extend(t.chars()),
+            Action::Forward => {
+                buf.push(raw.expect("a forwarded key always carries its char"))
+            }
+            _ => {}
+        }
+    }
+}
+
+#[test]
+fn unknown_word_restores_at_word_end_when_enabled() {
+    // bamboo itself rejects `sỏt`, so the OFF paths already restore it in
+    // every mode; the sticking `sỏt` the owner reported is a KEPT word —
+    // the keep feature landed the refused `t` and exempted the word from
+    // the word-end restore. The canon cleans it; the flag alone (no keep)
+    // changes nothing visible.
+    let keep = || Config {
+        experimental_features: true,
+        keep_composed_words: true,
+        ..Config::default()
+    };
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        assert_eq!(typed(mode, "sort "), "sort ", "OFF: {mode:?}");
+        assert_eq!(
+            type_replay(&mut engine(mode, canon_config()), "sort "),
+            "sort ",
+            "{mode:?}"
+        );
+        assert_eq!(
+            type_replay(&mut engine(mode, keep()), "sort "),
+            "sỏt ",
+            "keep alone sticks: {mode:?}"
+        );
+        assert_eq!(
+            type_replay(
+                &mut engine(
+                    mode,
+                    Config {
+                        experimental_features: true,
+                        keep_composed_words: true,
+                        restore_unknown_words: true,
+                        ..Config::default()
+                    }
+                ),
+                "sort "
+            ),
+            "sort ",
+            "canon cleans the kept fake word: {mode:?}"
+        );
+    }
+    assert_eq!(
+        flow_screen(&mut engine(Mode::Flow, Config::default()), "sort "),
+        "sort ",
+        "OFF flow"
+    );
+    assert_eq!(
+        flow_screen(&mut engine(Mode::Flow, canon_config()), "sort "),
+        "sort "
+    );
+    assert_eq!(
+        flow_screen(&mut engine(Mode::Flow, keep()), "sort "),
+        "sỏt ",
+        "keep alone sticks in flow"
+    );
+    assert_eq!(
+        flow_screen(
+            &mut engine(
+                Mode::Flow,
+                Config {
+                    experimental_features: true,
+                    keep_composed_words: true,
+                    restore_unknown_words: true,
+                    ..Config::default()
+                }
+            ),
+            "sort "
+        ),
+        "sort ",
+        "canon cleans the kept fake word in flow"
+    );
+}
+
+#[test]
+fn extendable_fake_states_restore_when_enabled() {
+    // ON: the canon outranks the prefix verdict at the word end — a word
+    // the language never writes goes back to its raw keys even though it
+    // could still grow (`đuo`). OFF stays untouched
+    // (a_valid_prefix_is_kept_in_every_display_mode).
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        assert_eq!(typed(mode, "dduo "), "đuo ", "OFF keeps the prefix: {mode:?}");
+        assert_eq!(
+            type_replay(&mut engine(mode, canon_config()), "dduo "),
+            "dduo ",
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
+fn real_words_stay_composed_when_enabled() {
+    // Real syllables never restore, and the mid-word display keeps the
+    // legacy prefix verdict — `ngươ` inside `người` never flickers.
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        assert_eq!(
+            type_replay(&mut engine(mode, canon_config()), "tooi "),
+            "tôi ",
+            "{mode:?}"
+        );
+        assert_eq!(
+            type_replay(&mut engine(mode, canon_config()), "nguwowif "),
+            "người ",
+            "{mode:?}"
+        );
+    }
+    assert_eq!(
+        flow_screen(&mut engine(Mode::Flow, canon_config()), "tooi "),
+        "tôi "
+    );
+    // The display path: still the composed prefix while the word grows.
+    let mut e = engine(Mode::Preedit, canon_config());
+    let actions = type_str(&mut e, "nguwow");
+    let shown: Vec<&str> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::UpdatePreedit { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(shown.last(), Some(&"ngươ"), "mid-word display must not flip");
+}
+
+#[test]
+fn user_dictionary_beats_the_canon() {
+    // The user's dictionary outranks the canon: a listed word stays even
+    // though the language does not write it. The keep flag is on so the
+    // fake word actually persists to the word end — without it bamboo
+    // reverts `sỏt` per key and no restore ever runs.
+    let mut e = engine(
+        Mode::Surrounding,
+        Config {
+            experimental_features: true,
+            restore_unknown_words: true,
+            keep_composed_words: true,
+            dictionary_enabled: true,
+            ..Config::default()
+        },
+    );
+    let mut dict = Dictionary {
+        words: std::collections::HashSet::new(),
+    };
+    dict.set_words(["sỏt"].iter().map(|s| s.to_string()));
+    e.dictionary = Some(dict);
+    assert_eq!(type_replay(&mut e, "sort "), "sỏt ");
+}
+
+#[test]
+fn the_canon_outranks_a_kept_word() {
+    // A kept word is not sacred: the owner's `sỏt` IS a kept word, so the
+    // canon must clean it — with both switches on, `tungfg`'s kept
+    // `tùngg` restores too. A user who wants a specific fake word kept
+    // lists it in the dictionary, which outranks the canon.
+    let both = || Config {
+        experimental_features: true,
+        keep_composed_words: true,
+        restore_unknown_words: true,
+        ..Config::default()
+    };
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        assert_eq!(
+            type_replay(&mut engine(mode, both()), "tungfg "),
+            "tungfg ",
+            "{mode:?}"
+        );
+    }
+    assert_eq!(
+        flow_screen(&mut engine(Mode::Flow, both()), "tungfg "),
+        "tungfg "
+    );
+}
+
+#[test]
+fn abbreviations_survive_the_canon() {
+    // An abbreviation is a deliberate mapping (`ddc` -> `đc`), not a
+    // tone-ized English word — exempt from the canon in every mode.
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        assert_eq!(
+            type_replay(&mut engine(mode, canon_config()), "ddc "),
+            "đc ",
+            "{mode:?}"
+        );
+    }
+    assert_eq!(
+        flow_screen(&mut engine(Mode::Flow, canon_config()), "ddc "),
+        "đc "
+    );
+}
+
+#[test]
+fn digit_words_skip_the_canon() {
+    // `hạo6` carries a digit: the canon judges syllables, not digit-kept
+    // words — the word-end behavior stays exactly as shipped (VNI).
+    assert_eq!(
+        type_replay(
+            &mut engine(
+                Mode::Surrounding,
+                Config {
+                    experimental_features: true,
+                    restore_unknown_words: true,
+                    method: crate::config::MethodConfig::Vni,
+                    ..Config::default()
+                }
+            ),
+            "hao123456 "
+        ),
+        "hạo6 "
+    );
+}
+
+#[test]
+fn uppercase_word_restores_by_its_lowercase_form() {
+    // The canon is lowercase: the lookup lowercases the word, so `Sort`
+    // restores with its capital intact.
+    assert_eq!(typed(Mode::Surrounding, "Sort "), "Sort ", "OFF");
+    assert_eq!(
+        type_replay(&mut engine(Mode::Surrounding, canon_config()), "Sort "),
+        "Sort "
+    );
+    assert_eq!(
+        flow_screen(&mut engine(Mode::Flow, canon_config()), "Sort "),
+        "Sort "
+    );
+}
+
+fn canon_config() -> Config {
+    Config {
+        experimental_features: true,
+        restore_unknown_words: true,
+        ..Config::default()
+    }
+}

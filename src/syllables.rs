@@ -15,7 +15,11 @@ use std::sync::OnceLock;
 /// Forms this engine guarantees composed but the upstream canon lacks.
 /// Filled from the golden coverage test; each entry needs a reason.
 /// Kept sorted for the same binary search as the canon.
-pub(crate) const SUPPLEMENT: &[&str] = &[];
+pub(crate) const SUPPLEMENT: &[&str] = &[
+    // `wo` → `ưo` (the w2u word-start fix; a still-extendable rhyme form
+    // the canon does not carry).
+    "ưo",
+];
 
 const CANON_DATA: &str = include_str!("../data/vietnamese-syllables.dict");
 

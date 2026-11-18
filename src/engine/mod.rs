@@ -578,6 +578,7 @@ impl Engine {
                 raw,
                 valid,
                 valid_prefix,
+                self.wrapper.restore_exempt(),
                 candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));
@@ -1585,6 +1586,7 @@ impl Engine {
                 raw,
                 valid,
                 valid_prefix,
+                self.wrapper.restore_exempt(),
                 candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));
@@ -1745,6 +1747,7 @@ impl Engine {
                 raw.clone(),
                 valid,
                 valid_prefix,
+                self.wrapper.restore_exempt(),
                 candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));

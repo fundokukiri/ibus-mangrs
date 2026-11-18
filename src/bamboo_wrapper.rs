@@ -145,6 +145,10 @@ pub enum Outcome {
         raw: String,
         valid: bool,
         valid_prefix: bool,
+        /// An abbreviation was fixed in this word (`ddc` → `đc`), captured
+        /// alongside the verdicts: the word-end canon restore must leave it
+        /// alone, and the composition clear below erases the live flag.
+        exempt: bool,
     },
 }
 
@@ -593,6 +597,7 @@ impl BambooWrapper {
             // be auto-restored to its raw keys.
             let valid = self.is_valid();
             let valid_prefix = self.is_valid_prefix();
+            let exempt = self.abbrev_fixed;
             let raw = std::mem::take(&mut self.raw);
             self.composing = false;
             self.engine.reset();
@@ -606,6 +611,7 @@ impl BambooWrapper {
                 raw,
                 valid,
                 valid_prefix,
+                exempt,
             };
         }
 
@@ -1086,6 +1092,15 @@ impl BambooWrapper {
             && (self.abbrev_fixed || self.kept_composition || self.engine.is_valid_prefix())
     }
 
+    /// Whether the word-end restore must leave this word alone regardless
+    /// of the syllable canon: an abbreviation is a deliberate mapping
+    /// (`ddc` → `đc`), not a tone-ized English word. A kept composition is
+    /// NOT exempt — the sticking `sỏt` the canon fixes is exactly a kept
+    /// word; the user dictionary outranks the canon instead.
+    pub fn restore_exempt(&self) -> bool {
+        self.abbrev_fixed
+    }
+
     pub fn has_composition(&self) -> bool {
         !self.engine.output_str().is_empty()
     }
@@ -1515,7 +1530,8 @@ mod tests {
                 word: "việt".into(),
                 raw: "vieejt".into(),
                 valid: true,
-                valid_prefix: true
+                valid_prefix: true,
+                exempt: false,
             }
         );
         assert_eq!(w.output(), "", "composition must be cleared");
@@ -1534,7 +1550,8 @@ mod tests {
                 word: "tung".into(),
                 raw: "tung".into(),
                 valid: true,
-                valid_prefix: true
+                valid_prefix: true,
+                exempt: false,
             }
         );
     }
@@ -1710,6 +1727,7 @@ mod tests {
             raw,
             valid,
             valid_prefix,
+            ..
         } = w.process_char(' ')
         {
             assert_eq!(word, "hạo6");
