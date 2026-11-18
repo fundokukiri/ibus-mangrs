@@ -1084,6 +1084,11 @@ fn preferred_backend_combo_saves_loads_and_survives_the_gate() {
     assert_eq!(ui.preferred_backend.selected(), 4, "libei loads at index 4");
 
     // Widget to config: the selected item maps back to the same variant.
+    ui.preferred_backend.set_selected(1);
+    assert_eq!(
+        ui.read().preferred_backend,
+        crate::config::PreferredBackendConfig::Uinput
+    );
     ui.preferred_backend.set_selected(2);
     assert_eq!(
         ui.read().preferred_backend,

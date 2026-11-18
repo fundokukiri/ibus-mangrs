@@ -94,8 +94,9 @@ pub fn preference_order() -> Vec<Kind> {
             // (libeis NULL fn pointer) when an EI client vanishes — both
             // measured live on 15/11, twice logging the session out. Libei
             // stays registered but only the MANGRS_REQUIRE_LIBEI-gated unit
-            // test ever reaches it (no selection override exists); it
-            // returns here only once an indicator-free acquisition exists
+            // test and the experimental preferred-backend override reach
+            // it here; it returns to this list by default only once an
+            // indicator-free acquisition exists
             // and the crash is fixed; the kernel device covers GNOME fully.
             vec![Kind::Uinput]
         } else {

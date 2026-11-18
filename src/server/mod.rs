@@ -31,7 +31,7 @@ use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
 use crate::ibus_text::{plain_text, text_from_variant, text_variant, Attr};
 use crate::keymap;
-use crate::transport::{preference_order, Injection, Kind};
+use crate::transport::{constructors, preference_order, Injection, Kind};
 
 mod hotkey;
 mod prop;
@@ -891,7 +891,14 @@ fn process_key(
             // DISPLAY) and retrying them per keystroke would pay their
             // full acquisition cost for nothing.
             injection.retry_denied(Kind::Uinput);
-            if injection.select(&[Kind::Uinput]).is_some() {
+            // select_with, not select: this retry stays uinput-only and
+            // must not rebuild a promoted list per keystroke (every other
+            // kind here is denied, so promotion could not change the
+            // outcome anyway).
+            if injection
+                .select_with(&[Kind::Uinput], &constructors)
+                .is_some()
+            {
                 debug_log::log("uinput arrived mid-session — backend selected");
                 refresh_backend_flags(engine, injection);
             }
