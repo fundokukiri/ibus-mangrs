@@ -506,7 +506,11 @@ impl BambooWrapper {
         self.undo_in_word = false;
         self.abbrev_fixed = false;
         self.kept_composition = false;
-        self.repeat_watch = None;
+        // The repeat watch survives the boundary: the physical key is still
+        // down (the boundary fired mid-hold), and resetting it here made the
+        // next repeat compose the pair and fire the injected rewrite that
+        // killed the compositor's repeat for the rest of the hold.
+        self.trail_live = false;
         self.output_override = None;
         // The tracked text is now the fresh composition only: the next delta
         // must append it after the committed word, never diff against it.

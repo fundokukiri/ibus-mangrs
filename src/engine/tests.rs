@@ -4873,6 +4873,47 @@ fn keep_repeats_raw_streams_a_hold_in_flow() {
 }
 
 #[test]
+fn keep_repeats_raw_a_hold_survives_the_overflow_boundary() {
+    // The owner's live report: past the 32-slot boundary bamboo commits the
+    // trail word, and a detector reset made the next repeat compose the
+    // pair (`oo` → `ô`) — firing the injected rewrite that killed the
+    // compositor's repeat for the rest of the hold. The physical key is
+    // still down: the watch must survive the boundary and the fresh word
+    // streams raw too.
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            experimental_features: true,
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let mut buf = String::new();
+    let mut injected = 0;
+    let mut script: Vec<(u64, char)> = vec![(0, 'o'), (500, 'o')];
+    script.extend(std::iter::repeat_n((40u64, 'o'), 34));
+    for (ms, c) in script {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => injected += n,
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    assert_eq!(buf.chars().filter(|c| *c == 'o').count(), 36);
+    assert_eq!(injected, 0, "the hold must never fire a rewrite");
+}
+
+#[test]
 fn keep_repeats_raw_fast_double_still_composes() {
     // 150 ms gaps: a deliberate double press under the threshold, with a
     // stall margin — a test-thread pause must eat ~250 ms more before the
