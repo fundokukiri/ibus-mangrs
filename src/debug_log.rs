@@ -19,6 +19,7 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 /// Only effective while `ENABLED` is also on — the default log stays free of
 /// typed text so it can be attached to a bug report as-is.
 static TEXT_ENABLED: AtomicBool = AtomicBool::new(false);
+static KEYS_ENABLED: AtomicBool = AtomicBool::new(false);
 /// The opened log file, kept for the process lifetime: opening (plus
 /// create_dir_all) per line put several syscalls of overhead on every
 /// keystroke — exactly when latency was being diagnosed.
@@ -59,6 +60,11 @@ pub fn set_text_enabled(on: bool) {
     TEXT_ENABLED.store(on, Ordering::Relaxed);
 }
 
+/// Enable or disable the key-event tier (mirrors `Config::debug_log_keys`).
+pub fn set_keys_enabled(on: bool) {
+    KEYS_ENABLED.store(on, Ordering::Relaxed);
+}
+
 /// Whether the decision log is on — call sites hot enough to build their
 /// message only when it will be used check this first.
 pub fn enabled() -> bool {
@@ -93,6 +99,16 @@ pub fn log(msg: &str) {
 /// plain `debug_log = true` session never records what the user typed.
 pub fn log_text(msg: &str) {
     if !TEXT_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    log(msg);
+}
+
+/// Append one per-keystroke line (keyval/state). Requires the master
+/// decision switch AND the keys tier — the default log stays free of the
+/// per-keystroke spam that once filled it.
+pub fn log_keys(msg: &str) {
+    if !KEYS_ENABLED.load(Ordering::Relaxed) {
         return;
     }
     log(msg);
@@ -206,6 +222,37 @@ mod tests {
         *PATH_OVERRIDE.lock().unwrap() = None;
         ENABLED.store(false, Ordering::Relaxed);
         TEXT_ENABLED.store(false, Ordering::Relaxed);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn keys_tier_needs_both_switches() {
+        let _guard = test_guard();
+        let dir = std::env::temp_dir().join(format!("ibus-mangrs-logtest3-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("debug.log");
+        let _ = std::fs::remove_file(&path);
+        *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+        set_enabled(true);
+        set_keys_enabled(false);
+        log_keys("key line while tier off");
+        log("decision only");
+        set_keys_enabled(true);
+        log_keys("key line while tier on");
+        set_enabled(false);
+        set_keys_enabled(true);
+        log_keys("key line while master off");
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(text.contains("decision only"), "{text}");
+        assert!(!text.contains("while tier off"), "{text}");
+        assert!(text.contains("while tier on"), "{text}");
+        assert!(!text.contains("while master off"), "{text}");
+        // Reset the globals: other tests share this process.
+        *LOG_FILE.lock().unwrap() = None;
+        *PATH_OVERRIDE.lock().unwrap() = None;
+        ENABLED.store(false, Ordering::Relaxed);
+        KEYS_ENABLED.store(false, Ordering::Relaxed);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir(&dir);
     }

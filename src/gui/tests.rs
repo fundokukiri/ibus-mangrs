@@ -562,6 +562,7 @@ fn refresh_round_trips_every_widget() {
         show_toasts: false,
         debug_log: true,
         debug_log_text: true,
+        debug_log_keys: true,
         x11_delete_without_report: true,
         preedit_for_xim: true,
         nav_key_while_preedit: "forward".into(),

@@ -601,6 +601,7 @@ impl EngineHandler {
                 let config = Config::load();
                 debug_log::set_enabled(config.debug_log);
                 debug_log::set_text_enabled(config.debug_log_text);
+                debug_log::set_keys_enabled(config.debug_log_keys);
                 // Direct field assignment: the engine guard held by this
                 // branch borrows part of self, so the &mut self helper
                 // cannot be called here.
@@ -883,11 +884,9 @@ fn process_key(
         keycode,
         state,
     } = ev;
-    // Hottest log site (every key event, every mode): the format! would
-    // allocate per keystroke even with the log off, so gate it first.
-    if debug_log::enabled() {
-        debug_log::log(&format!("key keyval={keyval:#x} state={state:#x}"));
-    }
+    // Hot log site (every key event, every mode): log_keys gates on its
+    // own tier before the format! runs, and the tier defaults off.
+    debug_log::log_keys(&format!("key keyval={keyval:#x} state={state:#x}"));
     // Key releases are never ours.
     if state & keymap::RELEASE_MASK != 0 {
         // The experimental Backspace correction may only inject once the key

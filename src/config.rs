@@ -183,6 +183,11 @@ pub struct Config {
     /// report as-is. Turn both on only when reproducing a lost/wrong
     /// character bug.
     pub debug_log_text: bool,
+    /// Third log tier: record one line per key event (keyval/state). Only
+    /// read while `debug_log` is on — the default log stays free of the
+    /// per-keystroke spam that once filled it; turn on only when debugging
+    /// the input path itself (keymaps, modifiers, hotkey routing).
+    pub debug_log_keys: bool,
     /// Allow the protocol delete for a DIRECT client (never through a mutter
     /// relay) that advertises surrounding-text support but never reported its
     /// text: X11 clients such as Sublime Text apply the delete inside their
@@ -908,6 +913,7 @@ impl Default for Config {
             show_toasts: true,
             debug_log: false,
             debug_log_text: false,
+            debug_log_keys: false,
             x11_delete_without_report: false,
             preedit_for_xim: false,
             nav_key_while_preedit: "forward".into(),
@@ -1597,6 +1603,14 @@ children = ["preedit", "flow"]
         );
         assert_eq!(c.mode, ModeConfig::Preedit, "the good keys must survive");
         assert!(!c.auto_restore);
+    }
+
+    #[test]
+    fn debug_log_keys_defaults_off_and_parses() {
+        let c = Config::from_toml("");
+        assert!(!c.debug_log_keys);
+        let c = Config::from_toml("debug_log_keys = true\n");
+        assert!(c.debug_log_keys);
     }
 
     #[test]
