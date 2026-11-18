@@ -69,6 +69,9 @@ mod tests {
         // loader's output, which the binary search relies on.
         let loaded = canon();
         assert!(loaded.windows(2).all(|w| w[0] < w[1]), "canon sorted");
-        assert!(SUPPLEMENT.windows(2).all(|w| w[0] < w[1]), "supplement sorted");
+        assert!(
+            SUPPLEMENT.windows(2).all(|w| w[0] < w[1]),
+            "supplement sorted"
+        );
     }
 }

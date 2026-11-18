@@ -229,9 +229,11 @@ impl Engine {
                         mode,
                         word,
                         raw,
-                        valid,
-                        valid_prefix,
-                        exempt,
+                        WordVerdicts {
+                            valid,
+                            valid_prefix,
+                            exempt,
+                        },
                         CandidateEnd::Close,
                     ));
                     self.note_char(c);
@@ -250,9 +252,11 @@ impl Engine {
                     mode,
                     word,
                     raw,
-                    valid,
-                    valid_prefix,
-                    exempt,
+                    WordVerdicts {
+                        valid,
+                        valid_prefix,
+                        exempt,
+                    },
                     candidate,
                 ));
                 // The terminator itself reaches the application last.
@@ -501,13 +505,12 @@ impl Engine {
         if let Some(exp) = self.expand_macro(raw, valid) {
             return exp;
         }
-        if self.should_auto_restore(
-            &word,
-            raw,
-            self.wrapper.is_valid_prefix(),
-            false,
-            self.wrapper.restore_exempt(),
-        ) {
+        let verdicts = WordVerdicts {
+            valid,
+            valid_prefix: self.wrapper.is_valid_prefix(),
+            exempt: self.wrapper.restore_exempt(),
+        };
+        if self.should_auto_restore(&word, raw, &verdicts, false) {
             return raw.to_string();
         }
         word
@@ -528,9 +531,8 @@ impl Engine {
         &self,
         word: &str,
         raw: &str,
-        valid_prefix: bool,
+        verdicts: &WordVerdicts,
         at_word_end: bool,
-        exempt: bool,
     ) -> bool {
         if !self.auto_restore || word.is_empty() || word == raw {
             return false;
@@ -544,7 +546,7 @@ impl Engine {
         if at_word_end
             && self.restore_unknown_words
             && word.chars().all(|c| c.is_alphabetic())
-            && !exempt
+            && !verdicts.exempt
             && !self.wrapper.undo_in_word()
             && !self
                 .dictionary
@@ -553,7 +555,7 @@ impl Engine {
         {
             return !crate::syllables::contains(&word.to_lowercase());
         }
-        if valid_prefix {
+        if verdicts.valid_prefix {
             return false;
         }
         let dict_hit = self
@@ -1004,10 +1006,7 @@ impl Engine {
         // the application — keep them instead of rewriting the word into a
         // syllable the user never meant (same gate as the inline modes).
         let lower = word.to_lowercase();
-        let dict_hit = self
-            .dictionary
-            .as_ref()
-            .is_some_and(|d| d.contains(&lower));
+        let dict_hit = self.dictionary.as_ref().is_some_and(|d| d.contains(&lower));
         // Experimental: the canon outranks a kept word too — the sticking
         // `sỏt` is exactly a keep-landed fake. Flag off costs nothing: the
         // clause short-circuits before the table lookup.
@@ -1065,11 +1064,10 @@ impl Engine {
         mode: Mode,
         word: String,
         raw: String,
-        valid: bool,
-        valid_prefix: bool,
-        exempt: bool,
+        verdicts: WordVerdicts,
         candidate: CandidateEnd,
     ) -> Vec<Action> {
+        let valid = verdicts.valid;
         let mut actions = self.hide_if_visible();
         let inline = mode != Mode::Preedit;
         let skip_macro = !matches!(candidate, CandidateEnd::None);
@@ -1113,7 +1111,7 @@ impl Engine {
         // `should_auto_restore`; the prefix verdict keeps `đuo` composed).
         // `force_raw` (a shortcode close that matched nothing) restores the
         // raw keys regardless of validity.
-        if (force_raw || self.should_auto_restore(&word, &raw, valid_prefix, true, exempt))
+        if (force_raw || self.should_auto_restore(&word, &raw, &verdicts, true))
             // Inline restore rewrites committed text; without a delete
             // transport the raw keys are already on screen, so there is
             // nothing to restore.

@@ -155,6 +155,15 @@ pub enum Action {
     CommitNow(String),
 }
 
+/// The word-end verdicts `Outcome::Finish` captures — and the idle/config
+/// paths re-derive live: full and prefix validity plus the abbreviation
+/// exemption the experimental canon restore honors.
+pub struct WordVerdicts {
+    pub valid: bool,
+    pub valid_prefix: bool,
+    pub exempt: bool,
+}
+
 pub struct Engine {
     wrapper: BambooWrapper,
     mode: Mode,
@@ -576,9 +585,11 @@ impl Engine {
                 Mode::Preedit,
                 pending.clone(),
                 raw,
-                valid,
-                valid_prefix,
-                self.wrapper.restore_exempt(),
+                WordVerdicts {
+                    valid,
+                    valid_prefix,
+                    exempt: self.wrapper.restore_exempt(),
+                },
                 candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));
@@ -1584,9 +1595,11 @@ impl Engine {
                 Mode::Preedit,
                 pending.clone(),
                 raw,
-                valid,
-                valid_prefix,
-                self.wrapper.restore_exempt(),
+                WordVerdicts {
+                    valid,
+                    valid_prefix,
+                    exempt: self.wrapper.restore_exempt(),
+                },
                 candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));
@@ -1745,9 +1758,11 @@ impl Engine {
                 Mode::Preedit,
                 pending.clone(),
                 raw.clone(),
-                valid,
-                valid_prefix,
-                self.wrapper.restore_exempt(),
+                WordVerdicts {
+                    valid,
+                    valid_prefix,
+                    exempt: self.wrapper.restore_exempt(),
+                },
                 candidate,
             );
             finished.retain(|a| !matches!(a, Action::Forward));

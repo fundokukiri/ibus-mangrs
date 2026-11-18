@@ -5027,9 +5027,7 @@ fn flow_apply(buf: &mut Vec<char>, actions: Vec<Action>, raw: Option<char>) {
         match a {
             Action::InjectBackspaces(n) => buf.truncate(buf.len() - n as usize),
             Action::Commit(t) | Action::CommitNow(t) => buf.extend(t.chars()),
-            Action::Forward => {
-                buf.push(raw.expect("a forwarded key always carries its char"))
-            }
+            Action::Forward => buf.push(raw.expect("a forwarded key always carries its char")),
             _ => {}
         }
     }
@@ -5115,7 +5113,11 @@ fn extendable_fake_states_restore_when_enabled() {
     // could still grow (`đuo`). OFF stays untouched
     // (a_valid_prefix_is_kept_in_every_display_mode).
     for mode in [Mode::Preedit, Mode::Surrounding] {
-        assert_eq!(typed(mode, "dduo "), "đuo ", "OFF keeps the prefix: {mode:?}");
+        assert_eq!(
+            typed(mode, "dduo "),
+            "đuo ",
+            "OFF keeps the prefix: {mode:?}"
+        );
         assert_eq!(
             type_replay(&mut engine(mode, canon_config()), "dduo "),
             "dduo ",
@@ -5154,7 +5156,11 @@ fn real_words_stay_composed_when_enabled() {
             _ => None,
         })
         .collect();
-    assert_eq!(shown.last(), Some(&"ngươ"), "mid-word display must not flip");
+    assert_eq!(
+        shown.last(),
+        Some(&"ngươ"),
+        "mid-word display must not flip"
+    );
 }
 
 #[test]
