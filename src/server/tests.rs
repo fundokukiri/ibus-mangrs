@@ -3452,3 +3452,23 @@ fn preferred_kind_maps_the_config_variants() {
         assert_eq!(preferred_kind(&c), want);
     }
 }
+
+#[test]
+fn backend_selection_log_names_the_role() {
+    assert_eq!(
+        backend_selection_log(Some(Kind::Uinput), None),
+        "injection backend: uinput (matrix)"
+    );
+    assert_eq!(
+        backend_selection_log(Some(Kind::XTest), Some(Kind::XTest)),
+        "injection backend: xtest (preferred)"
+    );
+    assert_eq!(
+        backend_selection_log(Some(Kind::Uinput), Some(Kind::XTest)),
+        "injection backend: uinput (fallback — xtest denied)"
+    );
+    assert_eq!(
+        backend_selection_log(None, Some(Kind::XTest)),
+        "injection backend: none (fallback — xtest denied)"
+    );
+}

@@ -175,6 +175,11 @@ impl Injection {
         self.preferred = preferred;
     }
 
+    /// The preference as fed, for the debug log's role word — a pure read.
+    pub fn preferred(&self) -> Option<Kind> {
+        self.preferred
+    }
+
     /// The kind of the backend currently held, if any.
     pub fn current(&self) -> Option<Kind> {
         self.inner.as_ref().map(|backend| backend.kind())

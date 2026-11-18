@@ -138,6 +138,9 @@ impl Server {
         // from a static device probe.
         handler.borrow_mut().injection.select(&preference_order());
         let selected = handler.borrow().injection.current();
+        if debug_log::enabled() {
+            debug_log::log(&backend_selection_log(selected, preferred_kind(&initial)));
+        }
         lock_engine(&engine).set_uinput_available(selected.is_some());
         // A compositor-routed backend delivers its keys through the
         // compositor itself, so the relay ban on injection does not apply.
@@ -616,6 +619,12 @@ impl EngineHandler {
                 // config value leads the next walk.
                 self.injection.set_preferred(preferred_kind(&config));
                 self.injection.select(&preference_order());
+                if debug_log::enabled() {
+                    debug_log::log(&backend_selection_log(
+                        self.injection.current(),
+                        preferred_kind(&config),
+                    ));
+                }
                 engine.set_uinput_available(self.injection.current().is_some());
                 // A compositor-routed backend delivers its keys through the
                 // compositor itself, so the relay ban on injection does not
@@ -831,6 +840,22 @@ fn preferred_kind(config: &Config) -> Option<Kind> {
         PreferredBackendConfig::XTest => Some(Kind::XTest),
         PreferredBackendConfig::WlrVirtualKeyboard => Some(Kind::WlrVirtualKeyboard),
         PreferredBackendConfig::Libei => Some(Kind::Libei),
+    }
+}
+
+/// The debug-log line naming the backend actually held after a re-select,
+/// with the role: `preferred` when it is the config's choice, `fallback` when
+/// that choice was denied and the matrix answered, `matrix` when no choice
+/// was set. Reads only — never decides anything.
+fn backend_selection_log(selected: Option<Kind>, preferred: Option<Kind>) -> String {
+    let held = selected.map_or("none".to_string(), |k| k.label().to_string());
+    match preferred {
+        None => format!("injection backend: {held} (matrix)"),
+        Some(p) if Some(p) == selected => format!("injection backend: {held} (preferred)"),
+        Some(p) => format!(
+            "injection backend: {held} (fallback — {} denied)",
+            p.label()
+        ),
     }
 }
 
@@ -1051,6 +1076,12 @@ fn flow_fallback_re_request(engine: &mut Engine, injection: &mut Injection) {
     if engine.flow_needs_backend() && injection.re_request_paced() {
         injection.select(&preference_order());
         refresh_backend_flags(engine, injection);
+        if debug_log::enabled() {
+            debug_log::log(&backend_selection_log(
+                injection.current(),
+                injection.preferred(),
+            ));
+        }
     }
 }
 
