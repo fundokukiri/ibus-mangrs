@@ -75,6 +75,12 @@ pub fn enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
 }
 
+/// Whether the keys tier is on — the key line's call site runs on every
+/// keystroke, so its format! is gated behind this before building.
+pub fn keys_enabled() -> bool {
+    KEYS_ENABLED.load(Ordering::Relaxed)
+}
+
 /// Append one line to the debug log. No-op unless enabled; never panics —
 /// a logging failure must never take the input engine down.
 pub fn log(msg: &str) {
@@ -329,17 +335,45 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&old);
         *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+        // Phase 1 — a pre-existing oversized log (the owner's real 7.4MB
+        // case) rotates on its first new write: the counter seeds from the
+        // file's metadata length at open, and the oversized content moves
+        // to .old whole.
+        std::fs::write(&path, vec![b'x'; (ROTATE_SIZE + 1024) as usize]).unwrap();
         set_enabled(true);
-        log("marker-before-rotation");
+        log("first line after open");
+        assert!(
+            old.exists(),
+            "the seeded oversized file must rotate on its first write"
+        );
+        let moved = std::fs::read_to_string(&old).unwrap_or_default();
+        assert!(
+            moved.len() as u64 > ROTATE_SIZE,
+            "the oversized content moved aside"
+        );
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap_or_default()
+                .contains("first line after open"),
+            "the crossing line starts the fresh file"
+        );
+        // Phase 2 — a long session crosses the cap mid-file: everything
+        // written before the crossing lands in .old, the live file starts
+        // fresh, and the fresh file stays under the cap.
         let big = "x".repeat(1024 * 1024);
         for _ in 0..6 {
             log(&big);
         }
-        assert!(old.exists(), "the cap must move the full log aside");
-        let moved = std::fs::read_to_string(&old).unwrap_or_default();
-        assert!(moved.contains("marker-before-rotation"));
+        let moved2 = std::fs::read_to_string(&old).unwrap_or_default();
+        assert!(
+            moved2.contains("first line after open"),
+            "the pre-crossing lines moved into .old"
+        );
         let live = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        assert!(live < ROTATE_SIZE, "the live file starts fresh: {live}");
+        assert!(
+            live < ROTATE_SIZE,
+            "the live file starts fresh again: {live}"
+        );
         // Reset the globals: other tests share this process.
         *LOG_FILE.lock().unwrap() = None;
         *PATH_OVERRIDE.lock().unwrap() = None;

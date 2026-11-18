@@ -337,6 +337,7 @@ impl EngineHandler {
             let config = Config::load();
             debug_log::set_enabled(config.debug_log);
             debug_log::set_text_enabled(config.debug_log_text);
+            debug_log::set_keys_enabled(config.debug_log_keys);
             self.refresh_hotkey_cache(&config);
             // The preferred backend rides the same hot apply; the walk
             // itself still happens at the next focus-in or paced re-request.

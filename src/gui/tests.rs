@@ -562,7 +562,7 @@ fn refresh_round_trips_every_widget() {
         show_toasts: false,
         debug_log: true,
         debug_log_text: true,
-        debug_log_keys: false,
+        debug_log_keys: true,
         x11_delete_without_report: true,
         preedit_for_xim: true,
         nav_key_while_preedit: "forward".into(),
@@ -925,7 +925,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 22] = [
+    let rows: [&adw::SwitchRow; 24] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -946,6 +946,8 @@ fn every_switch_triggers_save() {
         &ui.dictionary_enabled,
         &ui.hide_underline,
         &ui.debug_log,
+        &ui.debug_log_text,
+        &ui.debug_log_keys,
         &ui.x11_delete,
         &ui.preedit_xim,
     ];

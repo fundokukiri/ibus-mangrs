@@ -886,9 +886,12 @@ fn process_key(
         keycode,
         state,
     } = ev;
-    // Hot log site (every key event, every mode): log_keys gates on its
-    // own tier before the format! runs, and the tier defaults off.
-    debug_log::log_keys(&format!("key keyval={keyval:#x} state={state:#x}"));
+    // Hottest log site (every key event, every mode): the format! would
+    // allocate per keystroke even with the log off, so gate it first —
+    // on the keys tier (default off), which log_keys then double-checks.
+    if debug_log::keys_enabled() {
+        debug_log::log_keys(&format!("key keyval={keyval:#x} state={state:#x}"));
+    }
     // Key releases are never ours.
     if state & keymap::RELEASE_MASK != 0 {
         // The experimental Backspace correction may only inject once the key
