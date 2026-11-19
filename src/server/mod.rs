@@ -659,6 +659,12 @@ impl EngineHandler {
                     out.push(signal("HideLookupTable"));
                     out.push(signal("HideAuxiliaryText"));
                 }
+                // The suggestion strip rides the same teardown — the table
+                // belongs to the outgoing context, even when a burst defers
+                // the reset below (then the engine's own close never fires).
+                // The engine's HideCandidates from focus_out stays silent
+                // behind the taken state instead of doubling the hide.
+                strip_hide(out);
                 // Focus-bounce tolerance: a burst in flight defers the whole
                 // reset for the bounce window. A quick unfocus/refocus of the
                 // same context resumes it untouched in FocusIn; a real switch
@@ -741,6 +747,10 @@ impl EngineHandler {
                     out.push(signal("HideLookupTable"));
                     out.push(signal("HideAuxiliaryText"));
                 }
+                // The suggestion strip rides the same teardown; the engine's
+                // own HideCandidates from on_client_reset stays silent behind
+                // the taken state instead of doubling the hide.
+                strip_hide(out);
                 // The preedit is sent with IBUS_ENGINE_PREEDIT_COMMIT, so the
                 // client has already committed the word by the time this
                 // arrives (GTK sends it on a mouse click, a focus change and a
@@ -1000,6 +1010,13 @@ fn process_key(
         for text in engine.flush_deferred() {
             out.push(signal("CommitText").append1(plain_text(&text)));
         }
+    }
+
+    // The suggestion strip's keys: digits pick, Left/Right page — both only
+    // while the table is up. Sits before the editing-key dispatch so an
+    // open strip owns Left/Right; a closed strip changes nothing here.
+    if strip_key(engine, injection, burst, keyval, out) {
+        return true;
     }
 
     // Arrows, Tab, Escape, Delete... end the word and belong to the app.
@@ -1834,13 +1851,160 @@ fn emit_with(
                 }
             }
             Action::Forward | Action::Consumed => {}
-            // The strip renders server-side (lookup table, paging, the
-            // picker's digit selection); nothing consumes these actions
-            // until that plumbing lands, so they stay off the wire here.
-            Action::UpdateCandidates { .. } | Action::HideCandidates => {}
+            // The strip renders server-side, the picker's lookup-table
+            // precedent: the candidate actions carry the engine's full
+            // list, the server pages and labels it (below).
+            Action::UpdateCandidates { items } => strip_show(items, out),
+            Action::HideCandidates => strip_hide(out),
         }
     }
     injected_total
+}
+
+/// Page size of the suggestion strip's lookup table: five labeled slots,
+/// digits `1`-`5` pick them, Left/Right turn the page.
+const STRIP_PAGE_SIZE: usize = 5;
+
+/// The server's view of the suggestion strip — the full candidate list the
+/// last `UpdateCandidates` carried and the page the Left/Right keys moved
+/// to. It lives beside `emit` instead of on `EngineHandler` because those
+/// two actions reach the server only through `emit`, whose call sites span
+/// the key path, the tick, focus/reset and the config applies across five
+/// files; riding the funnel keeps the state in step with the table on
+/// screen no matter which of them fired. The server's message loop is
+/// single-threaded (the callback runs inside `conn.iter()` on the main
+/// thread) and `EngineHandler` is `!Send` anyway, so a thread-local is
+/// sound.
+struct StripState {
+    items: Vec<String>,
+    page: usize,
+}
+
+thread_local! {
+    static STRIP: std::cell::RefCell<Option<StripState>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Show the strip: store the engine's full list and render page 0. Every
+/// `UpdateCandidates` is a word change, so the arrows' page never survives
+/// it. An empty list would render an empty table — hide instead, keeping
+/// the state and the screen in step.
+fn strip_show(items: &[String], out: &mut Vec<Message>) {
+    if items.is_empty() {
+        strip_hide(out);
+        return;
+    }
+    STRIP.with(|cell| {
+        *cell.borrow_mut() = Some(StripState {
+            items: items.to_vec(),
+            page: 0,
+        });
+    });
+    strip_emit_table(out);
+}
+
+/// Hide the strip and drop its state. The signal rides only when something
+/// was shown: the engine's close racing the server's own teardown (focus
+/// out) must not push a duplicate hide.
+fn strip_hide(out: &mut Vec<Message>) {
+    let shown = STRIP.with(|cell| cell.borrow_mut().take().is_some());
+    if shown {
+        out.push(signal("HideLookupTable"));
+    }
+}
+
+/// Whether the strip is showing.
+fn strip_open() -> bool {
+    STRIP.with(|cell| cell.borrow().is_some())
+}
+
+/// The page the arrows moved to, `0` while page 0 is the newest update.
+fn strip_page() -> usize {
+    STRIP.with(|cell| cell.borrow().as_ref().map(|s| s.page).unwrap_or(0))
+}
+
+/// Move the page by `delta`, clamped at both ends — the strip never wraps
+/// (a wrap past the last page would re-show page 0 under the user's hand).
+fn strip_move_page(delta: i32) {
+    STRIP.with(|cell| {
+        let mut s = cell.borrow_mut();
+        if let Some(s) = s.as_mut() {
+            let last = s.items.len().saturating_sub(1) / STRIP_PAGE_SIZE;
+            s.page = (s.page as i32 + delta).clamp(0, last as i32) as usize;
+        }
+    });
+}
+
+/// Render the strip's current page: page size 5, cursor on the head,
+/// horizontal with the `1.`-`5.` labels — one digit label per slot, so the
+/// key that picks an entry is visible on it.
+fn strip_emit_table(out: &mut Vec<Message>) {
+    STRIP.with(|cell| {
+        let s = cell.borrow();
+        let Some(s) = s.as_ref() else {
+            return;
+        };
+        let start = s.page * STRIP_PAGE_SIZE;
+        let page: Vec<String> = s
+            .items
+            .iter()
+            .skip(start)
+            .take(STRIP_PAGE_SIZE)
+            .cloned()
+            .collect();
+        let table = ibus_prop::lookup_table_page(STRIP_PAGE_SIZE as u32, &page);
+        out.push(signal("UpdateLookupTable").append2(table, true));
+    });
+}
+
+/// The selection digit a keysym names, `1`-`5` (keypad digits included
+/// through their chars); `None` for every other key.
+fn strip_digit(keyval: u32) -> Option<usize> {
+    match keymap::keysym_to_char(keyval) {
+        Some(c @ '1'..='5') => Some(c as usize - '0' as usize),
+        _ => None,
+    }
+}
+
+/// The strip's server-side keys, tried between the burst hold and the
+/// editing-key dispatch: digits `1`-`5` pick, Left/Right page. Returns
+/// whether the key was consumed.
+///
+/// A pick maps page + digit to the global index and hands it to
+/// `accept_candidate`, whose returned actions ride the normal emit — the
+/// commit, the composition reset and the strip's own close all travel the
+/// regular paths. The engine validates the index: an over-range label or a
+/// strip the word has moved past returns empty, and the key falls through
+/// to the normal dispatch (a refused digit types as content, exactly the
+/// no-strip behavior). The strip is a Preedit-mode feature and never
+/// injects, so nothing can be deferred or in flight here — no flush or
+/// hold bookkeeping either.
+fn strip_key(
+    engine: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    keyval: u32,
+    out: &mut Vec<Message>,
+) -> bool {
+    if !strip_open() {
+        return false;
+    }
+    if let Some(digit) = strip_digit(keyval) {
+        let index = strip_page() * STRIP_PAGE_SIZE + digit - 1;
+        let actions = engine.accept_candidate(index);
+        if actions.is_empty() {
+            return false;
+        }
+        let injected = emit(engine, injection, &actions, out);
+        add_injected_batch(engine, burst, injected);
+        return true;
+    }
+    match keyval {
+        keymap::LEFT => strip_move_page(-1),
+        keymap::RIGHT => strip_move_page(1),
+        _ => return false,
+    }
+    strip_emit_table(out);
+    true
 }
 
 /// A signal on the static engine path and interface: `new_signal` cannot

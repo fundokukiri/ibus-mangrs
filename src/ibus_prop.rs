@@ -566,16 +566,17 @@ fn radio_items(
         .collect()
 }
 
-/// The serialized `IBusLookupTable` for the per-app rule picker, ready for
-/// a `v` slot. Signature `(sa{sv}uubbiavav)` — type tag, properties,
-/// page size, cursor, cursor visible, round, orientation, candidates
-/// (IBusText), labels — captured from libibus 1.5.34's own serialization
-/// (`IBus.LookupTable` via GI). The engine shows it at the caret the way
-/// ibus-bamboo's Shift+` menu does.
-pub fn lookup_table_variant(
+/// The serialized `IBusLookupTable` both table helpers share. Signature
+/// `(sa{sv}uubbiavav)` — type tag, properties, page size, cursor, cursor
+/// visible, round, orientation, candidates (IBusText), labels — captured
+/// from libibus 1.5.34's own serialization (`IBus.LookupTable` via GI).
+fn lookup_table_shape(
     page_size: u32,
     cursor: u32,
+    round: bool,
+    orientation: i32,
     candidates: &[String],
+    labels: &[String],
 ) -> Variant<Box<dyn RefArg>> {
     Variant(Box::new((
         "IBusLookupTable".to_string(),
@@ -583,14 +584,41 @@ pub fn lookup_table_variant(
         page_size,
         cursor,
         true, // cursor visible
-        true, // round: wrap around at the ends
-        2i32, // vertical orientation
+        round,
+        orientation,
         candidates
             .iter()
             .map(|c| crate::ibus_text::plain_text(c))
             .collect::<Vec<_>>(),
-        Vec::<Variant<Box<dyn RefArg>>>::new(), // default 1..n labels
+        labels
+            .iter()
+            .map(|l| crate::ibus_text::plain_text(l))
+            .collect::<Vec<_>>(),
     )) as Box<dyn RefArg>)
+}
+
+/// The serialized `IBusLookupTable` for the per-app rule picker, ready for
+/// a `v` slot. The engine shows it at the caret the way ibus-bamboo's
+/// Shift+` menu does: one page of entries the panel lays out as it likes
+/// (orientation free, default 1..n labels).
+pub fn lookup_table_variant(
+    page_size: u32,
+    cursor: u32,
+    candidates: &[String],
+) -> Variant<Box<dyn RefArg>> {
+    lookup_table_shape(page_size, cursor, true, 2, candidates, &[])
+}
+
+/// The serialized `IBusLookupTable` for one page of the suggestion strip:
+/// the server slices and pages the list itself, so each emission carries
+/// exactly the page's candidates at cursor 0, laid out horizontally with
+/// the `1.`-`n.` labels naming the digit that picks each slot. A shorter
+/// last page simply shows fewer candidates; the labels stay the full set
+/// so the slots keep their keys.
+pub fn lookup_table_page(page_size: u32, candidates: &[String]) -> Variant<Box<dyn RefArg>> {
+    let labels: Vec<String> = (1..=page_size).map(|i| format!("{i}.")).collect();
+    // Orientation 0 = horizontal: one row, a digit label beside each entry.
+    lookup_table_shape(page_size, 0, true, 0, candidates, &labels)
 }
 
 #[cfg(test)]
@@ -985,6 +1013,40 @@ mod tests {
             .map(|p| p.key.as_str())
             .collect();
         assert_eq!(checked, vec!["display:flow"]);
+    }
+
+    #[test]
+    fn strip_table_is_horizontal_with_digit_labels() {
+        // The suggestion strip's page: horizontal, cursor on the head, one
+        // digit label per slot so the picking key is visible on the entry.
+        let table = lookup_table_page(5, &["một".into(), "hai".into()]);
+        assert_eq!(table.0.signature().to_string(), "(sa{sv}uubbiavav)");
+        let parts = table
+            .0
+            .as_any()
+            .downcast_ref::<(
+                String,
+                crate::ibus_text::Props,
+                u32,
+                u32,
+                bool,
+                bool,
+                i32,
+                Vec<Variant<Box<dyn RefArg>>>,
+                Vec<Variant<Box<dyn RefArg>>>,
+            )>()
+            .expect("IBusLookupTable fields");
+        assert_eq!(
+            (parts.2, parts.3, parts.4, parts.5, parts.6),
+            (5, 0, true, true, 0)
+        );
+        let text = |list: &Vec<Variant<Box<dyn RefArg>>>| -> Vec<String> {
+            list.iter()
+                .map(|v| crate::ibus_text::text_from_variant(v).expect("IBusText"))
+                .collect()
+        };
+        assert_eq!(text(&parts.7), vec!["một".to_string(), "hai".to_string()]);
+        assert_eq!(text(&parts.8), ["1.", "2.", "3.", "4.", "5."]);
     }
 
     #[test]

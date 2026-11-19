@@ -3472,3 +3472,383 @@ fn backend_selection_log_names_the_role() {
         "injection backend: none (fallback — xtest denied)"
     );
 }
+
+// --- The suggestion strip on the IBus lookup table (server plumbing) ---
+
+/// The seven-item strip list the paging tests share: two pages, the second
+/// holding two entries — the partial last page the labels must survive.
+fn strip_items() -> Vec<String> {
+    ["một", "hai", "ba", "bốn", "năm", "sáu", "bảy"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// The decoded `IBusLookupTable` payload a strip table carries — page size,
+/// cursor, cursor visible, round, orientation, candidate texts, label
+/// texts. A table read back off the wire arrives as a `VecDeque` of boxed
+/// fields: [type tag, property map, page size, cursor, cursor visible,
+/// round, orientation, candidates, labels]; the first two lead and are
+/// dropped.
+fn table_parts(
+    table: &Variant<Box<dyn RefArg>>,
+) -> (u64, u64, bool, bool, i64, Vec<String>, Vec<String>) {
+    /// The IBusText payloads of one av field of a wire-decoded table.
+    fn texts(field: &(dyn RefArg + 'static)) -> Vec<String> {
+        let list = field
+            .as_any()
+            .downcast_ref::<Vec<Variant<Box<dyn RefArg>>>>()
+            .expect("av field");
+        list.iter()
+            .map(|v| text_from_variant(v).expect("IBusText"))
+            .collect()
+    }
+    let fields = table
+        .0
+        .as_any()
+        .downcast_ref::<std::collections::VecDeque<Box<dyn RefArg>>>()
+        .unwrap_or_else(|| panic!("IBusLookupTable fields: {:?}", table.0));
+    let flag = |i: usize| {
+        fields[i]
+            .as_any()
+            .downcast_ref::<bool>()
+            .copied()
+            .expect("bool field")
+    };
+    (
+        fields[2].as_u64().expect("page size"),
+        fields[3].as_u64().expect("cursor"),
+        flag(4),
+        flag(5),
+        fields[6].as_i64().expect("orientation"),
+        texts(&fields[7]),
+        texts(&fields[8]),
+    )
+}
+
+/// The members of one outgoing batch, for shape assertions.
+fn members(out: &[Message]) -> Vec<String> {
+    out.iter()
+        .filter_map(|m| m.member().map(|m| m.to_string()))
+        .collect()
+}
+
+/// The strip state is per-thread; reset it so a test that needs a closed
+/// strip starts from one regardless of test order.
+fn strip_reset_for_test() {
+    STRIP.with(|cell| *cell.borrow_mut() = None);
+}
+
+/// A handler over a plain Telex/Preedit engine with the preedit capability.
+/// The config stays at its defaults unless the test applies its own: the
+/// strip's `suggest_words` gate is OFF here, so the funnel only holds what
+/// the test seeds.
+fn strip_handler(suggest_words: bool) -> (SharedEngine, EngineHandler) {
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+    {
+        let mut e = lock_engine(&engine);
+        e.apply_config(&Config {
+            mode: Mode::Preedit.into(),
+            suggest_words,
+            ..Config::default()
+        });
+        e.set_method(Method::Telex);
+        e.set_capabilities(1);
+    }
+    let handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        injection: Injection::new(),
+        last_config_check: Instant::now(),
+        last_config_mtime: None,
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
+        focus_ext: None,
+    };
+    (engine, handler)
+}
+
+/// One ProcessKeyEvent press through the handler: (consumed, signals).
+fn press(handler: &mut EngineHandler, keyval: u32) -> (bool, Vec<Message>) {
+    let msg = engine_msg("ProcessKeyEvent").append3(keyval, 0u32, 0u32);
+    let mut out = Vec::new();
+    let reply = handler.process_key_call(&msg, &mut out);
+    (reply.read1::<bool>().expect("bool reply"), out)
+}
+
+#[test]
+fn update_candidates_renders_one_horizontal_page() {
+    strip_reset_for_test();
+    let msgs = emitted(&[Action::UpdateCandidates {
+        items: strip_items(),
+    }]);
+    assert_eq!(members(&msgs), vec!["UpdateLookupTable"]);
+    let (table, visible) = msgs[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table + visible");
+    assert!(visible);
+    let (page_size, cursor, cursor_visible, round, orientation, cands, labels) =
+        table_parts(&table);
+    assert_eq!(page_size, 5);
+    assert_eq!(cursor, 0, "selection is by digit; no highlight to move");
+    assert!(cursor_visible);
+    assert!(round);
+    assert_eq!(orientation, 0, "horizontal: one row of labeled entries");
+    assert_eq!(cands, ["một", "hai", "ba", "bốn", "năm"], "page 0");
+    assert_eq!(labels, ["1.", "2.", "3.", "4.", "5."]);
+}
+
+#[test]
+fn hide_candidates_hides_and_clears_the_strip() {
+    strip_reset_for_test();
+    let msgs = emitted(&[
+        Action::UpdateCandidates {
+            items: strip_items(),
+        },
+        Action::HideCandidates,
+    ]);
+    assert_eq!(members(&msgs), vec!["UpdateLookupTable", "HideLookupTable"]);
+    // The state cleared with the hide: a second close is silent instead of
+    // pushing a stray signal (the engine's close racing the server's own
+    // teardown must not double).
+    let msgs = emitted(&[Action::HideCandidates]);
+    assert!(msgs.is_empty(), "{:?}", members(&msgs));
+}
+
+#[test]
+fn left_and_right_page_the_strip_while_visible() {
+    strip_reset_for_test();
+    let (engine, mut handler) = strip_handler(false);
+    // Seed the strip through the funnel the engine's actions ride.
+    let mut out = Vec::new();
+    {
+        let mut e = lock_engine(&engine);
+        emit(
+            &mut e,
+            &Injection::new(),
+            &[Action::UpdateCandidates {
+                items: strip_items(),
+            }],
+            &mut out,
+        );
+    }
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+
+    // Right turns to page 1: the two entries past the first five, still
+    // labeled 1.-5. (the page slots keep their digits).
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(consumed, "the arrow is consumed while the strip is up");
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (.., orientation, cands, labels) = table_parts(&table);
+    assert_eq!(orientation, 0);
+    assert_eq!(cands, ["sáu", "bảy"]);
+    assert_eq!(labels, ["1.", "2.", "3.", "4.", "5."]);
+
+    // Right on the last page clamps: the same page renders again.
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(consumed);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, _, _, _, _, cands, _) = table_parts(&table);
+    assert_eq!(cands, ["sáu", "bảy"]);
+
+    // Left walks back to page 0.
+    let (consumed, out) = press(&mut handler, keymap::LEFT);
+    assert!(consumed);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, _, _, _, _, cands, _) = table_parts(&table);
+    assert_eq!(cands, ["một", "hai", "ba", "bốn", "năm"]);
+
+    // Left on the first page clamps: page 0 again, key still consumed.
+    let (consumed, out) = press(&mut handler, keymap::LEFT);
+    assert!(consumed);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, _, _, _, _, cands, _) = table_parts(&table);
+    assert_eq!(cands, ["một", "hai", "ba", "bốn", "năm"]);
+}
+
+#[test]
+fn digits_pick_while_the_strip_is_visible() {
+    strip_reset_for_test();
+    // The real flow: a suggest-enabled engine opens the strip on the
+    // second char, and digit 1 picks its first candidate.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, out) = press(&mut handler, 0x74); // 't'
+    assert!(
+        !members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "a lone first key never opens the strip: {:?}",
+        members(&out)
+    );
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the strip opens beside the preedit"
+    );
+    // Digit 1 picks: the candidate commits off the emitted list, the strip
+    // closes, the composition resets.
+    let (consumed, out) = press(&mut handler, 0x31); // '1'
+    assert!(consumed, "a pick consumes the digit");
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "HideLookupTable", "CommitText"]
+    );
+    let committed = out[2]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("CommitText variant");
+    assert_eq!(
+        text_from_variant(&committed).as_deref(),
+        Some("thể"),
+        "the first page-0 candidate commits, not the raw keys"
+    );
+    // The strip is closed: the next word types fresh, one-char quiet.
+    let (_, out) = press(&mut handler, 0x78); // 'x'
+    assert!(
+        !members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "{:?}",
+        members(&out)
+    );
+}
+
+#[test]
+fn a_digit_beyond_the_list_falls_through_to_the_engine() {
+    strip_reset_for_test();
+    // The wordless-engine race: the funnel still shows page 1 of a seeded
+    // list while the engine has nothing in flight, so every accept is
+    // refused — label 5's global index (9) is past any real list.
+    let (engine, mut handler) = strip_handler(false);
+    let mut out = Vec::new();
+    {
+        let mut e = lock_engine(&engine);
+        emit(
+            &mut e,
+            &Injection::new(),
+            &[Action::UpdateCandidates {
+                items: strip_items(),
+            }],
+            &mut out,
+        );
+    }
+    let (consumed, _) = press(&mut handler, keymap::RIGHT);
+    assert!(consumed, "paging still works for the seeded strip");
+    // Label 5 on page 1 → global index 9 → the engine refuses → today's
+    // key path (a wordless digit forwards, nothing commits).
+    let (consumed, out) = press(&mut handler, 0x35); // '5'
+    assert!(!consumed, "the refused digit falls through");
+    assert!(
+        members(&out).is_empty(),
+        "no pick, no commit, no hide: {:?}",
+        members(&out)
+    );
+}
+
+#[test]
+fn strip_keys_type_normally_when_the_strip_is_closed() {
+    strip_reset_for_test();
+    // Byte-identical to today's engine, captured from the pre-strip
+    // behavior: a wordless engine forwards arrows and digits with no
+    // signals; a word in flight commits on the arrow and ends on the digit.
+    let (_engine, mut handler) = strip_handler(false);
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(!consumed);
+    assert!(members(&out).is_empty(), "{:?}", members(&out));
+    let (consumed, out) = press(&mut handler, 0x31); // '1'
+    assert!(!consumed);
+    assert!(members(&out).is_empty(), "{:?}", members(&out));
+    let (consumed, out) = press(&mut handler, 0x74); // 't'
+    assert!(consumed);
+    assert_eq!(members(&out), vec!["UpdatePreeditText"]);
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert_eq!(members(&out), vec!["UpdatePreeditText"]);
+    // The arrow ends the word and passes through: commit rides the reply.
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(!consumed);
+    assert_eq!(members(&out), vec!["UpdatePreeditText", "CommitText"]);
+    let (consumed, out) = press(&mut handler, 0x31); // '1'
+    assert!(!consumed);
+    assert!(members(&out).is_empty(), "{:?}", members(&out));
+}
+
+#[test]
+fn word_end_hides_the_strip_server_side() {
+    strip_reset_for_test();
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "strip open: {:?}",
+        members(&out)
+    );
+    // The space ends the word: the engine's HideCandidates closes the
+    // strip server-side with the commit.
+    let (_, out) = press(&mut handler, 0x20); // space
+    assert!(
+        members(&out).iter().any(|m| m == "HideLookupTable"),
+        "the word end hides the strip: {:?}",
+        members(&out)
+    );
+    // Closed again: the arrow flows as today (forwarded, no table).
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(!consumed);
+    assert!(!members(&out).iter().any(|m| m == "UpdateLookupTable"));
+}
+
+#[test]
+fn focus_out_and_reset_teardown_the_strip() {
+    strip_reset_for_test();
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(members(&out).iter().any(|m| m == "UpdateLookupTable"));
+    // FocusOut: the strip rides the picker's teardown — exactly one hide,
+    // and the engine's own HideCandidates stays silent behind the taken
+    // state instead of doubling it.
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+    assert_eq!(
+        members(&out)
+            .iter()
+            .filter(|m| *m == "HideLookupTable")
+            .count(),
+        1,
+        "{:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(!consumed, "the strip is closed: today's arrow flow");
+    assert!(!members(&out).iter().any(|m| m == "UpdateLookupTable"));
+
+    // Same teardown on a client Reset (a click elsewhere dismisses it).
+    let (_, out) = press(&mut handler, 0x74); // 't'
+    let _ = out;
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(members(&out).iter().any(|m| m == "UpdateLookupTable"));
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("Reset"), "Reset", &mut out);
+    assert_eq!(
+        members(&out)
+            .iter()
+            .filter(|m| *m == "HideLookupTable")
+            .count(),
+        1,
+        "{:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, keymap::LEFT);
+    assert!(!consumed);
+    assert!(!members(&out).iter().any(|m| m == "UpdateLookupTable"));
+}
