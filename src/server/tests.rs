@@ -3541,8 +3541,9 @@ fn strip_reset_for_test() {
 
 /// A handler over a plain Telex/Preedit engine with the preedit capability.
 /// The config stays at its defaults unless the test applies its own: the
-/// strip's `suggest_words` gate is OFF here, so the funnel only holds what
-/// the test seeds.
+/// strip's `suggest_words` switch rides the experimental master gate (the
+/// engine bakes `experimental && suggest_words`), so a test that turns the
+/// strip on turns the gate on with it.
 fn strip_handler(suggest_words: bool) -> (SharedEngine, EngineHandler) {
     let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
     {
@@ -3550,6 +3551,7 @@ fn strip_handler(suggest_words: bool) -> (SharedEngine, EngineHandler) {
         e.apply_config(&Config {
             mode: Mode::Preedit.into(),
             suggest_words,
+            experimental_features: suggest_words,
             ..Config::default()
         });
         e.set_method(Method::Telex);

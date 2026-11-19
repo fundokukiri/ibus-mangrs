@@ -719,9 +719,9 @@ impl Engine {
             .set_keep_composed_words(experimental && config.keep_composed_words);
         self.wrapper
             .set_keep_repeats_raw(experimental && config.keep_repeats_raw);
-        // The strip switch has no experimental bake-in (ruling: the strip
-        // gate reads the raw switch; the GUI gates the row instead).
-        self.suggest_words = config.suggest_words;
+        // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
+        // closed means the strip stays off, whatever the saved switch says.
+        self.suggest_words = experimental && config.suggest_words;
         self.hide_underline = config.hide_underline;
         self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;

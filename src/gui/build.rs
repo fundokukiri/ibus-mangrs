@@ -238,6 +238,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "giữ o → oooo… thay vì dừng ở ô",
         ),
     );
+    let suggest_words = switch_row(
+        &t("rows.suggest_words.title", "Gợi ý từ điển"),
+        &t(
+            "rows.suggest_words.subtitle",
+            "Gợi ý từ đang gõ, chọn bằng phím số",
+        ),
+    );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Backend ưu tiên"),
         &t(
@@ -783,6 +790,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Dành riêng cho chế độ Flow: giữ một phím ở Flow chỉ lặp được một lần rồi dừng ở ô (oo → ô rồi đứng im), bật thì phím giữ chảy nguyên bản oooo… như bàn phím thường. Các chế độ gõ khác không gặp lỗi này nên không cần bật. Đổi giá khi bật: hai phím giống nhau gõ cách nhau quá ~0,4 giây sẽ ở lại nguyên bản (tooi thay vì tôi). Mặc định tắt."
     );
     tip!(
+        suggest_words,
+        "tips.suggest_words",
+        "Từ đang gõ hiện thành danh sách gợi ý ngay dưới ô soạn, bấm 1–5 để chọn từ, phím Trái/Phải lật trang, phím Escape vẫn kết thúc từ như thường. Chỉ chạy ở chế độ Preedit và chỉ với preset Telex, Telex 2, Telex W, VIQR — các preset khác dùng số làm phím dấu nên không dùng được. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
+    );
+    tip!(
         preferred_backend,
         "tips.preferred_backend",
         "Chọn backend tiêm phím được ưu tiên: uinput là bàn phím ảo của nhân, XTest chỉ có trên X11, wlroots cho Hyprland/sway, libei qua GNOME (đã đo thấy rủi ro crash — chỉ để thử nghiệm). Backend chọn được đặt lên đầu danh sách ưu tiên; không dựng được thì bộ gõ tự rơi về thứ tự theo môi trường. Tự động là hành vi mặc định."
@@ -866,6 +878,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         macro_valid_words,
         keep_composed_words,
         keep_repeats_raw,
+        suggest_words,
         preferred_backend,
         time_format,
         date_format,

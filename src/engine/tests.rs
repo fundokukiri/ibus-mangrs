@@ -5012,12 +5012,15 @@ fn keep_repeats_raw_a_mark_key_after_a_hold_keeps_screen_and_word_in_sync() {
 
 /// Engine with the strip switch applied; unlike `engine` above this picks
 /// the input method too — the digit-tone presets must prove the strip's
-/// silence on their digits.
+/// silence on their digits. The switch rides the experimental master gate
+/// (the engine bakes `experimental && suggest_words`), so a strip-on test
+/// turns the gate on with it.
 fn suggest_engine(method: Method, mode: Mode, suggest_words: bool) -> Engine {
     let mut e = Engine::new(method, mode);
     e.apply_config(&Config {
         mode: mode.into(),
         suggest_words,
+        experimental_features: true,
         ..Config::default()
     });
     // apply_config resets the method to the config default, exactly like it
@@ -5186,6 +5189,26 @@ fn suggest_digit_tone_presets_stay_silent() {
         let keys = suggest_keys(&mut e, "viet6 1");
         let all: Vec<Action> = keys.into_iter().flatten().collect();
         assert!(strip_actions(&all).is_empty(), "{method:?}: {all:?}");
+    }
+}
+
+#[test]
+fn suggest_stays_silent_while_the_experimental_gate_is_closed() {
+    // The row lives behind "Bật thử nghiệm" like the keeps: the engine bakes
+    // the master gate into the mirror (`experimental && suggest_words`), so
+    // the saved switch alone — gate closed — must keep every strip action
+    // off the wire. Config::default() carries the closed gate on purpose.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        suggest_words: true,
+        ..Config::default()
+    });
+    let keys = suggest_keys(&mut e, "th");
+    for (i, batch) in keys.iter().enumerate() {
+        assert!(
+            strip_actions(batch).is_empty(),
+            "key {i} emitted a strip action: {batch:?}"
+        );
     }
 }
 

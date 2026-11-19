@@ -517,6 +517,7 @@ fn refresh_round_trips_every_widget() {
         extended_onsets: true,
         keep_composed_words: true,
         keep_repeats_raw: true,
+        suggest_words: true,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
         bypass_url: false,
@@ -1009,6 +1010,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     let on = Config::load();
     ui.refresh(&on, &macros, &dictionary);
     assert!(ui.macro_valid_words.is_sensitive());
+    assert!(ui.suggest_words.is_sensitive());
     // The merged row locks as one unit with the gate.
     assert!(ui.extra_url_chars_row.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
@@ -1022,6 +1024,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     let off = Config::load();
     ui.refresh(&off, &macros, &dictionary);
     assert!(!ui.macro_valid_words.is_sensitive());
+    assert!(!ui.suggest_words.is_sensitive());
     assert!(!ui.extra_url_chars_row.is_sensitive());
     assert!(!ui.extra_url_chars_entry.is_sensitive());
     assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
@@ -1078,9 +1081,11 @@ fn preferred_backend_combo_saves_loads_and_survives_the_gate() {
     }
 
     // Seed the sandbox file: the gate on, libei chosen.
-    let mut saved = Config::default();
-    saved.experimental_features = true;
-    saved.preferred_backend = crate::config::PreferredBackendConfig::Libei;
+    let saved = Config {
+        experimental_features: true,
+        preferred_backend: crate::config::PreferredBackendConfig::Libei,
+        ..Config::default()
+    };
     saved.save().expect("seed config");
     let on = Config::load();
     ui.refresh(&on, &macros, &dictionary);
