@@ -19,10 +19,15 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 /// Only effective while `ENABLED` is also on — the default log stays free of
 /// typed text so it can be attached to a bug report as-is.
 static TEXT_ENABLED: AtomicBool = AtomicBool::new(false);
+static KEYS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Rotate `debug.log` to `debug.log.old` once the live file crosses this:
+/// the disk stays bounded (~2x cap) instead of growing per session.
+const ROTATE_SIZE: u64 = 5 * 1024 * 1024;
 /// The opened log file, kept for the process lifetime: opening (plus
 /// create_dir_all) per line put several syscalls of overhead on every
 /// keystroke — exactly when latency was being diagnosed.
-static LOG_FILE: Mutex<Option<File>> = Mutex::new(None);
+static LOG_FILE: Mutex<Option<(File, u64, PathBuf)>> = Mutex::new(None);
 /// Test-only redirect so tests can assert log lines without touching the
 /// user's cache dir; engine tests set it through `test_guard` below.
 #[cfg(test)]
@@ -59,10 +64,21 @@ pub fn set_text_enabled(on: bool) {
     TEXT_ENABLED.store(on, Ordering::Relaxed);
 }
 
+/// Enable or disable the key-event tier (mirrors `Config::debug_log_keys`).
+pub fn set_keys_enabled(on: bool) {
+    KEYS_ENABLED.store(on, Ordering::Relaxed);
+}
+
 /// Whether the decision log is on — call sites hot enough to build their
 /// message only when it will be used check this first.
 pub fn enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
+}
+
+/// Whether the keys tier is on — the key line's call site runs on every
+/// keystroke, so its format! is gated behind this before building.
+pub fn keys_enabled() -> bool {
+    KEYS_ENABLED.load(Ordering::Relaxed)
 }
 
 /// Append one line to the debug log. No-op unless enabled; never panics —
@@ -74,6 +90,20 @@ pub fn log(msg: &str) {
     let mut handle = LOG_FILE
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // The override is only consulted on open, so a cached handle whose
+    // path has moved under it (a parallel test flipped PATH_OVERRIDE)
+    // would swallow every line into the old inode — revalidate per line.
+    let current = log_path();
+    let stale = match (&*handle, &current) {
+        (Some((_, _, opened)), Some(path)) => opened != path,
+        (Some(_), None) => true,
+        _ => false,
+    };
+    if stale {
+        #[cfg(test)]
+        eprintln!("debug_log: cached handle outlived its path — reopened");
+        *handle = None;
+    }
     if handle.is_none() {
         // Retried per line until it succeeds, so permissions fixed
         // mid-session are picked up; a handle on a since-deleted file keeps
@@ -81,11 +111,25 @@ pub fn log(msg: &str) {
         *handle = open_log_file();
     }
     let Some(file) = handle.as_mut() else { return };
+    let line_len = msg.len() as u64 + 15;
+    if file.1 + line_len > ROTATE_SIZE {
+        // Move the full log aside (the rename overwrites a stale .old) and
+        // start fresh; a failed reopen keeps writing to the renamed inode,
+        // which is fine for diagnosis.
+        if let Some(path) = log_path() {
+            let _ = std::fs::rename(&path, path.with_extension("log.old"));
+        }
+        match open_log_file() {
+            Some(pair) => *file = pair,
+            None => file.1 = 0,
+        }
+    }
     let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let _ = writeln!(file, "{ms} {msg}");
+    let _ = writeln!(file.0, "{ms} {msg}");
+    file.1 += line_len;
 }
 
 /// Append one line that may carry typed text (the surrounding-text content,
@@ -98,7 +142,17 @@ pub fn log_text(msg: &str) {
     log(msg);
 }
 
-fn open_log_file() -> Option<File> {
+/// Append one per-keystroke line (keyval/state). Requires the master
+/// decision switch AND the keys tier — the default log stays free of the
+/// per-keystroke spam that once filled it.
+pub fn log_keys(msg: &str) {
+    if !KEYS_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    log(msg);
+}
+
+fn open_log_file() -> Option<(File, u64, PathBuf)> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let path = log_path()?;
     if let Some(parent) = path.parent() {
@@ -116,7 +170,8 @@ fn open_log_file() -> Option<File> {
         .ok()?;
     // Files written by older versions are 0644; tighten them on the next open.
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    Some(file)
+    let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    Some((file, len, path))
 }
 
 fn log_path() -> Option<PathBuf> {
@@ -207,6 +262,124 @@ mod tests {
         ENABLED.store(false, Ordering::Relaxed);
         TEXT_ENABLED.store(false, Ordering::Relaxed);
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn keys_tier_needs_both_switches() {
+        let _guard = test_guard();
+        let dir = std::env::temp_dir().join(format!("ibus-mangrs-logtest3-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("debug.log");
+        let _ = std::fs::remove_file(&path);
+        *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+        set_enabled(true);
+        set_keys_enabled(false);
+        log_keys("key line while tier off");
+        log("decision only");
+        set_keys_enabled(true);
+        log_keys("key line while tier on");
+        set_enabled(false);
+        set_keys_enabled(true);
+        log_keys("key line while master off");
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(text.contains("decision only"), "{text}");
+        assert!(!text.contains("while tier off"), "{text}");
+        assert!(text.contains("while tier on"), "{text}");
+        assert!(!text.contains("while master off"), "{text}");
+        // Reset the globals: other tests share this process.
+        *LOG_FILE.lock().unwrap() = None;
+        *PATH_OVERRIDE.lock().unwrap() = None;
+        ENABLED.store(false, Ordering::Relaxed);
+        KEYS_ENABLED.store(false, Ordering::Relaxed);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn stale_handle_reopens_when_the_override_moves() {
+        let _guard = test_guard();
+        let dir = std::env::temp_dir().join(format!("ibus-mangrs-logtest5-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = dir.join("one.log");
+        let second = dir.join("two.log");
+        let _ = std::fs::remove_file(&first);
+        let _ = std::fs::remove_file(&second);
+        *PATH_OVERRIDE.lock().unwrap() = Some(first.clone());
+        set_enabled(true);
+        log("to the first file");
+        // A parallel test moved the override under us: the next line must
+        // land in the NEW path, not in the cached handle's old inode.
+        *PATH_OVERRIDE.lock().unwrap() = Some(second.clone());
+        log("to the second file");
+        let one = std::fs::read_to_string(&first).unwrap_or_default();
+        assert!(one.contains("to the first file"), "{one}");
+        let two = std::fs::read_to_string(&second).unwrap_or_default();
+        assert!(two.contains("to the second file"), "{two}");
+        // Reset the globals: other tests share this process.
+        *LOG_FILE.lock().unwrap() = None;
+        *PATH_OVERRIDE.lock().unwrap() = None;
+        ENABLED.store(false, Ordering::Relaxed);
+        let _ = std::fs::remove_file(&first);
+        let _ = std::fs::remove_file(&second);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn oversized_log_rotates_to_old() {
+        let _guard = test_guard();
+        let dir = std::env::temp_dir().join(format!("ibus-mangrs-logtest4-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("debug.log");
+        let old = dir.join("debug.log.old");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&old);
+        *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+        // Phase 1 — a pre-existing oversized log (the owner's real 7.4MB
+        // case) rotates on its first new write: the counter seeds from the
+        // file's metadata length at open, and the oversized content moves
+        // to .old whole.
+        std::fs::write(&path, vec![b'x'; (ROTATE_SIZE + 1024) as usize]).unwrap();
+        set_enabled(true);
+        log("first line after open");
+        assert!(
+            old.exists(),
+            "the seeded oversized file must rotate on its first write"
+        );
+        let moved = std::fs::read_to_string(&old).unwrap_or_default();
+        assert!(
+            moved.len() as u64 > ROTATE_SIZE,
+            "the oversized content moved aside"
+        );
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap_or_default()
+                .contains("first line after open"),
+            "the crossing line starts the fresh file"
+        );
+        // Phase 2 — a long session crosses the cap mid-file: everything
+        // written before the crossing lands in .old, the live file starts
+        // fresh, and the fresh file stays under the cap.
+        let big = "x".repeat(1024 * 1024);
+        for _ in 0..6 {
+            log(&big);
+        }
+        let moved2 = std::fs::read_to_string(&old).unwrap_or_default();
+        assert!(
+            moved2.contains("first line after open"),
+            "the pre-crossing lines moved into .old"
+        );
+        let live = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        assert!(
+            live < ROTATE_SIZE,
+            "the live file starts fresh again: {live}"
+        );
+        // Reset the globals: other tests share this process.
+        *LOG_FILE.lock().unwrap() = None;
+        *PATH_OVERRIDE.lock().unwrap() = None;
+        ENABLED.store(false, Ordering::Relaxed);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&old);
         let _ = std::fs::remove_dir(&dir);
     }
 

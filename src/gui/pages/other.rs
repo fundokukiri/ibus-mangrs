@@ -205,6 +205,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         .build();
     advanced.add(&ui.debug_log);
     advanced.add(&ui.debug_log_text);
+    advanced.add(&ui.debug_log_keys);
     let reset_row = action_row(
         &t("rows.reset_defaults.title", "Khôi phục mặc định"),
         &t(

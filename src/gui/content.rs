@@ -696,6 +696,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         }
         {
             let s = save.clone();
+            ui.preferred_backend.connect_selected_notify(move |_| s());
+        }
+        {
+            let s = save.clone();
             ui.w2u.connect_selected_notify(move |_| s());
         }
         {
@@ -811,7 +815,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
             let m = config_mtime();
             if m != watch_mtime.get() {
                 watch_mtime.set(m);
-                watch_ui.external_reload();
+                // The window's own save wrote this stamp: the widgets
+                // already show it. External writers still reload.
+                if poll_reloads(m, watch_ui.self_saved_mtime.get()) {
+                    watch_ui.external_reload();
+                }
             }
             gtk4::glib::ControlFlow::Continue
         });
@@ -880,6 +888,8 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.free);
     on_change!(ui.auto_correct);
     on_change!(ui.auto_restore);
+    on_change!(ui.extended_finals);
+    on_change!(ui.extended_onsets);
     on_change!(ui.abbrev);
     on_change!(ui.bypass_url);
     on_change!(ui.extra_url_chars_switch);
@@ -895,11 +905,14 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.capitalize_macro);
     on_change!(ui.macro_in_off_mode);
     on_change!(ui.macro_valid_words);
+    on_change!(ui.keep_composed_words);
+    on_change!(ui.keep_repeats_raw);
     on_change!(ui.emoji_enabled);
     on_change!(ui.dictionary_enabled);
     on_change!(ui.hide_underline);
     on_change!(ui.debug_log);
     on_change!(ui.debug_log_text);
+    on_change!(ui.debug_log_keys);
     on_change!(ui.x11_delete);
     on_change!(ui.preedit_xim);
 }
@@ -910,4 +923,15 @@ fn config_mtime() -> Option<std::time::SystemTime> {
     Config::path()
         .and_then(|p| std::fs::metadata(p).ok())
         .and_then(|m| m.modified().ok())
+}
+
+/// The live-reload poll decision: a config.toml mtime change reloads the
+/// widgets unless this window wrote it — reloading our own save would
+/// churn every row for nothing. External writers (the engine's hotkey
+/// toggles) still reload.
+pub(super) fn poll_reloads(
+    m: Option<std::time::SystemTime>,
+    self_saved: Option<std::time::SystemTime>,
+) -> bool {
+    m != self_saved
 }

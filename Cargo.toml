@@ -1,6 +1,6 @@
 [package]
 name = "ibus-mangrs"
-version = "1.2.5"
+version = "1.2.6"
 edition = "2021"
 authors = ["fundoku"]
 description = "MăngRS - Vietnamese IBus engine built on bamboo-core (make by fundoku with agents coding)"
@@ -19,7 +19,7 @@ path = "src/main.rs"
 # kept-composition guard now only covers the raw-revert shape) and accepts
 # f/j/w as onset consonants (the auto-restore refuses those words, which are
 # never Vietnamese syllables).
-bamboo-core = "0.5.5"
+bamboo-core = "0.6.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dbus = "0.9.12"
 dirs = "6"
@@ -71,3 +71,10 @@ lto = false
 codegen-units = 16
 incremental = true
 strip = false
+
+# Lean dev verification: line-tables debuginfo keeps the ~20 test-binary
+# links fast and the target dir small. A debugging session that needs
+# variable inspection overrides per invocation:
+# cargo test --config 'profile.dev.debug=true'
+[profile.dev]
+debug = 1

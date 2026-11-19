@@ -63,6 +63,7 @@ fn gtk_widget_scenarios() {
     mode_visibility_hides_pickers_and_moves_the_active_mode();
     cycle_subtitle_lists_the_five_modes();
     experimental_gate_locks_rows_and_preserves_values();
+    preferred_backend_combo_saves_loads_and_survives_the_gate();
     combo_value_stays_right_after_a_pick();
     popup_marks_the_selected_item();
     format_combos_keep_presets_and_unknowns();
@@ -70,6 +71,8 @@ fn gtk_widget_scenarios() {
     nav_key_row_round_trips();
     language_switch_rebuilds_the_window();
     language_handler_rebuilds_both_ways();
+    save_round_skips_unchanged_files_and_stamps_self_writes();
+    poll_reloads_skips_self_writes();
     // Restore before the sandbox dir could be cleaned under a racing test.
     match original_config_dir {
         Some(dir) => std::env::set_var("XDG_CONFIG_HOME", dir),
@@ -92,6 +95,9 @@ fn labels_follow_the_language() {
     set_language("en");
     assert_eq!(labels(BACKSPACE_TONE_MODES)[0], "Tone first");
     assert_eq!(mode_label(ModeConfig::Preedit), "Underline (preedit)");
+    // Restore for other tests; LANG is process-global and the GTK scenario
+    // runner asserts Vietnamese text in a parallel thread.
+    set_language("vi");
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -507,6 +513,11 @@ fn refresh_round_trips_every_widget() {
         modern_tone_style: false,
         free_tone_marking: true,
         auto_correct: false,
+        extended_finals: true,
+        extended_onsets: true,
+        keep_composed_words: true,
+        keep_repeats_raw: true,
+        preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
         bypass_url: false,
         // The switch off must NOT wipe the stored value: refresh shows it
@@ -551,6 +562,7 @@ fn refresh_round_trips_every_widget() {
         show_toasts: false,
         debug_log: true,
         debug_log_text: true,
+        debug_log_keys: true,
         x11_delete_without_report: true,
         preedit_for_xim: true,
         nav_key_while_preedit: "forward".into(),
@@ -913,7 +925,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 22] = [
+    let rows: [&adw::SwitchRow; 24] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -934,6 +946,8 @@ fn every_switch_triggers_save() {
         &ui.dictionary_enabled,
         &ui.hide_underline,
         &ui.debug_log,
+        &ui.debug_log_text,
+        &ui.debug_log_keys,
         &ui.x11_delete,
         &ui.preedit_xim,
     ];
@@ -1045,6 +1059,77 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     // Hand the sandbox file to the later scenarios the way they expect it:
     // with the gate off, read() reports the file's experimental fields, so
     // a leftover saved value would trip their refresh asserts.
+    Config::default().save().expect("reset sandbox config");
+}
+
+/// The preferred-backend combo round-trips through read()/refresh and joins
+/// the gate's preserve/restore machinery: off locks the row and shows the
+/// auto default, and a save with the gate off must not wipe the file's
+/// choice. Item order: auto, uinput, xtest, wlr-virtual-keyboard, libei.
+fn preferred_backend_combo_saves_loads_and_survives_the_gate() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("scenario save");
+        }));
+    }
+
+    // Seed the sandbox file: the gate on, libei chosen.
+    let mut saved = Config::default();
+    saved.experimental_features = true;
+    saved.preferred_backend = crate::config::PreferredBackendConfig::Libei;
+    saved.save().expect("seed config");
+    let on = Config::load();
+    ui.refresh(&on, &macros, &dictionary);
+    assert!(ui.preferred_backend.is_sensitive());
+    assert_eq!(ui.preferred_backend.selected(), 4, "libei loads at index 4");
+
+    // Widget to config: the selected item maps back to the same variant.
+    ui.preferred_backend.set_selected(1);
+    assert_eq!(
+        ui.read().preferred_backend,
+        crate::config::PreferredBackendConfig::Uinput
+    );
+    ui.preferred_backend.set_selected(2);
+    assert_eq!(
+        ui.read().preferred_backend,
+        crate::config::PreferredBackendConfig::XTest
+    );
+    ui.preferred_backend.set_selected(4);
+
+    // Gate off: locked, auto on display, save preserves the file's value.
+    let mut off = on.clone();
+    off.experimental_features = false;
+    off.save().expect("seed off");
+    let off = Config::load();
+    ui.refresh(&off, &macros, &dictionary);
+    assert!(!ui.preferred_backend.is_sensitive());
+    assert_eq!(ui.preferred_backend.selected(), 0, "auto on display");
+    ui.fire_save();
+    let closed = Config::load();
+    assert_eq!(
+        closed.preferred_backend,
+        crate::config::PreferredBackendConfig::Libei,
+        "no wipe on save with the gate off"
+    );
+
+    // Reopen restores the saved choice; closing shows the default again.
+    ui.experimental_features.set_active(true);
+    ui.restore_experimental_saved();
+    ui.set_experimental_sensitive(true);
+    assert!(ui.preferred_backend.is_sensitive());
+    assert_eq!(
+        ui.preferred_backend.selected(),
+        4,
+        "reopening restores libei"
+    );
+    ui.experimental_features.set_active(false);
+    ui.set_experimental_sensitive(false);
+    ui.show_experimental_defaults();
+    assert_eq!(ui.preferred_backend.selected(), 0, "auto on display");
     Config::default().save().expect("reset sandbox config");
 }
 
@@ -1342,4 +1427,86 @@ fn language_handler_rebuilds_both_ways() {
 
     win3.close();
     set_language("vi");
+}
+
+/// The settings save round runs on every toggle: files the round did not
+/// change must not be rewritten (the window's own mtime watch would reload
+/// for nothing), and config.toml's self-write stamp must be recorded for
+/// that skip. A real change still writes and moves the stamp.
+fn save_round_skips_unchanged_files_and_stamps_self_writes() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    ui.refresh(&Config::default(), &macros, &dictionary);
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("save");
+        }));
+    }
+    ui.fire_save();
+    assert!(
+        ui.self_saved_mtime.get().is_some(),
+        "a config write must record the self-save stamp"
+    );
+    let stamps = file_stamps();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    ui.fire_save();
+    assert_eq!(
+        file_stamps(),
+        stamps,
+        "an identical save round must not rewrite any file"
+    );
+    // A real change still writes, and the stamp follows the new write.
+    // widgets() has no page wiring: the spin's own save hook lives in the
+    // tune page build, so the funnel fires explicitly here.
+    ui.flow_per_key_spin.set_value(123.0);
+    ui.fire_save();
+    let after_change = file_stamps();
+    assert_ne!(
+        after_change[0], stamps[0],
+        "a changed config must be written"
+    );
+    assert!(ui.self_saved_mtime.get().is_some());
+}
+
+/// The mtimes of the four settings files, in config/macros/dictionary/emoji
+/// order; a missing file stamps as None.
+fn file_stamps() -> Vec<Option<std::time::SystemTime>> {
+    [
+        crate::config::Config::path(),
+        crate::macros::Macros::path(),
+        crate::macros::Dictionary::path(),
+        crate::emoji::UserEmoji::path(),
+    ]
+    .into_iter()
+    .map(|p| {
+        p.and_then(|p| std::fs::metadata(p).ok())
+            .and_then(|m| m.modified().ok())
+    })
+    .collect()
+}
+
+/// The live-reload poll: a self-written mtime must not reload (the widgets
+/// already show it), an external write and a deleted file must.
+fn poll_reloads_skips_self_writes() {
+    use std::time::{Duration, SystemTime};
+    let base = SystemTime::now();
+    let later = base + Duration::from_secs(1);
+    assert!(
+        !crate::gui::content::poll_reloads(Some(base), Some(base)),
+        "our own save must not reload"
+    );
+    assert!(
+        crate::gui::content::poll_reloads(Some(later), Some(base)),
+        "an external write must reload"
+    );
+    assert!(
+        crate::gui::content::poll_reloads(None, Some(base)),
+        "a deleted config must reload"
+    );
+    assert!(
+        crate::gui::content::poll_reloads(Some(base), None),
+        "no stamp (a failed save) must reload"
+    );
 }

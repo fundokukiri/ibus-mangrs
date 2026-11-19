@@ -7,7 +7,8 @@
 //! presses a letter or a digit. Text travels over IBus instead (CommitText).
 //!
 //! [`Injection`] holds the selected backend. [`Injection::select`] walks a
-//! preference list through [`constructors`]; a kind whose construction fails
+//! preference list through [`constructors`] — led by a config-fed preferred
+//! kind when one is set (`set_preferred`); a kind whose construction fails
 //! is denied so it is not re-attempted on every keystroke, and
 //! [`Injection::re_request`] clears the denials when the environment may
 //! have changed — as does [`Injection::re_request_paced`] from the key
@@ -93,8 +94,9 @@ pub fn preference_order() -> Vec<Kind> {
             // (libeis NULL fn pointer) when an EI client vanishes — both
             // measured live on 15/11, twice logging the session out. Libei
             // stays registered but only the MANGRS_REQUIRE_LIBEI-gated unit
-            // test ever reaches it (no selection override exists); it
-            // returns here only once an indicator-free acquisition exists
+            // test and the experimental preferred-backend override reach
+            // it here; it returns to this list by default only once an
+            // indicator-free acquisition exists
             // and the crash is fixed; the kernel device covers GNOME fully.
             vec![Kind::Uinput]
         } else {
@@ -129,6 +131,22 @@ fn on_mutter() -> bool {
 /// seconds — so a Flow word may pay for one at most this often.
 const RE_REQUEST_COOLDOWN: Duration = Duration::from_secs(2);
 
+/// The promoted preference list for `select`: the config's preferred kind
+/// leads and the caller's list follows without the duplicate. `None` when no
+/// preference is set or it already leads — the caller's slice goes to the
+/// walk untouched.
+fn promoted(prefer: &[Kind], preferred: Option<Kind>) -> Option<Vec<Kind>> {
+    match preferred {
+        Some(kind) if prefer.first() != Some(&kind) => {
+            let mut list = Vec::with_capacity(prefer.len() + 1);
+            list.push(kind);
+            list.extend(prefer.iter().copied().filter(|k| *k != kind));
+            Some(list)
+        }
+        _ => None,
+    }
+}
+
 /// The selected backend plus the selection bookkeeping.
 #[derive(Default)]
 pub struct Injection {
@@ -139,6 +157,10 @@ pub struct Injection {
     // Instant of the last constructor attempt (a select walk or a paced
     // clear): `re_request_paced` gates the key-path re-request on it.
     last_attempt: Option<Instant>,
+    // The experimental config's preferred backend: `select` leads its walk
+    // with it, the environment matrix follows as fallback. `None` — the
+    // default — is the matrix verbatim.
+    preferred: Option<Kind>,
 }
 
 impl Injection {
@@ -147,16 +169,30 @@ impl Injection {
         Self::default()
     }
 
+    /// Feed the config's preferred backend (startup and every config apply).
+    /// `None` restores the environment matrix as-is.
+    pub fn set_preferred(&mut self, preferred: Option<Kind>) {
+        self.preferred = preferred;
+    }
+
+    /// The preference as fed, for the debug log's role word — a pure read.
+    pub fn preferred(&self) -> Option<Kind> {
+        self.preferred
+    }
+
     /// The kind of the backend currently held, if any.
     pub fn current(&self) -> Option<Kind> {
         self.inner.as_ref().map(|backend| backend.kind())
     }
 
     /// Walk `prefer` through the real constructor table and keep the first
-    /// backend that builds. Keeps the previously held backend when every
-    /// kind fails.
+    /// backend that builds, led by the config's preferred kind when one is
+    /// set. Keeps the previously held backend when every kind fails.
     pub fn select(&mut self, prefer: &[Kind]) -> Option<Kind> {
-        self.select_with(prefer, &constructors)
+        match promoted(prefer, self.preferred) {
+            None => self.select_with(prefer, &constructors),
+            Some(list) => self.select_with(&list, &constructors),
+        }
     }
 
     /// `select` with the constructor table injected — the seam that lets
@@ -493,6 +529,44 @@ mod tests {
         assert!(!injection.re_request_paced());
         assert_eq!(injection.select_with(&[Kind::Libei], &counting_ctor), None);
         assert_eq!(*attempts.lock().unwrap(), vec![Kind::Libei]);
+    }
+
+    #[test]
+    fn unset_preferred_passes_the_callers_list_through() {
+        // The pass-through is also the zero-allocation guarantee: with the
+        // switch off, `select` hands the caller's slice to `select_with`
+        // untouched.
+        assert!(promoted(&[Kind::Uinput, Kind::XTest], None).is_none());
+    }
+
+    #[test]
+    fn preferred_leads_and_the_matrix_follows_without_duplicates() {
+        assert_eq!(
+            promoted(&[Kind::Uinput, Kind::XTest], Some(Kind::XTest)),
+            Some(vec![Kind::XTest, Kind::Uinput])
+        );
+        // A choice absent from the matrix is still honored — libei on GNOME.
+        assert_eq!(
+            promoted(&[Kind::Uinput], Some(Kind::Libei)),
+            Some(vec![Kind::Libei, Kind::Uinput])
+        );
+    }
+
+    #[test]
+    fn a_choice_already_leading_the_matrix_is_a_pass_through() {
+        // Leading with the choice must not rebuild a list per select call.
+        assert!(promoted(
+            &[Kind::WlrVirtualKeyboard, Kind::Uinput],
+            Some(Kind::WlrVirtualKeyboard)
+        )
+        .is_none());
+        assert_eq!(
+            promoted(
+                &[Kind::WlrVirtualKeyboard, Kind::Uinput],
+                Some(Kind::Uinput)
+            ),
+            Some(vec![Kind::Uinput, Kind::WlrVirtualKeyboard])
+        );
     }
 
     use super::test_env::{EnvGuard, ENV_LOCK};

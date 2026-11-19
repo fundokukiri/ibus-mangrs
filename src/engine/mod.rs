@@ -657,6 +657,13 @@ impl Engine {
             self.dictionary_mtime = None;
         };
         self.wrapper.set_abbreviations(config.abbreviations);
+        // Experimental master gate: the keep stays off while the gate is
+        // closed, whatever the row says (same bake-in as the other
+        // experimental features).
+        self.wrapper
+            .set_keep_composed_words(experimental && config.keep_composed_words);
+        self.wrapper
+            .set_keep_repeats_raw(experimental && config.keep_repeats_raw);
         self.hide_underline = config.hide_underline;
         self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;

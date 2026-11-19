@@ -7,6 +7,11 @@
 use crate::config::BackspaceToneConfig;
 use crate::debug_log;
 use bamboo_core::{Charset as BambooCharset, Config, Engine, InputMethod, Mode};
+use std::time::{Duration, Instant};
+
+/// Above a typical deliberate double press, below mutter's default 500 ms
+/// first-repeat delay: the gap that makes a repeated char an autorepeat.
+const REPEAT_GAP_THRESHOLD: Duration = Duration::from_millis(400);
 
 /// One keystroke's effect on the text already on screen.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -21,6 +26,14 @@ impl Edit {
     pub fn is_empty(&self) -> bool {
         self.delete_chars == 0 && self.insert.is_empty()
     }
+}
+
+/// The autorepeat detector: the last real compose-feed char, when it
+/// landed, and whether a hold is latched.
+struct RepeatWatch {
+    char: char,
+    at: Instant,
+    latched: bool,
 }
 
 /// Which input method the engine is configured for.
@@ -154,6 +167,16 @@ pub struct BambooWrapper {
     /// auto_correct reverted and the wrapper re-fixed (`ddc` → `đc`): not a
     /// valid syllable, so the word-end auto-restore must leave it alone.
     abbrev_fixed: bool,
+    /// Experimental `keep_composed_words`: refused plain letters append to a
+    /// complete valid syllable instead of reverting it. Off by default.
+    keep_composed_words: bool,
+    /// Experimental `keep_repeats_raw`: detected autorepeats stay raw.
+    keep_repeats_raw: bool,
+    /// The autorepeat detector (`keep_repeats_raw`).
+    repeat_watch: Option<RepeatWatch>,
+    /// `keep_repeats_raw`: this keystroke re-established the raw trail —
+    /// the trail override must survive the per-key clear only then.
+    trail_live: bool,
     /// `abbreviations` config: whether reverted non-syllable compositions
     /// get the dd→đ transform re-applied (đc, đk, đt, đg).
     abbrev: bool,
@@ -173,6 +196,12 @@ pub struct BambooWrapper {
     /// character that is already gone (the "backspace then type eats a
     /// letter" bug). We compute the delta ourselves against `last_output`.
     last_output: String,
+    /// The word bamboo-core finalized at the 32-slot overflow boundary
+    /// (`Engine::just_committed`): from its side the word is committed text,
+    /// and `output_str()` already reports only the fresh composition. The
+    /// engine takes it on the same keystroke to land the word — commit it
+    /// (preedit) or move it out of the tracked region (inline, uinput).
+    pending_commit: Option<String>,
     /// How Backspace treats a tone-marked word. Set per keystroke by the
     /// engine (the uinput modes force `Off`); `Off` is the unikey undo.
     backspace_tone: BackspaceToneConfig,
@@ -190,9 +219,14 @@ impl BambooWrapper {
             undo_in_word: false,
             abbrev_fixed: false,
             abbrev: true,
+            keep_composed_words: false,
+            keep_repeats_raw: false,
+            repeat_watch: None,
+            trail_live: false,
             kept_composition: false,
             composing: false,
             last_output: String::new(),
+            pending_commit: None,
             backspace_tone: BackspaceToneConfig::ToneFirst,
         }
     }
@@ -213,7 +247,9 @@ impl BambooWrapper {
             self.output_override = None;
             self.undo_in_word = false;
             self.kept_composition = false;
+            self.repeat_watch = None;
             self.composing = false;
+            self.pending_commit = None;
             true
         } else {
             false
@@ -230,7 +266,9 @@ impl BambooWrapper {
             self.output_override = None;
             self.undo_in_word = false;
             self.kept_composition = false;
+            self.repeat_watch = None;
             self.composing = false;
+            self.pending_commit = None;
             true
         } else {
             false
@@ -245,7 +283,9 @@ impl BambooWrapper {
             self.output_override = None;
             self.undo_in_word = false;
             self.kept_composition = false;
+            self.repeat_watch = None;
             self.composing = false;
+            self.pending_commit = None;
         }
         self.enabled = enabled;
     }
@@ -270,11 +310,17 @@ impl BambooWrapper {
         self.undo_in_word = false;
         self.abbrev_fixed = false;
         self.kept_composition = false;
+        self.repeat_watch = None;
         self.output_override = None;
         self.last_output.clear();
         let mut output = String::new();
         for r in raw.chars() {
-            output = self.feed_compose(r);
+            output = self.feed_compose(r, false);
+            // A replayed key sequence never exceeds the slots its own live
+            // typing used (a pop removes keys, the tone strips and screen
+            // re-tracks replay fitted words), so a boundary here cannot
+            // happen; consume one anyway so state can never leak.
+            let _ = self.pending_commit.take();
         }
         self.last_output = output;
     }
@@ -285,18 +331,64 @@ impl BambooWrapper {
         self.abbrev = on;
     }
 
+    /// Experimental `keep_composed_words`: after a complete valid syllable a
+    /// refused plain letter appends literally instead of reverting the word
+    /// to its raw keys. See the guard in `feed_compose`.
+    pub fn set_keep_composed_words(&mut self, on: bool) {
+        self.keep_composed_words = on;
+    }
+
+    /// Experimental `keep_repeats_raw`: autorepeats of the just-typed key
+    /// stay raw instead of composing.
+    pub fn set_keep_repeats_raw(&mut self, on: bool) {
+        self.keep_repeats_raw = on;
+    }
+
     /// Feed one in-word key to bamboo-core and return the visible output.
     ///
     /// Shared by `process_char`, the `backspace` recomposition and
     /// `replay_raw`: every path that replays raw keys must run the same
     /// guards, or a word kept in one path resurrects its raw keys through
-    /// another (Backspace, the idle-commit re-entry).
-    fn feed_compose(&mut self, c: char) -> String {
+    /// another (Backspace, the idle-commit re-entry). `timed` marks the
+    /// real keystroke path — only it updates the autorepeat detector, so a
+    /// replay's instant re-derivation never measures gaps.
+    fn feed_compose(&mut self, c: char, timed: bool) -> String {
+        // The detector runs on real keystrokes only (timed): replays
+        // re-feed chars instantly and must not measure gaps. Same char
+        // past the threshold is a fresh hold; while latched, the ~30 ms
+        // repeat cadence keeps it raw; a same-char gap under the
+        // threshold without a latch is a deliberate double press.
+        let mut repeat_raw = false;
+        if timed && self.keep_repeats_raw && c.is_alphabetic() {
+            let now = Instant::now();
+            let latched = match &self.repeat_watch {
+                Some(w) if w.char == c => {
+                    let gap = now.duration_since(w.at);
+                    (w.latched && gap < REPEAT_GAP_THRESHOLD) || gap >= REPEAT_GAP_THRESHOLD
+                }
+                _ => false,
+            };
+            self.repeat_watch = Some(RepeatWatch {
+                char: c,
+                at: now,
+                latched,
+            });
+            repeat_raw = latched;
+        }
+        // A fact about THIS keystroke, not the watch's latch: a non-
+        // alphabetic mark key (VNI digits, Viqr punctuation) never
+        // re-derives the detector, so keying the trail clear off the latch
+        // would keep the stale override governing such a key.
+        self.trail_live = repeat_raw;
         // While a kept composition is live, bamboo-core sits in its raw
         // append bypass for this word: the key lands literally on the kept
         // word, and the engine only follows to stay in sync.
         if self.kept_composition {
+            let prev = self.output();
             let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
+            if self.engine.just_committed() {
+                return self.resync_after_commit(c, prev);
+            }
             let kept = format!("{}{}", self.output(), c);
             self.output_override = Some(kept.clone());
             return kept;
@@ -304,6 +396,9 @@ impl BambooWrapper {
         let prev = self.output();
         let prev_valid_word = !prev.is_empty() && self.engine.is_valid_word();
         let _ = self.engine.process_key_edit(c, Mode::Vietnamese);
+        if self.engine.just_committed() {
+            return self.resync_after_commit(c, prev);
+        }
         let mut new_output = self.engine.output_str().to_string();
         // bamboo's auto_correct reverts a composition that is not a valid
         // Vietnamese syllable back to the raw keys — and the common
@@ -343,7 +438,90 @@ impl BambooWrapper {
             self.output_override = Some(new_output.clone());
             self.kept_composition = true;
         }
+        // Experimental `keep_composed_words`: a plain letter a complete valid
+        // syllable cannot extend (`tùng` + `g`) reverts the composition to
+        // the raw keys (`tungfg`); keep the word and land the key literally
+        // (`tùngg`) instead. Tone keys keep their undo/replace semantics and
+        // the horn `w` keeps the revert — both transform vowels, and a kept
+        // word is exempt from the word-end auto-restore, so this opt-in
+        // costs English words like `soft` their revert (`sòt` stays). The
+        // revert signature is strict: output == raw AND output != prev + c —
+        // the second clause keeps plain passthrough (`tun` + `g` -> `tung`,
+        // output always == raw) out of the guard, or its keep would poison
+        // the word into the literal bypass and mute later tone keys.
+        if !self.abbrev_fixed
+            && self.keep_composed_words
+            && prev_valid_word
+            && c.is_alphabetic()
+            && !tone_keys(self.method).contains(&c.to_ascii_lowercase())
+            && !(matches!(c.to_ascii_lowercase(), 'w')
+                && matches!(
+                    self.method,
+                    Method::Telex
+                        | Method::Telex2
+                        | Method::TelexW
+                        | Method::TelexVni
+                        | Method::TelexVniViqr
+                ))
+            && new_output == self.raw
+            && new_output != format!("{prev}{c}")
+        {
+            debug_log::log("experimental keep: complete syllable survives a refused letter");
+            new_output = format!("{prev}{c}");
+            self.output_override = Some(new_output.clone());
+            self.kept_composition = true;
+        }
+        // Experimental `keep_repeats_raw`: a detected autorepeat stays raw
+        // — no composition, no rewrite, no injected delete — so the
+        // compositor's repeat timer keeps running and the hold streams
+        // letters. The trail rides output_override like the kept-word
+        // guard; bamboo's buffer still holds every char, so the next
+        // composed key and Backspace stay exact. Last of the guards: its
+        // override wins, a hold is always raw.
+        if repeat_raw {
+            debug_log::log("experimental raw repeat: held key stays literal");
+            new_output = format!("{prev}{c}");
+            self.output_override = Some(new_output.clone());
+        }
         new_output
+    }
+
+    /// The engine finalized the previous composition at the 32-slot overflow
+    /// boundary (`Engine::just_committed`, bamboo-core 0.6.0 #41): the word
+    /// became committed text and the current key was re-created on an empty
+    /// composition. Hand the word to the engine to land, and re-track the
+    /// current key as the new word's raw keys. The per-word guards after the
+    /// feed describe a live composition — a digit mark key here would keep
+    /// the one-char fresh word as a literal kept composition and make every
+    /// following key literal — so the caller returns right away.
+    fn resync_after_commit(&mut self, c: char, word: String) -> String {
+        debug_log::log(&format!(
+            "overflow boundary: word of {} chars committed, key starts a new word",
+            word.chars().count()
+        ));
+        self.pending_commit = Some(word);
+        self.raw.clear();
+        self.raw.push(c);
+        self.composing = true;
+        self.undo_in_word = false;
+        self.abbrev_fixed = false;
+        self.kept_composition = false;
+        // The repeat watch survives the boundary: the physical key is still
+        // down (the boundary fired mid-hold), and resetting it here made the
+        // next repeat compose the pair and fire the injected rewrite that
+        // killed the compositor's repeat for the rest of the hold.
+        self.trail_live = false;
+        self.output_override = None;
+        // The tracked text is now the fresh composition only: the next delta
+        // must append it after the committed word, never diff against it.
+        self.last_output.clear();
+        self.engine.output_str().to_string()
+    }
+
+    /// The word committed at the overflow boundary, waiting to be landed by
+    /// the engine. One word per boundary, consumed on the same keystroke.
+    pub fn take_pending_commit(&mut self) -> Option<String> {
+        self.pending_commit.take()
     }
 
     /// Whether `c` is a digit mark key of the VNI-family presets — the keys
@@ -422,6 +600,7 @@ impl BambooWrapper {
             self.output_override = None;
             self.abbrev_fixed = false;
             self.kept_composition = false;
+            self.repeat_watch = None;
             return Outcome::Finish {
                 word,
                 raw,
@@ -438,6 +617,7 @@ impl BambooWrapper {
             self.undo_in_word = false;
             self.abbrev_fixed = false;
             self.kept_composition = false;
+            self.repeat_watch = None;
         }
         self.raw.push(c);
 
@@ -445,7 +625,7 @@ impl BambooWrapper {
             return Outcome::PassThrough;
         }
 
-        let mut new_output = self.feed_compose(c);
+        let mut new_output = self.feed_compose(c, true);
         // True when the text below came from a replay of the raw keys rather
         // than from this keystroke: the undo diff then only sees the whole
         // word revert, never a mark removal.
@@ -502,7 +682,16 @@ impl BambooWrapper {
                     insert: c.to_string(),
                 };
             }
-        } else if !self.abbrev_fixed && !self.kept_composition {
+        } else if !self.abbrev_fixed
+            && !self.kept_composition
+            // A detected autorepeat's trail override IS the screen (the
+            // hold streams raw letters); dropping it here would flip the
+            // display back to bamboo's composed form mid-hold. trail_live
+            // is a fact about THIS keystroke — a non-alphabetic mark key
+            // never re-derives the detector and must still clear.
+            && !(self.keep_repeats_raw
+                && matches!(&self.repeat_watch, Some(w) if w.latched))
+        {
             self.output_override = None;
         }
         // Mark removed while the same base letter comes back unmarked = the
@@ -637,15 +826,31 @@ impl BambooWrapper {
     /// hidden transforms nondeterministically ("toool"+BS stayed "tool",
     /// retype-after-BS corrupted marks — open-questions #9/#10).
     fn pop_one(&mut self) {
+        // A hold's raw trail has output == raw; recomposition would
+        // collapse the trailing pair ("oo" → "ô") and eat a second
+        // visible char — keep the raw semantics. A marked word (output
+        // != raw) recomposes as today, which lands back on the pre-hold
+        // composition.
+        let raw_trail = self.keep_repeats_raw
+            && matches!(&self.repeat_watch, Some(w) if w.latched)
+            && self.output() == self.raw;
         self.raw.pop();
         self.engine.reset();
         // The recomposition re-derives every guard from scratch.
         self.output_override = None;
         self.kept_composition = false;
+        self.repeat_watch = None;
         let mut new = String::new();
         let raw_chars: Vec<char> = self.raw.chars().collect();
         for c in raw_chars {
-            new = self.feed_compose(c);
+            new = self.feed_compose(c, false);
+            // Same cannot-happen consume as in `replay_raw`: the popped raw
+            // always fit the slots before.
+            let _ = self.pending_commit.take();
+        }
+        if raw_trail {
+            new = self.raw.clone();
+            self.output_override = Some(new.clone());
         }
         self.last_output = new;
         // undo_in_word stays: the raw keys may still contain the undo
@@ -939,7 +1144,9 @@ impl BambooWrapper {
         self.output_override = None;
         self.undo_in_word = false;
         self.kept_composition = false;
+        self.repeat_watch = None;
         self.composing = false;
+        self.pending_commit = None;
     }
 
     pub fn commit(&mut self) {
@@ -1166,6 +1373,55 @@ mod tests {
         let mut w = wrapper(Method::Telex);
         type_str(&mut w, "tieengs");
         assert_eq!(w.output(), "tiếng");
+    }
+
+    #[test]
+    fn overflow_boundary_hands_the_word_over_and_appends() {
+        // bamboo-core 0.6.0 (#41): past the 32-slot transformation limit the
+        // engine commits the word and re-creates the current key on an empty
+        // composition. The wrapper must hand the committed word over and
+        // keep every later delta appending the fresh word — a delete here
+        // erases committed text on screen (the "xóa trắng").
+        let mut w = wrapper(Method::Telex);
+        let mut committed = String::new();
+        let mut last_edit = None;
+        for i in 0..40 {
+            match w.process_char('b') {
+                Outcome::Edit(e) => {
+                    if !committed.is_empty() {
+                        assert_eq!(e.delete_chars, 0, "key {i} deletes committed text");
+                    }
+                    last_edit = Some(e);
+                }
+                Outcome::PassThrough => {}
+                Outcome::Finish { .. } => panic!("letters do not end words"),
+            }
+            if let Some(word) = w.take_pending_commit() {
+                assert!(committed.is_empty(), "one boundary word per composition");
+                committed = word;
+            }
+        }
+        assert!(
+            !committed.is_empty(),
+            "40 plain keys must cross the 32-slot boundary"
+        );
+        // Nothing was lost: the committed word plus the fresh composition
+        // cover every key typed.
+        assert_eq!(committed.chars().count() + w.output().chars().count(), 40);
+        let e = last_edit.expect("the last key produced an edit");
+        assert_eq!(e.delete_chars, 0);
+        assert_eq!(e.insert, "b");
+        // The word ends normally at the space, and the next word still
+        // composes — no boundary state poisons it.
+        let len = w.output().chars().count();
+        match w.process_char(' ') {
+            Outcome::Finish { word, .. } => assert_eq!(word, "b".repeat(len)),
+            o => panic!("the space must finish the word: {o:?}"),
+        }
+        for c in "vieejt".chars() {
+            w.process_char(c);
+        }
+        assert_eq!(w.output(), "việt");
     }
 
     #[test]

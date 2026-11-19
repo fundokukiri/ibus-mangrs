@@ -3425,3 +3425,50 @@ fn flow_fallback_re_requests_the_backend_on_later_words() {
         "the next word resolves through the walk with the backend"
     );
 }
+
+#[test]
+fn preferred_kind_maps_the_config_variants() {
+    let mut c = crate::config::Config::default();
+    assert_eq!(preferred_kind(&c), None, "auto is the environment matrix");
+    for (value, want) in [
+        (
+            crate::config::PreferredBackendConfig::Uinput,
+            Some(Kind::Uinput),
+        ),
+        (
+            crate::config::PreferredBackendConfig::XTest,
+            Some(Kind::XTest),
+        ),
+        (
+            crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
+            Some(Kind::WlrVirtualKeyboard),
+        ),
+        (
+            crate::config::PreferredBackendConfig::Libei,
+            Some(Kind::Libei),
+        ),
+    ] {
+        c.preferred_backend = value;
+        assert_eq!(preferred_kind(&c), want);
+    }
+}
+
+#[test]
+fn backend_selection_log_names_the_role() {
+    assert_eq!(
+        backend_selection_log(Some(Kind::Uinput), None),
+        "injection backend: uinput (matrix)"
+    );
+    assert_eq!(
+        backend_selection_log(Some(Kind::XTest), Some(Kind::XTest)),
+        "injection backend: xtest (preferred)"
+    );
+    assert_eq!(
+        backend_selection_log(Some(Kind::Uinput), Some(Kind::XTest)),
+        "injection backend: uinput (fallback — xtest denied)"
+    );
+    assert_eq!(
+        backend_selection_log(None, Some(Kind::XTest)),
+        "injection backend: none (fallback — xtest denied)"
+    );
+}

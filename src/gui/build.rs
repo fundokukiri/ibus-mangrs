@@ -92,6 +92,20 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
         ),
     );
+    let extended_finals = switch_row(
+        &t("rows.extended_finals.title", "Âm cuối mở rộng"),
+        &t(
+            "rows.extended_finals.subtitle",
+            "g, k, h, nk thay ng, c, nh: nhuwgx → nhữg",
+        ),
+    );
+    let extended_onsets = switch_row(
+        &t("rows.extended_onsets.title", "Âm đầu mở rộng"),
+        &t(
+            "rows.extended_onsets.subtitle",
+            "f, j, w làm âm đầu được ghi dấu: fos → fó",
+        ),
+    );
     let abbrev = switch_row(
         &t("rows.abbrev.title", "Viết tắt"),
         &t(
@@ -206,6 +220,39 @@ pub(super) fn widgets() -> Rc<Ui> {
             "rows.macro_valid_words.subtitle",
             "Phím tắt trùng từ thật vẫn nở",
         ),
+    );
+    let keep_composed_words = switch_row(
+        &t("rows.keep_composed_words.title", "Giữ từ khi gõ phím lạ"),
+        &t(
+            "rows.keep_composed_words.subtitle",
+            "tùng + g → tùngg thay vì tungfg",
+        ),
+    );
+    let keep_repeats_raw = switch_row(
+        &t(
+            "rows.keep_repeats_raw.title",
+            "Giữ phím lặp nguyên bản (Flow)",
+        ),
+        &t(
+            "rows.keep_repeats_raw.subtitle",
+            "giữ o → oooo… thay vì dừng ở ô",
+        ),
+    );
+    let preferred_backend = combo_row(
+        &t("rows.preferred_backend.title", "Backend ưu tiên"),
+        &t(
+            "rows.preferred_backend.subtitle",
+            "Backend tiêm phím được ưu tiên; không dựng được thì tự rơi về tự động",
+        ),
+        // Order pinned by preferred_backend_index: auto, uinput, xtest,
+        // wlr-virtual-keyboard, libei.
+        &[
+            "Tự động (theo môi trường)",
+            "uinput (bàn phím ảo kernel)",
+            "XTest (X11)",
+            "wlroots virtual-keyboard (Hyprland, sway...)",
+            "libei (mutter/GNOME — rủi ro crash, chỉ để thử nghiệm)",
+        ],
     );
     // The formats are preset dropdowns like every other combo; a format
     // the old free-text rows saved that matches no preset is appended by
@@ -402,6 +449,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t(
             "rows.debug_log_text.subtitle",
             "Ghi cả nội dung đang gõ vào log — chỉ bật khi tái hiện lỗi mất chữ/sai ký tự, và không đính kèm log này lên issue",
+        ),
+    );
+    let debug_log_keys = switch_row(
+        &t("rows.debug_log_keys.title", "Log từng phím nhấn"),
+        &t(
+            "rows.debug_log_keys.subtitle",
+            "Mỗi phím một dòng keyval/state — chỉ bật khi gỡ lỗi đường phím (keymap, modifier, hotkey); mặc định tắt để log không đầy rác",
         ),
     );
     let x11_delete = switch_row(
@@ -603,6 +657,16 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Từ nước ngoài (english, hello) gõ xong tự trả về chuỗi phím gốc thay vì giữ nguyên."
     );
     tip!(
+        extended_finals,
+        "tips.extended_finals",
+        "Cho phép g, k, h, nk đứng thay cho âm cuối ng, c, nh nên dấu thanh đúng dù gõ trước hay sau âm cuối (nhuwgx → nhữg). Từ tiếng Anh có thể đổi (book → bôk); mặc định tắt."
+    );
+    tip!(
+        extended_onsets,
+        "tips.extended_onsets",
+        "Cho phép f, j, w đứng làm âm đầu và nhận dấu thanh (fos → fó). Mặc định tắt: không từ tiếng Việt nào bắt đầu bằng các chữ này, tắt giúp từ tiếng Anh (fire, water) không bị ghi dấu oan."
+    );
+    tip!(
         abbrev,
         "tips.abbrev",
         "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
@@ -709,6 +773,21 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Tính năng Gõ tắt: phím tắt trùng một từ tiếng Việt thật (vd “cam”) không nở để không cản gõ từ thường. Bật thì gõ tắt vẫn thắng — muốn gõ từ thật, Backspace một phím rồi gõ lại phím đó."
     );
     tip!(
+        keep_composed_words,
+        "tips.keep_composed_words",
+        "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Mặc định tắt."
+    );
+    tip!(
+        keep_repeats_raw,
+        "tips.keep_repeats_raw",
+        "Dành riêng cho chế độ Flow: giữ một phím ở Flow chỉ lặp được một lần rồi dừng ở ô (oo → ô rồi đứng im), bật thì phím giữ chảy nguyên bản oooo… như bàn phím thường. Các chế độ gõ khác không gặp lỗi này nên không cần bật. Đổi giá khi bật: hai phím giống nhau gõ cách nhau quá ~0,4 giây sẽ ở lại nguyên bản (tooi thay vì tôi). Mặc định tắt."
+    );
+    tip!(
+        preferred_backend,
+        "tips.preferred_backend",
+        "Chọn backend tiêm phím được ưu tiên: uinput là bàn phím ảo của nhân, XTest chỉ có trên X11, wlroots cho Hyprland/sway, libei qua GNOME (đã đo thấy rủi ro crash — chỉ để thử nghiệm). Backend chọn được đặt lên đầu danh sách ưu tiên; không dựng được thì bộ gõ tự rơi về thứ tự theo môi trường. Tự động là hành vi mặc định."
+    );
+    tip!(
         extra_url_chars_row,
         "tips.extra_url_chars",
         "Tính năng Không dấu sau URL (mặc định áp dụng cho / : @ . _ ~ = # & % ?): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; dấu - bị loại để giữ -- thành gạch dài."
@@ -764,6 +843,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         free,
         auto_correct,
         auto_restore,
+        extended_finals,
+        extended_onsets,
         abbrev,
         bypass_url,
         extra_url_chars_row,
@@ -783,6 +864,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         capitalize_macro,
         macro_in_off_mode,
         macro_valid_words,
+        keep_composed_words,
+        keep_repeats_raw,
+        preferred_backend,
         time_format,
         date_format,
         language,
@@ -806,6 +890,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         desktop_icon_loading,
         save_cb,
         suppress_save,
+        self_saved_mtime: Cell::new(None),
         sidebar_select: RefCell::new(None),
         rule_preview_input,
         rule_preview,
@@ -819,6 +904,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         hide_underline,
         debug_log,
         debug_log_text,
+        debug_log_keys,
         x11_delete,
         preedit_xim,
         pacing_row,

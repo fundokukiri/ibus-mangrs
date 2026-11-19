@@ -25,6 +25,35 @@ pub struct Config {
     pub free_tone_marking: bool,
     /// Fall back to raw characters for invalid syllables.
     pub auto_correct: bool,
+    /// Extended finals (bamboo-core 0.6.0, off by default): `g`, `k`, `h`,
+    /// `nk` stand in for the finals `ng`, `c`, `nh`, so a tone lands the
+    /// same typed before or after the final (`nhuwgx` -> `nhữg`). English
+    /// words ending in these letters may change (`book` -> `bôk`).
+    pub extended_finals: bool,
+    /// Extended phonetic onsets (bamboo-core 0.6.0, off by default): `f`,
+    /// `j`, `w` act as onset consonants and take tone marks (`fos` ->
+    /// `fỏ`). No Vietnamese syllable starts with them, so the off default
+    /// keeps English words (`fire`, `water`) free of accidental marks.
+    pub extended_onsets: bool,
+    /// Experimental: after a complete valid syllable, a plain-letter key
+    /// bamboo-core cannot extend reverts the composition to the raw keys
+    /// (`tùng` + `g` -> `tungfg`). On: the word stays and the key appends
+    /// literally (`tùngg`). A kept word is exempt from the word-end
+    /// auto-restore, so the cost when on is English words whose prefix
+    /// composes a marked syllable (`soft` -> `sòt`). Off by default.
+    pub keep_composed_words: bool,
+    /// Experimental: an autorepeat of the key just typed (same char, a gap
+    /// of 400 ms or more) streams raw letters instead of composing —
+    /// holding a vowel yields `oooo…` like a plain keyboard and never
+    /// fires the injected rewrite that resets the compositor's repeat
+    /// timer. Off by default: today a hold stops at the composed pair
+    /// (`o` → `ô`).
+    pub keep_repeats_raw: bool,
+    /// Experimental: the preferred injection backend — `auto` keeps the
+    /// environment matrix; a named backend leads the selection walk and the
+    /// matrix falls back when it cannot build. Off (`auto`) is exactly the
+    /// old selection.
+    pub preferred_backend: PreferredBackendConfig,
     /// How Backspace treats a tone-marked word — default: the tone goes
     /// first. Never applies to the uinput modes.
     pub backspace_tone: BackspaceToneConfig,
@@ -154,6 +183,11 @@ pub struct Config {
     /// report as-is. Turn both on only when reproducing a lost/wrong
     /// character bug.
     pub debug_log_text: bool,
+    /// Third log tier: record one line per key event (keyval/state). Only
+    /// read while `debug_log` is on — the default log stays free of the
+    /// per-keystroke spam that once filled it; turn on only when debugging
+    /// the input path itself (keymaps, modifiers, hotkey routing).
+    pub debug_log_keys: bool,
     /// Allow the protocol delete for a DIRECT client (never through a mutter
     /// relay) that advertises surrounding-text support but never reported its
     /// text: X11 clients such as Sublime Text apply the delete inside their
@@ -641,6 +675,25 @@ impl From<Mode> for ModeConfig {
     }
 }
 
+/// Experimental: which injection backend the selection walk leads with.
+/// `Auto` — the default — keeps the environment matrix verbatim; a named
+/// backend leads the walk and the matrix follows as fallback when its
+/// constructor cannot build. The serde names match the transport's
+/// `Kind::label` values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum PreferredBackendConfig {
+    #[default]
+    Auto,
+    Uinput,
+    // kebab-case would split this into "x-test"; the config value and the
+    // debug-log label are both "xtest".
+    #[serde(rename = "xtest")]
+    XTest,
+    WlrVirtualKeyboard,
+    Libei,
+}
+
 /// Names used in the property-menu keys (`charset:vni`, `method:microsoft`,
 /// `display:preedit`) — they match the serde names above.
 impl CharsetConfig {
@@ -814,6 +867,11 @@ impl Default for Config {
             modern_tone_style: true,
             free_tone_marking: true,
             auto_correct: true,
+            extended_finals: false,
+            extended_onsets: false,
+            keep_composed_words: false,
+            keep_repeats_raw: false,
+            preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
             bypass_url: true,
@@ -855,6 +913,7 @@ impl Default for Config {
             show_toasts: true,
             debug_log: false,
             debug_log_text: false,
+            debug_log_keys: false,
             x11_delete_without_report: false,
             preedit_for_xim: false,
             nav_key_while_preedit: "forward".into(),
@@ -947,6 +1006,12 @@ impl Config {
         // hand edit) instead of silently dropping them on the next save.
         let existing = std::fs::read_to_string(&path).unwrap_or_default();
         let text = merge(&existing, self).map_err(std::io::Error::other)?;
+        // Unchanged content: skip the write. The settings save round runs on
+        // every toggle and rewrites all four files — an identical rewrite
+        // would only churn the disk and the window's own mtime watch.
+        if existing == text {
+            return Ok(());
+        }
         std::fs::write(path, text)
     }
 
@@ -977,6 +1042,8 @@ impl Config {
                 bamboo_core::ToneStyle::Traditional
             })
             .auto_correct(self.auto_correct)
+            .extended_finals(self.extended_finals)
+            .extended_onsets(self.extended_onsets)
             .w2u_mode(match self.w2u {
                 W2uConfig::Disabled => bamboo_core::W2uMode::Disabled,
                 W2uConfig::NonStart => bamboo_core::W2uMode::NonStart,
@@ -1503,6 +1570,50 @@ children = ["preedit", "flow"]
     }
 
     #[test]
+    fn preferred_backend_defaults_to_auto() {
+        let c = Config::from_toml("");
+        assert_eq!(c.preferred_backend, PreferredBackendConfig::Auto);
+    }
+
+    #[test]
+    fn preferred_backend_parses_the_four_kinds() {
+        for (text, want) in [
+            ("uinput", PreferredBackendConfig::Uinput),
+            ("xtest", PreferredBackendConfig::XTest),
+            (
+                "wlr-virtual-keyboard",
+                PreferredBackendConfig::WlrVirtualKeyboard,
+            ),
+            ("libei", PreferredBackendConfig::Libei),
+        ] {
+            let c = Config::from_toml(&format!("preferred_backend = \"{text}\"\n"));
+            assert_eq!(c.preferred_backend, want, "value `{text}`");
+        }
+    }
+
+    #[test]
+    fn unknown_preferred_backend_value_is_dropped_and_the_rest_kept() {
+        let c = Config::from_toml(
+            "preferred_backend = \"typo\"\nmode = \"preedit\"\nauto_restore = false\n",
+        );
+        assert_eq!(
+            c.preferred_backend,
+            PreferredBackendConfig::Auto,
+            "the bad key falls back"
+        );
+        assert_eq!(c.mode, ModeConfig::Preedit, "the good keys must survive");
+        assert!(!c.auto_restore);
+    }
+
+    #[test]
+    fn debug_log_keys_defaults_off_and_parses() {
+        let c = Config::from_toml("");
+        assert!(!c.debug_log_keys);
+        let c = Config::from_toml("debug_log_keys = true\n");
+        assert!(c.debug_log_keys);
+    }
+
+    #[test]
     fn app_rule_matches_substring_case_insensitive_first_win() {
         let rules = vec![
             AppRule {
@@ -1593,6 +1704,84 @@ children = ["preedit", "flow"]
         let b = c.bamboo_config();
         assert_eq!(b.w2u_mode, bamboo_core::W2uMode::Everywhere);
         assert_eq!(b.bracket_mode, bamboo_core::BracketMode::NonStart);
+    }
+
+    #[test]
+    fn extended_finals_defaults_off_and_maps_to_bamboo() {
+        // New key (bamboo-core 0.6.0): an old file without it stays off,
+        // the switch maps onto the core flag.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.extended_finals);
+        assert!(!c.bamboo_config().extended_finals);
+        let c: Config = toml::from_str("extended_finals = true").unwrap();
+        assert!(c.bamboo_config().extended_finals);
+    }
+
+    #[test]
+    fn extended_onsets_defaults_off_and_maps_to_bamboo() {
+        // New key (bamboo-core 0.6.0, core default on): ours ships off so
+        // f/j/w words never take marks unless the switch says so.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.extended_onsets);
+        assert!(!c.bamboo_config().extended_onsets);
+        let c: Config = toml::from_str("extended_onsets = true").unwrap();
+        assert!(c.bamboo_config().extended_onsets);
+    }
+
+    #[test]
+    fn keep_repeats_raw_defaults_off_and_round_trips() {
+        // Wrapper-level switch: no bamboo_config mapping to check — the
+        // guard sits in the wrapper, ahead of composition.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.keep_repeats_raw);
+        let c: Config = toml::from_str("keep_repeats_raw = true").unwrap();
+        assert!(c.keep_repeats_raw);
+    }
+
+    #[test]
+    fn extended_onsets_change_how_f_j_w_words_take_marks() {
+        // Through the engine: off keeps the keys as typed, on lets f/j/w
+        // act as onset consonants so a tone key marks them.
+        let mut off = crate::bamboo_wrapper::BambooWrapper::new(
+            Method::Telex,
+            bamboo_core::Config::builder()
+                .extended_onsets(false)
+                .build(),
+        );
+        for c in "fos".chars() {
+            off.process_char(c);
+        }
+        assert_eq!(off.output(), "fos");
+        let mut on = crate::bamboo_wrapper::BambooWrapper::new(
+            Method::Telex,
+            bamboo_core::Config::builder().extended_onsets(true).build(),
+        );
+        for c in "fos".chars() {
+            on.process_char(c);
+        }
+        assert_eq!(on.output(), "fó");
+    }
+
+    #[test]
+    fn extended_finals_changes_how_finals_take_tones() {
+        // Through the engine: off keeps the keys as typed, on lets g/k/h/nk
+        // stand for ng/c/nh so the tone lands after the final too.
+        let mut off = crate::bamboo_wrapper::BambooWrapper::new(
+            Method::Telex,
+            bamboo_core::Config::default(),
+        );
+        for c in "nhuwgx".chars() {
+            off.process_char(c);
+        }
+        assert_eq!(off.output(), "nhuwgx");
+        let mut on = crate::bamboo_wrapper::BambooWrapper::new(
+            Method::Telex,
+            bamboo_core::Config::builder().extended_finals(true).build(),
+        );
+        for c in "nhuwgx".chars() {
+            on.process_char(c);
+        }
+        assert_eq!(on.output(), "nhữg");
     }
 
     #[test]

@@ -158,6 +158,14 @@ subtitle = "Âm tiết không hợp lệ trả về đúng phím đã bấm"
 title = "Khôi phục từ nước ngoài"
 subtitle = "Từ không phải âm tiết Việt trả về chuỗi phím gốc"
 
+[rows.extended_finals]
+title = "Âm cuối mở rộng"
+subtitle = "g, k, h, nk thay ng, c, nh: nhuwgx → nhữg"
+
+[rows.extended_onsets]
+title = "Âm đầu mở rộng"
+subtitle = "f, j, w làm âm đầu được ghi dấu: fos → fó"
+
 [rows.abbrev]
 title = "Giữ các từ được viết tắt"
 subtitle = "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt"
@@ -185,6 +193,18 @@ subtitle = "Sau . ! ? và Enter"
 [rows.double_space]
 title = "Nhấn “Space” hai lần thành dấu chấm"
 subtitle = "Hai dấu cách thành dấu chấm"
+
+[rows.keep_composed_words]
+title = "Giữ từ khi gõ phím lạ"
+subtitle = "tùng + g → tùngg thay vì tungfg"
+
+[rows.keep_repeats_raw]
+title = "Giữ phím lặp nguyên bản (Flow)"
+subtitle = "giữ o → oooo… thay vì dừng ở ô"
+
+[rows.preferred_backend]
+title = "Backend ưu tiên"
+subtitle = "Backend tiêm phím được ưu tiên; không dựng được thì tự rơi về tự động"
 
 [rows.macro_valid_words]
 title = "Gõ tắt trên từ hợp lệ"
@@ -505,6 +525,10 @@ subtitle_markup = "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangr
 title = "Log cả nội dung đang gõ"
 subtitle = "Ghi cả nội dung đang gõ vào log — chỉ bật khi tái hiện lỗi mất chữ/sai ký tự, và không đính kèm log này lên issue"
 
+[rows.debug_log_keys]
+title = "Log từng phím nhấn"
+subtitle = "Mỗi phím một dòng keyval/state — chỉ bật khi gỡ lỗi đường phím; mặc định tắt để log không đầy rác"
+
 [rows.x11_delete]
 title = "Xoá đuôi từ ở app X11"
 subtitle = "App X11 xoá đuôi từ mà không báo cáo, giống ibus-bamboo. Có thể xoá nhầm ký tự nếu con trỏ bị đổi chỗ."
@@ -576,6 +600,11 @@ modern = "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thu�
 free = "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên âm gần nhất."
 auto_correct = "Âm tiết không có trong từ điển tiếng Việt sẽ trả về đúng chuỗi phím đã bấm."
 auto_restore = "Từ nước ngoài (english, hello) gõ xong tự trả về chuỗi phím gốc thay vì giữ nguyên."
+extended_finals = "Cho phép g, k, h, nk đứng thay cho âm cuối ng, c, nh nên dấu thanh đúng dù gõ trước hay sau âm cuối (nhuwgx → nhữg). Từ tiếng Anh có thể đổi (book → bôk); mặc định tắt."
+extended_onsets = "Cho phép f, j, w đứng làm âm đầu và nhận dấu thanh (fos → fó). Mặc định tắt: không từ tiếng Việt nào bắt đầu bằng các chữ này, tắt giúp từ tiếng Anh (fire, water) không bị ghi dấu oan."
+keep_composed_words = "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Mặc định tắt."
+keep_repeats_raw = "Dành riêng cho chế độ Flow: giữ một phím ở Flow chỉ lặp được một lần rồi dừng ở ô (oo → ô rồi đứng im), bật thì phím giữ chảy nguyên bản oooo… như bàn phím thường. Các chế độ gõ khác không gặp lỗi này nên không cần bật. Đổi giá khi bật: hai phím giống nhau gõ cách nhau quá ~0,4 giây sẽ ở lại nguyên bản (tooi thay vì tôi). Mặc định tắt."
+preferred_backend = "Chọn backend tiêm phím được ưu tiên: uinput là bàn phím ảo của nhân, XTest chỉ có trên X11, wlroots cho Hyprland/sway, libei qua GNOME (đã đo thấy rủi ro crash — chỉ để thử nghiệm). Backend chọn được đặt lên đầu danh sách ưu tiên; không dựng được thì bộ gõ tự rơi về thứ tự theo môi trường. Tự động là hành vi mặc định."
 abbrev = "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
 bypass_url = "Liên kết thật (https://, www.) gõ nguyên toàn bộ, kể cả phần ?x=1&#tag;. Không ký tự nào chặn gõ dấu nữa — mọi dấu câu (: = # ? @ . _ /…) đều gõ tiếng Việt bình thường ngay sau nó."
 w2u = "Gõ w nhận ư: w = ư, wa = ưa... tiện cho bàn phím không có sẵn ư."
@@ -589,6 +618,7 @@ macro_in_off_mode = "Gõ tắt vẫn hoạt động khi tiếng Việt đang t�
 emoji_enabled = "Gõ :smile: thành emoji. Từ sau dấu hai chấm vẫn gõ dấu bình thường; khi gõ dấu hai chấm đóng, tên được tra theo phím gốc — khớp thì thành emoji, không khớp thì giữ nguyên văn."
 dictionary_enabled = "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc."
 debug_log = "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
+debug_log_keys = "Ghi từng phím nhấn (keyval/state) vào log — chỉ cần khi gỡ lỗi đường phím (keymap, modifier, hotkey). Mặc định tắt để log không đầy rác; log cũng tự xoay 5 MB một file (bản cũ giữ ở debug.log.old)."
 x11_delete = "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."
 preedit_xim = "Dùng cửa sổ preedit riêng cho app XIM (Java/JetBrains) vốn không hỗ trợ preedit của IBus."
 commit_interval = "Nhịp gửi từng chữ ở mode uinput — giảm nếu app bị mất chữ, tăng nếu bị đơ."

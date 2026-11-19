@@ -25,13 +25,13 @@ use dbus::ffidisp::{BusType, Connection, NameFlag};
 use dbus::strings::{BusName, Interface, Member, Path as DbusPath};
 use dbus::{Message, MessageType};
 
-use crate::config::{CharsetConfig, Config, MethodConfig, ModeConfig};
+use crate::config::{CharsetConfig, Config, MethodConfig, ModeConfig, PreferredBackendConfig};
 use crate::debug_log::{self, brief};
 use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
 use crate::ibus_text::{plain_text, text_from_variant, text_variant, Attr};
 use crate::keymap;
-use crate::transport::{preference_order, Injection, Kind};
+use crate::transport::{constructors, preference_order, Injection, Kind};
 
 mod hotkey;
 mod prop;
@@ -129,11 +129,18 @@ impl Server {
             .and_then(|m| m.modified().ok());
         let initial = Config::load();
         handler.borrow_mut().refresh_hotkey_cache(&initial);
+        handler
+            .borrow_mut()
+            .injection
+            .set_preferred(preferred_kind(&initial));
         // Startup: pick the injection backend before the first key; the
         // engine's availability flag is fed from the holder's answer, not
         // from a static device probe.
         handler.borrow_mut().injection.select(&preference_order());
         let selected = handler.borrow().injection.current();
+        if debug_log::enabled() {
+            debug_log::log(&backend_selection_log(selected, preferred_kind(&initial)));
+        }
         lock_engine(&engine).set_uinput_available(selected.is_some());
         // A compositor-routed backend delivers its keys through the
         // compositor itself, so the relay ban on injection does not apply.
@@ -594,12 +601,15 @@ impl EngineHandler {
                 let config = Config::load();
                 debug_log::set_enabled(config.debug_log);
                 debug_log::set_text_enabled(config.debug_log_text);
+                debug_log::set_keys_enabled(config.debug_log_keys);
                 // Direct field assignment: the engine guard held by this
                 // branch borrows part of self, so the &mut self helper
                 // cannot be called here.
                 self.hotkeys = hotkey_registry(&config);
                 self.last_fire.clear();
-                debug_log::log(&format!("focus-in client={:?}", engine.client()));
+                if debug_log::enabled() {
+                    debug_log::log(&format!("focus-in client={:?}", engine.client()));
+                }
                 // Re-select the injection backend next to the config apply:
                 // a new focus may follow an environment change (device ACL,
                 // session type), so denials clear and every kind is
@@ -608,7 +618,16 @@ impl EngineHandler {
                 // stays uinput-only). emit's inject gate reads the flag fed
                 // from the holder's answer.
                 self.injection.re_request();
+                // The preferred backend rides the same re-select: a fresh
+                // config value leads the next walk.
+                self.injection.set_preferred(preferred_kind(&config));
                 self.injection.select(&preference_order());
+                if debug_log::enabled() {
+                    debug_log::log(&backend_selection_log(
+                        self.injection.current(),
+                        preferred_kind(&config),
+                    ));
+                }
                 engine.set_uinput_available(self.injection.current().is_some());
                 // A compositor-routed backend delivers its keys through the
                 // compositor itself, so the relay ban on injection does not
@@ -815,6 +834,34 @@ fn refresh_backend_flags(engine: &mut Engine, injection: &Injection) {
     ));
 }
 
+/// The config's preferred injection backend, `None` for `auto`: the
+/// experimental switch's value rides the existing selection walk.
+fn preferred_kind(config: &Config) -> Option<Kind> {
+    match config.preferred_backend {
+        PreferredBackendConfig::Auto => None,
+        PreferredBackendConfig::Uinput => Some(Kind::Uinput),
+        PreferredBackendConfig::XTest => Some(Kind::XTest),
+        PreferredBackendConfig::WlrVirtualKeyboard => Some(Kind::WlrVirtualKeyboard),
+        PreferredBackendConfig::Libei => Some(Kind::Libei),
+    }
+}
+
+/// The debug-log line naming the backend actually held after a re-select,
+/// with the role: `preferred` when it is the config's choice, `fallback` when
+/// that choice was denied and the matrix answered, `matrix` when no choice
+/// was set. Reads only — never decides anything.
+fn backend_selection_log(selected: Option<Kind>, preferred: Option<Kind>) -> String {
+    let held = selected.map_or("none".to_string(), |k| k.label().to_string());
+    match preferred {
+        None => format!("injection backend: {held} (matrix)"),
+        Some(p) if Some(p) == selected => format!("injection backend: {held} (preferred)"),
+        Some(p) => format!(
+            "injection backend: {held} (fallback — {} denied)",
+            p.label()
+        ),
+    }
+}
+
 /// One key event as `ProcessKeyEvent` carries it: keysym, evdev keycode,
 /// modifier state. The burst buffer stores the same triple, so a replayed
 /// key reconstructs the event the user actually made.
@@ -840,9 +887,10 @@ fn process_key(
         state,
     } = ev;
     // Hottest log site (every key event, every mode): the format! would
-    // allocate per keystroke even with the log off, so gate it first.
-    if debug_log::enabled() {
-        debug_log::log(&format!("key keyval={keyval:#x} state={state:#x}"));
+    // allocate per keystroke even with the log off, so gate it first —
+    // on the keys tier (default off), which log_keys then double-checks.
+    if debug_log::keys_enabled() {
+        debug_log::log_keys(&format!("key keyval={keyval:#x} state={state:#x}"));
     }
     // Key releases are never ours.
     if state & keymap::RELEASE_MASK != 0 {
@@ -872,7 +920,14 @@ fn process_key(
             // DISPLAY) and retrying them per keystroke would pay their
             // full acquisition cost for nothing.
             injection.retry_denied(Kind::Uinput);
-            if injection.select(&[Kind::Uinput]).is_some() {
+            // select_with, not select: this retry stays uinput-only and
+            // must not rebuild a promoted list per keystroke (every other
+            // kind here is denied, so promotion could not change the
+            // outcome anyway).
+            if injection
+                .select_with(&[Kind::Uinput], &constructors)
+                .is_some()
+            {
                 debug_log::log("uinput arrived mid-session — backend selected");
                 refresh_backend_flags(engine, injection);
             }
@@ -1025,6 +1080,12 @@ fn flow_fallback_re_request(engine: &mut Engine, injection: &mut Injection) {
     if engine.flow_needs_backend() && injection.re_request_paced() {
         injection.select(&preference_order());
         refresh_backend_flags(engine, injection);
+        if debug_log::enabled() {
+            debug_log::log(&backend_selection_log(
+                injection.current(),
+                injection.preferred(),
+            ));
+        }
     }
 }
 

@@ -156,6 +156,14 @@ subtitle = "Invalid syllables return the exact keys typed"
 title = "Restore foreign words"
 subtitle = "Non-Vietnamese-syllable words return the raw key string"
 
+[rows.extended_finals]
+title = "Extended finals"
+subtitle = "g, k, h, nk stand for ng, c, nh: nhuwgx → nhữg"
+
+[rows.extended_onsets]
+title = "Extended onsets"
+subtitle = "f, j, w act as onsets and take marks: fos → fó"
+
 [rows.abbrev]
 title = "Keep abbreviated words"
 subtitle = "Keep đ in abbreviations: ddc → đc, ddk → đk, ddt → đt"
@@ -183,6 +191,18 @@ subtitle = "After . ! ? and Enter"
 [rows.double_space]
 title = "Double Space becomes a period"
 subtitle = "Two spaces become a period"
+
+[rows.keep_composed_words]
+title = "Keep composed words"
+subtitle = "tùng + g → tùngg instead of tungfg"
+
+[rows.keep_repeats_raw]
+title = "Held keys repeat raw (Flow)"
+subtitle = "hold o → oooo… instead of stopping at ô"
+
+[rows.preferred_backend]
+title = "Preferred backend"
+subtitle = "The preferred key-injection backend; when it cannot be built, selection falls back to automatic"
 
 [rows.macro_valid_words]
 title = "Shorthand: expands on real words too"
@@ -502,6 +522,10 @@ subtitle_markup = "Logs the engine's decisions to <tt>~/.cache/ibus-mangrs/debug
 title = "Log the in-flight text too"
 subtitle = "Logs the text being typed as well — enable only when reproducing lost-text/wrong-character bugs, and do not attach this log to an issue"
 
+[rows.debug_log_keys]
+title = "Log every key press"
+subtitle = "One keyval/state line per key — only for debugging the input path; off by default so the log stays clean"
+
 [rows.x11_delete]
 title = "Delete word tails on X11 apps"
 subtitle = "X11 apps delete word tails without reporting, like ibus-bamboo. May delete a wrong character if the caret was moved."
@@ -573,6 +597,11 @@ modern = "The Ministry of Education's new tone standard: hòa instead of hoà, t
 free = "Allows the tone to sit anywhere in the word instead of always on the nearest vowel."
 auto_correct = "Syllables missing from the Vietnamese syllable table return the exact keys typed."
 auto_restore = "Foreign words (english, hello) return to the raw key string once typed instead of staying."
+extended_finals = "Let g, k, h, nk replace the finals ng, c, nh, so the tone lands the same typed before or after the final (nhuwgx → nhữg). English words may change (book → bôk); off by default."
+extended_onsets = "Let f, j, w act as onset consonants and take tone marks (fos → fó). Off by default: no Vietnamese syllable starts with them, so the off default keeps English words (fire, water) free of accidental marks."
+keep_composed_words = "After a complete word, a plain letter the word cannot extend joins the word instead of reverting it to the raw keys (tùng + g → tùngg). The trade when on: English words like soft stay sòt, because a kept word skips the word-end auto-restore. Off by default."
+keep_repeats_raw = "For Flow mode only: holding a key in Flow repeats once and freezes at the composed pair (oo → ô); on, the held key streams raw oooo… like a plain keyboard. The other typing modes never had this problem and need no toggle. The trade when on: identical keys typed more than ~0.4 s apart stay raw (tooi instead of tôi). Off by default."
+preferred_backend = "Pick the injection backend that leads the selection: uinput is the kernel virtual keyboard, XTest is X11-only, wlroots for Hyprland/sway, libei via GNOME (measured crash risk — experimental only). The chosen backend is placed first in the preference list; when it cannot be built, the engine falls back to the environment order. Automatic is the default behavior."
 abbrev = "Keeps đ intact in abbreviations: ddc, ddk, ddt are not turned into đ."
 bypass_url = "Real links (https://, www.) type raw across the whole address, including the ?x=1&#tag part. No character blocks tones any more — words type Vietnamese right after any punctuation (: = # ? @ . _ / …)."
 w2u = "Typing w gives ư: w = ư, wa = ưa… handy on keyboards without a ư key."
@@ -586,6 +615,7 @@ macro_in_off_mode = "Shorthand keeps working while Vietnamese typing is off."
 emoji_enabled = "Typing :smile: becomes an emoji. A word after the colon types tones normally; when the closing colon arrives, the name is looked up by the raw keys — a match becomes the emoji, a miss keeps the text as typed."
 dictionary_enabled = "Enables my dictionary: words in the list are never restored to raw keys."
 debug_log = "Logs the engine's decisions to ~/.cache/ibus-mangrs/debug.log for bug reports."
+debug_log_keys = "Logs one keyval/state line per key press — only needed when debugging the input path (keymaps, modifiers, hotkeys). Off by default so the log stays clean; the log also rotates at 5 MB per file (the previous one is kept as debug.log.old)."
 x11_delete = "How words are deleted on direct X11 apps: delete the word tail like ibus-bamboo, or delete only as reported by the app."
 preedit_xim = "Uses a separate preedit window for XIM apps (Java/JetBrains) that lack IBus preedit support."
 commit_interval = "The per-word send pace in uinput modes — lower it if an app loses text, raise it if it stalls."

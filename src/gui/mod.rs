@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use crate::config::{
     BackspaceToneConfig, BracketConfig, CharsetConfig, Config, MenuNode, MethodConfig, ModeConfig,
-    W2uConfig,
+    PreferredBackendConfig, W2uConfig,
 };
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
@@ -259,6 +259,8 @@ struct Ui {
     free: adw::SwitchRow,
     auto_correct: adw::SwitchRow,
     auto_restore: adw::SwitchRow,
+    extended_finals: adw::SwitchRow,
+    extended_onsets: adw::SwitchRow,
     abbrev: adw::SwitchRow,
     bypass_url: adw::SwitchRow,
     extra_url_chars_row: adw::ActionRow,
@@ -280,6 +282,9 @@ struct Ui {
     capitalize_macro: adw::SwitchRow,
     macro_in_off_mode: adw::SwitchRow,
     macro_valid_words: adw::SwitchRow,
+    keep_composed_words: adw::SwitchRow,
+    keep_repeats_raw: adw::SwitchRow,
+    preferred_backend: adw::ComboRow,
     time_format: adw::ComboRow,
     date_format: adw::ComboRow,
     /// The interface language; picking it rebuilds the window (content.rs).
@@ -330,6 +335,10 @@ struct Ui {
     /// created in `refresh`, so they fire edits through this instead of a
     /// closure captured at build time. `None` in headless tests.
     save_cb: SharedSave,
+    /// The config.toml mtime this window itself wrote (the last `save_all`):
+    /// the live-reload poll skips it — reloading our own save would churn
+    /// every row for nothing. External writers still reload.
+    self_saved_mtime: Cell<Option<std::time::SystemTime>>,
     /// Blocks the save funnel while `external_reload` pushes fresh file
     /// contents into the widgets: the programmatic updates fire the same
     /// change handlers a user edit does, and saving them would write the
@@ -359,6 +368,8 @@ struct Ui {
     /// Second log tier: typed-text lines (verify diffs, surrounding content).
     /// Only effective while `debug_log` is on — see `Config::debug_log_text`.
     debug_log_text: adw::SwitchRow,
+    /// Only effective while `debug_log` is on — see `Config::debug_log_keys`.
+    debug_log_keys: adw::SwitchRow,
     /// App-grid icon visibility ("Cài đặt khác"). Filesystem state, not a
     /// config key: the override file under ~/.local/share/applications.
     desktop_icon: adw::SwitchRow,
@@ -425,6 +436,18 @@ fn method_index(m: MethodConfig) -> u32 {
         MethodConfig::VniFrench => 6,
         MethodConfig::Viqr => 7,
         MethodConfig::Microsoft => 8,
+    }
+}
+
+/// Combo item order on the experimental page: auto, uinput, xtest,
+/// wlr-virtual-keyboard, libei.
+fn preferred_backend_index(c: PreferredBackendConfig) -> u32 {
+    match c {
+        PreferredBackendConfig::Auto => 0,
+        PreferredBackendConfig::Uinput => 1,
+        PreferredBackendConfig::XTest => 2,
+        PreferredBackendConfig::WlrVirtualKeyboard => 3,
+        PreferredBackendConfig::Libei => 4,
     }
 }
 
@@ -562,6 +585,8 @@ impl Ui {
         self.free.set_active(config.free_tone_marking);
         self.auto_correct.set_active(config.auto_correct);
         self.auto_restore.set_active(config.auto_restore);
+        self.extended_finals.set_active(config.extended_finals);
+        self.extended_onsets.set_active(config.extended_onsets);
         self.abbrev.set_active(config.abbreviations);
         self.bypass_url.set_active(config.bypass_url);
         self.extra_url_chars_switch
@@ -604,6 +629,11 @@ impl Ui {
         self.macro_in_off_mode.set_active(config.macro_in_off_mode);
         self.macro_valid_words
             .set_active(config.macro_expand_valid_words);
+        self.keep_composed_words
+            .set_active(config.keep_composed_words);
+        self.keep_repeats_raw.set_active(config.keep_repeats_raw);
+        self.preferred_backend
+            .set_selected(preferred_backend_index(config.preferred_backend));
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
         select_format(&self.date_format, DATE_FORMATS, &config.date_format);
         self.language
@@ -615,6 +645,7 @@ impl Ui {
             .set_active(config.dictionary_enabled);
         self.debug_log.set_active(config.debug_log);
         self.debug_log_text.set_active(config.debug_log_text);
+        self.debug_log_keys.set_active(config.debug_log_keys);
         // Not a config key: the app-grid override file on disk decides.
         *self.desktop_icon_loading.borrow_mut() = true;
         self.desktop_icon.set_active(!desktop_icon_hidden());
@@ -730,12 +761,15 @@ impl Ui {
         config.app_rule_hotkey = self.app_rule_hotkey_value.borrow().clone();
         config.debug_log = self.debug_log.is_active();
         config.debug_log_text = self.debug_log_text.is_active();
+        config.debug_log_keys = self.debug_log_keys.is_active();
         config.x11_delete_without_report = self.x11_delete.is_active();
         config.preedit_for_xim = self.preedit_xim.is_active();
         config.modern_tone_style = self.modern.is_active();
         config.free_tone_marking = self.free.is_active();
         config.auto_correct = self.auto_correct.is_active();
         config.auto_restore = self.auto_restore.is_active();
+        config.extended_finals = self.extended_finals.is_active();
+        config.extended_onsets = self.extended_onsets.is_active();
         config.abbreviations = self.abbrev.is_active();
         config.hide_underline = self.hide_underline.is_active();
         config.bypass_url = self.bypass_url.is_active();
@@ -770,6 +804,15 @@ impl Ui {
         config.capitalize_macro = self.capitalize_macro.is_active();
         config.macro_in_off_mode = self.macro_in_off_mode.is_active();
         config.macro_expand_valid_words = self.macro_valid_words.is_active();
+        config.keep_composed_words = self.keep_composed_words.is_active();
+        config.keep_repeats_raw = self.keep_repeats_raw.is_active();
+        config.preferred_backend = match self.preferred_backend.selected() {
+            1 => PreferredBackendConfig::Uinput,
+            2 => PreferredBackendConfig::XTest,
+            3 => PreferredBackendConfig::WlrVirtualKeyboard,
+            4 => PreferredBackendConfig::Libei,
+            _ => PreferredBackendConfig::Auto,
+        };
         config.time_format = format_selected(&self.time_format);
         config.date_format = format_selected(&self.date_format);
         config.language = if self.language.selected() == 1 {
@@ -845,6 +888,7 @@ impl Ui {
             config.echo_stale_ms = saved_experimental.echo_stale_ms;
             config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
             config.idle_commit_ms = saved_experimental.idle_commit_ms;
+            config.preferred_backend = saved_experimental.preferred_backend;
         }
         config
     }
@@ -897,8 +941,11 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 5] = [
+        let rows: [&gtk4::Widget; 8] = [
             self.macro_valid_words.upcast_ref(),
+            self.keep_composed_words.upcast_ref(),
+            self.keep_repeats_raw.upcast_ref(),
+            self.preferred_backend.upcast_ref(),
             self.extra_url_chars_row.upcast_ref(),
             self.auto_capitalize_after_row.upcast_ref(),
             self.echo_stale_row.upcast_ref(),
@@ -932,6 +979,9 @@ impl Ui {
         self.suppress_save.set(true);
         self.macro_valid_words
             .set_active(d.macro_expand_valid_words);
+        self.keep_composed_words.set_active(d.keep_composed_words);
+        self.keep_repeats_raw.set_active(d.keep_repeats_raw);
+        self.preferred_backend.set_selected(0);
         self.extra_url_chars_switch
             .set_active(d.extra_url_chars_enabled);
         self.extra_url_chars_entry.set_text(&d.extra_url_chars);
@@ -954,6 +1004,10 @@ impl Ui {
         self.suppress_save.set(true);
         self.macro_valid_words
             .set_active(c.macro_expand_valid_words);
+        self.keep_composed_words.set_active(c.keep_composed_words);
+        self.keep_repeats_raw.set_active(c.keep_repeats_raw);
+        self.preferred_backend
+            .set_selected(preferred_backend_index(c.preferred_backend));
         self.extra_url_chars_switch
             .set_active(c.extra_url_chars_enabled);
         self.extra_url_chars_entry.set_text(&c.extra_url_chars);
@@ -998,6 +1052,13 @@ impl Ui {
     fn save_all(&self) -> Result<(), Box<dyn std::error::Error>> {
         let config = self.read();
         config.save()?;
+        // Record the stamp of this self-write for the live-reload poll (see
+        // `self_saved_mtime`): the file's mtime, read after the write.
+        self.self_saved_mtime.set(
+            Config::path()
+                .and_then(|p| std::fs::metadata(p).ok())
+                .and_then(|m| m.modified().ok()),
+        );
 
         let mut macros = Macros::load();
         macros.set_entries(self.macros_from_text().into_iter());

@@ -195,6 +195,59 @@ fn type_replay_with_reports(e: &mut Engine, s: &str, reports: bool) -> String {
     buf.into_iter().collect()
 }
 
+/// Feed timed keystrokes like a real hold: sleep `ms` before each char,
+/// replay the actions like `type_replay_with_reports` does. `\u{8}` means
+/// Backspace. Returns the committed buffer and the last preedit text.
+fn type_timed(e: &mut Engine, script: &[(u64, char)]) -> (String, String) {
+    if e.client().is_none() {
+        e.set_client(Some("gtk4-im:test".into()));
+    }
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    let mut buf: Vec<char> = Vec::new();
+    let mut preedit = String::new();
+    for (ms, c) in script {
+        std::thread::sleep(std::time::Duration::from_millis(*ms));
+        let actions = if *c == '\u{8}' {
+            match e.backspace() {
+                Some(actions) => actions,
+                None => {
+                    buf.pop();
+                    e.set_surrounding(buf.iter().collect(), buf.len() as u32);
+                    continue;
+                }
+            }
+        } else {
+            e.process_char(*c)
+        };
+        let forwarded = actions.contains(&Action::Forward);
+        for a in &actions {
+            match a {
+                Action::DeleteBefore(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
+                Action::ForwardBackspaces(n) => buf.truncate(buf.len().saturating_sub(*n as usize)),
+                Action::DeleteSurrounding { offset, n } => {
+                    let start = (buf.len() as i64 + *offset as i64).max(0) as usize;
+                    let end = (start + *n as usize).min(buf.len());
+                    buf.drain(start..end);
+                }
+                Action::Commit(t) | Action::CommitNow(t) => buf.extend(t.chars()),
+                Action::UpdatePreedit { text, .. } => preedit = text.clone(),
+                Action::HidePreedit => preedit.clear(),
+                _ => {}
+            }
+        }
+        if forwarded {
+            if *c == '\u{8}' {
+                buf.pop();
+            } else {
+                buf.push(*c);
+            }
+        }
+        let text: String = buf.iter().collect();
+        e.set_surrounding(text, buf.len() as u32);
+    }
+    (buf.into_iter().collect(), preedit)
+}
+
 #[test]
 fn preedit_never_commits_mid_word() {
     let mut e = Engine::new(Method::Telex, Mode::Preedit);
@@ -4443,4 +4496,514 @@ fn dd_undo_rewrites_flowat_word_end() {
         "{flushed:?}"
     );
     assert_eq!(e.tail, "dd ", "the composition replaced the raw keys");
+}
+
+// --- bamboo-core 0.6.0 #41: the 32-slot overflow commits the word ---
+
+#[test]
+fn overflow_boundary_commits_the_word_in_preedit() {
+    // The preedit owns the word; at the 32-slot boundary the engine commits
+    // it underneath. The client must receive it as committed text before
+    // the fresh preedit replaces it, or the word vanishes from the screen.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    let mut buf = String::new();
+    let mut preedit = String::new();
+    for c in "b".repeat(35).chars() {
+        for a in e.process_char(c) {
+            match a {
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::UpdatePreedit { text, .. } => preedit = text,
+                Action::HidePreedit => preedit.clear(),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+    }
+    // Mid-word, one boundary in: everything typed is still on screen.
+    assert_eq!(buf, "b".repeat(32));
+    assert_eq!(preedit, "b".repeat(3));
+    for c in " vieejt ".chars() {
+        for a in e.process_char(c) {
+            match a {
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::UpdatePreedit { text, .. } => preedit = text,
+                Action::HidePreedit => preedit.clear(),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(buf, format!("{} việt ", "b".repeat(35)));
+    assert!(preedit.is_empty(), "the terminators land everything");
+}
+
+#[test]
+fn overflow_boundary_keeps_every_char_in_surrounding() {
+    // The commit-as-you-type display replays deltas literally: a boundary
+    // delta that deletes the word erased the committed characters (the
+    // "xóa trắng"). Every character must survive the boundary, and the
+    // word after it must still compose.
+    let mut e = engine(Mode::Surrounding, Config::default());
+    // Mid-word, one boundary in: every committed character must still be
+    // there — the destructive delta used to white the word out right here
+    // (the word-end auto-restore only happened to put the raw keys back).
+    let mid = type_replay(&mut e, &"b".repeat(35));
+    assert_eq!(mid, "b".repeat(35));
+    let rest = type_replay(&mut e, " vieejt ");
+    assert_eq!(format!("{mid}{rest}"), format!("{} việt ", "b".repeat(35)));
+}
+
+#[test]
+fn overflow_boundary_lands_the_word_in_flow() {
+    // The per-key display: the boundary word must land as committed text
+    // (the fresh word appends after it), and the word-end rewrite may only
+    // cover the fresh word — never the committed one.
+    let mut e = per_key_engine(Mode::Flow);
+    let mut buf = String::new();
+    let mut keys = String::new();
+    for c in "b".repeat(35).chars() {
+        keys.push(c);
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => {
+                    let keep = buf.chars().count().saturating_sub(n as usize);
+                    buf = buf.chars().take(keep).collect();
+                }
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    // Mid-word, one boundary in: everything typed is still on screen.
+    assert_eq!(buf, "b".repeat(35));
+    for c in " chaof ".chars() {
+        keys.push(c);
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => {
+                    let keep = buf.chars().count().saturating_sub(n as usize);
+                    buf = buf.chars().take(keep).collect();
+                }
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    assert_eq!(buf, format!("{} chào ", "b".repeat(35)));
+}
+
+#[test]
+fn backspace_after_the_boundary_never_touches_the_committed_word() {
+    // After the boundary the wrapper's raw holds only the fresh word's
+    // keys: Backspace recomposes that word alone — the committed word
+    // keeps every character, and no delete reaches past the buffer.
+    let mut e = engine(Mode::Surrounding, Config::default());
+    let (text, oor) = type_replay_backspaces(&mut e, &format!("{}\u{8}\u{8}", "b".repeat(40)));
+    assert!(!oor, "a delete reached past the buffer");
+    assert_eq!(text, "b".repeat(38));
+}
+
+#[test]
+fn extended_onsets_switch_reaches_the_engine() {
+    // bamboo-core 0.6.0: f/j/w can act as onset consonants and take marks
+    // (fos -> fó). Off by default: the keys stay as typed — no Vietnamese
+    // syllable starts with them, so English words keep raw keys.
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        assert_eq!(typed(mode, "fos "), "fos ", "{mode:?}");
+        assert_eq!(typed(mode, "jus "), "jus ", "{mode:?}");
+        assert_eq!(typed(mode, "wos "), "wos ", "{mode:?}");
+    }
+    let mut e = per_key_engine(Mode::Flow);
+    let mut buf = String::new();
+    for c in "fos ".chars() {
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => {
+                    let keep = buf.chars().count().saturating_sub(n as usize);
+                    buf = buf.chars().take(keep).collect();
+                }
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    assert_eq!(buf, "fos ");
+    // On: the tone key marks the extended onset.
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            extended_onsets: true,
+            ..Config::default()
+        },
+    );
+    assert_eq!(type_replay(&mut e, "fos "), "fó ");
+}
+
+#[test]
+fn w2u_everywhere_composes_a_word_start_w() {
+    // The auto-restore used to force raw keys over every f/j/w word: a
+    // word-start `w` under w2u=Everywhere composed `ưo` and then got
+    // restored right back to `wo`. The restore only handles invalid words
+    // now, so the w2u composition survives.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.apply_config(&Config {
+        w2u: crate::config::W2uConfig::Everywhere,
+        ..Config::default()
+    });
+    assert_eq!(type_replay(&mut e, "wo "), "ưo ");
+    assert_eq!(type_replay(&mut e, "wos "), "ứo ");
+}
+
+// --- experimental keep_composed_words ---
+
+#[test]
+fn keep_composed_words_off_keeps_today_s_revert() {
+    // Default off: the refused letter still reverts the word to its raw
+    // keys, and the English revert is untouched — the flag changes nothing.
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        assert_eq!(typed(mode, "tungfg "), "tungfg ", "{mode:?}");
+        assert_eq!(typed(mode, "isq "), "isq ", "{mode:?}");
+        assert_eq!(typed(mode, "soft "), "soft ", "{mode:?}");
+        assert_eq!(typed(mode, "sort "), "sort ", "{mode:?}");
+    }
+}
+
+#[test]
+fn keep_composed_words_keeps_a_refused_letter() {
+    // On: a plain letter a complete valid syllable cannot extend appends
+    // literally, marks intact (`tùng` + `g` -> `tùngg`). The undo behaviors
+    // bamboo-core handles itself (base-letter and same-tone repeats) stay
+    // correct, and the kept word survives the word-end auto-restore.
+    let config = || Config {
+        experimental_features: true,
+        keep_composed_words: true,
+        ..Config::default()
+    };
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "tungfg "), "tùngg ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "haamk "), "hâmk ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "uocwsq "), "ướcq ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "isq "), "íq ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "huongwa "), "hươnga ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "haama "), "hama ", "{mode:?}");
+        let mut e = engine(mode, config());
+        assert_eq!(type_replay(&mut e, "tungff "), "tungf ", "{mode:?}");
+    }
+}
+
+#[test]
+fn keep_composed_words_survives_backspace_and_the_word_end() {
+    // Backspace after a keep pops the stray key and the mark returns
+    // (`tùngg` + BS -> `tùng`), and the kept word is exempt from the
+    // word-end auto-restore (`tungfg` must not come back at the space).
+    let (text, oor) = type_replay_backspaces(
+        &mut engine(
+            Mode::Surrounding,
+            Config {
+                experimental_features: true,
+                keep_composed_words: true,
+                ..Config::default()
+            },
+        ),
+        "tungfg\u{8}",
+    );
+    assert!(!oor, "a delete reached past the buffer");
+    assert_eq!(text, "tùng");
+}
+
+#[test]
+fn keep_composed_words_is_baked_off_without_the_gate() {
+    // The experimental master gate forces the keep off: with the gate
+    // closed the row's value is inert, exactly like the other features.
+    let mut e = engine(
+        Mode::Surrounding,
+        Config {
+            experimental_features: false,
+            keep_composed_words: true,
+            ..Config::default()
+        },
+    );
+    assert_eq!(type_replay(&mut e, "tungfg "), "tungfg ");
+}
+
+#[test]
+fn keep_composed_words_keeps_in_flow() {
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            experimental_features: true,
+            keep_composed_words: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let mut buf = String::new();
+    for c in "tungfg ".chars() {
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => {
+                    let keep = buf.chars().count().saturating_sub(n as usize);
+                    buf = buf.chars().take(keep).collect();
+                }
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    assert_eq!(buf, "tùngg ");
+}
+
+// --- experimental keep_repeats_raw ---
+
+#[test]
+fn keep_repeats_raw_off_a_hold_still_composes() {
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            experimental_features: true,
+            ..Config::default()
+        },
+    );
+    let (buf, preedit) = type_timed(&mut e, &[(0, 'o'), (500, 'o')]);
+    assert_eq!(preedit, "ô");
+    assert_eq!(buf, "");
+}
+
+#[test]
+fn keep_repeats_raw_streams_a_hold_raw() {
+    // Preedit and Surrounding: the hold appends raw letters, no rewrite
+    // fires, the space commits exactly the raw trail, and the next word's
+    // fast pair composes — the latch died with the word.
+    for mode in [Mode::Preedit, Mode::Surrounding] {
+        let mut e = engine(
+            mode,
+            Config {
+                experimental_features: true,
+                keep_repeats_raw: true,
+                ..Config::default()
+            },
+        );
+        let (buf, preedit) = type_timed(&mut e, &[(0, 'o'), (500, 'o'), (40, 'o')]);
+        if mode == Mode::Preedit {
+            assert_eq!(preedit, "ooo", "{mode:?}");
+            assert_eq!(buf, "", "{mode:?}");
+        } else {
+            assert_eq!(buf, "ooo", "{mode:?}");
+        }
+        let (tail, tail_preedit) = type_timed(&mut e, &[(0, ' '), (0, 'o'), (0, 'o')]);
+        if mode == Mode::Preedit {
+            // The space commits the trail word; the next word's fast pair
+            // composes normally — the latch died with the word.
+            assert_eq!(format!("{buf}{tail}"), "ooo ", "{mode:?}");
+            assert_eq!(tail_preedit, "ô", "{mode:?}");
+        } else {
+            // The word already landed per key: the space only lands itself.
+            assert_eq!(format!("{buf}{tail}"), "ooo ô", "{mode:?}");
+        }
+    }
+}
+
+#[test]
+fn keep_repeats_raw_streams_a_hold_in_flow() {
+    // The owner's real scenario: per-key flow commits and rewrites per key;
+    // without the guard the first repeat fires the injected rewrite that
+    // kills the compositor's repeat. With it the hold appends raw and the
+    // injected count stays zero.
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            experimental_features: true,
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let mut buf = String::new();
+    let mut injected = 0;
+    for (ms, c) in [(0u64, 'o'), (500, 'o'), (40, 'o')] {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => injected += n,
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    assert_eq!(buf, "ooo");
+    assert_eq!(injected, 0);
+}
+
+#[test]
+fn keep_repeats_raw_a_hold_survives_the_overflow_boundary() {
+    // The owner's live report: past the 32-slot boundary bamboo commits the
+    // trail word, and a detector reset made the next repeat compose the
+    // pair (`oo` → `ô`) — firing the injected rewrite that killed the
+    // compositor's repeat for the rest of the hold. The physical key is
+    // still down: the watch must survive the boundary and the fresh word
+    // streams raw too.
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            experimental_features: true,
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    e.set_uinput_available(true);
+    let mut buf = String::new();
+    let mut injected = 0;
+    let mut script: Vec<(u64, char)> = vec![(0, 'o'), (500, 'o')];
+    script.extend(std::iter::repeat_n((40u64, 'o'), 34));
+    for (ms, c) in script {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        for a in e.process_char(c) {
+            match a {
+                Action::InjectBackspaces(n) => injected += n,
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+        for a in flush_per_key(&mut e) {
+            if let Action::Commit(t) | Action::CommitNow(t) = a {
+                buf.push_str(&t);
+            }
+        }
+    }
+    assert_eq!(buf.chars().filter(|c| *c == 'o').count(), 36);
+    assert_eq!(injected, 0, "the hold must never fire a rewrite");
+}
+
+#[test]
+fn keep_repeats_raw_fast_double_still_composes() {
+    // 150 ms gaps: a deliberate double press under the threshold, with a
+    // stall margin — a test-thread pause must eat ~250 ms more before the
+    // gap crosses the detector's 400 ms.
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            experimental_features: true,
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    let (buf, _) = type_timed(
+        &mut e,
+        &[(0, 't'), (0, 'o'), (150, 'o'), (150, 'i'), (0, ' ')],
+    );
+    assert_eq!(buf, "tôi ");
+}
+
+#[test]
+fn keep_repeats_raw_slow_double_stays_raw() {
+    // The documented trade: a deliberate pair slower than the threshold
+    // comes out raw ("too" instead of "tô").
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            experimental_features: true,
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    let (buf, _) = type_timed(&mut e, &[(0, 't'), (0, 'o'), (500, 'o'), (0, ' ')]);
+    assert_eq!(buf, "too ");
+}
+
+#[test]
+fn keep_repeats_raw_is_baked_off_without_the_gate() {
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    let (_, preedit) = type_timed(&mut e, &[(0, 'o'), (500, 'o')]);
+    assert_eq!(preedit, "ô");
+}
+
+#[test]
+fn keep_repeats_raw_backspace_after_a_hold_pops_one_raw_char() {
+    // Recomposition would collapse the trailing pair ("oo" → "ô") and eat
+    // a second visible char; the raw trail pops exactly one.
+    let mut e = engine(
+        Mode::Surrounding,
+        Config {
+            experimental_features: true,
+            keep_repeats_raw: true,
+            ..Config::default()
+        },
+    );
+    let (buf, _) = type_timed(&mut e, &[(0, 'o'), (500, 'o'), (40, 'o'), (0, '\u{8}')]);
+    assert_eq!(buf, "oo");
+}
+
+#[test]
+fn keep_repeats_raw_a_mark_key_after_a_hold_keeps_screen_and_word_in_sync() {
+    // Viqr punctuation never re-derives the alphabetic-only detector, and
+    // bamboo self-commits on it: whatever the transport, the committed
+    // word must equal what the screen showed — the raw trail, not some
+    // stale internal state.
+    let mut e = Engine::new(Method::Viqr, Mode::Preedit);
+    e.apply_config(&Config {
+        experimental_features: true,
+        keep_repeats_raw: true,
+        ..Config::default()
+    });
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    let mut buf = String::new();
+    for (ms, c) in [(0u64, 'o'), (500, 'o'), (40, 'o'), (0, '\''), (0, ' ')] {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        for a in e.process_char(c) {
+            match a {
+                Action::Commit(t) | Action::CommitNow(t) => buf.push_str(&t),
+                Action::Forward => buf.push(c),
+                _ => {}
+            }
+        }
+    }
+    // The screen showed "ooo" and "ooo'" — the committed trail word and
+    // the literal quote land exactly that.
+    assert_eq!(buf, "ooo' ");
 }
