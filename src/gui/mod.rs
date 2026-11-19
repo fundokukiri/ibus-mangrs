@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use crate::config::{
     BackspaceToneConfig, BracketConfig, CharsetConfig, Config, MenuNode, MethodConfig, ModeConfig,
-    PreferredBackendConfig, SuggestDisplayConfig, W2uConfig,
+    PreferredBackendConfig, W2uConfig,
 };
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
@@ -287,9 +287,6 @@ struct Ui {
     /// The suggestion strip switch ("Thử nghiệm"): bound to the master gate
     /// like the keeps — locked, default-displayed and restored with them.
     suggest_words: adw::SwitchRow,
-    /// The strip's display choice — floating input box (0) or the classic
-    /// inline preedit (1); only meaningful while the strip is on.
-    suggest_display: adw::ComboRow,
     preferred_backend: adw::ComboRow,
     time_format: adw::ComboRow,
     date_format: adw::ComboRow,
@@ -454,16 +451,6 @@ fn preferred_backend_index(c: PreferredBackendConfig) -> u32 {
         PreferredBackendConfig::XTest => 2,
         PreferredBackendConfig::WlrVirtualKeyboard => 3,
         PreferredBackendConfig::Libei => 4,
-    }
-}
-
-/// Combo item order on the experimental page: mirror (both surfaces),
-/// floating box only, classic inline only.
-fn suggest_display_index(d: SuggestDisplayConfig) -> u32 {
-    match d {
-        SuggestDisplayConfig::Mirror => 0,
-        SuggestDisplayConfig::Floating => 1,
-        SuggestDisplayConfig::Inline => 2,
     }
 }
 
@@ -649,8 +636,6 @@ impl Ui {
             .set_active(config.keep_composed_words);
         self.keep_repeats_raw.set_active(config.keep_repeats_raw);
         self.suggest_words.set_active(config.suggest_words);
-        self.suggest_display
-            .set_selected(suggest_display_index(config.suggest_display));
         self.preferred_backend
             .set_selected(preferred_backend_index(config.preferred_backend));
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
@@ -826,11 +811,6 @@ impl Ui {
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
         config.suggest_words = self.suggest_words.is_active();
-        config.suggest_display = match self.suggest_display.selected() {
-            1 => SuggestDisplayConfig::Floating,
-            2 => SuggestDisplayConfig::Inline,
-            _ => SuggestDisplayConfig::Mirror,
-        };
         config.preferred_backend = match self.preferred_backend.selected() {
             1 => PreferredBackendConfig::Uinput,
             2 => PreferredBackendConfig::XTest,
@@ -966,12 +946,11 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 10] = [
+        let rows: [&gtk4::Widget; 9] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
             self.suggest_words.upcast_ref(),
-            self.suggest_display.upcast_ref(),
             self.preferred_backend.upcast_ref(),
             self.extra_url_chars_row.upcast_ref(),
             self.auto_capitalize_after_row.upcast_ref(),
@@ -1009,8 +988,6 @@ impl Ui {
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
         self.suggest_words.set_active(d.suggest_words);
-        self.suggest_display
-            .set_selected(suggest_display_index(d.suggest_display));
         self.preferred_backend.set_selected(0);
         self.extra_url_chars_switch
             .set_active(d.extra_url_chars_enabled);
@@ -1037,8 +1014,6 @@ impl Ui {
         self.keep_composed_words.set_active(c.keep_composed_words);
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
         self.suggest_words.set_active(c.suggest_words);
-        self.suggest_display
-            .set_selected(suggest_display_index(c.suggest_display));
         self.preferred_backend
             .set_selected(preferred_backend_index(c.preferred_backend));
         self.extra_url_chars_switch

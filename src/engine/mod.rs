@@ -25,7 +25,7 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
-use crate::config::{AppRule, BackspaceToneConfig, Config, SuggestDisplayConfig};
+use crate::config::{AppRule, BackspaceToneConfig, Config};
 use crate::debug_log::{self, brief};
 use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
@@ -413,10 +413,6 @@ pub struct Engine {
     /// currently on the client's screen. Gates the hide-on-word-end paths
     /// and makes the accept path a no-op once the strip is gone.
     suggest_open: bool,
-    /// The strip's display choice: the word-in-flight shows in both places
-    /// (mirror), only in the floating box (the client's preedit converts to
-    /// the auxiliary text), or only inline beside the table.
-    suggest_display: SuggestDisplayConfig,
     /// The word the last inline word end or accepted candidate committed —
     /// the context the strip's next round keys on (phase 2). Cleared with
     /// the rest of the word state on focus loss / reset.
@@ -572,7 +568,6 @@ impl Engine {
             last_key_at: None,
             idle_committed: None,
             suggest_open: false,
-            suggest_display: SuggestDisplayConfig::Mirror,
             last_committed_word: None,
             suggest_words: false,
             // The embedded rows stand in until apply_config merges the user
@@ -727,9 +722,6 @@ impl Engine {
         // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
-        // Display-only choice: it shapes nothing while the strip is off, so
-        // it rides without the gate bake-in.
-        self.suggest_display = config.suggest_display;
         self.hide_underline = config.hide_underline;
         self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;
@@ -1746,12 +1738,6 @@ impl Engine {
         self.mode == Mode::Preedit
             && self.suggest_words
             && !self.wrapper.method().uses_digit_tone_keys()
-    }
-
-    /// Where the strip's word-in-flight shows — the server reads it in the
-    /// emit funnel to shape the preedit/auxiliary signals.
-    pub fn suggest_display(&self) -> SuggestDisplayConfig {
-        self.suggest_display
     }
 
     /// The strip refresh after a key changed the in-flight word: emit the

@@ -204,10 +204,6 @@ subtitle = "hold o → oooo… instead of stopping at ô"
 title = "Dictionary suggestions"
 subtitle = "Suggests the word being typed, pick with the number keys"
 
-[rows.suggest_display]
-title = "Suggestion display"
-subtitle = "Both places, the floating box only, or inline like the older engines"
-
 [rows.preferred_backend]
 title = "Preferred backend"
 subtitle = "The preferred key-injection backend; when it cannot be built, selection falls back to automatic"
@@ -609,8 +605,7 @@ extended_finals = "Let g, k, h, nk replace the finals ng, c, nh, so the tone lan
 extended_onsets = "Let f, j, w act as onset consonants and take tone marks (fos → fó). Off by default: no Vietnamese syllable starts with them, so the off default keeps English words (fire, water) free of accidental marks."
 keep_composed_words = "After a complete word, a plain letter the word cannot extend joins the word instead of reverting it to the raw keys (tùng + g → tùngg). The trade when on: English words like soft stay sòt, because a kept word skips the word-end auto-restore. Off by default."
 keep_repeats_raw = "For Flow mode only: holding a key in Flow repeats once and freezes at the composed pair (oo → ô); on, the held key streams raw oooo… like a plain keyboard. The other typing modes never had this problem and need no toggle. The trade when on: identical keys typed more than ~0.4 s apart stay raw (tooi instead of tôi). Off by default."
-suggest_words = "The word being typed shows in the floating box beside the caret with the suggestion list under it — and in the text too (Both is the default). Press 1–5 or click a suggestion row to pick, page with the popup's prev/next buttons or Ctrl+, / Ctrl+., Escape still ends the word as usual, and the arrows keep their caret role. Preedit mode only, and only with the Telex, Telex 2, Telex W and VIQR presets — the other presets use the digits as tone keys. The display switches with the 'Suggestion display' row below. Off by default, part of the experimental group."
-suggest_display = "Where the word-in-flight shows while the strip is open: Both (default) — the word shows in the box and in the text, typing and deletions update both in sync; Floating box — only in the box, the field stays clean until the word commits; Inline — the preedit inside the text like the older engines, with the strip beside it. Only meaningful while 'Dictionary suggestions' is on."
+suggest_words = "The word being typed shows in the floating box beside the caret with the suggestion list under it; the field stays clean until the word commits. Press 1–5 or click a suggestion row to pick, page with the popup's prev/next buttons or Ctrl+, / Ctrl+., Escape still ends the word as usual, and the arrows keep their caret role. Preedit mode only, and only with the Telex, Telex 2, Telex W and VIQR presets — the other presets use the digits as tone keys. Off by default, part of the experimental group."
 preferred_backend = "Pick the injection backend that leads the selection: uinput is the kernel virtual keyboard, XTest is X11-only, wlroots for Hyprland/sway, libei via GNOME (measured crash risk — experimental only). The chosen backend is placed first in the preference list; when it cannot be built, the engine falls back to the environment order. Automatic is the default behavior."
 abbrev = "Keeps đ intact in abbreviations: ddc, ddk, ddt are not turned into đ."
 bypass_url = "Real links (https://, www.) type raw across the whole address, including the ?x=1&#tag part. No character blocks tones any more — words type Vietnamese right after any punctuation (: = # ? @ . _ / …)."

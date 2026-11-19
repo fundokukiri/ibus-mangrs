@@ -245,19 +245,6 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Gợi ý từ đang gõ, chọn bằng phím số",
         ),
     );
-    let suggest_display = combo_row(
-        &t("rows.suggest_display.title", "Kiểu hiển thị gợi ý"),
-        &t(
-            "rows.suggest_display.subtitle",
-            "Cả hai chỗ, chỉ ô nổi, hay trong ô soạn như các bộ gõ cũ",
-        ),
-        // Order pinned by suggest_display_index: mirror, floating, inline.
-        &[
-            "Cả hai (ô nổi + ô soạn)",
-            "Ô nổi (cạnh con trỏ)",
-            "Trong ô soạn",
-        ],
-    );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Backend ưu tiên"),
         &t(
@@ -805,12 +792,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         suggest_words,
         "tips.suggest_words",
-        "Từ đang gõ hiện trong ô nổi cạnh con trỏ kèm dải gợi ý bên dưới, và trong ô soạn luôn (mặc định là Cả hai). Bấm 1–5 hoặc click thẳng dòng gợi ý để chọn, lật trang bằng nút ◀▶ trên khung hoặc Ctrl+, / Ctrl+., phím Escape vẫn kết thúc từ như thường, mũi tên giữ nguyên vai trò di chuyển con trỏ. Chỉ chạy ở chế độ Preedit và chỉ với preset Telex, Telex 2, Telex W, VIQR — các preset khác dùng số làm phím dấu nên không dùng được. Kiểu hiển thị đổi bằng hàng 'Kiểu hiển thị gợi ý' ngay dưới. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
-    );
-    tip!(
-        suggest_display,
-        "tips.suggest_display",
-        "Chọn chỗ hiện phần đang gõ khi dải gợi ý mở: Cả hai (mặc định) — từ hiện ở cả khung gợi ý và trong ô soạn, gõ tiếp hay xóa đều cập nhật đồng bộ; Ô nổi — chỉ trong khung, ô soạn sạch đến khi từ được commit; Trong ô soạn — preedit nằm trong văn bản như các bộ gõ cũ, dải gợi ý hiện bên cạnh. Chỉ có tác dụng khi 'Gợi ý từ điển' đang bật."
+        "Từ đang gõ hiện trong ô nổi cạnh con trỏ kèm dải gợi ý bên dưới; ô soạn giữ sạch đến khi từ được commit. Bấm 1–5 hoặc click thẳng dòng gợi ý để chọn, lật trang bằng nút ◀▶ trên khung hoặc Ctrl+, / Ctrl+., phím Escape vẫn kết thúc từ như thường, mũi tên giữ nguyên vai trò di chuyển con trỏ. Chỉ chạy ở chế độ Preedit và chỉ với preset Telex, Telex 2, Telex W, VIQR — các preset khác dùng số làm phím dấu nên không dùng được. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
     );
     tip!(
         preferred_backend,
@@ -897,7 +879,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_composed_words,
         keep_repeats_raw,
         suggest_words,
-        suggest_display,
         preferred_backend,
         time_format,
         date_format,

@@ -25,9 +25,7 @@ use dbus::ffidisp::{BusType, Connection, NameFlag};
 use dbus::strings::{BusName, Interface, Member, Path as DbusPath};
 use dbus::{Message, MessageType};
 
-use crate::config::{
-    CharsetConfig, Config, MethodConfig, ModeConfig, PreferredBackendConfig, SuggestDisplayConfig,
-};
+use crate::config::{CharsetConfig, Config, MethodConfig, ModeConfig, PreferredBackendConfig};
 use crate::debug_log::{self, brief};
 use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
@@ -1705,16 +1703,14 @@ fn emit_with(
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
     let mut delete_failed = false;
-    // The strip's display shapes this batch's preedit signal (when the strip
-    // is up — a batch carrying candidates): mirror shows the word-in-flight
-    // in BOTH places, floating only in the candidate window's input line
-    // (the client's field stays clean — ibus intelligent pinyin's aux
-    // shape), inline keeps the classic preedit beside the table. A batch
-    // without candidates forwards the preedit inline again.
+    // The strip shapes this batch's preedit signal (when the strip is up —
+    // a batch carrying candidates): the word-in-flight shows ONLY in the
+    // candidate window's input line (the client's field stays clean — ibus
+    // intelligent pinyin's aux shape). A batch without candidates forwards
+    // the preedit inline again.
     let strip_up = actions
         .iter()
         .any(|a| matches!(a, Action::UpdateCandidates { .. }));
-    let display = engine.suggest_display();
     let strip_was = strip_open();
     for action in actions {
         match action {
@@ -1828,9 +1824,7 @@ fn emit_with(
                 }
             }
             Action::UpdatePreedit { text, cursor } => {
-                let floating = strip_up && display == SuggestDisplayConfig::Floating;
-                let mirrored = strip_up && display == SuggestDisplayConfig::Mirror;
-                if floating && !strip_was {
+                if strip_up && !strip_was {
                     // The opening transition: the client still shows the
                     // inline preedit from before the strip — clear it so the
                     // word only lives in the floating box.
@@ -1842,7 +1836,7 @@ fn emit_with(
                             .append1(0u32),
                     );
                 }
-                if !floating {
+                if !strip_up {
                     let len = text.chars().count() as u32;
                     let attrs: &[Attr] = if hide_underline {
                         &[]
@@ -1862,12 +1856,10 @@ fn emit_with(
                             .append1(1u32),
                     );
                 }
-                if floating || mirrored {
+                if strip_up {
                     // The floating input line: the word-in-flight shows in
                     // the candidate window (ibus intelligent pinyin's aux
-                    // line); the cursor arg carries no meaning there. The
-                    // mirror keeps it in sync with the inline preedit above —
-                    // one source, both surfaces, updated per keystroke.
+                    // line); the cursor arg carries no meaning there.
                     out.push(
                         signal("UpdateAuxiliaryText")
                             .append1(plain_text(text))
