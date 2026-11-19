@@ -3686,7 +3686,10 @@ fn left_and_right_page_the_strip_while_visible() {
 fn digits_pick_while_the_strip_is_visible() {
     strip_reset_for_test();
     // The real flow: a suggest-enabled engine opens the strip on the
-    // second char, and digit 1 picks its first candidate.
+    // second char, and digit 1 picks its first candidate. The committed
+    // text is read back off the rendered table, never a literal — the
+    // runtime table merges the user dictionary above every builtin, so the
+    // entry itself is machine-dependent, the label-to-entry mapping is not.
     let (_engine, mut handler) = strip_handler(true);
     let (_, out) = press(&mut handler, 0x74); // 't'
     assert!(
@@ -3699,6 +3702,14 @@ fn digits_pick_while_the_strip_is_visible() {
         members(&out),
         vec!["UpdatePreeditText", "UpdateLookupTable"],
         "the strip opens beside the preedit"
+    );
+    let (table, _) = out[1]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, _, _, _, _, cands, _) = table_parts(&table);
+    assert!(
+        !cands.is_empty(),
+        "the first page offered candidates: {cands:?}"
     );
     // Digit 1 picks: the candidate commits off the emitted list, the strip
     // closes, the composition resets.
@@ -3713,14 +3724,109 @@ fn digits_pick_while_the_strip_is_visible() {
         .expect("CommitText variant");
     assert_eq!(
         text_from_variant(&committed).as_deref(),
-        Some("thể"),
-        "the first page-0 candidate commits, not the raw keys"
+        Some(cands[0].as_str()),
+        "the labeled first candidate commits, not the raw keys"
     );
     // The strip is closed: the next word types fresh, one-char quiet.
     let (_, out) = press(&mut handler, 0x78); // 'x'
     assert!(
         !members(&out).iter().any(|m| m == "UpdateLookupTable"),
         "{:?}",
+        members(&out)
+    );
+}
+
+#[test]
+fn digits_pick_while_the_strip_is_paged() {
+    strip_reset_for_test();
+    // Page 1: Right turns the page and digit 1 picks its first slot — the
+    // global index 5 the page mapping promises. The committed text is read
+    // back off the rendered page-1 table, never a literal (see the visible
+    // pick above): paging shifts the mapping, the label-to-entry contract
+    // does not move.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the strip opens beside the preedit"
+    );
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(consumed, "the arrow pages while the strip is up");
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, _, _, _, _, cands, _) = table_parts(&table);
+    assert!(
+        !cands.is_empty(),
+        "page 1 holds entries past the first five"
+    );
+    let (consumed, out) = press(&mut handler, 0x31); // '1'
+    assert!(consumed, "a pick on page 1 consumes the digit");
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "HideLookupTable", "CommitText"]
+    );
+    let committed = out[2]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("CommitText variant");
+    assert_eq!(
+        text_from_variant(&committed).as_deref(),
+        Some(cands[0].as_str()),
+        "label 1 on page 1 commits the list's sixth entry (global index 5)"
+    );
+}
+
+#[test]
+fn digits_outside_the_labels_fall_through_while_the_strip_is_visible() {
+    strip_reset_for_test();
+    // 0 and 6-9 name no strip label: the key falls through unconsumed and
+    // ends the word exactly as with the strip closed — the digit enters the
+    // composition and the word's end closes the strip server-side.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip is up: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, 0x37); // '7'
+    assert!(!consumed, "a non-label digit reaches the composition");
+    assert!(
+        members(&out).iter().any(|m| m == "HideLookupTable"),
+        "the digit entered the word, the strip hides: {:?}",
+        members(&out)
+    );
+    let committed = out
+        .iter()
+        .find(|m| m.member() == Some("CommitText".into()))
+        .and_then(|m| m.read1::<Variant<Box<dyn RefArg>>>().ok())
+        .map(|v| text_from_variant(&v))
+        .unwrap_or_else(|| panic!("the word ends on the digit: {:?}", members(&out)));
+    // The raw keys commit and the digit itself follows as the forwarded key
+    // (the digit terminator never commits a candidate — no pick happened).
+    assert_eq!(
+        committed,
+        Some("th".into()),
+        "the in-flight word commits as typed, the digit follows"
+    );
+    // 0 rides the same path: the strip reopens with the next word and the
+    // non-label digit falls through again.
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip reopens: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, 0x30); // '0'
+    assert!(!consumed, "0 is no label either");
+    assert!(
+        members(&out).iter().any(|m| m == "HideLookupTable"),
+        "the digit entered the word, the strip hides: {:?}",
         members(&out)
     );
 }

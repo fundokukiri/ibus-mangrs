@@ -19,14 +19,17 @@ Toneless form: NFD-decompose, drop the five tone marks (sắc U+0301, huyền
 U+0300, hỏi U+0309, ngã U+0303, nặng U+0323), NFC-recompose. Horn, hook,
 circumflex and breve shapes survive (ô stays ô, ươ stays ươ).
 
-Re-run (from the repo root; the raw corpus stays outside the repo):
-    curl -o /tmp/freq-build/vie_news_2020_100K.tar.gz \
-        https://downloads.wortschatz-leipzig.de/corpora/vie_news_2020_100K.tar.gz
-    tar xzf /tmp/freq-build/vie_news_2020_100K.tar.gz -C /tmp/freq-build
+Re-run (from the repo root; the raw corpus stays outside the repo). The
+whitelist is ibus-bamboo's syllable inventory, a build input only — the
+invocation and the labels below are what the shipped data header carries:
+    curl -o /tmp/freq-build/vie_mixed_2014_1M.tar.gz \
+        https://downloads.wortschatz-leipzig.de/corpora/vie_mixed_2014_1M.tar.gz
+    tar xzf /tmp/freq-build/vie_mixed_2014_1M.tar.gz -C /tmp/freq-build
     python3 scripts/build-vietnamese-freq.py \
-        /tmp/freq-build/vie_news_2020_100K/vie_news_2020_100K-words.txt \
-        --source "Leipzig Corpora Collection, vie_news_2020_100K" \
-        --license "CC BY-4.0"
+        /tmp/freq-build/vie_mixed_2014_1M/vie_mixed_2014_1M-words.txt \
+        --source "Leipzig Corpora Collection, vie_mixed_2014_1M (mixed, 2014, 1M sentences), downloads.wortschatz-leipzig.de" \
+        --license "CC BY-4.0" \
+        --syllables /usr/share/ibus-bamboo/data/vietnamese.cm.dict
 
 Standard library only.
 """

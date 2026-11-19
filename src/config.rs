@@ -49,8 +49,9 @@ pub struct Config {
     /// timer. Off by default: today a hold stops at the composed pair
     /// (`o` → `ô`).
     pub keep_repeats_raw: bool,
-    /// Experimental: the suggestion strip — after a word ends, candidates
-    /// from the frequency table trail it and a digit key picks one. Off by
+    /// Experimental: the suggestion strip — while a word is in flight,
+    /// candidates trail it (completions from a two-character prefix;
+    /// corrections when nothing completes) and a digit key picks one. Off by
     /// default, and off entirely on digit-tone presets
     /// (`Method::uses_digit_tone_keys`): their digits are tone keys, so the
     /// strip must not claim them.

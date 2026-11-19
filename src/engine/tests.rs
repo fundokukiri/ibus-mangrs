@@ -5057,6 +5057,29 @@ fn candidates_of(actions: &[Action]) -> Option<&Vec<String>> {
     })
 }
 
+/// The candidate a pick at `index` commits, off the list the strip emitted.
+/// The runtime table merges the user dictionary above every builtin, so the
+/// entry itself is machine-dependent — every exact-commit assert must ride
+/// the captured list, never a literal.
+fn picked_candidate(actions: &[Action], index: usize) -> String {
+    let list =
+        candidates_of(actions).unwrap_or_else(|| panic!("the strip offered a list: {actions:?}"));
+    list.get(index)
+        .unwrap_or_else(|| panic!("the list holds the picked index: {list:?}"))
+        .clone()
+}
+
+/// The expected sentence-start accept-commit: the candidate with its first
+/// character uppercased. Spelled out here instead of borrowed from
+/// `capitalize_first`, so the check stays independent of the code it tests.
+fn capitalized(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 #[test]
 fn suggest_strip_opens_on_the_second_char() {
     // A single character matches ~1500 table rows — the strip never
@@ -5132,20 +5155,24 @@ fn suggest_accept_commits_the_candidate_and_closes() {
     // Selection rides the server (the picker's digit precedent); the
     // engine's accept path commits the candidate off the emitted list,
     // resets the composition like a word end, and records the context
-    // word for the strip's next round.
+    // word for the strip's next round. The committed text is the emitted
+    // entry at the picked index — the runtime table merges the user
+    // dictionary above every builtin, so the entry itself stays open (the
+    // ranking note on `suggest_strip_opens_on_the_second_char`).
     let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
-    suggest_keys(&mut e, "th");
+    let keys = suggest_keys(&mut e, "th");
+    let picked = picked_candidate(&keys[1], 0);
     let actions = e.accept_candidate(0);
     assert_eq!(
         actions,
         vec![
             Action::HidePreedit,
             Action::HideCandidates,
-            Action::Commit("thể".into()),
+            Action::Commit(picked.clone()),
         ]
     );
     assert!(!e.suggest_open);
-    assert_eq!(e.last_committed_word.as_deref(), Some("thể"));
+    assert_eq!(e.last_committed_word.as_deref(), Some(picked.as_str()));
     assert!(!e.preedit_commit_pending());
 }
 
@@ -5170,7 +5197,9 @@ fn suggest_accept_capitalizes_a_sentence_start_candidate() {
     // word it replaces: the composition path uppercases the first key of a
     // sentence-start word (the capital rides the composition), so the
     // dictionary candidate committing in its place carries the capital too —
-    // first character only.
+    // first character only. The commit is checked against the emitted list
+    // entry, not a literal: which word sits at the picked index is
+    // machine-dependent (see `picked_candidate`), the capitalization is not.
     let mut e = engine(
         Mode::Preedit,
         Config {
@@ -5181,32 +5210,34 @@ fn suggest_accept_capitalizes_a_sentence_start_candidate() {
         },
     );
     // `.` arms the capitalize window; `Th` composes with the fed uppercase
-    // key and the strip answers with the dictionary list for the word.
+    // key and the strip answers with the dictionary list for the word. A
+    // mid-list index keeps the index-to-entry mapping under test the way
+    // the original position lookup did.
     let keys = suggest_keys(&mut e, ".th");
-    let list =
-        candidates_of(&keys[2]).unwrap_or_else(|| panic!("the strip answers `Th`: {:?}", keys[2]));
-    let idx = list
-        .iter()
-        .position(|w| w == "thể")
-        .unwrap_or_else(|| panic!("`thể` missing from the list: {list:?}"));
-    let actions = e.accept_candidate(idx);
+    let picked = picked_candidate(&keys[2], 1);
+    let actions = e.accept_candidate(1);
     assert_eq!(
         actions,
         vec![
             Action::HidePreedit,
             Action::HideCandidates,
-            Action::Commit("Thể".into()),
+            Action::Commit(capitalized(&picked)),
         ]
     );
     // The context word follows the commit as it landed: the capitalized form.
-    assert_eq!(e.last_committed_word.as_deref(), Some("Thể"));
+    assert_eq!(
+        e.last_committed_word.as_deref(),
+        Some(capitalized(&picked).as_str())
+    );
     assert!(!e.suggest_open);
 }
 
 #[test]
 fn suggest_accept_keeps_the_dictionary_form_without_auto_capitalize() {
     // The switch off: even at a sentence start the candidate commits in its
-    // dictionary (lowercase) form — capitalization is opt-in.
+    // dictionary form verbatim — capitalization is opt-in. The commit is
+    // checked against the emitted list entry, not a literal (see
+    // `picked_candidate`).
     let mut e = engine(
         Mode::Preedit,
         Config {
@@ -5217,29 +5248,25 @@ fn suggest_accept_keeps_the_dictionary_form_without_auto_capitalize() {
         },
     );
     let keys = suggest_keys(&mut e, ".th");
-    let list =
-        candidates_of(&keys[2]).unwrap_or_else(|| panic!("the strip answers `th`: {:?}", keys[2]));
-    let idx = list
-        .iter()
-        .position(|w| w == "thể")
-        .unwrap_or_else(|| panic!("`thể` missing from the list: {list:?}"));
-    let actions = e.accept_candidate(idx);
+    let picked = picked_candidate(&keys[2], 0);
+    let actions = e.accept_candidate(0);
     assert_eq!(
         actions,
         vec![
             Action::HidePreedit,
             Action::HideCandidates,
-            Action::Commit("thể".into()),
+            Action::Commit(picked.clone()),
         ]
     );
-    assert_eq!(e.last_committed_word.as_deref(), Some("thể"));
+    assert_eq!(e.last_committed_word.as_deref(), Some(picked.as_str()));
 }
 
 #[test]
 fn suggest_accept_stays_lowercase_mid_sentence() {
     // The capitalize condition is sentence start, not global: with the
     // switch on, a word typed after a plain space still commits the
-    // dictionary form.
+    // dictionary form verbatim. The commit is checked against the emitted
+    // list entry, not a literal (see `picked_candidate`).
     let mut e = engine(
         Mode::Preedit,
         Config {
@@ -5251,22 +5278,17 @@ fn suggest_accept_stays_lowercase_mid_sentence() {
     );
     suggest_keys(&mut e, "tieng ");
     let keys = suggest_keys(&mut e, "th");
-    let list =
-        candidates_of(&keys[1]).unwrap_or_else(|| panic!("the strip answers `th`: {:?}", keys[1]));
-    let idx = list
-        .iter()
-        .position(|w| w == "thể")
-        .unwrap_or_else(|| panic!("`thể` missing from the list: {list:?}"));
-    let actions = e.accept_candidate(idx);
+    let picked = picked_candidate(&keys[1], 0);
+    let actions = e.accept_candidate(0);
     assert_eq!(
         actions,
         vec![
             Action::HidePreedit,
             Action::HideCandidates,
-            Action::Commit("thể".into()),
+            Action::Commit(picked.clone()),
         ]
     );
-    assert_eq!(e.last_committed_word.as_deref(), Some("thể"));
+    assert_eq!(e.last_committed_word.as_deref(), Some(picked.as_str()));
 }
 
 #[test]
