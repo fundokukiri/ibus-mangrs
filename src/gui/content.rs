@@ -700,6 +700,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         }
         {
             let s = save.clone();
+            ui.suggest_display.connect_selected_notify(move |_| s());
+        }
+        {
+            let s = save.clone();
             ui.w2u.connect_selected_notify(move |_| s());
         }
         {

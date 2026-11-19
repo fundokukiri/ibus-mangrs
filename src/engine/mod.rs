@@ -413,6 +413,10 @@ pub struct Engine {
     /// currently on the client's screen. Gates the hide-on-word-end paths
     /// and makes the accept path a no-op once the strip is gone.
     suggest_open: bool,
+    /// The strip's display choice: true shows the word-in-flight in the
+    /// floating input box (the client's preedit converts to the auxiliary
+    /// text); false keeps the classic inline preedit beside the table.
+    suggest_floating_box: bool,
     /// The word the last inline word end or accepted candidate committed —
     /// the context the strip's next round keys on (phase 2). Cleared with
     /// the rest of the word state on focus loss / reset.
@@ -568,6 +572,7 @@ impl Engine {
             last_key_at: None,
             idle_committed: None,
             suggest_open: false,
+            suggest_floating_box: true,
             last_committed_word: None,
             suggest_words: false,
             // The embedded rows stand in until apply_config merges the user
@@ -722,6 +727,9 @@ impl Engine {
         // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
+        // Display-only choice: it shapes nothing while the strip is off, so
+        // it rides without the gate bake-in.
+        self.suggest_floating_box = config.suggest_floating_box;
         self.hide_underline = config.hide_underline;
         self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;
@@ -1738,6 +1746,13 @@ impl Engine {
         self.mode == Mode::Preedit
             && self.suggest_words
             && !self.wrapper.method().uses_digit_tone_keys()
+    }
+
+    /// Whether the strip shows as the floating input box (the batch's
+    /// preedit converts to the auxiliary text) or the classic inline
+    /// preedit beside the table. The server reads it in the emit funnel.
+    pub fn suggest_floating_box(&self) -> bool {
+        self.suggest_floating_box
     }
 
     /// The strip refresh after a key changed the in-flight word: emit the

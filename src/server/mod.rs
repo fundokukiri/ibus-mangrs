@@ -963,6 +963,25 @@ fn process_key(
     }
     // Ctrl/Alt/Super combinations are application shortcuts.
     if state & keymap::SHORTCUT_MASK != 0 {
+        // The strip's `Ctrl+,`/`Ctrl+.` paging owns the combo while it is
+        // up — a page must not commit the word the box is showing (the
+        // reset below would). Any other shortcut, or a closed strip, stays
+        // an application shortcut.
+        if strip_open() && state & keymap::CONTROL_MASK != 0 {
+            match keyval {
+                keymap::COMMA => {
+                    strip_move_page(-1);
+                    strip_emit_table(out);
+                    return true;
+                }
+                keymap::PERIOD => {
+                    strip_move_page(1);
+                    strip_emit_table(out);
+                    return true;
+                }
+                _ => {}
+            }
+        }
         // Held like any keystroke: replaying the shortcut after the keys
         // already held keeps the user's sequence — resetting the engine
         // now would orphan them past the caret move the shortcut makes.
@@ -1030,11 +1049,12 @@ fn process_key(
         }
     }
 
-    // The suggestion strip's keys: digits pick, `-`/`=`/PageUp/PageDown
-    // page — both only while the table is up. Sits before the editing-key
-    // dispatch so an open strip owns its paging keys; a closed strip
-    // changes nothing here, and the arrows never touch the strip (caret
-    // navigation everywhere).
+    // The suggestion strip's keys: digits pick, `Ctrl+,`/`Ctrl+.` page —
+    // the only keys an open strip owns (the popup's ◀▶ buttons page by
+    // mouse). Sits before the editing-key dispatch so a pick or page never
+    // reaches the composition; a closed strip changes nothing here, and
+    // every other key — arrows, `,`/`.` without Ctrl — types or navigates
+    // exactly as with the strip off.
     if strip_key(engine, injection, burst, keyval, out) {
         return true;
     }
@@ -1683,6 +1703,18 @@ fn emit_with(
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
     let mut delete_failed = false;
+    // The strip's floating input box: when this batch opens or refreshes the
+    // strip, the word-in-flight shows in the candidate window's own input
+    // line and the client's field stays clean — the batch's preedit signal
+    // converts to the auxiliary text (ibus intelligent pinyin's shape). A
+    // batch without candidates forwards the preedit inline again. The
+    // display combo's classic choice keeps the preedit inline beside the
+    // table instead.
+    let strip_word = engine.suggest_floating_box()
+        && actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdateCandidates { .. }));
+    let strip_was = strip_open();
     for action in actions {
         match action {
             Action::Commit(text) => push_commit(
@@ -1795,6 +1827,29 @@ fn emit_with(
                 }
             }
             Action::UpdatePreedit { text, cursor } => {
+                if strip_word {
+                    if !strip_was {
+                        // The opening transition: the client still shows the
+                        // inline preedit from before the strip — clear it so
+                        // the word only lives in the floating box.
+                        out.push(
+                            signal("UpdatePreeditText")
+                                .append1(plain_text(""))
+                                .append1(0u32)
+                                .append1(false) // not visible = hide
+                                .append1(0u32),
+                        );
+                    }
+                    // The floating input line: the word-in-flight shows in
+                    // the candidate window (ibus intelligent pinyin's aux
+                    // line); the cursor arg carries no meaning there.
+                    out.push(
+                        signal("UpdateAuxiliaryText")
+                            .append1(plain_text(text))
+                            .append1(true),
+                    );
+                    continue;
+                }
                 let len = text.chars().count() as u32;
                 let attrs: &[Attr] = if hide_underline {
                     &[]
@@ -1924,12 +1979,14 @@ fn strip_show(items: &[String], out: &mut Vec<Message>) {
     strip_emit_table(out);
 }
 
-/// Hide the strip and drop its state. The signal rides only when something
+/// Hide the strip and drop its state. The signals ride only when something
 /// was shown: the engine's close racing the server's own teardown (focus
-/// out) must not push a duplicate hide.
+/// out) must not push a duplicate hide. The floating input line dies with
+/// the table — they share the one candidate window.
 fn strip_hide(out: &mut Vec<Message>) {
     let shown = STRIP.with(|cell| cell.borrow_mut().take().is_some());
     if shown {
+        out.push(signal("HideAuxiliaryText"));
         out.push(signal("HideLookupTable"));
     }
 }
@@ -1982,10 +2039,11 @@ fn strip_digit(keyval: u32) -> Option<usize> {
 }
 
 /// The strip's server-side keys, tried between the burst hold and the
-/// editing-key dispatch: digits `1`-`5` pick, `-`/`=` and PageUp/PageDown
-/// page — ibus intelligent pinyin's paging keys, chosen so the arrows keep
-/// their caret role everywhere (an open strip never owns them). Returns
-/// whether the key was consumed.
+/// editing-key dispatch: digits `1`-`5` pick — the only keys the strip
+/// owns here. `Ctrl+,`/`Ctrl+.` paging lives in the shortcut branch above
+/// (a combo must be intercepted before the branch's reset commits the
+/// word the box is showing), and the popup's ◀▶ buttons page through
+/// their PageUp/PageDown methods. Returns whether the key was consumed.
 ///
 /// A pick maps page + digit to the global index and hands it to
 /// `accept_candidate`, whose returned actions ride the normal emit — the
@@ -2016,13 +2074,7 @@ fn strip_key(
         add_injected_batch(engine, burst, injected);
         return true;
     }
-    match keyval {
-        keymap::MINUS | keymap::PAGE_UP => strip_move_page(-1),
-        keymap::EQUALS | keymap::PAGE_DOWN => strip_move_page(1),
-        _ => return false,
-    }
-    strip_emit_table(out);
-    true
+    false
 }
 
 /// A signal on the static engine path and interface: `new_signal` cannot

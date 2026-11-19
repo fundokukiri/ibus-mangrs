@@ -56,6 +56,12 @@ pub struct Config {
     /// (`Method::uses_digit_tone_keys`): their digits are tone keys, so the
     /// strip must not claim them.
     pub suggest_words: bool,
+    /// Experimental: the suggestion strip's display — true (default) draws
+    /// the floating input box above the caret (the word-in-flight shows in
+    /// the candidate window's input line and the client's field stays clean
+    /// until the word commits); false keeps the classic inline preedit with
+    /// the strip beside it. Only meaningful while `suggest_words` is on.
+    pub suggest_floating_box: bool,
     /// Experimental: the preferred injection backend — `auto` keeps the
     /// environment matrix; a named backend leads the selection walk and the
     /// matrix falls back when it cannot build. Off (`auto`) is exactly the
@@ -879,6 +885,7 @@ impl Default for Config {
             keep_composed_words: false,
             keep_repeats_raw: false,
             suggest_words: false,
+            suggest_floating_box: true,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
@@ -1754,6 +1761,16 @@ children = ["preedit", "flow"]
         assert!(!c.suggest_words);
         let c: Config = toml::from_str("suggest_words = true").unwrap();
         assert!(c.suggest_words);
+    }
+
+    #[test]
+    fn suggest_floating_box_defaults_on_and_round_trips() {
+        // Display-only switch: the floating input box is the strip's shipped
+        // look, the inline preedit is the compatibility choice.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(c.suggest_floating_box);
+        let c: Config = toml::from_str("suggest_floating_box = false").unwrap();
+        assert!(!c.suggest_floating_box);
     }
 
     #[test]

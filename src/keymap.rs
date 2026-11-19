@@ -71,8 +71,8 @@ const XK_DOWN: u32 = 0xff54;
 const XK_PAGE_UP: u32 = 0xff55;
 const XK_PAGE_DOWN: u32 = 0xff56;
 const XK_END: u32 = 0xff57;
-const XK_MINUS: u32 = 0x2d;
-const XK_EQUAL: u32 = 0x3d;
+const XK_COMMA: u32 = 0x2c;
+const XK_PERIOD: u32 = 0x2e;
 
 /// Convert an X11 keysym to the character it produces.
 ///
@@ -141,10 +141,10 @@ pub const PAGE_UP: u32 = XK_PAGE_UP;
 pub const PAGE_DOWN: u32 = XK_PAGE_DOWN;
 pub const HOME: u32 = XK_HOME;
 pub const END: u32 = XK_END;
-/// The suggestion strip's page keys — ibus intelligent pinyin's sequence,
-/// free of any Vietnamese composition role so paging never fights typing.
-pub const MINUS: u32 = XK_MINUS;
-pub const EQUALS: u32 = XK_EQUAL;
+/// The suggestion strip's keyboard page keys, `Ctrl+,`/`Ctrl+.` — the
+/// popup's ◀▶ buttons with a keyboard flavor; plain `,`/`.` stay content.
+pub const COMMA: u32 = XK_COMMA;
+pub const PERIOD: u32 = XK_PERIOD;
 
 #[cfg(test)]
 mod tests {
