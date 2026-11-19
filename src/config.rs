@@ -49,6 +49,12 @@ pub struct Config {
     /// timer. Off by default: today a hold stops at the composed pair
     /// (`o` → `ô`).
     pub keep_repeats_raw: bool,
+    /// Experimental: the suggestion strip — after a word ends, candidates
+    /// from the frequency table trail it and a digit key picks one. Off by
+    /// default, and off entirely on digit-tone presets
+    /// (`Method::uses_digit_tone_keys`): their digits are tone keys, so the
+    /// strip must not claim them.
+    pub suggest_words: bool,
     /// Experimental: the preferred injection backend — `auto` keeps the
     /// environment matrix; a named backend leads the selection walk and the
     /// matrix falls back when it cannot build. Off (`auto`) is exactly the
@@ -871,6 +877,7 @@ impl Default for Config {
             extended_onsets: false,
             keep_composed_words: false,
             keep_repeats_raw: false,
+            suggest_words: false,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
@@ -1736,6 +1743,16 @@ children = ["preedit", "flow"]
         assert!(!c.keep_repeats_raw);
         let c: Config = toml::from_str("keep_repeats_raw = true").unwrap();
         assert!(c.keep_repeats_raw);
+    }
+
+    #[test]
+    fn suggest_words_defaults_off_and_round_trips() {
+        // Wrapper-level switch: no bamboo_config mapping to check — the
+        // strip lives in the engine, ahead of the word commit.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.suggest_words);
+        let c: Config = toml::from_str("suggest_words = true").unwrap();
+        assert!(c.suggest_words);
     }
 
     #[test]
