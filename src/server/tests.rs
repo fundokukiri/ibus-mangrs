@@ -3592,10 +3592,15 @@ fn press_with_state(handler: &mut EngineHandler, keyval: u32, state: u32) -> (bo
 fn update_candidates_renders_the_full_list() {
     strip_reset_for_test();
     let msgs = emitted(&[Action::UpdateCandidates {
+        word: "th".into(),
         items: strip_items(),
     }]);
-    assert_eq!(members(&msgs), vec!["UpdateLookupTable"]);
-    let (table, visible) = msgs[0]
+    assert_eq!(
+        members(&msgs),
+        vec!["UpdateAuxiliaryText", "UpdateLookupTable"],
+        "the box's input line leads, the table follows"
+    );
+    let (table, visible) = msgs[1]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table + visible");
     assert!(visible);
@@ -3621,13 +3626,19 @@ fn hide_candidates_hides_and_clears_the_strip() {
     strip_reset_for_test();
     let msgs = emitted(&[
         Action::UpdateCandidates {
+            word: "th".into(),
             items: strip_items(),
         },
         Action::HideCandidates,
     ]);
     assert_eq!(
         members(&msgs),
-        vec!["UpdateLookupTable", "HideAuxiliaryText", "HideLookupTable"]
+        vec![
+            "UpdateAuxiliaryText",
+            "UpdateLookupTable",
+            "HideAuxiliaryText",
+            "HideLookupTable"
+        ]
     );
     // The state cleared with the hide: a second close is silent instead of
     // pushing a stray signal (the engine's close racing the server's own
@@ -3886,12 +3897,16 @@ fn panel_pager_methods_page_the_strip() {
             &mut e,
             &Injection::new(),
             &[Action::UpdateCandidates {
+                word: "th".into(),
                 items: strip_items(),
             }],
             &mut out,
         );
     }
-    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    assert_eq!(
+        members(&out),
+        vec!["UpdateAuxiliaryText", "UpdateLookupTable"]
+    );
     let mut out = Vec::new();
     handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
@@ -4144,6 +4159,7 @@ fn a_digit_beyond_the_list_falls_through_to_the_engine() {
             &mut e,
             &Injection::new(),
             &[Action::UpdateCandidates {
+                word: "th".into(),
                 items: strip_items(),
             }],
             &mut out,

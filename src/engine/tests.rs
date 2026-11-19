@@ -5032,7 +5032,7 @@ fn suggest_engine(method: Method, mode: Mode, suggest_words: bool) -> Engine {
 /// Feed keys one at a time, keeping each key's action batch apart: the
 /// strip assertions are per-key (quiet on the first char, open on the
 /// second, hidden on the terminator). Clients here need only the preedit
-/// capability — the strip is a Preedit-mode feature and never deletes.
+/// capability — inline modes get their own surrounding-text feeder below.
 fn suggest_keys(e: &mut Engine, keys: &str) -> Vec<Vec<Action>> {
     if e.client().is_none() {
         e.set_client(Some("gtk4-im:test".into()));
@@ -5052,7 +5052,7 @@ fn strip_actions(actions: &[Action]) -> Vec<&Action> {
 /// The candidate list a batch carries, if any.
 fn candidates_of(actions: &[Action]) -> Option<&Vec<String>> {
     actions.iter().find_map(|a| match a {
-        Action::UpdateCandidates { items } => Some(items),
+        Action::UpdateCandidates { items, .. } => Some(items),
         _ => None,
     })
 }
@@ -5341,19 +5341,208 @@ fn suggest_stays_silent_while_the_experimental_gate_is_closed() {
 
 #[test]
 fn suggest_off_and_flow_stay_silent() {
-    // The strip rides the composition path only: OFF forwards raw keys and
-    // Flow presses them through the injection backend — neither changes an
-    // in-flight preedit word, and neither may emit a candidate action.
+    // OFF forwards raw keys — nothing composes, so no candidate action may
+    // appear. (Flow composes through the injection backend and serves the
+    // strip like the other modes now; its own pin follows.)
     let mut e = suggest_engine(Method::Telex, Mode::Off, true);
     let keys = suggest_keys(&mut e, "tieng ");
     let all: Vec<Action> = keys.into_iter().flatten().collect();
     assert!(strip_actions(&all).is_empty(), "{all:?}");
+}
+
+#[test]
+fn suggest_strip_opens_in_flow_and_rides_the_word_end() {
+    // Flow's per-key path now carries the strip like the common path: the
+    // list follows the composed word while it grows, and the word-end
+    // rewrite closes it with the commit.
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    let keys = suggest_keys(&mut e, "thooi ");
+    assert!(
+        keys[..5].iter().any(|batch| candidates_of(batch).is_some()),
+        "the strip is open before the terminator: {keys:?}"
+    );
+    assert!(keys[5].contains(&Action::HideCandidates), "{:?}", keys[5]);
+    assert!(candidates_of(&keys[5]).is_none(), "{:?}", keys[5]);
+}
+
+/// The word an `UpdateCandidates` action carries — the box's input line
+/// source (the inline modes have no preedit signal to convert).
+fn word_of(actions: &[Action]) -> Option<&str> {
+    actions.iter().find_map(|a| match a {
+        Action::UpdateCandidates { word, .. } => Some(word.as_str()),
+        _ => None,
+    })
+}
+
+/// Feed keys like `suggest_keys` but with surrounding-text reports after
+/// every key — the inline modes' delete transports (the protocol delete,
+/// clamped to the report) need a client that reports its buffer.
+fn suggest_keys_st(e: &mut Engine, keys: &str) -> Vec<Vec<Action>> {
+    if e.client().is_none() {
+        e.set_client(Some("gtk4-im:test".into()));
+    }
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
+    let mut buf: Vec<char> = Vec::new();
+    keys.chars()
+        .map(|c| {
+            let actions = e.process_char(c);
+            for a in &actions {
+                match a {
+                    Action::DeleteBefore(n) => {
+                        buf.truncate(buf.len().saturating_sub(*n as usize));
+                    }
+                    Action::DeleteSurrounding { offset, n } => {
+                        let start = (buf.len() as i64 + *offset as i64).max(0) as usize;
+                        let end = (start + *n as usize).min(buf.len());
+                        buf.drain(start..end);
+                    }
+                    Action::Commit(t) => buf.extend(t.chars()),
+                    _ => {}
+                }
+            }
+            let text: String = buf.iter().collect();
+            e.set_surrounding(text, buf.len() as u32);
+            actions
+        })
+        .collect()
+}
+
+#[test]
+fn suggest_strip_carries_the_word_for_the_box_line() {
+    // The action is the word's only vehicle to the box's input line: the
+    // inline modes have no preedit signal to convert, so the word rides
+    // every `UpdateCandidates` — and never collides with its own list (the
+    // completions exclude the word itself).
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let keys = suggest_keys(&mut e, "th");
+    assert_eq!(word_of(&keys[1]), Some("th"), "{:?}", keys[1]);
+    let items = candidates_of(&keys[1]).expect("the strip opens on `th`");
+    assert!(
+        !items.iter().any(|w| w == "th"),
+        "completions exclude the word: {items:?}"
+    );
+}
+
+#[test]
+fn suggest_accept_rewrites_the_held_word_in_surrounding() {
+    // Commit-as-you-type: `th` already sits in the application's field, so
+    // the pick erases it through the protocol delete (clamped to the
+    // report) before the candidate commits — the old shape appended the
+    // candidate after the held word (`chon` + pick → `chonchọn`).
+    let mut e = suggest_engine(Method::Telex, Mode::Surrounding, true);
+    let keys = suggest_keys_st(&mut e, "th");
+    let picked = picked_candidate(&keys[1], 0);
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HideCandidates,
+            Action::DeleteBefore(2),
+            Action::Commit(picked),
+        ],
+        "{actions:?}"
+    );
+    assert!(!e.suggest_open);
+}
+
+#[test]
+fn suggest_accept_uses_forwarded_backspaces_in_forward_mode() {
+    // ForwardBackspace holds the composed text in the application too; its
+    // transport is Backspace key events sent through IBus — they reach
+    // every client, so the pick erases through them.
+    let mut e = suggest_engine(Method::Telex, Mode::ForwardBackspace, true);
+    let keys = suggest_keys(&mut e, "th");
+    let picked = picked_candidate(&keys[1], 0);
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HideCandidates,
+            Action::ForwardBackspaces(2),
+            Action::Commit(picked),
+        ],
+        "{actions:?}"
+    );
+}
+
+#[test]
+fn suggest_accept_rewrites_through_injection_in_flow() {
+    // Flow holds the word on screen through the per-key batch: the pick
+    // lands any parked commit first (a fast digit must not let the stale
+    // park re-insert the old text), erases through the injected Backspaces
+    // and commits — the emoji rewrite's exact sequence.
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    let keys = suggest_keys(&mut e, "th");
+    let picked = picked_candidate(&keys[1], 0);
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HideCandidates,
+            Action::CommitNow("th".into()),
+            Action::InjectBackspaces(2),
+            Action::PostDelay(10),
+            Action::Commit(picked),
+        ],
+        "{actions:?}"
+    );
+}
+
+#[test]
+fn suggest_backspace_follows_the_word_in_inline_modes() {
+    // The Backspace arms' contract, inline flavor: the list follows the
+    // shorter word while it stays above the floor, and the strip closes
+    // once nothing completes it — the old shape left the strip hanging
+    // over a word that was already gone.
+    let mut e = suggest_engine(Method::Telex, Mode::Surrounding, true);
+    let keys = suggest_keys_st(&mut e, "tha");
+    assert!(
+        candidates_of(&keys[2]).is_some(),
+        "the strip is up: {:?}",
+        keys[2]
+    );
+    let actions = e.backspace().expect("the word is in flight");
+    assert!(
+        candidates_of(&actions).is_some(),
+        "the list follows the shorter word: {actions:?}"
+    );
+    let actions = e.backspace().expect("the word is still in flight");
+    assert!(
+        actions.contains(&Action::HideCandidates),
+        "below the floor the strip closes: {actions:?}"
+    );
+
+    let mut e = suggest_engine(Method::Telex, Mode::ForwardBackspace, true);
+    let keys = suggest_keys(&mut e, "tha");
+    assert!(candidates_of(&keys[2]).is_some(), "{:?}", keys[2]);
+    let actions = e.backspace().expect("the word is in flight");
+    assert!(
+        candidates_of(&actions).is_some(),
+        "the list follows the shorter word: {actions:?}"
+    );
+    let actions = e.backspace().expect("the word is still in flight");
+    assert!(
+        actions.contains(&Action::HideCandidates),
+        "below the floor the strip closes: {actions:?}"
+    );
 
     let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
     e.set_uinput_available(true);
-    let keys = suggest_keys(&mut e, "tieng ");
-    let all: Vec<Action> = keys.into_iter().flatten().collect();
-    assert!(strip_actions(&all).is_empty(), "{all:?}");
+    suggest_keys(&mut e, "tha");
+    let actions = e.backspace().expect("the word is in flight");
+    assert_eq!(
+        strip_actions(&actions).len(),
+        1,
+        "exactly one strip action rides the backspace: {actions:?}"
+    );
+    let actions = e.backspace().expect("the word is still in flight");
+    assert!(
+        actions.contains(&Action::HideCandidates),
+        "below the floor the strip closes: {actions:?}"
+    );
 }
 
 #[test]

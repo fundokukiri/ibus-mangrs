@@ -1856,16 +1856,11 @@ fn emit_with(
                             .append1(1u32),
                     );
                 }
-                if strip_up {
-                    // The floating input line: the word-in-flight shows in
-                    // the candidate window (ibus intelligent pinyin's aux
-                    // line); the cursor arg carries no meaning there.
-                    out.push(
-                        signal("UpdateAuxiliaryText")
-                            .append1(plain_text(text))
-                            .append1(true),
-                    );
-                }
+                // The box's input line is not shaped here: the word rides
+                // `UpdateCandidates` (the inline modes have no preedit signal
+                // to convert) and `strip_show` writes it. While the strip is
+                // up the inline preedit stays cleared — the word lives only
+                // in the box.
             }
             Action::HidePreedit => {
                 out.push(
@@ -1925,9 +1920,10 @@ fn emit_with(
             }
             Action::Forward | Action::Consumed => {}
             // The strip renders server-side, the picker's lookup-table
-            // precedent: the candidate actions carry the engine's full
-            // list, the server pages and labels it (below).
-            Action::UpdateCandidates { items } => strip_show(items, out),
+            // precedent: the candidate actions carry the word-in-flight
+            // (the box's input line) and the engine's full list, the server
+            // pages and labels the list (below).
+            Action::UpdateCandidates { word, items } => strip_show(word, items, out),
             Action::HideCandidates => strip_hide(out),
         }
     }
@@ -1959,15 +1955,25 @@ thread_local! {
     static STRIP: std::cell::RefCell<Option<StripState>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Show the strip: store the engine's full list and render page 0. Every
-/// `UpdateCandidates` is a word change, so the pager's page never survives
-/// it. An empty list would render an empty table — hide instead, keeping
-/// the state and the screen in step.
-fn strip_show(items: &[String], out: &mut Vec<Message>) {
+/// Show the strip: rewrite the box's input line with the word-in-flight,
+/// store the engine's full list and render page 0. Every `UpdateCandidates`
+/// is a word change, so the input line is rewritten and the pager's page
+/// never survives it. An empty list would render an empty table — hide
+/// instead, keeping the state and the screen in step.
+fn strip_show(word: &str, items: &[String], out: &mut Vec<Message>) {
     if items.is_empty() {
         strip_hide(out);
         return;
     }
+    // The floating input line: the word-in-flight shows in the candidate
+    // window (ibus intelligent pinyin's aux line); the cursor arg carries
+    // no meaning there. The action carries the word because the inline
+    // modes have no preedit signal to convert — this is the only source.
+    out.push(
+        signal("UpdateAuxiliaryText")
+            .append1(plain_text(word))
+            .append1(true),
+    );
     STRIP.with(|cell| {
         *cell.borrow_mut() = Some(StripState {
             items: items.to_vec(),
@@ -2049,9 +2055,10 @@ fn strip_digit(keyval: u32) -> Option<usize> {
 /// regular paths. The engine validates the index: an over-range label or a
 /// strip the word has moved past returns empty, and the key falls through
 /// to the normal dispatch (a refused digit types as content, exactly the
-/// no-strip behavior). The strip is a Preedit-mode feature and never
-/// injects on its own; a pick's commit may ride the delete transports, and
-/// the returned count feeds `add_injected_batch` like any word end.
+/// no-strip behavior). The strip never injects on its own; a pick's commit
+/// rides the word's own delete transports (protocol delete, forwarded or
+/// injected Backspaces), and the returned count feeds `add_injected_batch`
+/// like any word end.
 fn strip_key(
     engine: &mut Engine,
     injection: &mut Injection,

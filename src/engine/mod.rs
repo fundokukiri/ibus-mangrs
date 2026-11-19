@@ -156,9 +156,12 @@ pub enum Action {
     CommitNow(String),
     /// Show the suggestion strip with these candidate words — the full
     /// ≤25-item list for the in-flight word. The server renders it as an
-    /// IBus lookup table (the app-rule picker's precedent), pages it with
-    /// Left/Right and intercepts the selection digits while it is up.
-    UpdateCandidates { items: Vec<String> },
+    /// IBus lookup table (the app-rule picker's precedent) and pages it with
+    /// its pager controls; the selection digits are intercepted while it is
+    /// up. The word rides along for the box's input line: the inline modes
+    /// have no preedit signal to convert, so the action is the only source
+    /// of the word-in-flight there.
+    UpdateCandidates { word: String, items: Vec<String> },
     /// Close the suggestion strip: the word ended, the table has nothing
     /// for the word, or the composition was dropped.
     HideCandidates,
@@ -780,8 +783,8 @@ impl Engine {
         self.set_mode(mode);
         self.set_charset(config.charset.into());
         // A reload can close the strip's gate (switch off, digit-tone
-        // preset, mode off Preedit): a strip left open would accept
-        // selections the gate no longer allows.
+        // preset, a mode without a pick transport): a strip left open would
+        // accept selections the gate no longer allows.
         if !self.suggest_active() && std::mem::take(&mut self.suggest_open) {
             actions.push(Action::HideCandidates);
         }
@@ -1517,7 +1520,12 @@ impl Engine {
         // never drops — and bamboo follows so the composition stays
         // tracked (unikey convention: Backspace undoes the last raw key).
         if mode == Mode::Flow {
-            return Some(self.backspace_per_key());
+            let mut actions = self.backspace_per_key();
+            // The Backspace changed the screen word: the strip follows it
+            // down (list for the shorter word, hide once it is gone) — the
+            // same contract as the other modes' Backspace arms.
+            actions.extend(self.suggest_step());
+            return Some(actions);
         }
         let Some(edit) = self.wrapper.backspace() else {
             // Nothing composed: the application deletes one of its own
@@ -1565,9 +1573,13 @@ impl Engine {
                     debug_log::log("backspace forwarded (no delete transport)");
                     self.tail = replace_tail(&self.tail, 1, "");
                     self.note_backspace_forwarded();
-                    return Some(vec![Action::Forward]);
+                    // The word the strip is showing changed (or is gone): the
+                    // step closes it when the gate no longer allows a pick.
+                    let mut actions = vec![Action::Forward];
+                    actions.extend(self.suggest_step());
+                    return Some(actions);
                 }
-                let actions = if self.charset == Charset::Unicode {
+                let mut actions = if self.charset == Charset::Unicode {
                     let mut actions = Vec::new();
                     if edit.delete_chars > 0 {
                         let insert_len = edit.insert.chars().count();
@@ -1595,6 +1607,10 @@ impl Engine {
                         self.note_char(c);
                     }
                 }
+                // The Backspace changed the in-flight word: the strip follows
+                // it down (list for the shorter word, or hide once nothing
+                // completes it) — the preedit arm's contract, inline flavor.
+                actions.extend(self.suggest_step());
                 Some(actions)
             }
         }
@@ -1734,10 +1750,28 @@ impl Engine {
     /// is a preedit-mode feature), the switch on, and a preset whose digit
     /// keys are not tone keys — the server's selection digits must not
     /// fight the method's own marks.
+    /// Whether the strip may open for a word served in `mode`: preedit owns
+    /// its display (the client holds nothing on the wire — the pick commits
+    /// over it), the inline modes hold the composed text in the application
+    /// — a pick rewrites it, so the mode's own delete transport must be able
+    /// to. Without one the strip never opens: a pick would duplicate the
+    /// word the field already shows.
+    fn strip_possible(&self, mode: Mode) -> bool {
+        match mode {
+            Mode::Preedit => true,
+            Mode::Surrounding => self.deletes_allowed(),
+            // Forwarded Backspace keys reach every client — that is the
+            // mode's whole delete contract.
+            Mode::ForwardBackspace => true,
+            Mode::Flow => self.uinput_available,
+            Mode::Off => false,
+        }
+    }
+
     fn suggest_active(&self) -> bool {
-        self.mode == Mode::Preedit
-            && self.suggest_words
+        self.suggest_words
             && !self.wrapper.method().uses_digit_tone_keys()
+            && self.strip_possible(self.word_mode.unwrap_or(self.mode))
     }
 
     /// The strip refresh after a key changed the in-flight word: emit the
@@ -1748,6 +1782,11 @@ impl Engine {
     /// page.
     fn suggest_step(&mut self) -> Vec<Action> {
         if !self.suggest_active() {
+            // The gate turned off while the strip is up (a config reload mid-
+            // word): close it here so no stale strip survives to accept picks.
+            if std::mem::take(&mut self.suggest_open) {
+                return vec![Action::HideCandidates];
+            }
             return Vec::new();
         }
         // Below two characters the table is never consulted: an empty word
@@ -1774,7 +1813,10 @@ impl Engine {
             return Vec::new();
         }
         self.suggest_open = true;
-        vec![Action::UpdateCandidates { items }]
+        vec![Action::UpdateCandidates {
+            word: word.to_string(),
+            items,
+        }]
     }
 
     /// Commit the strip candidate at `index` — the position in the FULL
@@ -1809,7 +1851,44 @@ impl Engine {
             candidate.word
         };
         let text = encode(self.charset, &word);
+        // The mode the word was served in decides the rewrite: preedit holds
+        // nothing on the wire (drop and commit), the inline modes hold the
+        // composed text in the application — the pick erases it through the
+        // mode's own delete transport first, exactly like the inline word-end
+        // rewrites (macro, emoji). Without a transport the commit would land
+        // on top of the held word and duplicate it; the strip gate never
+        // opens there, and a race is refused rather than committed.
+        let mode = self.word_mode.unwrap_or(self.mode);
+        if !self.strip_possible(mode) {
+            return Vec::new();
+        }
+        let inline = mode != Mode::Preedit;
+        // The erase length comes off the tail (the screen the transports
+        // model) — `drop_pending_word` clears it, so read it first. Flow's
+        // last batch may still be parked: land it before the erase so the
+        // Backspaces count against the screen they model.
+        let held = self.tail.chars().count();
+        let parked = if mode == Mode::Flow {
+            self.per_key_park.take()
+        } else {
+            None
+        };
         let mut actions = self.drop_pending_word(true);
+        if let Some((_, parked_text)) = parked {
+            actions.push(Action::CommitNow(parked_text));
+        }
+        if inline && held > 0 {
+            if mode == Mode::Flow {
+                // Flow's transport is the injected Backspaces (see the
+                // per-key coalesce), paced like every Flow rewrite.
+                actions.push(Action::InjectBackspaces(held as u32));
+                if self.post_delay_ms > 0 {
+                    actions.push(Action::PostDelay(self.post_delay_ms));
+                }
+            } else {
+                actions.push(self.delete_action(mode, held as u32, text.chars().count()));
+            }
+        }
         // The context word is the commit as it landed — like `on_finish`
         // recording the word as Finish carried it, capital included.
         self.last_committed_word = Some(word);

@@ -647,12 +647,21 @@ impl Engine {
                 // over an erased region.
                 self.region_plain &= self.wrapper.output() == self.wrapper.raw();
                 actions.extend(self.per_key_coalesce(want));
+                // The composed word changed: the strip follows it, like the
+                // common path's Edit arm. An empty edit must not re-emit —
+                // it would reset the server's page with the same list.
+                if !edit.is_empty() {
+                    actions.extend(self.suggest_step());
+                }
                 actions
             }
             Outcome::Finish {
                 word, raw, valid, ..
             } => {
                 actions.extend(self.on_finish_uinput(mode, word, raw, valid, c));
+                // The word ended: the strip closes with it, like the common
+                // path's Finish arm.
+                actions.extend(self.suggest_step());
                 actions
             }
         }
