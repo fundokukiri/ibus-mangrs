@@ -25,7 +25,9 @@ use dbus::ffidisp::{BusType, Connection, NameFlag};
 use dbus::strings::{BusName, Interface, Member, Path as DbusPath};
 use dbus::{Message, MessageType};
 
-use crate::config::{CharsetConfig, Config, MethodConfig, ModeConfig, PreferredBackendConfig};
+use crate::config::{
+    CharsetConfig, Config, MethodConfig, ModeConfig, PreferredBackendConfig, SuggestDisplayConfig,
+};
 use crate::debug_log::{self, brief};
 use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
@@ -1703,17 +1705,16 @@ fn emit_with(
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
     let mut delete_failed = false;
-    // The strip's floating input box: when this batch opens or refreshes the
-    // strip, the word-in-flight shows in the candidate window's own input
-    // line and the client's field stays clean — the batch's preedit signal
-    // converts to the auxiliary text (ibus intelligent pinyin's shape). A
-    // batch without candidates forwards the preedit inline again. The
-    // display combo's classic choice keeps the preedit inline beside the
-    // table instead.
-    let strip_word = engine.suggest_floating_box()
-        && actions
-            .iter()
-            .any(|a| matches!(a, Action::UpdateCandidates { .. }));
+    // The strip's display shapes this batch's preedit signal (when the strip
+    // is up — a batch carrying candidates): mirror shows the word-in-flight
+    // in BOTH places, floating only in the candidate window's input line
+    // (the client's field stays clean — ibus intelligent pinyin's aux
+    // shape), inline keeps the classic preedit beside the table. A batch
+    // without candidates forwards the preedit inline again.
+    let strip_up = actions
+        .iter()
+        .any(|a| matches!(a, Action::UpdateCandidates { .. }));
+    let display = engine.suggest_display();
     let strip_was = strip_open();
     for action in actions {
         match action {
@@ -1827,47 +1828,52 @@ fn emit_with(
                 }
             }
             Action::UpdatePreedit { text, cursor } => {
-                if strip_word {
-                    if !strip_was {
-                        // The opening transition: the client still shows the
-                        // inline preedit from before the strip — clear it so
-                        // the word only lives in the floating box.
-                        out.push(
-                            signal("UpdatePreeditText")
-                                .append1(plain_text(""))
-                                .append1(0u32)
-                                .append1(false) // not visible = hide
-                                .append1(0u32),
-                        );
-                    }
+                let floating = strip_up && display == SuggestDisplayConfig::Floating;
+                let mirrored = strip_up && display == SuggestDisplayConfig::Mirror;
+                if floating && !strip_was {
+                    // The opening transition: the client still shows the
+                    // inline preedit from before the strip — clear it so the
+                    // word only lives in the floating box.
+                    out.push(
+                        signal("UpdatePreeditText")
+                            .append1(plain_text(""))
+                            .append1(0u32)
+                            .append1(false) // not visible = hide
+                            .append1(0u32),
+                    );
+                }
+                if !floating {
+                    let len = text.chars().count() as u32;
+                    let attrs: &[Attr] = if hide_underline {
+                        &[]
+                    } else {
+                        &[Attr::underline(0, len)]
+                    };
+                    out.push(
+                        signal("UpdatePreeditText")
+                            .append1(text_variant(text, attrs))
+                            .append1(*cursor)
+                            .append1(true)
+                            // IBUS_ENGINE_PREEDIT_COMMIT: when the client resets
+                            // the input context (a mouse click, a focus change) it
+                            // commits this preedit itself instead of clearing it,
+                            // so a pending word is never lost. ibus-bamboo sends
+                            // this same mode.
+                            .append1(1u32),
+                    );
+                }
+                if floating || mirrored {
                     // The floating input line: the word-in-flight shows in
                     // the candidate window (ibus intelligent pinyin's aux
-                    // line); the cursor arg carries no meaning there.
+                    // line); the cursor arg carries no meaning there. The
+                    // mirror keeps it in sync with the inline preedit above —
+                    // one source, both surfaces, updated per keystroke.
                     out.push(
                         signal("UpdateAuxiliaryText")
                             .append1(plain_text(text))
                             .append1(true),
                     );
-                    continue;
                 }
-                let len = text.chars().count() as u32;
-                let attrs: &[Attr] = if hide_underline {
-                    &[]
-                } else {
-                    &[Attr::underline(0, len)]
-                };
-                out.push(
-                    signal("UpdatePreeditText")
-                        .append1(text_variant(text, attrs))
-                        .append1(*cursor)
-                        .append1(true)
-                        // IBUS_ENGINE_PREEDIT_COMMIT: when the client resets
-                        // the input context (a mouse click, a focus change) it
-                        // commits this preedit itself instead of clearing it,
-                        // so a pending word is never lost. ibus-bamboo sends
-                        // this same mode.
-                        .append1(1u32),
-                );
             }
             Action::HidePreedit => {
                 out.push(

@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use crate::config::{
     BackspaceToneConfig, BracketConfig, CharsetConfig, Config, MenuNode, MethodConfig, ModeConfig,
-    PreferredBackendConfig, W2uConfig,
+    PreferredBackendConfig, SuggestDisplayConfig, W2uConfig,
 };
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
@@ -457,6 +457,16 @@ fn preferred_backend_index(c: PreferredBackendConfig) -> u32 {
     }
 }
 
+/// Combo item order on the experimental page: mirror (both surfaces),
+/// floating box only, classic inline only.
+fn suggest_display_index(d: SuggestDisplayConfig) -> u32 {
+    match d {
+        SuggestDisplayConfig::Mirror => 0,
+        SuggestDisplayConfig::Floating => 1,
+        SuggestDisplayConfig::Inline => 2,
+    }
+}
+
 fn charset_index(c: CharsetConfig) -> u32 {
     match c {
         CharsetConfig::Unicode => 0,
@@ -640,7 +650,7 @@ impl Ui {
         self.keep_repeats_raw.set_active(config.keep_repeats_raw);
         self.suggest_words.set_active(config.suggest_words);
         self.suggest_display
-            .set_selected(u32::from(!config.suggest_floating_box));
+            .set_selected(suggest_display_index(config.suggest_display));
         self.preferred_backend
             .set_selected(preferred_backend_index(config.preferred_backend));
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
@@ -816,7 +826,11 @@ impl Ui {
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
         config.suggest_words = self.suggest_words.is_active();
-        config.suggest_floating_box = self.suggest_display.selected() == 0;
+        config.suggest_display = match self.suggest_display.selected() {
+            1 => SuggestDisplayConfig::Floating,
+            2 => SuggestDisplayConfig::Inline,
+            _ => SuggestDisplayConfig::Mirror,
+        };
         config.preferred_backend = match self.preferred_backend.selected() {
             1 => PreferredBackendConfig::Uinput,
             2 => PreferredBackendConfig::XTest,
@@ -995,7 +1009,8 @@ impl Ui {
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
         self.suggest_words.set_active(d.suggest_words);
-        self.suggest_display.set_selected(0);
+        self.suggest_display
+            .set_selected(suggest_display_index(d.suggest_display));
         self.preferred_backend.set_selected(0);
         self.extra_url_chars_switch
             .set_active(d.extra_url_chars_enabled);
@@ -1023,7 +1038,7 @@ impl Ui {
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
         self.suggest_words.set_active(c.suggest_words);
         self.suggest_display
-            .set_selected(u32::from(!c.suggest_floating_box));
+            .set_selected(suggest_display_index(c.suggest_display));
         self.preferred_backend
             .set_selected(preferred_backend_index(c.preferred_backend));
         self.extra_url_chars_switch
