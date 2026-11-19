@@ -3584,7 +3584,7 @@ fn press(handler: &mut EngineHandler, keyval: u32) -> (bool, Vec<Message>) {
 }
 
 #[test]
-fn update_candidates_renders_one_horizontal_page() {
+fn update_candidates_renders_the_full_list() {
     strip_reset_for_test();
     let msgs = emitted(&[Action::UpdateCandidates {
         items: strip_items(),
@@ -3597,11 +3597,17 @@ fn update_candidates_renders_one_horizontal_page() {
     let (page_size, cursor, cursor_visible, round, orientation, cands, labels) =
         table_parts(&table);
     assert_eq!(page_size, 5);
-    assert_eq!(cursor, 0, "selection is by digit; no highlight to move");
+    assert_eq!(cursor, 0, "page 0 at open");
     assert!(cursor_visible);
-    assert!(round);
+    // round=false: the server clamps the pager at both ends, so the panel
+    // hides the prev/next buttons there instead of wrapping.
+    assert!(!round);
     assert_eq!(orientation, 0, "horizontal: one row of labeled entries");
-    assert_eq!(cands, ["một", "hai", "ba", "bốn", "năm"], "page 0");
+    assert_eq!(
+        cands,
+        ["một", "hai", "ba", "bốn", "năm", "sáu", "bảy"],
+        "the full list travels at once — the panel's page count then renders the pager buttons"
+    );
     assert_eq!(labels, ["1.", "2.", "3.", "4.", "5."]);
 }
 
@@ -3623,7 +3629,7 @@ fn hide_candidates_hides_and_clears_the_strip() {
 }
 
 #[test]
-fn left_and_right_page_the_strip_while_visible() {
+fn minus_equals_page_the_strip_while_visible() {
     strip_reset_for_test();
     let (engine, mut handler) = strip_handler(false);
     // Seed the strip through the funnel the engine's actions ride.
@@ -3641,45 +3647,214 @@ fn left_and_right_page_the_strip_while_visible() {
     }
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
 
-    // Right turns to page 1: the two entries past the first five, still
-    // labeled 1.-5. (the page slots keep their digits).
-    let (consumed, out) = press(&mut handler, keymap::RIGHT);
-    assert!(consumed, "the arrow is consumed while the strip is up");
+    // `=` turns to page 1: the table still carries the full list, the
+    // cursor marks the page head (global index 5) so the panel's pager
+    // buttons track the same position.
+    let (consumed, out) = press(&mut handler, keymap::EQUALS);
+    assert!(consumed, "`=` pages while the strip is up");
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
-    let (.., orientation, cands, labels) = table_parts(&table);
-    assert_eq!(orientation, 0);
-    assert_eq!(cands, ["sáu", "bảy"]);
+    let (page_size, cursor, .., cands, labels) = table_parts(&table);
+    assert_eq!(page_size, 5);
+    assert_eq!(cursor, 5, "the cursor rides to the page head");
+    assert_eq!(
+        cands,
+        ["một", "hai", "ba", "bốn", "năm", "sáu", "bảy"],
+        "the full list re-renders at the moved cursor"
+    );
     assert_eq!(labels, ["1.", "2.", "3.", "4.", "5."]);
 
-    // Right on the last page clamps: the same page renders again.
-    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    // `=` on the last page clamps: the same cursor renders again.
+    let (consumed, out) = press(&mut handler, keymap::EQUALS);
     assert!(consumed);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
-    let (_, _, _, _, _, cands, _) = table_parts(&table);
-    assert_eq!(cands, ["sáu", "bảy"]);
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 5);
 
-    // Left walks back to page 0.
-    let (consumed, out) = press(&mut handler, keymap::LEFT);
+    // `-` walks back to page 0.
+    let (consumed, out) = press(&mut handler, keymap::MINUS);
     assert!(consumed);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
-    let (_, _, _, _, _, cands, _) = table_parts(&table);
-    assert_eq!(cands, ["một", "hai", "ba", "bốn", "năm"]);
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 0);
 
-    // Left on the first page clamps: page 0 again, key still consumed.
-    let (consumed, out) = press(&mut handler, keymap::LEFT);
+    // `-` on the first page clamps: page 0 again, key still consumed.
+    let (consumed, out) = press(&mut handler, keymap::MINUS);
     assert!(consumed);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
-    let (_, _, _, _, _, cands, _) = table_parts(&table);
-    assert_eq!(cands, ["một", "hai", "ba", "bốn", "năm"]);
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 0);
+}
+
+#[test]
+fn page_up_page_down_keys_page_the_strip() {
+    strip_reset_for_test();
+    let (engine, mut handler) = strip_handler(false);
+    let mut out = Vec::new();
+    {
+        let mut e = lock_engine(&engine);
+        emit(
+            &mut e,
+            &Injection::new(),
+            &[Action::UpdateCandidates {
+                items: strip_items(),
+            }],
+            &mut out,
+        );
+    }
+    // PageDown walks forward, clamps on the last page, PageUp walks back.
+    let (consumed, out) = press(&mut handler, keymap::PAGE_DOWN);
+    assert!(consumed, "PageDown pages while the strip is up");
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 5);
+    let (consumed, out) = press(&mut handler, keymap::PAGE_DOWN);
+    assert!(consumed);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 5, "the last page clamps");
+    let (consumed, out) = press(&mut handler, keymap::PAGE_UP);
+    assert!(consumed);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 0);
+}
+
+#[test]
+fn arrows_fall_through_while_the_strip_is_visible() {
+    strip_reset_for_test();
+    // The arrows are caret navigation again — the strip never owns them: a
+    // LEFT while the strip is up ends the word and moves the caret, exactly
+    // the closed-strip flow (commit rides the reply, the strip closes with
+    // the word's end).
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip is up: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, keymap::LEFT);
+    assert!(!consumed, "the arrow belongs to the caret");
+    let members_seen = members(&out);
+    assert!(
+        members_seen.contains(&"CommitText".to_string()),
+        "the word ends on the arrow: {:?}",
+        members_seen
+    );
+    assert!(
+        !members_seen.contains(&"UpdateLookupTable".to_string()),
+        "no paging happened: {:?}",
+        members_seen
+    );
+}
+
+#[test]
+fn panel_pager_methods_page_the_strip() {
+    strip_reset_for_test();
+    // The candidate popup's ◀▶ buttons forward PageUp/PageDown engine
+    // methods; they page the strip the same way the keys do (ibus
+    // intelligent pinyin's popup paging). A wordless engine has no strip:
+    // the method is a silent no-op.
+    let (_engine, mut handler) = strip_handler(false);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    assert!(
+        !members(&out).contains(&"UpdateLookupTable".to_string()),
+        "no strip, no table: {:?}",
+        members(&out)
+    );
+    // Seed the strip through the funnel the engine's actions ride, then
+    // page it through the panel's methods.
+    let (engine, mut handler) = strip_handler(false);
+    let mut out = Vec::new();
+    {
+        let mut e = lock_engine(&engine);
+        emit(
+            &mut e,
+            &Injection::new(),
+            &[Action::UpdateCandidates {
+                items: strip_items(),
+            }],
+            &mut out,
+        );
+    }
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 5, "the panel's next button turns to page 1");
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("PageUp"), "PageUp", &mut out);
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 0, "the panel's prev button walks back");
+}
+
+#[test]
+fn candidate_clicked_picks_through_the_strip() {
+    strip_reset_for_test();
+    // A click on a candidate row forwards CandidateClicked(index): the
+    // global index commits, same as pressing the entry's digit. The picked
+    // text is read back off the rendered table, never a literal.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(members(&out).iter().any(|m| m == "UpdateLookupTable"));
+    let table_msg = out
+        .iter()
+        .find(|m| m.member() == Some("UpdateLookupTable".into()))
+        .expect("the strip's table");
+    let (table, _) = table_msg
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (.., cands, _) = table_parts(&table);
+    assert!(!cands.is_empty(), "candidates on screen: {cands:?}");
+    let mut out = Vec::new();
+    let msg = engine_msg("CandidateClicked").append3(0u32, 1u32, 0u32);
+    handler.engine_call(&msg, "CandidateClicked", &mut out);
+    let members_seen = members(&out);
+    assert!(
+        members_seen.contains(&"HideLookupTable".to_string())
+            && members_seen.contains(&"CommitText".to_string()),
+        "the click picks: {:?}",
+        members_seen
+    );
+    let committed = out
+        .iter()
+        .find(|m| m.member() == Some("CommitText".into()))
+        .and_then(|m| m.read1::<Variant<Box<dyn RefArg>>>().ok())
+        .map(|v| text_from_variant(&v))
+        .unwrap_or_else(|| panic!("the clicked entry commits: {:?}", members_seen));
+    assert_eq!(
+        committed.as_deref(),
+        Some(cands[0].as_str()),
+        "the clicked row commits, not the raw keys"
+    );
 }
 
 #[test]
@@ -3739,11 +3914,11 @@ fn digits_pick_while_the_strip_is_visible() {
 #[test]
 fn digits_pick_while_the_strip_is_paged() {
     strip_reset_for_test();
-    // Page 1: Right turns the page and digit 1 picks its first slot — the
+    // Page 1: `=` turns the page and digit 1 picks its first slot — the
     // global index 5 the page mapping promises. The committed text is read
-    // back off the rendered page-1 table, never a literal (see the visible
-    // pick above): paging shifts the mapping, the label-to-entry contract
-    // does not move.
+    // back off the rendered table, never a literal (see the visible pick
+    // above): paging shifts the mapping, the label-to-entry contract does
+    // not move.
     let (_engine, mut handler) = strip_handler(true);
     let (_, _) = press(&mut handler, 0x74); // 't'
     let (_, out) = press(&mut handler, 0x68); // 'h'
@@ -3752,16 +3927,17 @@ fn digits_pick_while_the_strip_is_paged() {
         vec!["UpdatePreeditText", "UpdateLookupTable"],
         "the strip opens beside the preedit"
     );
-    let (consumed, out) = press(&mut handler, keymap::RIGHT);
-    assert!(consumed, "the arrow pages while the strip is up");
+    let (consumed, out) = press(&mut handler, keymap::EQUALS);
+    assert!(consumed, "`=` pages while the strip is up");
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
-    let (_, _, _, _, _, cands, _) = table_parts(&table);
+    let (_, cursor, .., cands, _) = table_parts(&table);
+    assert_eq!(cursor, 5, "the cursor marks the page head");
     assert!(
-        !cands.is_empty(),
-        "page 1 holds entries past the first five"
+        cands.len() > 5,
+        "page 1 holds entries past the first five: {cands:?}"
     );
     let (consumed, out) = press(&mut handler, 0x31); // '1'
     assert!(consumed, "a pick on page 1 consumes the digit");
@@ -3774,7 +3950,7 @@ fn digits_pick_while_the_strip_is_paged() {
         .expect("CommitText variant");
     assert_eq!(
         text_from_variant(&committed).as_deref(),
-        Some(cands[0].as_str()),
+        Some(cands[5].as_str()),
         "label 1 on page 1 commits the list's sixth entry (global index 5)"
     );
 }
@@ -3850,7 +4026,7 @@ fn a_digit_beyond_the_list_falls_through_to_the_engine() {
             &mut out,
         );
     }
-    let (consumed, _) = press(&mut handler, keymap::RIGHT);
+    let (consumed, _) = press(&mut handler, keymap::EQUALS);
     assert!(consumed, "paging still works for the seeded strip");
     // Label 5 on page 1 → global index 9 → the engine refuses → today's
     // key path (a wordless digit forwards, nothing commits).

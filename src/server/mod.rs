@@ -432,8 +432,20 @@ impl EngineHandler {
         }
         if member == "CandidateClicked" {
             // A mouse click on a picker entry (GNOME's candidate popup
-            // forwards it here): same as pressing the entry's digit. Handled
-            // before the engine lock — the apply locks by itself.
+            // forwards it here): same as pressing the entry's digit. The
+            // strip is checked first — it owns the table when its word is
+            // in flight, and picker/emoji cannot coexist with it.
+            if strip_open() {
+                if let Ok((index, _button, _state)) = msg.read3::<u32, u32, u32>() {
+                    let mut engine = lock_engine(&self.engine);
+                    let actions = engine.accept_candidate(index as usize);
+                    if !actions.is_empty() {
+                        let injected = emit(&mut engine, &self.injection, &actions, out);
+                        add_injected_batch(&mut engine, &mut self.burst, injected);
+                    }
+                }
+                return msg.method_return();
+            }
             if self.emoji_picker.is_some() {
                 if let Ok((index, _button, _state)) = msg.read3::<u32, u32, u32>() {
                     self.apply_emoji_pick(index as usize, out);
@@ -448,8 +460,14 @@ impl EngineHandler {
             return msg.method_return();
         }
         if member == "PageUp" || member == "PageDown" {
-            // The candidate popup's pager buttons; only the emoji menu has
-            // more than one page. Handled before the engine lock.
+            // The candidate popup's pager buttons; the suggestion strip
+            // pages by them too when it is up, the emoji menu only when it
+            // is open. Server-side state — no engine lock needed for the
+            // strip.
+            if strip_open() {
+                strip_move_page(if member == "PageDown" { 1 } else { -1 });
+                strip_emit_table(out);
+            }
             if self.emoji_picker.is_some() {
                 if let Some(picker) = self.emoji_picker.as_mut() {
                     if member == "PageDown" {
@@ -1012,9 +1030,11 @@ fn process_key(
         }
     }
 
-    // The suggestion strip's keys: digits pick, Left/Right page — both only
-    // while the table is up. Sits before the editing-key dispatch so an
-    // open strip owns Left/Right; a closed strip changes nothing here.
+    // The suggestion strip's keys: digits pick, `-`/`=`/PageUp/PageDown
+    // page — both only while the table is up. Sits before the editing-key
+    // dispatch so an open strip owns its paging keys; a closed strip
+    // changes nothing here, and the arrows never touch the strip (caret
+    // navigation everywhere).
     if strip_key(engine, injection, burst, keyval, out) {
         return true;
     }
@@ -1862,19 +1882,21 @@ fn emit_with(
 }
 
 /// Page size of the suggestion strip's lookup table: five labeled slots,
-/// digits `1`-`5` pick them, Left/Right turn the page.
+/// digits `1`-`5` pick them, `-`/`=` and PageUp/PageDown turn the page —
+/// the panel's ◀▶ buttons page the same way.
 const STRIP_PAGE_SIZE: usize = 5;
 
 /// The server's view of the suggestion strip — the full candidate list the
-/// last `UpdateCandidates` carried and the page the Left/Right keys moved
-/// to. It lives beside `emit` instead of on `EngineHandler` because those
-/// two actions reach the server only through `emit`, whose call sites span
-/// the key path, the tick, focus/reset and the config applies across five
-/// files; riding the funnel keeps the state in step with the table on
-/// screen no matter which of them fired. The server's message loop is
-/// single-threaded (the callback runs inside `conn.iter()` on the main
-/// thread) and `EngineHandler` is `!Send` anyway, so a thread-local is
-/// sound.
+/// last `UpdateCandidates` carried and the page the pagers moved to (the
+/// `-`/`=`/PageUp/PageDown keys and the panel's pager methods; the arrows
+/// stay caret navigation). It lives beside `emit` instead of on
+/// `EngineHandler` because those two actions reach the server only through
+/// `emit`, whose call sites span the key path, the tick, focus/reset and
+/// the config applies across five files; riding the funnel keeps the state
+/// in step with the table on screen no matter which of them fired. The
+/// server's message loop is single-threaded (the callback runs inside
+/// `conn.iter()` on the main thread) and `EngineHandler` is `!Send`
+/// anyway, so a thread-local is sound.
 struct StripState {
     items: Vec<String>,
     page: usize,
@@ -1885,7 +1907,7 @@ thread_local! {
 }
 
 /// Show the strip: store the engine's full list and render page 0. Every
-/// `UpdateCandidates` is a word change, so the arrows' page never survives
+/// `UpdateCandidates` is a word change, so the pager's page never survives
 /// it. An empty list would render an empty table — hide instead, keeping
 /// the state and the screen in step.
 fn strip_show(items: &[String], out: &mut Vec<Message>) {
@@ -1917,7 +1939,7 @@ fn strip_open() -> bool {
     STRIP.with(|cell| cell.borrow().is_some())
 }
 
-/// The page the arrows moved to, `0` while page 0 is the newest update.
+/// The page the pagers moved to, `0` while page 0 is the newest update.
 fn strip_page() -> usize {
     STRIP.with(|cell| cell.borrow().as_ref().map(|s| s.page).unwrap_or(0))
 }
@@ -1934,24 +1956,18 @@ fn strip_move_page(delta: i32) {
     });
 }
 
-/// Render the strip's current page: page size 5, cursor on the head,
-/// horizontal with the `1.`-`5.` labels — one digit label per slot, so the
-/// key that picks an entry is visible on it.
+/// Render the strip: the full list travels at once with the cursor on the
+/// page head — the panel's page count then renders the ◀▶ buttons (mouse
+/// paging) — horizontal with the `1.`-`5.` labels, one digit label per
+/// slot, so the key that picks an entry is visible on it.
 fn strip_emit_table(out: &mut Vec<Message>) {
     STRIP.with(|cell| {
         let s = cell.borrow();
         let Some(s) = s.as_ref() else {
             return;
         };
-        let start = s.page * STRIP_PAGE_SIZE;
-        let page: Vec<String> = s
-            .items
-            .iter()
-            .skip(start)
-            .take(STRIP_PAGE_SIZE)
-            .cloned()
-            .collect();
-        let table = ibus_prop::lookup_table_page(STRIP_PAGE_SIZE as u32, &page);
+        let cursor = (s.page * STRIP_PAGE_SIZE) as u32;
+        let table = ibus_prop::lookup_table_strip(STRIP_PAGE_SIZE as u32, cursor, &s.items);
         out.push(signal("UpdateLookupTable").append2(table, true));
     });
 }
@@ -1966,7 +1982,9 @@ fn strip_digit(keyval: u32) -> Option<usize> {
 }
 
 /// The strip's server-side keys, tried between the burst hold and the
-/// editing-key dispatch: digits `1`-`5` pick, Left/Right page. Returns
+/// editing-key dispatch: digits `1`-`5` pick, `-`/`=` and PageUp/PageDown
+/// page — ibus intelligent pinyin's paging keys, chosen so the arrows keep
+/// their caret role everywhere (an open strip never owns them). Returns
 /// whether the key was consumed.
 ///
 /// A pick maps page + digit to the global index and hands it to
@@ -1976,8 +1994,8 @@ fn strip_digit(keyval: u32) -> Option<usize> {
 /// strip the word has moved past returns empty, and the key falls through
 /// to the normal dispatch (a refused digit types as content, exactly the
 /// no-strip behavior). The strip is a Preedit-mode feature and never
-/// injects, so nothing can be deferred or in flight here — no flush or
-/// hold bookkeeping either.
+/// injects on its own; a pick's commit may ride the delete transports, and
+/// the returned count feeds `add_injected_batch` like any word end.
 fn strip_key(
     engine: &mut Engine,
     injection: &mut Injection,
@@ -1999,8 +2017,8 @@ fn strip_key(
         return true;
     }
     match keyval {
-        keymap::LEFT => strip_move_page(-1),
-        keymap::RIGHT => strip_move_page(1),
+        keymap::MINUS | keymap::PAGE_UP => strip_move_page(-1),
+        keymap::EQUALS | keymap::PAGE_DOWN => strip_move_page(1),
         _ => return false,
     }
     strip_emit_table(out);

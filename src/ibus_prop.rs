@@ -609,16 +609,22 @@ pub fn lookup_table_variant(
     lookup_table_shape(page_size, cursor, true, 2, candidates, &[])
 }
 
-/// The serialized `IBusLookupTable` for one page of the suggestion strip:
-/// the server slices and pages the list itself, so each emission carries
-/// exactly the page's candidates at cursor 0, laid out horizontally with
-/// the `1.`-`n.` labels naming the digit that picks each slot. A shorter
-/// last page simply shows fewer candidates; the labels stay the full set
-/// so the slots keep their keys.
-pub fn lookup_table_page(page_size: u32, candidates: &[String]) -> Variant<Box<dyn RefArg>> {
+/// The serialized `IBusLookupTable` for the whole suggestion strip: the
+/// full candidate list travels at once with the cursor marking the page
+/// head, so the panel's page count renders the ◀▶ buttons (mouse paging,
+/// ibus intelligent pinyin's shape) and the `-`/`=` keys plus the panel's
+/// PageUp/PageDown methods re-emit at the moved cursor. Horizontal with
+/// the `1.`-`n.` labels naming the digit that picks each slot; round is
+/// false because the server clamps the pager — the buttons hide at the
+/// ends instead of wrapping.
+pub fn lookup_table_strip(
+    page_size: u32,
+    cursor: u32,
+    candidates: &[String],
+) -> Variant<Box<dyn RefArg>> {
     let labels: Vec<String> = (1..=page_size).map(|i| format!("{i}.")).collect();
     // Orientation 0 = horizontal: one row, a digit label beside each entry.
-    lookup_table_shape(page_size, 0, true, 0, candidates, &labels)
+    lookup_table_shape(page_size, cursor, false, 0, candidates, &labels)
 }
 
 #[cfg(test)]
@@ -1017,9 +1023,10 @@ mod tests {
 
     #[test]
     fn strip_table_is_horizontal_with_digit_labels() {
-        // The suggestion strip's page: horizontal, cursor on the head, one
-        // digit label per slot so the picking key is visible on the entry.
-        let table = lookup_table_page(5, &["một".into(), "hai".into()]);
+        // The suggestion strip's table: the full list at the paged cursor,
+        // horizontal, one digit label per slot so the picking key is visible
+        // on the entry; round=false so the panel hides the pager at the ends.
+        let table = lookup_table_strip(5, 5, &["một".into(), "hai".into()]);
         assert_eq!(table.0.signature().to_string(), "(sa{sv}uubbiavav)");
         let parts = table
             .0
@@ -1038,7 +1045,7 @@ mod tests {
             .expect("IBusLookupTable fields");
         assert_eq!(
             (parts.2, parts.3, parts.4, parts.5, parts.6),
-            (5, 0, true, true, 0)
+            (5, 5, true, false, 0)
         );
         let text = |list: &Vec<Variant<Box<dyn RefArg>>>| -> Vec<String> {
             list.iter()
