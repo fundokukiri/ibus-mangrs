@@ -5007,3 +5007,214 @@ fn keep_repeats_raw_a_mark_key_after_a_hold_keeps_screen_and_word_in_sync() {
     // the literal quote land exactly that.
     assert_eq!(buf, "ooo' ");
 }
+
+// --- suggestion strip ---
+
+/// Engine with the strip switch applied; unlike `engine` above this picks
+/// the input method too — the digit-tone presets must prove the strip's
+/// silence on their digits.
+fn suggest_engine(method: Method, mode: Mode, suggest_words: bool) -> Engine {
+    let mut e = Engine::new(method, mode);
+    e.apply_config(&Config {
+        mode: mode.into(),
+        suggest_words,
+        ..Config::default()
+    });
+    // apply_config resets the method to the config default, exactly like it
+    // resets the mode (see `engine` above); the caller wins again.
+    e.set_method(method);
+    e
+}
+
+/// Feed keys one at a time, keeping each key's action batch apart: the
+/// strip assertions are per-key (quiet on the first char, open on the
+/// second, hidden on the terminator). Clients here need only the preedit
+/// capability — the strip is a Preedit-mode feature and never deletes.
+fn suggest_keys(e: &mut Engine, keys: &str) -> Vec<Vec<Action>> {
+    if e.client().is_none() {
+        e.set_client(Some("gtk4-im:test".into()));
+    }
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    keys.chars().map(|c| e.process_char(c)).collect()
+}
+
+/// The strip actions in one key's batch, for the zero-leak assertions.
+fn strip_actions(actions: &[Action]) -> Vec<&Action> {
+    actions
+        .iter()
+        .filter(|a| matches!(a, Action::UpdateCandidates { .. } | Action::HideCandidates))
+        .collect()
+}
+
+/// The candidate list a batch carries, if any.
+fn candidates_of(actions: &[Action]) -> Option<&Vec<String>> {
+    actions.iter().find_map(|a| match a {
+        Action::UpdateCandidates { items } => Some(items),
+        _ => None,
+    })
+}
+
+#[test]
+fn suggest_strip_opens_on_the_second_char() {
+    // A single character matches ~1500 table rows — the strip never
+    // renders for it (the lone first key stays quiet); from the second
+    // key on the full list rides the word-changing keys, most frequent
+    // word first. The first item asserts the ranking, not the exact row:
+    // user-dictionary words outrank the builtin frequencies by design.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let keys = suggest_keys(&mut e, "th");
+    assert!(strip_actions(&keys[0]).is_empty(), "{:?}", keys[0]);
+    let list =
+        candidates_of(&keys[1]).unwrap_or_else(|| panic!("the strip opens on `th`: {:?}", keys[1]));
+    assert!(
+        list.first().is_some_and(|w| w.starts_with("th")),
+        "{list:?}"
+    );
+    // No other candidate action rides the same key.
+    assert_eq!(strip_actions(&keys[1]).len(), 1, "{:?}", keys[1]);
+}
+
+#[test]
+fn suggest_strip_hides_when_the_word_ends() {
+    // The terminator commits the word and closes the strip; up to that
+    // point the list stayed open (`thôi` itself completes to its plain
+    // toneless sibling `thoi` — tone variants surface by design).
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let keys = suggest_keys(&mut e, "thooi ");
+    assert!(
+        keys[..5].iter().any(|batch| candidates_of(batch).is_some()),
+        "the strip is open before the terminator: {keys:?}"
+    );
+    assert!(keys[5].contains(&Action::HideCandidates), "{:?}", keys[5]);
+    assert!(candidates_of(&keys[5]).is_none(), "{:?}", keys[5]);
+}
+
+#[test]
+fn suggest_strip_hides_when_nothing_completes_the_word() {
+    // `bước` (Telex `buowsc`) is a dictionary entry nothing extends and no
+    // tone sibling shares its skeleton: completing the word empties the
+    // list, and the strip closes while the word is still in flight.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let keys = suggest_keys(&mut e, "buowsc");
+    assert!(
+        keys[..5].iter().any(|batch| candidates_of(batch).is_some()),
+        "the strip opened mid-word: {keys:?}"
+    );
+    assert!(keys[5].contains(&Action::HideCandidates), "{:?}", keys[5]);
+}
+
+#[test]
+fn suggest_offers_tone_shape_fixes_for_a_kept_word() {
+    // `sort` composes to `sỏt` (r is the hỏi key); the strip answers with
+    // the toneless skeleton's neighbors — the one-key repair the
+    // keep-composed-words trade exists for.
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            experimental_features: true,
+            keep_composed_words: true,
+            suggest_words: true,
+            ..Config::default()
+        },
+    );
+    let keys = suggest_keys(&mut e, "sort");
+    let list =
+        candidates_of(&keys[3]).unwrap_or_else(|| panic!("the strip answers `sỏt`: {:?}", keys[3]));
+    assert!(list.iter().any(|w| w == "sót"), "{list:?}");
+    assert!(list.iter().any(|w| w == "sốt"), "{list:?}");
+}
+
+#[test]
+fn suggest_accept_commits_the_candidate_and_closes() {
+    // Selection rides the server (the picker's digit precedent); the
+    // engine's accept path commits the candidate off the emitted list,
+    // resets the composition like a word end, and records the context
+    // word for the strip's next round.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    suggest_keys(&mut e, "th");
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HidePreedit,
+            Action::HideCandidates,
+            Action::Commit("thể".into()),
+        ]
+    );
+    assert!(!e.suggest_open);
+    assert_eq!(e.last_committed_word.as_deref(), Some("thể"));
+    assert!(!e.preedit_commit_pending());
+}
+
+#[test]
+fn suggest_accept_ignores_a_closed_strip_and_an_out_of_range_index() {
+    // The server maps page + label to a global index; a race between its
+    // strip state and the engine's (the word moved on between the last
+    // update and the key) must commit nothing rather than a stale word.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    assert!(e.accept_candidate(0).is_empty());
+    suggest_keys(&mut e, "th");
+    assert!(e.accept_candidate(25).is_empty());
+    // State untouched: the strip is still up, the word still composing.
+    assert!(e.suggest_open);
+    assert!(e.preedit_commit_pending());
+    assert!(e.last_committed_word.is_none());
+}
+
+#[test]
+fn suggest_digit_still_ends_the_word_and_hides() {
+    // The engine never intercepts digits (the server owns selection while
+    // its strip is up): on a Telex preset a digit is a word terminator, so
+    // `th1` commits the raw keys and closes the strip, and the next digit
+    // types as content — no candidate action leaks on either.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let keys = suggest_keys(&mut e, "th1");
+    assert!(candidates_of(&keys[1]).is_some(), "{:?}", keys[1]);
+    assert!(keys[2].contains(&Action::HideCandidates), "{:?}", keys[2]);
+    assert!(candidates_of(&keys[2]).is_none(), "{:?}", keys[2]);
+    let after = suggest_keys(&mut e, "1");
+    assert!(strip_actions(&after[0]).is_empty(), "{:?}", after[0]);
+}
+
+#[test]
+fn suggest_digit_tone_presets_stay_silent() {
+    // The presets whose digits are tone keys never run the strip: the
+    // selection digits would fight the method's own marks. Zero candidate
+    // actions for any key run, marks and literal digits included.
+    for method in [Method::Vni, Method::TelexVni] {
+        let mut e = suggest_engine(method, Mode::Preedit, true);
+        let keys = suggest_keys(&mut e, "viet6 1");
+        let all: Vec<Action> = keys.into_iter().flatten().collect();
+        assert!(strip_actions(&all).is_empty(), "{method:?}: {all:?}");
+    }
+}
+
+#[test]
+fn suggest_off_and_flow_stay_silent() {
+    // The strip rides the composition path only: OFF forwards raw keys and
+    // Flow presses them through the injection backend — neither changes an
+    // in-flight preedit word, and neither may emit a candidate action.
+    let mut e = suggest_engine(Method::Telex, Mode::Off, true);
+    let keys = suggest_keys(&mut e, "tieng ");
+    let all: Vec<Action> = keys.into_iter().flatten().collect();
+    assert!(strip_actions(&all).is_empty(), "{all:?}");
+
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    let keys = suggest_keys(&mut e, "tieng ");
+    let all: Vec<Action> = keys.into_iter().flatten().collect();
+    assert!(strip_actions(&all).is_empty(), "{all:?}");
+}
+
+#[test]
+fn suggest_last_committed_word_follows_the_word_end() {
+    // The word a Finish commits becomes the strip's context word; focus
+    // loss drops it with the rest of the word state.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    suggest_keys(&mut e, "tieengs");
+    assert!(e.last_committed_word.is_none());
+    suggest_keys(&mut e, " ");
+    assert_eq!(e.last_committed_word.as_deref(), Some("tiếng"));
+    e.focus_out();
+    assert!(e.last_committed_word.is_none());
+}

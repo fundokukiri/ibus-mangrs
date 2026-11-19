@@ -1834,6 +1834,10 @@ fn emit_with(
                 }
             }
             Action::Forward | Action::Consumed => {}
+            // The strip renders server-side (lookup table, paging, the
+            // picker's digit selection); nothing consumes these actions
+            // until that plumbing lands, so they stay off the wire here.
+            Action::UpdateCandidates { .. } | Action::HideCandidates => {}
         }
     }
     injected_total

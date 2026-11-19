@@ -219,8 +219,11 @@ impl Engine {
                     // a shortcode context is not prose.
                     let close = self.emoji_close_rewrite(mode, &word, &raw);
                     self.emoji_word = false;
-                    if let Some(actions) = close {
-                        return actions;
+                    if let Some(mut close) = close {
+                        // The word is gone from the wrapper (the Finish
+                        // reset it): close the strip with the rewrite.
+                        close.extend(self.suggest_step());
+                        return close;
                     }
                     // Miss: the shortcode stays as typed — the raw keys, not
                     // the composed word, and no word-macro expansion.
@@ -233,6 +236,7 @@ impl Engine {
                         CandidateEnd::Close,
                     ));
                     self.note_char(c);
+                    actions.extend(self.suggest_step());
                     return actions;
                 }
                 let candidate = if self.emoji_word {
@@ -247,10 +251,18 @@ impl Engine {
                 actions.extend(self.on_finish(mode, word, raw, valid, valid_prefix, candidate));
                 // The terminator itself reaches the application last.
                 self.note_char(c);
+                actions.extend(self.suggest_step());
                 actions
             }
             Outcome::Edit(edit) => {
+                // Only a real edit changes the in-flight word; a Consumed
+                // no-op must not re-emit the list and reset the server's
+                // page.
+                let changed = !edit.is_empty();
                 actions.extend(self.on_edit(mode, edit));
+                if changed {
+                    actions.extend(self.suggest_step());
+                }
                 actions
             }
         }
@@ -1015,6 +1027,13 @@ impl Engine {
         candidate: CandidateEnd,
     ) -> Vec<Action> {
         let mut actions = self.hide_if_visible();
+        // The strip's context memory: the word as Finish carried it, before
+        // the macro/auto-restore rewrites below replace what actually lands
+        // (the context follows the typed word). The uinput and OFF word ends
+        // never reach this path — the strip does not run on those modes.
+        if !word.is_empty() {
+            self.last_committed_word = Some(word.clone());
+        }
         let inline = mode != Mode::Preedit;
         let skip_macro = !matches!(candidate, CandidateEnd::None);
         let force_raw = matches!(candidate, CandidateEnd::Close) && word != raw;

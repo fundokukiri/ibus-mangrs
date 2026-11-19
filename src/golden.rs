@@ -605,6 +605,9 @@ impl FakeClient {
                 // are the only way it lands.
                 Action::UpdatePreedit { .. } | Action::HidePreedit => {}
                 Action::Consumed | Action::PostDelay(_) => {}
+                // The strip is lookup-table display, not buffer text, and
+                // the golden table runs with defaults, where it never fires.
+                Action::UpdateCandidates { .. } | Action::HideCandidates => {}
             }
         }
     }

@@ -14,10 +14,6 @@
 //! unicode-normalization or edit-distance dependency: NFC handling and the
 //! capped Damerau-Levenshtein are hand-rolled.
 
-// The strip's engine and server consumers land in later tasks; until then
-// only the tests below touch this module.
-#![allow(dead_code)]
-
 use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::sync::OnceLock;
@@ -323,6 +319,14 @@ impl SuggestTable {
             }
         }
         list
+    }
+
+    /// All rows as owned `(word, freq)` pairs in table order — the builtin
+    /// half of the runtime table the engine merges the user dictionary
+    /// into (`from_rows` re-sorts and dedups the union). Called only by
+    /// the mtime-gated dictionary reload, never from the key path.
+    pub fn rows(&self) -> Vec<(String, u32)> {
+        self.rows.iter().map(|r| (r.word.clone(), r.freq)).collect()
     }
 
     /// True when the table has the word itself, case folded — the word the

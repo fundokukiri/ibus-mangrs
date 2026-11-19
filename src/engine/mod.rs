@@ -29,6 +29,7 @@ use crate::config::{AppRule, BackspaceToneConfig, Config};
 use crate::debug_log::{self, brief};
 use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
+use crate::suggest::{merge_user_entries, SuggestTable};
 
 mod helpers;
 mod process;
@@ -153,6 +154,14 @@ pub enum Action {
     /// their echoes accounted when the batch armed; a normal Commit here
     /// would defer behind that stale count and land ~150 ms late.
     CommitNow(String),
+    /// Show the suggestion strip with these candidate words — the full
+    /// ≤25-item list for the in-flight word. The server renders it as an
+    /// IBus lookup table (the app-rule picker's precedent), pages it with
+    /// Left/Right and intercepts the selection digits while it is up.
+    UpdateCandidates { items: Vec<String> },
+    /// Close the suggestion strip: the word ended, the table has nothing
+    /// for the word, or the composition was dropped.
+    HideCandidates,
 }
 
 pub struct Engine {
@@ -400,6 +409,23 @@ pub struct Engine {
     /// into two string compares. The key covers `app_name`/`client` changes
     /// by itself; `apply_config` clears it because the rules changed.
     rule_cache: Option<(Option<String>, Option<String>, Option<Mode>)>,
+    /// Suggestion strip (experimental `suggest_words`): a candidate list is
+    /// currently on the client's screen. Gates the hide-on-word-end paths
+    /// and makes the accept path a no-op once the strip is gone.
+    suggest_open: bool,
+    /// The word the last inline word end or accepted candidate committed —
+    /// the context the strip's next round keys on (phase 2). Cleared with
+    /// the rest of the word state on focus loss / reset.
+    last_committed_word: Option<String>,
+    /// The `suggest_words` switch, mirrored like the other settings.
+    suggest_words: bool,
+    /// The table the strip serves from: the embedded rows merged with the
+    /// user dictionary at a weight that outranks every builtin frequency.
+    /// Rebuilt only when the dictionary file's mtime changes.
+    suggest_table: SuggestTable,
+    /// mtime of the user dictionary behind `suggest_table`; the same
+    /// reload-gate pattern as the macros and the auto-restore dictionary.
+    suggest_dict_mtime: Option<SystemTime>,
 }
 
 /// `IBUS_CAP_PREEDIT_TEXT` and `IBUS_CAP_SURROUNDING_TEXT` from ibustypes.h.
@@ -541,6 +567,14 @@ impl Engine {
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
+            suggest_open: false,
+            last_committed_word: None,
+            suggest_words: false,
+            // The embedded rows stand in until apply_config merges the user
+            // dictionary below; on a machine without dictionary.txt this
+            // stays the whole table (mtime None never differs from None).
+            suggest_table: SuggestTable::from_rows(SuggestTable::embedded().rows()),
+            suggest_dict_mtime: None,
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -584,6 +618,9 @@ impl Engine {
             self.tail.clear();
             self.repair_delete = None;
             self.release_word_mode();
+            // The in-flight word is gone: a strip left open would offer
+            // candidates for text that just committed.
+            actions.extend(self.suggest_step());
         }
         let (method, requested) = config.engine_settings();
         // A mode hidden in the GUI cannot stay selected: move to the first
@@ -656,6 +693,24 @@ impl Engine {
             self.dictionary = None;
             self.dictionary_mtime = None;
         };
+        // The strip's table merges the user dictionary at a weight that
+        // outranks every builtin frequency — independent of
+        // `dictionary_enabled` (owner decision: the strip learns from the
+        // same file even when the auto-restore whitelist is off). Same
+        // mtime gate as the reloads above; a missing file leaves just the
+        // embedded rows.
+        let suggest_dict_time = file_time(Dictionary::path().as_deref());
+        if suggest_dict_time != self.suggest_dict_mtime {
+            self.suggest_dict_mtime = suggest_dict_time;
+            let mut rows = SuggestTable::embedded().rows();
+            rows.extend(merge_user_entries(
+                Dictionary::load()
+                    .words()
+                    .map(|w| (w.to_string(), 0))
+                    .collect(),
+            ));
+            self.suggest_table = SuggestTable::from_rows(rows);
+        }
         self.wrapper.set_abbreviations(config.abbreviations);
         // Experimental master gate: the keep stays off while the gate is
         // closed, whatever the row says (same bake-in as the other
@@ -664,6 +719,9 @@ impl Engine {
             .set_keep_composed_words(experimental && config.keep_composed_words);
         self.wrapper
             .set_keep_repeats_raw(experimental && config.keep_repeats_raw);
+        // The strip switch has no experimental bake-in (ruling: the strip
+        // gate reads the raw switch; the GUI gates the row instead).
+        self.suggest_words = config.suggest_words;
         self.hide_underline = config.hide_underline;
         self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;
@@ -721,6 +779,12 @@ impl Engine {
         }
         self.set_mode(mode);
         self.set_charset(config.charset.into());
+        // A reload can close the strip's gate (switch off, digit-tone
+        // preset, mode off Preedit): a strip left open would accept
+        // selections the gate no longer allows.
+        if !self.suggest_active() && std::mem::take(&mut self.suggest_open) {
+            actions.push(Action::HideCandidates);
+        }
         actions
     }
 
@@ -1475,13 +1539,18 @@ impl Engine {
         match mode {
             Mode::Preedit => {
                 let text = self.preedit_text();
-                if text.is_empty() {
+                let mut actions = if text.is_empty() {
                     self.preedit_visible = false;
-                    Some(vec![Action::HidePreedit])
+                    vec![Action::HidePreedit]
                 } else {
                     let cursor = text.chars().count() as u32;
-                    Some(vec![Action::UpdatePreedit { text, cursor }])
-                }
+                    vec![Action::UpdatePreedit { text, cursor }]
+                };
+                // The Backspace changed the in-flight word: the strip
+                // follows it down (list for the shorter word, or hide once
+                // nothing completes it).
+                actions.extend(self.suggest_step());
+                Some(actions)
             }
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
@@ -1600,7 +1669,7 @@ impl Engine {
     /// `FocusOut` is a no-op for the same reason.
     pub fn drop_pending_word(&mut self, hide_preedit: bool) -> Vec<Action> {
         self.wrapper.reset();
-        let actions = if hide_preedit {
+        let mut actions = if hide_preedit {
             self.hide_if_visible()
         } else {
             let _ = std::mem::take(&mut self.preedit_visible);
@@ -1620,6 +1689,14 @@ impl Engine {
         self.emoji_word = false;
         self.raw_word_start = 0;
         self.idle_committed = None;
+        self.last_committed_word = None;
+        // The strip rides the in-flight word; the word is gone here, and a
+        // strip left open would offer candidates for text that no longer
+        // exists. The lookup-table hide, unlike the preedit one, is safe on
+        // focus loss — the client does not own that display.
+        if std::mem::take(&mut self.suggest_open) {
+            actions.push(Action::HideCandidates);
+        }
         actions
     }
 
@@ -1651,6 +1728,87 @@ impl Engine {
         if let Some(c) = text.chars().last() {
             self.note_char(c);
         }
+    }
+
+    /// The single gate every strip branch consults: Preedit mode (the strip
+    /// is a preedit-mode feature), the switch on, and a preset whose digit
+    /// keys are not tone keys — the server's selection digits must not
+    /// fight the method's own marks.
+    fn suggest_active(&self) -> bool {
+        self.mode == Mode::Preedit
+            && self.suggest_words
+            && !self.wrapper.method().uses_digit_tone_keys()
+    }
+
+    /// The strip refresh after a key changed the in-flight word: emit the
+    /// word's full candidate list while it has any, hide once the word is
+    /// gone or the table offers nothing. Called only where the word really
+    /// changed (the Edit/Finish arms, the Backspace path) — a key that
+    /// leaves the word untouched must not re-emit and reset the server's
+    /// page.
+    fn suggest_step(&mut self) -> Vec<Action> {
+        if !self.suggest_active() {
+            return Vec::new();
+        }
+        // Below two characters the table is never consulted: an empty word
+        // would match every row (degenerate full-table scan), and a 1-char
+        // prefix matches ~1500 — the strip never renders for a lone first
+        // key, so the call sites need no word-length guard of their own.
+        let word = self.wrapper.output();
+        let items = if word.chars().count() < 2 {
+            Vec::new()
+        } else {
+            self.suggest_table
+                .candidates(&word)
+                .into_iter()
+                .map(|candidate| candidate.word)
+                .collect()
+        };
+        if items.is_empty() {
+            // Idle keys cost nothing: the hide fires only on the open→closed
+            // edge, everything else is a no-op.
+            if self.suggest_open {
+                self.suggest_open = false;
+                return vec![Action::HideCandidates];
+            }
+            return Vec::new();
+        }
+        self.suggest_open = true;
+        vec![Action::UpdateCandidates { items }]
+    }
+
+    /// Commit the strip candidate at `index` — the position in the FULL
+    /// list the last `UpdateCandidates` carried (the server pages the list
+    /// and maps page + label to this global index; the digit never reaches
+    /// the engine, so the in-flight word — and the list — still match).
+    /// Resets the composition through the same word-end state drop and
+    /// records the candidate as the context word. A closed strip or an
+    /// out-of-range index is a race between the server's strip state and
+    /// the engine's (the word moved on between the last update and the
+    /// key): commit nothing rather than a stale or wrong word — the caller
+    /// forwards the key instead.
+    pub fn accept_candidate(&mut self, index: usize) -> Vec<Action> {
+        if !self.suggest_open {
+            return Vec::new();
+        }
+        let word = self.wrapper.output();
+        if word.chars().count() < 2 {
+            return Vec::new();
+        }
+        let Some(candidate) = self.suggest_table.candidates(&word).into_iter().nth(index) else {
+            return Vec::new();
+        };
+        // The candidate replaces the word wholesale: no macro, no
+        // auto-restore — exactly what the strip offered. The commit is
+        // charset-encoded like every word end.
+        let text = encode(self.charset, &candidate.word);
+        let mut actions = self.drop_pending_word(true);
+        self.last_committed_word = Some(candidate.word);
+        // The candidate's last char is now on screen: keep the capitalize
+        // window and `last_char` in step, like every committed word.
+        self.note_committed(&text);
+        actions.push(Action::Commit(text));
+        actions
     }
 
     /// The client `Reset` method. GTK fires it when the user clicks in a text
@@ -1750,6 +1908,9 @@ impl Engine {
             self.idle_committed = Some((raw, encode(self.charset, &pending)));
             debug_log::log(&format!("idle commit len={}", pending.chars().count()));
             actions.extend(finished);
+            // The in-flight word is gone: close the strip with the commit
+            // (the next word's first key would hide it only one key later).
+            actions.extend(self.suggest_step());
         }
         actions
     }
