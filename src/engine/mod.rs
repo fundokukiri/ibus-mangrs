@@ -1800,10 +1800,19 @@ impl Engine {
         };
         // The candidate replaces the word wholesale: no macro, no
         // auto-restore — exactly what the strip offered. The commit is
-        // charset-encoded like every word end.
-        let text = encode(self.charset, &candidate.word);
+        // charset-encoded like every word end. A sentence-start word takes
+        // the composition path's own capitalization decision (`cap_word`,
+        // recorded at the word's first key), first character only.
+        let word = if std::mem::take(&mut self.cap_word) {
+            capitalize_first(&candidate.word)
+        } else {
+            candidate.word
+        };
+        let text = encode(self.charset, &word);
         let mut actions = self.drop_pending_word(true);
-        self.last_committed_word = Some(candidate.word);
+        // The context word is the commit as it landed — like `on_finish`
+        // recording the word as Finish carried it, capital included.
+        self.last_committed_word = Some(word);
         // The candidate's last char is now on screen: keep the capitalize
         // window and `last_char` in step, like every committed word.
         self.note_committed(&text);

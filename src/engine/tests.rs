@@ -5165,6 +5165,111 @@ fn suggest_accept_ignores_a_closed_strip_and_an_out_of_range_index() {
 }
 
 #[test]
+fn suggest_accept_capitalizes_a_sentence_start_candidate() {
+    // The accepted candidate gets the same auto_capitalize treatment as the
+    // word it replaces: the composition path uppercases the first key of a
+    // sentence-start word (the capital rides the composition), so the
+    // dictionary candidate committing in its place carries the capital too —
+    // first character only.
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            auto_capitalize: true,
+            experimental_features: true,
+            suggest_words: true,
+            ..Config::default()
+        },
+    );
+    // `.` arms the capitalize window; `Th` composes with the fed uppercase
+    // key and the strip answers with the dictionary list for the word.
+    let keys = suggest_keys(&mut e, ".th");
+    let list =
+        candidates_of(&keys[2]).unwrap_or_else(|| panic!("the strip answers `Th`: {:?}", keys[2]));
+    let idx = list
+        .iter()
+        .position(|w| w == "thể")
+        .unwrap_or_else(|| panic!("`thể` missing from the list: {list:?}"));
+    let actions = e.accept_candidate(idx);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HidePreedit,
+            Action::HideCandidates,
+            Action::Commit("Thể".into()),
+        ]
+    );
+    // The context word follows the commit as it landed: the capitalized form.
+    assert_eq!(e.last_committed_word.as_deref(), Some("Thể"));
+    assert!(!e.suggest_open);
+}
+
+#[test]
+fn suggest_accept_keeps_the_dictionary_form_without_auto_capitalize() {
+    // The switch off: even at a sentence start the candidate commits in its
+    // dictionary (lowercase) form — capitalization is opt-in.
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            auto_capitalize: false,
+            experimental_features: true,
+            suggest_words: true,
+            ..Config::default()
+        },
+    );
+    let keys = suggest_keys(&mut e, ".th");
+    let list =
+        candidates_of(&keys[2]).unwrap_or_else(|| panic!("the strip answers `th`: {:?}", keys[2]));
+    let idx = list
+        .iter()
+        .position(|w| w == "thể")
+        .unwrap_or_else(|| panic!("`thể` missing from the list: {list:?}"));
+    let actions = e.accept_candidate(idx);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HidePreedit,
+            Action::HideCandidates,
+            Action::Commit("thể".into()),
+        ]
+    );
+    assert_eq!(e.last_committed_word.as_deref(), Some("thể"));
+}
+
+#[test]
+fn suggest_accept_stays_lowercase_mid_sentence() {
+    // The capitalize condition is sentence start, not global: with the
+    // switch on, a word typed after a plain space still commits the
+    // dictionary form.
+    let mut e = engine(
+        Mode::Preedit,
+        Config {
+            auto_capitalize: true,
+            experimental_features: true,
+            suggest_words: true,
+            ..Config::default()
+        },
+    );
+    suggest_keys(&mut e, "tieng ");
+    let keys = suggest_keys(&mut e, "th");
+    let list =
+        candidates_of(&keys[1]).unwrap_or_else(|| panic!("the strip answers `th`: {:?}", keys[1]));
+    let idx = list
+        .iter()
+        .position(|w| w == "thể")
+        .unwrap_or_else(|| panic!("`thể` missing from the list: {list:?}"));
+    let actions = e.accept_candidate(idx);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HidePreedit,
+            Action::HideCandidates,
+            Action::Commit("thể".into()),
+        ]
+    );
+    assert_eq!(e.last_committed_word.as_deref(), Some("thể"));
+}
+
+#[test]
 fn suggest_digit_still_ends_the_word_and_hides() {
     // The engine never intercepts digits (the server owns selection while
     // its strip is up): on a Telex preset a digit is a word terminator, so

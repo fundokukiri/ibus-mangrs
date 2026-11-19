@@ -183,6 +183,13 @@ impl Engine {
             && c.is_alphabetic()
             && !self.wrapper.has_composition()
             && self.capitalize_next;
+        if !self.wrapper.has_composition() {
+            // The strip's accept re-applies this decision when a candidate is
+            // picked for the word in flight — `note_char` below clears
+            // `capitalize_next` once the word started (the uinput rewrite
+            // records it for the same reason).
+            self.cap_word = cap;
+        }
         let c = if cap {
             c.to_uppercase().next().unwrap_or(c)
         } else {
