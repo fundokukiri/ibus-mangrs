@@ -8069,7 +8069,7 @@ keywords = ["9", "chín", "mũ phím", "mũ phím: 9", "keycap", "nine", "keycap
 name = "flag_vietnam"
 glyph = "🇻🇳"
 aliases = ["vn"]
-keywords = ["cờ", "việt nam", "flag", "vietnam", "quốc kỳ"]
+keywords = ["cờ", "việt nam", "flag", "vietnam", "quốc kỳ", "vnm"]
 
 [[emoji]]
 name = "flag_ascension_island"
@@ -8081,175 +8081,175 @@ keywords = ["cờ", "đảo ascension", "flag", "ascension island", "quốc kỳ
 name = "flag_andorra"
 glyph = "🇦🇩"
 aliases = ["ad"]
-keywords = ["cờ", "andorra", "flag", "quốc kỳ"]
+keywords = ["cờ", "andorra", "flag", "quốc kỳ", "and"]
 
 [[emoji]]
 name = "flag_united_arab_emirates"
 glyph = "🇦🇪"
 aliases = ["ae"]
-keywords = ["cờ", "các tiểu vương quốc ả rập thống nhất", "flag", "united arab emirates", "quốc kỳ"]
+keywords = ["cờ", "các tiểu vương quốc ả rập thống nhất", "flag", "united arab emirates", "quốc kỳ", "are", "uae"]
 
 [[emoji]]
 name = "flag_afghanistan"
 glyph = "🇦🇫"
 aliases = ["af"]
-keywords = ["cờ", "afghanistan", "flag", "quốc kỳ"]
+keywords = ["cờ", "afghanistan", "flag", "quốc kỳ", "afg"]
 
 [[emoji]]
 name = "flag_antigua_barbuda"
 glyph = "🇦🇬"
 aliases = ["ag"]
-keywords = ["cờ", "antigua và barbuda", "flag", "antigua & barbuda", "quốc kỳ"]
+keywords = ["cờ", "antigua và barbuda", "flag", "antigua & barbuda", "quốc kỳ", "atg"]
 
 [[emoji]]
 name = "flag_anguilla"
 glyph = "🇦🇮"
 aliases = ["ai"]
-keywords = ["cờ", "anguilla", "flag", "quốc kỳ"]
+keywords = ["cờ", "anguilla", "flag", "quốc kỳ", "aia"]
 
 [[emoji]]
 name = "flag_albania"
 glyph = "🇦🇱"
 aliases = ["al"]
-keywords = ["cờ", "albania", "flag", "quốc kỳ"]
+keywords = ["cờ", "albania", "flag", "quốc kỳ", "alb"]
 
 [[emoji]]
 name = "flag_armenia"
 glyph = "🇦🇲"
 aliases = ["am"]
-keywords = ["cờ", "armenia", "flag", "quốc kỳ"]
+keywords = ["cờ", "armenia", "flag", "quốc kỳ", "arm"]
 
 [[emoji]]
 name = "flag_angola"
 glyph = "🇦🇴"
 aliases = ["ao"]
-keywords = ["cờ", "angola", "flag", "quốc kỳ"]
+keywords = ["cờ", "angola", "flag", "quốc kỳ", "ago"]
 
 [[emoji]]
 name = "flag_antarctica"
 glyph = "🇦🇶"
 aliases = ["aq"]
-keywords = ["cờ", "nam cực", "flag", "antarctica", "quốc kỳ"]
+keywords = ["cờ", "nam cực", "flag", "antarctica", "quốc kỳ", "ata"]
 
 [[emoji]]
 name = "flag_argentina"
 glyph = "🇦🇷"
 aliases = ["ar"]
-keywords = ["cờ", "argentina", "flag", "quốc kỳ"]
+keywords = ["cờ", "argentina", "flag", "quốc kỳ", "arg"]
 
 [[emoji]]
 name = "flag_american_samoa"
 glyph = "🇦🇸"
 aliases = ["as"]
-keywords = ["cờ", "samoa thuộc mỹ", "flag", "american samoa", "quốc kỳ"]
+keywords = ["cờ", "samoa thuộc mỹ", "flag", "american samoa", "quốc kỳ", "asm"]
 
 [[emoji]]
 name = "flag_austria"
 glyph = "🇦🇹"
 aliases = ["at"]
-keywords = ["cờ", "áo", "flag", "austria", "quốc kỳ"]
+keywords = ["cờ", "áo", "flag", "austria", "quốc kỳ", "aut"]
 
 [[emoji]]
 name = "flag_australia"
 glyph = "🇦🇺"
 aliases = ["au"]
-keywords = ["cờ", "úc", "flag", "australia", "quốc kỳ"]
+keywords = ["cờ", "úc", "flag", "australia", "quốc kỳ", "aus"]
 
 [[emoji]]
 name = "flag_aruba"
 glyph = "🇦🇼"
 aliases = ["aw"]
-keywords = ["cờ", "aruba", "flag", "quốc kỳ"]
+keywords = ["cờ", "aruba", "flag", "quốc kỳ", "abw"]
 
 [[emoji]]
 name = "flag_land_islands"
 glyph = "🇦🇽"
 aliases = ["ax"]
-keywords = ["cờ", "quần đảo åland", "flag", "åland islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo åland", "flag", "åland islands", "quốc kỳ", "ala"]
 
 [[emoji]]
 name = "flag_azerbaijan"
 glyph = "🇦🇿"
 aliases = ["az"]
-keywords = ["cờ", "azerbaijan", "flag", "quốc kỳ"]
+keywords = ["cờ", "azerbaijan", "flag", "quốc kỳ", "aze"]
 
 [[emoji]]
 name = "flag_bosnia_herzegovina"
 glyph = "🇧🇦"
 aliases = ["ba"]
-keywords = ["cờ", "bosnia và herzegovina", "flag", "bosnia & herzegovina", "quốc kỳ"]
+keywords = ["cờ", "bosnia và herzegovina", "flag", "bosnia & herzegovina", "quốc kỳ", "bih"]
 
 [[emoji]]
 name = "flag_barbados"
 glyph = "🇧🇧"
 aliases = ["bb"]
-keywords = ["cờ", "barbados", "flag", "quốc kỳ"]
+keywords = ["cờ", "barbados", "flag", "quốc kỳ", "brb"]
 
 [[emoji]]
 name = "flag_bangladesh"
 glyph = "🇧🇩"
 aliases = ["bd"]
-keywords = ["cờ", "bangladesh", "flag", "quốc kỳ"]
+keywords = ["cờ", "bangladesh", "flag", "quốc kỳ", "bgd"]
 
 [[emoji]]
 name = "flag_belgium"
 glyph = "🇧🇪"
 aliases = ["be"]
-keywords = ["cờ", "bỉ", "flag", "belgium", "quốc kỳ"]
+keywords = ["cờ", "bỉ", "flag", "belgium", "quốc kỳ", "bel"]
 
 [[emoji]]
 name = "flag_burkina_faso"
 glyph = "🇧🇫"
 aliases = ["bf"]
-keywords = ["cờ", "burkina faso", "flag", "quốc kỳ"]
+keywords = ["cờ", "burkina faso", "flag", "quốc kỳ", "bfa"]
 
 [[emoji]]
 name = "flag_bulgaria"
 glyph = "🇧🇬"
 aliases = ["bg"]
-keywords = ["cờ", "bulgaria", "flag", "quốc kỳ"]
+keywords = ["cờ", "bulgaria", "flag", "quốc kỳ", "bgr"]
 
 [[emoji]]
 name = "flag_bahrain"
 glyph = "🇧🇭"
 aliases = ["bh"]
-keywords = ["cờ", "bahrain", "flag", "quốc kỳ"]
+keywords = ["cờ", "bahrain", "flag", "quốc kỳ", "bhr"]
 
 [[emoji]]
 name = "flag_burundi"
 glyph = "🇧🇮"
 aliases = ["bi"]
-keywords = ["cờ", "burundi", "flag", "quốc kỳ"]
+keywords = ["cờ", "burundi", "flag", "quốc kỳ", "bdi"]
 
 [[emoji]]
 name = "flag_benin"
 glyph = "🇧🇯"
 aliases = ["bj"]
-keywords = ["cờ", "benin", "flag", "quốc kỳ"]
+keywords = ["cờ", "benin", "flag", "quốc kỳ", "ben"]
 
 [[emoji]]
 name = "flag_st_barth_lemy"
 glyph = "🇧🇱"
 aliases = ["bl"]
-keywords = ["cờ", "st. barthélemy", "flag", "quốc kỳ"]
+keywords = ["cờ", "st. barthélemy", "flag", "quốc kỳ", "blm"]
 
 [[emoji]]
 name = "flag_bermuda"
 glyph = "🇧🇲"
 aliases = ["bm"]
-keywords = ["cờ", "bermuda", "flag", "quốc kỳ"]
+keywords = ["cờ", "bermuda", "flag", "quốc kỳ", "bmu"]
 
 [[emoji]]
 name = "flag_brunei"
 glyph = "🇧🇳"
 aliases = ["bn"]
-keywords = ["cờ", "brunei", "flag", "quốc kỳ"]
+keywords = ["cờ", "brunei", "flag", "quốc kỳ", "brn"]
 
 [[emoji]]
 name = "flag_bolivia"
 glyph = "🇧🇴"
 aliases = ["bo"]
-keywords = ["cờ", "bolivia", "flag", "quốc kỳ"]
+keywords = ["cờ", "bolivia", "flag", "quốc kỳ", "bol"]
 
 [[emoji]]
 name = "flag_caribbean_netherlands"
@@ -8261,115 +8261,115 @@ keywords = ["cờ", "ca-ri-bê hà lan", "flag", "caribbean netherlands", "quố
 name = "flag_brazil"
 glyph = "🇧🇷"
 aliases = ["br"]
-keywords = ["cờ", "brazil", "flag", "quốc kỳ"]
+keywords = ["cờ", "brazil", "flag", "quốc kỳ", "bra"]
 
 [[emoji]]
 name = "flag_bahamas"
 glyph = "🇧🇸"
 aliases = ["bs"]
-keywords = ["cờ", "bahamas", "flag", "quốc kỳ"]
+keywords = ["cờ", "bahamas", "flag", "quốc kỳ", "bhs"]
 
 [[emoji]]
 name = "flag_bhutan"
 glyph = "🇧🇹"
 aliases = ["bt"]
-keywords = ["cờ", "bhutan", "flag", "quốc kỳ"]
+keywords = ["cờ", "bhutan", "flag", "quốc kỳ", "btn"]
 
 [[emoji]]
 name = "flag_bouvet_island"
 glyph = "🇧🇻"
 aliases = ["bv"]
-keywords = ["cờ", "đảo bouvet", "flag", "bouvet island", "quốc kỳ"]
+keywords = ["cờ", "đảo bouvet", "flag", "bouvet island", "quốc kỳ", "bvt"]
 
 [[emoji]]
 name = "flag_botswana"
 glyph = "🇧🇼"
 aliases = ["bw"]
-keywords = ["cờ", "botswana", "flag", "quốc kỳ"]
+keywords = ["cờ", "botswana", "flag", "quốc kỳ", "bwa"]
 
 [[emoji]]
 name = "flag_belarus"
 glyph = "🇧🇾"
 aliases = ["by"]
-keywords = ["cờ", "belarus", "flag", "quốc kỳ"]
+keywords = ["cờ", "belarus", "flag", "quốc kỳ", "blr"]
 
 [[emoji]]
 name = "flag_belize"
 glyph = "🇧🇿"
 aliases = ["bz"]
-keywords = ["cờ", "belize", "flag", "quốc kỳ"]
+keywords = ["cờ", "belize", "flag", "quốc kỳ", "blz"]
 
 [[emoji]]
 name = "flag_canada"
 glyph = "🇨🇦"
 aliases = ["ca"]
-keywords = ["cờ", "canada", "flag", "quốc kỳ"]
+keywords = ["cờ", "canada", "flag", "quốc kỳ", "can"]
 
 [[emoji]]
 name = "flag_cocos_keeling_islands"
 glyph = "🇨🇨"
 aliases = ["cc"]
-keywords = ["cờ", "quần đảo cocos (keeling)", "flag", "cocos (keeling) islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo cocos (keeling)", "flag", "cocos (keeling) islands", "quốc kỳ", "cck"]
 
 [[emoji]]
 name = "flag_congo_kinshasa"
 glyph = "🇨🇩"
 aliases = ["cd"]
-keywords = ["cờ", "congo - kinshasa", "flag", "quốc kỳ"]
+keywords = ["cờ", "congo - kinshasa", "flag", "quốc kỳ", "cod"]
 
 [[emoji]]
 name = "flag_central_african_republic"
 glyph = "🇨🇫"
 aliases = ["cf"]
-keywords = ["cờ", "cộng hòa trung phi", "flag", "central african republic", "quốc kỳ"]
+keywords = ["cờ", "cộng hòa trung phi", "flag", "central african republic", "quốc kỳ", "caf"]
 
 [[emoji]]
 name = "flag_congo_brazzaville"
 glyph = "🇨🇬"
 aliases = ["cg"]
-keywords = ["cờ", "congo - brazzaville", "flag", "quốc kỳ"]
+keywords = ["cờ", "congo - brazzaville", "flag", "quốc kỳ", "cog"]
 
 [[emoji]]
 name = "flag_switzerland"
 glyph = "🇨🇭"
 aliases = ["ch"]
-keywords = ["cờ", "thụy sĩ", "flag", "switzerland", "quốc kỳ"]
+keywords = ["cờ", "thụy sĩ", "flag", "switzerland", "quốc kỳ", "che"]
 
 [[emoji]]
 name = "flag_c_te_d_ivoire"
 glyph = "🇨🇮"
 aliases = ["ci"]
-keywords = ["cờ", "côte d’ivoire", "flag", "quốc kỳ"]
+keywords = ["cờ", "côte d’ivoire", "flag", "quốc kỳ", "civ", "ivory coast"]
 
 [[emoji]]
 name = "flag_cook_islands"
 glyph = "🇨🇰"
 aliases = ["ck"]
-keywords = ["cờ", "quần đảo cook", "flag", "cook islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo cook", "flag", "cook islands", "quốc kỳ", "cok"]
 
 [[emoji]]
 name = "flag_chile"
 glyph = "🇨🇱"
 aliases = ["cl"]
-keywords = ["cờ", "chile", "flag", "quốc kỳ"]
+keywords = ["cờ", "chile", "flag", "quốc kỳ", "chl"]
 
 [[emoji]]
 name = "flag_cameroon"
 glyph = "🇨🇲"
 aliases = ["cm"]
-keywords = ["cờ", "cameroon", "flag", "quốc kỳ"]
+keywords = ["cờ", "cameroon", "flag", "quốc kỳ", "cmr"]
 
 [[emoji]]
 name = "flag_china"
 glyph = "🇨🇳"
 aliases = ["cn"]
-keywords = ["cờ", "trung quốc", "flag", "china", "quốc kỳ"]
+keywords = ["cờ", "trung quốc", "flag", "china", "quốc kỳ", "chn", "trung"]
 
 [[emoji]]
 name = "flag_colombia"
 glyph = "🇨🇴"
 aliases = ["co"]
-keywords = ["cờ", "colombia", "flag", "quốc kỳ"]
+keywords = ["cờ", "colombia", "flag", "quốc kỳ", "col"]
 
 [[emoji]]
 name = "flag_clipperton_island"
@@ -8387,49 +8387,49 @@ keywords = ["cờ", "sark", "flag", "quốc kỳ"]
 name = "flag_costa_rica"
 glyph = "🇨🇷"
 aliases = ["cr"]
-keywords = ["cờ", "costa rica", "flag", "quốc kỳ"]
+keywords = ["cờ", "costa rica", "flag", "quốc kỳ", "cri"]
 
 [[emoji]]
 name = "flag_cuba"
 glyph = "🇨🇺"
 aliases = ["cu"]
-keywords = ["cờ", "cuba", "flag", "quốc kỳ"]
+keywords = ["cờ", "cuba", "flag", "quốc kỳ", "cub"]
 
 [[emoji]]
 name = "flag_cape_verde"
 glyph = "🇨🇻"
 aliases = ["cv"]
-keywords = ["cờ", "cape verde", "flag", "quốc kỳ"]
+keywords = ["cờ", "cape verde", "flag", "quốc kỳ", "cpv"]
 
 [[emoji]]
 name = "flag_cura_ao"
 glyph = "🇨🇼"
 aliases = ["cw"]
-keywords = ["cờ", "curaçao", "flag", "quốc kỳ"]
+keywords = ["cờ", "curaçao", "flag", "quốc kỳ", "cuw"]
 
 [[emoji]]
 name = "flag_christmas_island"
 glyph = "🇨🇽"
 aliases = ["cx"]
-keywords = ["cờ", "đảo giáng sinh", "flag", "christmas island", "quốc kỳ"]
+keywords = ["cờ", "đảo giáng sinh", "flag", "christmas island", "quốc kỳ", "cxr"]
 
 [[emoji]]
 name = "flag_cyprus"
 glyph = "🇨🇾"
 aliases = ["cy"]
-keywords = ["cờ", "síp", "flag", "cyprus", "quốc kỳ"]
+keywords = ["cờ", "síp", "flag", "cyprus", "quốc kỳ", "cyp"]
 
 [[emoji]]
 name = "flag_czechia"
 glyph = "🇨🇿"
 aliases = ["cz"]
-keywords = ["cờ", "séc", "flag", "czechia", "quốc kỳ"]
+keywords = ["cờ", "séc", "flag", "czechia", "quốc kỳ", "cze"]
 
 [[emoji]]
 name = "flag_germany"
 glyph = "🇩🇪"
 aliases = ["de"]
-keywords = ["cờ", "đức", "flag", "germany", "quốc kỳ"]
+keywords = ["cờ", "đức", "flag", "germany", "quốc kỳ", "deu"]
 
 [[emoji]]
 name = "flag_diego_garcia"
@@ -8441,31 +8441,31 @@ keywords = ["cờ", "diego garcia", "flag", "quốc kỳ"]
 name = "flag_djibouti"
 glyph = "🇩🇯"
 aliases = ["dj"]
-keywords = ["cờ", "djibouti", "flag", "quốc kỳ"]
+keywords = ["cờ", "djibouti", "flag", "quốc kỳ", "dji"]
 
 [[emoji]]
 name = "flag_denmark"
 glyph = "🇩🇰"
 aliases = ["dk"]
-keywords = ["cờ", "đan mạch", "flag", "denmark", "quốc kỳ"]
+keywords = ["cờ", "đan mạch", "flag", "denmark", "quốc kỳ", "dnk"]
 
 [[emoji]]
 name = "flag_dominica"
 glyph = "🇩🇲"
 aliases = ["dm"]
-keywords = ["cờ", "dominica", "flag", "quốc kỳ"]
+keywords = ["cờ", "dominica", "flag", "quốc kỳ", "dma"]
 
 [[emoji]]
 name = "flag_dominican_republic"
 glyph = "🇩🇴"
 aliases = ["do"]
-keywords = ["cờ", "cộng hòa dominica", "flag", "dominican republic", "quốc kỳ"]
+keywords = ["cờ", "cộng hòa dominica", "flag", "dominican republic", "quốc kỳ", "dom"]
 
 [[emoji]]
 name = "flag_algeria"
 glyph = "🇩🇿"
 aliases = ["dz"]
-keywords = ["cờ", "algeria", "flag", "quốc kỳ"]
+keywords = ["cờ", "algeria", "flag", "quốc kỳ", "dza"]
 
 [[emoji]]
 name = "flag_ceuta_melilla"
@@ -8477,43 +8477,43 @@ keywords = ["cờ", "ceuta và melilla", "flag", "ceuta & melilla", "quốc kỳ
 name = "flag_ecuador"
 glyph = "🇪🇨"
 aliases = ["ec"]
-keywords = ["cờ", "ecuador", "flag", "quốc kỳ"]
+keywords = ["cờ", "ecuador", "flag", "quốc kỳ", "ecu"]
 
 [[emoji]]
 name = "flag_estonia"
 glyph = "🇪🇪"
 aliases = ["ee"]
-keywords = ["cờ", "estonia", "flag", "quốc kỳ"]
+keywords = ["cờ", "estonia", "flag", "quốc kỳ", "est"]
 
 [[emoji]]
 name = "flag_egypt"
 glyph = "🇪🇬"
 aliases = ["eg"]
-keywords = ["cờ", "ai cập", "flag", "egypt", "quốc kỳ"]
+keywords = ["cờ", "ai cập", "flag", "egypt", "quốc kỳ", "egy"]
 
 [[emoji]]
 name = "flag_western_sahara"
 glyph = "🇪🇭"
 aliases = ["eh"]
-keywords = ["cờ", "tây sahara", "flag", "western sahara", "quốc kỳ"]
+keywords = ["cờ", "tây sahara", "flag", "western sahara", "quốc kỳ", "esh"]
 
 [[emoji]]
 name = "flag_eritrea"
 glyph = "🇪🇷"
 aliases = ["er"]
-keywords = ["cờ", "eritrea", "flag", "quốc kỳ"]
+keywords = ["cờ", "eritrea", "flag", "quốc kỳ", "eri"]
 
 [[emoji]]
 name = "flag_spain"
 glyph = "🇪🇸"
 aliases = ["es"]
-keywords = ["cờ", "tây ban nha", "flag", "spain", "quốc kỳ"]
+keywords = ["cờ", "tây ban nha", "flag", "spain", "quốc kỳ", "esp"]
 
 [[emoji]]
 name = "flag_ethiopia"
 glyph = "🇪🇹"
 aliases = ["et"]
-keywords = ["cờ", "ethiopia", "flag", "quốc kỳ"]
+keywords = ["cờ", "ethiopia", "flag", "quốc kỳ", "eth"]
 
 [[emoji]]
 name = "flag_european_union"
@@ -8525,187 +8525,187 @@ keywords = ["cờ", "liên minh châu âu", "flag", "european union", "quốc k�
 name = "flag_finland"
 glyph = "🇫🇮"
 aliases = ["fi"]
-keywords = ["cờ", "phần lan", "flag", "finland", "quốc kỳ"]
+keywords = ["cờ", "phần lan", "flag", "finland", "quốc kỳ", "fin"]
 
 [[emoji]]
 name = "flag_fiji"
 glyph = "🇫🇯"
 aliases = ["fj"]
-keywords = ["cờ", "fiji", "flag", "quốc kỳ"]
+keywords = ["cờ", "fiji", "flag", "quốc kỳ", "fji"]
 
 [[emoji]]
 name = "flag_falkland_islands"
 glyph = "🇫🇰"
 aliases = ["fk"]
-keywords = ["cờ", "quần đảo falkland", "flag", "falkland islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo falkland", "flag", "falkland islands", "quốc kỳ", "flk"]
 
 [[emoji]]
 name = "flag_micronesia"
 glyph = "🇫🇲"
 aliases = ["fm"]
-keywords = ["cờ", "micronesia", "flag", "quốc kỳ"]
+keywords = ["cờ", "micronesia", "flag", "quốc kỳ", "fsm"]
 
 [[emoji]]
 name = "flag_faroe_islands"
 glyph = "🇫🇴"
 aliases = ["fo"]
-keywords = ["cờ", "quần đảo faroe", "flag", "faroe islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo faroe", "flag", "faroe islands", "quốc kỳ", "fro"]
 
 [[emoji]]
 name = "flag_france"
 glyph = "🇫🇷"
 aliases = ["fr"]
-keywords = ["cờ", "pháp", "flag", "france", "quốc kỳ"]
+keywords = ["cờ", "pháp", "flag", "france", "quốc kỳ", "fra"]
 
 [[emoji]]
 name = "flag_gabon"
 glyph = "🇬🇦"
 aliases = ["ga"]
-keywords = ["cờ", "gabon", "flag", "quốc kỳ"]
+keywords = ["cờ", "gabon", "flag", "quốc kỳ", "gab"]
 
 [[emoji]]
 name = "flag_united_kingdom"
 glyph = "🇬🇧"
 aliases = ["gb"]
-keywords = ["cờ", "vương quốc anh", "flag", "united kingdom", "quốc kỳ"]
+keywords = ["cờ", "vương quốc anh", "flag", "united kingdom", "quốc kỳ", "gbr", "anh", "nước anh", "uk", "britain"]
 
 [[emoji]]
 name = "flag_grenada"
 glyph = "🇬🇩"
 aliases = ["gd"]
-keywords = ["cờ", "grenada", "flag", "quốc kỳ"]
+keywords = ["cờ", "grenada", "flag", "quốc kỳ", "grd"]
 
 [[emoji]]
 name = "flag_georgia"
 glyph = "🇬🇪"
 aliases = ["ge"]
-keywords = ["cờ", "georgia", "flag", "quốc kỳ"]
+keywords = ["cờ", "georgia", "flag", "quốc kỳ", "geo"]
 
 [[emoji]]
 name = "flag_french_guiana"
 glyph = "🇬🇫"
 aliases = ["gf"]
-keywords = ["cờ", "guiana thuộc pháp", "flag", "french guiana", "quốc kỳ"]
+keywords = ["cờ", "guiana thuộc pháp", "flag", "french guiana", "quốc kỳ", "guf"]
 
 [[emoji]]
 name = "flag_guernsey"
 glyph = "🇬🇬"
 aliases = ["gg"]
-keywords = ["cờ", "guernsey", "flag", "quốc kỳ"]
+keywords = ["cờ", "guernsey", "flag", "quốc kỳ", "ggy"]
 
 [[emoji]]
 name = "flag_ghana"
 glyph = "🇬🇭"
 aliases = ["gh"]
-keywords = ["cờ", "ghana", "flag", "quốc kỳ"]
+keywords = ["cờ", "ghana", "flag", "quốc kỳ", "gha"]
 
 [[emoji]]
 name = "flag_gibraltar"
 glyph = "🇬🇮"
 aliases = ["gi"]
-keywords = ["cờ", "gibraltar", "flag", "quốc kỳ"]
+keywords = ["cờ", "gibraltar", "flag", "quốc kỳ", "gib"]
 
 [[emoji]]
 name = "flag_greenland"
 glyph = "🇬🇱"
 aliases = ["gl"]
-keywords = ["cờ", "greenland", "flag", "quốc kỳ"]
+keywords = ["cờ", "greenland", "flag", "quốc kỳ", "grl"]
 
 [[emoji]]
 name = "flag_gambia"
 glyph = "🇬🇲"
 aliases = ["gm"]
-keywords = ["cờ", "gambia", "flag", "quốc kỳ"]
+keywords = ["cờ", "gambia", "flag", "quốc kỳ", "gmb"]
 
 [[emoji]]
 name = "flag_guinea"
 glyph = "🇬🇳"
 aliases = ["gn"]
-keywords = ["cờ", "guinea", "flag", "quốc kỳ"]
+keywords = ["cờ", "guinea", "flag", "quốc kỳ", "gin"]
 
 [[emoji]]
 name = "flag_guadeloupe"
 glyph = "🇬🇵"
 aliases = ["gp"]
-keywords = ["cờ", "guadeloupe", "flag", "quốc kỳ"]
+keywords = ["cờ", "guadeloupe", "flag", "quốc kỳ", "glp"]
 
 [[emoji]]
 name = "flag_equatorial_guinea"
 glyph = "🇬🇶"
 aliases = ["gq"]
-keywords = ["cờ", "guinea xích đạo", "flag", "equatorial guinea", "quốc kỳ"]
+keywords = ["cờ", "guinea xích đạo", "flag", "equatorial guinea", "quốc kỳ", "gnq"]
 
 [[emoji]]
 name = "flag_greece"
 glyph = "🇬🇷"
 aliases = ["gr"]
-keywords = ["cờ", "hy lạp", "flag", "greece", "quốc kỳ"]
+keywords = ["cờ", "hy lạp", "flag", "greece", "quốc kỳ", "grc"]
 
 [[emoji]]
 name = "flag_south_georgia_south_sandwich_islands"
 glyph = "🇬🇸"
 aliases = ["gs"]
-keywords = ["cờ", "nam georgia & quần đảo nam sandwich", "flag", "south georgia & south sandwich islands", "quốc kỳ"]
+keywords = ["cờ", "nam georgia & quần đảo nam sandwich", "flag", "south georgia & south sandwich islands", "quốc kỳ", "sgs"]
 
 [[emoji]]
 name = "flag_guatemala"
 glyph = "🇬🇹"
 aliases = ["gt"]
-keywords = ["cờ", "guatemala", "flag", "quốc kỳ"]
+keywords = ["cờ", "guatemala", "flag", "quốc kỳ", "gtm"]
 
 [[emoji]]
 name = "flag_guam"
 glyph = "🇬🇺"
 aliases = ["gu"]
-keywords = ["cờ", "guam", "flag", "quốc kỳ"]
+keywords = ["cờ", "guam", "flag", "quốc kỳ", "gum"]
 
 [[emoji]]
 name = "flag_guinea_bissau"
 glyph = "🇬🇼"
 aliases = ["gw"]
-keywords = ["cờ", "guinea-bissau", "flag", "quốc kỳ"]
+keywords = ["cờ", "guinea-bissau", "flag", "quốc kỳ", "gnb"]
 
 [[emoji]]
 name = "flag_guyana"
 glyph = "🇬🇾"
 aliases = ["gy"]
-keywords = ["cờ", "guyana", "flag", "quốc kỳ"]
+keywords = ["cờ", "guyana", "flag", "quốc kỳ", "guy"]
 
 [[emoji]]
 name = "flag_hong_kong_sar_china"
 glyph = "🇭🇰"
 aliases = ["hk"]
-keywords = ["cờ", "đặc khu hành chính hồng kông, trung quốc", "flag", "hong kong sar china", "quốc kỳ"]
+keywords = ["cờ", "đặc khu hành chính hồng kông, trung quốc", "flag", "hong kong sar china", "quốc kỳ", "hkg"]
 
 [[emoji]]
 name = "flag_heard_island_mcdonald_islands"
 glyph = "🇭🇲"
 aliases = ["hm"]
-keywords = ["cờ", "quần đảo heard và mcdonald", "flag", "heard island & mcdonald islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo heard và mcdonald", "flag", "heard island & mcdonald islands", "quốc kỳ", "hmd"]
 
 [[emoji]]
 name = "flag_honduras"
 glyph = "🇭🇳"
 aliases = ["hn"]
-keywords = ["cờ", "honduras", "flag", "quốc kỳ"]
+keywords = ["cờ", "honduras", "flag", "quốc kỳ", "hnd"]
 
 [[emoji]]
 name = "flag_croatia"
 glyph = "🇭🇷"
 aliases = ["hr"]
-keywords = ["cờ", "croatia", "flag", "quốc kỳ"]
+keywords = ["cờ", "croatia", "flag", "quốc kỳ", "hrv"]
 
 [[emoji]]
 name = "flag_haiti"
 glyph = "🇭🇹"
 aliases = ["ht"]
-keywords = ["cờ", "haiti", "flag", "quốc kỳ"]
+keywords = ["cờ", "haiti", "flag", "quốc kỳ", "hti"]
 
 [[emoji]]
 name = "flag_hungary"
 glyph = "🇭🇺"
 aliases = ["hu"]
-keywords = ["cờ", "hungary", "flag", "quốc kỳ"]
+keywords = ["cờ", "hungary", "flag", "quốc kỳ", "hun"]
 
 [[emoji]]
 name = "flag_canary_islands"
@@ -8717,678 +8717,678 @@ keywords = ["cờ", "quần đảo canary", "flag", "canary islands", "quốc k�
 name = "flag_indonesia"
 glyph = "🇮🇩"
 aliases = ["id"]
-keywords = ["cờ", "indonesia", "flag", "quốc kỳ"]
+keywords = ["cờ", "indonesia", "flag", "quốc kỳ", "idn"]
 
 [[emoji]]
 name = "flag_ireland"
 glyph = "🇮🇪"
 aliases = ["ie"]
-keywords = ["cờ", "ireland", "flag", "quốc kỳ"]
+keywords = ["cờ", "ireland", "flag", "quốc kỳ", "irl"]
 
 [[emoji]]
 name = "flag_israel"
 glyph = "🇮🇱"
 aliases = ["il"]
-keywords = ["cờ", "israel", "flag", "quốc kỳ"]
+keywords = ["cờ", "israel", "flag", "quốc kỳ", "isr"]
 
 [[emoji]]
 name = "flag_isle_of_man"
 glyph = "🇮🇲"
 aliases = ["im"]
-keywords = ["cờ", "đảo man", "flag", "isle of man", "quốc kỳ"]
+keywords = ["cờ", "đảo man", "flag", "isle of man", "quốc kỳ", "imn"]
 
 [[emoji]]
 name = "flag_india"
 glyph = "🇮🇳"
 aliases = ["in"]
-keywords = ["cờ", "ấn độ", "flag", "india", "quốc kỳ"]
+keywords = ["cờ", "ấn độ", "flag", "india", "quốc kỳ", "ind", "ấn"]
 
 [[emoji]]
 name = "flag_british_indian_ocean_territory"
 glyph = "🇮🇴"
 aliases = ["io"]
-keywords = ["cờ", "lãnh thổ ấn độ dương thuộc anh", "flag", "british indian ocean territory", "quốc kỳ"]
+keywords = ["cờ", "lãnh thổ ấn độ dương thuộc anh", "flag", "british indian ocean territory", "quốc kỳ", "iot"]
 
 [[emoji]]
 name = "flag_iraq"
 glyph = "🇮🇶"
 aliases = ["iq"]
-keywords = ["cờ", "iraq", "flag", "quốc kỳ"]
+keywords = ["cờ", "iraq", "flag", "quốc kỳ", "irq"]
 
 [[emoji]]
 name = "flag_iran"
 glyph = "🇮🇷"
 aliases = ["ir"]
-keywords = ["cờ", "iran", "flag", "quốc kỳ"]
+keywords = ["cờ", "iran", "flag", "quốc kỳ", "irn"]
 
 [[emoji]]
 name = "flag_iceland"
 glyph = "🇮🇸"
 aliases = ["is"]
-keywords = ["cờ", "iceland", "flag", "quốc kỳ"]
+keywords = ["cờ", "iceland", "flag", "quốc kỳ", "isl"]
 
 [[emoji]]
 name = "flag_italy"
 glyph = "🇮🇹"
 aliases = ["it"]
-keywords = ["cờ", "italy", "flag", "quốc kỳ"]
+keywords = ["cờ", "italy", "flag", "quốc kỳ", "ita", "italia", "ý"]
 
 [[emoji]]
 name = "flag_jersey"
 glyph = "🇯🇪"
 aliases = ["je"]
-keywords = ["cờ", "jersey", "flag", "quốc kỳ"]
+keywords = ["cờ", "jersey", "flag", "quốc kỳ", "jey"]
 
 [[emoji]]
 name = "flag_jamaica"
 glyph = "🇯🇲"
 aliases = ["jm"]
-keywords = ["cờ", "jamaica", "flag", "quốc kỳ"]
+keywords = ["cờ", "jamaica", "flag", "quốc kỳ", "jam"]
 
 [[emoji]]
 name = "flag_jordan"
 glyph = "🇯🇴"
 aliases = ["jo"]
-keywords = ["cờ", "jordan", "flag", "quốc kỳ"]
+keywords = ["cờ", "jordan", "flag", "quốc kỳ", "jor"]
 
 [[emoji]]
 name = "flag_japan"
 glyph = "🇯🇵"
 aliases = ["jp"]
-keywords = ["cờ", "nhật bản", "flag", "japan", "quốc kỳ"]
+keywords = ["cờ", "nhật bản", "flag", "japan", "quốc kỳ", "jpn", "nhật", "nước nhật"]
 
 [[emoji]]
 name = "flag_kenya"
 glyph = "🇰🇪"
 aliases = ["ke"]
-keywords = ["cờ", "kenya", "flag", "quốc kỳ"]
+keywords = ["cờ", "kenya", "flag", "quốc kỳ", "ken"]
 
 [[emoji]]
 name = "flag_kyrgyzstan"
 glyph = "🇰🇬"
 aliases = ["kg"]
-keywords = ["cờ", "kyrgyzstan", "flag", "quốc kỳ"]
+keywords = ["cờ", "kyrgyzstan", "flag", "quốc kỳ", "kgz"]
 
 [[emoji]]
 name = "flag_cambodia"
 glyph = "🇰🇭"
 aliases = ["kh"]
-keywords = ["cờ", "campuchia", "flag", "cambodia", "quốc kỳ"]
+keywords = ["cờ", "campuchia", "flag", "cambodia", "quốc kỳ", "khm"]
 
 [[emoji]]
 name = "flag_kiribati"
 glyph = "🇰🇮"
 aliases = ["ki"]
-keywords = ["cờ", "kiribati", "flag", "quốc kỳ"]
+keywords = ["cờ", "kiribati", "flag", "quốc kỳ", "kir"]
 
 [[emoji]]
 name = "flag_comoros"
 glyph = "🇰🇲"
 aliases = ["km"]
-keywords = ["cờ", "comoros", "flag", "quốc kỳ"]
+keywords = ["cờ", "comoros", "flag", "quốc kỳ", "com"]
 
 [[emoji]]
 name = "flag_st_kitts_nevis"
 glyph = "🇰🇳"
 aliases = ["kn"]
-keywords = ["cờ", "st. kitts và nevis", "flag", "st. kitts & nevis", "quốc kỳ"]
+keywords = ["cờ", "st. kitts và nevis", "flag", "st. kitts & nevis", "quốc kỳ", "kna"]
 
 [[emoji]]
 name = "flag_north_korea"
 glyph = "🇰🇵"
 aliases = ["kp"]
-keywords = ["cờ", "triều tiên", "flag", "north korea", "quốc kỳ"]
+keywords = ["cờ", "triều tiên", "flag", "north korea", "quốc kỳ", "prk", "bắc triều tiên", "korea"]
 
 [[emoji]]
 name = "flag_south_korea"
 glyph = "🇰🇷"
 aliases = ["kr"]
-keywords = ["cờ", "hàn quốc", "flag", "south korea", "quốc kỳ"]
+keywords = ["cờ", "hàn quốc", "flag", "south korea", "quốc kỳ", "kor", "hàn", "korea"]
 
 [[emoji]]
 name = "flag_kuwait"
 glyph = "🇰🇼"
 aliases = ["kw"]
-keywords = ["cờ", "kuwait", "flag", "quốc kỳ"]
+keywords = ["cờ", "kuwait", "flag", "quốc kỳ", "kwt"]
 
 [[emoji]]
 name = "flag_cayman_islands"
 glyph = "🇰🇾"
 aliases = ["ky"]
-keywords = ["cờ", "quần đảo cayman", "flag", "cayman islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo cayman", "flag", "cayman islands", "quốc kỳ", "cym"]
 
 [[emoji]]
 name = "flag_kazakhstan"
 glyph = "🇰🇿"
 aliases = ["kz"]
-keywords = ["cờ", "kazakhstan", "flag", "quốc kỳ"]
+keywords = ["cờ", "kazakhstan", "flag", "quốc kỳ", "kaz"]
 
 [[emoji]]
 name = "flag_laos"
 glyph = "🇱🇦"
 aliases = ["la"]
-keywords = ["cờ", "lào", "flag", "laos", "quốc kỳ"]
+keywords = ["cờ", "lào", "flag", "laos", "quốc kỳ", "lao"]
 
 [[emoji]]
 name = "flag_lebanon"
 glyph = "🇱🇧"
 aliases = ["lb"]
-keywords = ["cờ", "li-băng", "flag", "lebanon", "quốc kỳ"]
+keywords = ["cờ", "li-băng", "flag", "lebanon", "quốc kỳ", "lbn"]
 
 [[emoji]]
 name = "flag_st_lucia"
 glyph = "🇱🇨"
 aliases = ["lc"]
-keywords = ["cờ", "st. lucia", "flag", "quốc kỳ"]
+keywords = ["cờ", "st. lucia", "flag", "quốc kỳ", "lca"]
 
 [[emoji]]
 name = "flag_liechtenstein"
 glyph = "🇱🇮"
 aliases = ["li"]
-keywords = ["cờ", "liechtenstein", "flag", "quốc kỳ"]
+keywords = ["cờ", "liechtenstein", "flag", "quốc kỳ", "lie"]
 
 [[emoji]]
 name = "flag_sri_lanka"
 glyph = "🇱🇰"
 aliases = ["lk"]
-keywords = ["cờ", "sri lanka", "flag", "quốc kỳ"]
+keywords = ["cờ", "sri lanka", "flag", "quốc kỳ", "lka"]
 
 [[emoji]]
 name = "flag_liberia"
 glyph = "🇱🇷"
 aliases = ["lr"]
-keywords = ["cờ", "liberia", "flag", "quốc kỳ"]
+keywords = ["cờ", "liberia", "flag", "quốc kỳ", "lbr"]
 
 [[emoji]]
 name = "flag_lesotho"
 glyph = "🇱🇸"
 aliases = ["ls"]
-keywords = ["cờ", "lesotho", "flag", "quốc kỳ"]
+keywords = ["cờ", "lesotho", "flag", "quốc kỳ", "lso"]
 
 [[emoji]]
 name = "flag_lithuania"
 glyph = "🇱🇹"
 aliases = ["lt"]
-keywords = ["cờ", "litva", "flag", "lithuania", "quốc kỳ"]
+keywords = ["cờ", "litva", "flag", "lithuania", "quốc kỳ", "ltu"]
 
 [[emoji]]
 name = "flag_luxembourg"
 glyph = "🇱🇺"
 aliases = ["lu"]
-keywords = ["cờ", "luxembourg", "flag", "quốc kỳ"]
+keywords = ["cờ", "luxembourg", "flag", "quốc kỳ", "lux"]
 
 [[emoji]]
 name = "flag_latvia"
 glyph = "🇱🇻"
 aliases = ["lv"]
-keywords = ["cờ", "latvia", "flag", "quốc kỳ"]
+keywords = ["cờ", "latvia", "flag", "quốc kỳ", "lva"]
 
 [[emoji]]
 name = "flag_libya"
 glyph = "🇱🇾"
 aliases = ["ly"]
-keywords = ["cờ", "libya", "flag", "quốc kỳ"]
+keywords = ["cờ", "libya", "flag", "quốc kỳ", "lby"]
 
 [[emoji]]
 name = "flag_morocco"
 glyph = "🇲🇦"
 aliases = ["ma"]
-keywords = ["cờ", "ma-rốc", "flag", "morocco", "quốc kỳ"]
+keywords = ["cờ", "ma-rốc", "flag", "morocco", "quốc kỳ", "mar"]
 
 [[emoji]]
 name = "flag_monaco"
 glyph = "🇲🇨"
 aliases = ["mc"]
-keywords = ["cờ", "monaco", "flag", "quốc kỳ"]
+keywords = ["cờ", "monaco", "flag", "quốc kỳ", "mco"]
 
 [[emoji]]
 name = "flag_moldova"
 glyph = "🇲🇩"
 aliases = ["md"]
-keywords = ["cờ", "moldova", "flag", "quốc kỳ"]
+keywords = ["cờ", "moldova", "flag", "quốc kỳ", "mda"]
 
 [[emoji]]
 name = "flag_montenegro"
 glyph = "🇲🇪"
 aliases = ["me"]
-keywords = ["cờ", "montenegro", "flag", "quốc kỳ"]
+keywords = ["cờ", "montenegro", "flag", "quốc kỳ", "mne"]
 
 [[emoji]]
 name = "flag_st_martin"
 glyph = "🇲🇫"
 aliases = ["mf"]
-keywords = ["cờ", "st. martin", "flag", "quốc kỳ"]
+keywords = ["cờ", "st. martin", "flag", "quốc kỳ", "maf"]
 
 [[emoji]]
 name = "flag_madagascar"
 glyph = "🇲🇬"
 aliases = ["mg"]
-keywords = ["cờ", "madagascar", "flag", "quốc kỳ"]
+keywords = ["cờ", "madagascar", "flag", "quốc kỳ", "mdg"]
 
 [[emoji]]
 name = "flag_marshall_islands"
 glyph = "🇲🇭"
 aliases = ["mh"]
-keywords = ["cờ", "quần đảo marshall", "flag", "marshall islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo marshall", "flag", "marshall islands", "quốc kỳ", "mhl"]
 
 [[emoji]]
 name = "flag_north_macedonia"
 glyph = "🇲🇰"
 aliases = ["mk"]
-keywords = ["cờ", "bắc macedonia", "flag", "north macedonia", "quốc kỳ"]
+keywords = ["cờ", "bắc macedonia", "flag", "north macedonia", "quốc kỳ", "mkd"]
 
 [[emoji]]
 name = "flag_mali"
 glyph = "🇲🇱"
 aliases = ["ml"]
-keywords = ["cờ", "mali", "flag", "quốc kỳ"]
+keywords = ["cờ", "mali", "flag", "quốc kỳ", "mli"]
 
 [[emoji]]
 name = "flag_myanmar_burma"
 glyph = "🇲🇲"
 aliases = ["mm"]
-keywords = ["cờ", "myanmar (miến điện)", "flag", "myanmar (burma)", "quốc kỳ"]
+keywords = ["cờ", "myanmar (miến điện)", "flag", "myanmar (burma)", "quốc kỳ", "mmr", "miến"]
 
 [[emoji]]
 name = "flag_mongolia"
 glyph = "🇲🇳"
 aliases = ["mn"]
-keywords = ["cờ", "mông cổ", "flag", "mongolia", "quốc kỳ"]
+keywords = ["cờ", "mông cổ", "flag", "mongolia", "quốc kỳ", "mng"]
 
 [[emoji]]
 name = "flag_macao_sar_china"
 glyph = "🇲🇴"
 aliases = ["mo"]
-keywords = ["cờ", "đặc khu hành chính macao, trung quốc", "flag", "macao sar china", "quốc kỳ"]
+keywords = ["cờ", "đặc khu hành chính macao, trung quốc", "flag", "macao sar china", "quốc kỳ", "mac"]
 
 [[emoji]]
 name = "flag_northern_mariana_islands"
 glyph = "🇲🇵"
 aliases = ["mp"]
-keywords = ["cờ", "quần đảo bắc mariana", "flag", "northern mariana islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo bắc mariana", "flag", "northern mariana islands", "quốc kỳ", "mnp"]
 
 [[emoji]]
 name = "flag_martinique"
 glyph = "🇲🇶"
 aliases = ["mq"]
-keywords = ["cờ", "martinique", "flag", "quốc kỳ"]
+keywords = ["cờ", "martinique", "flag", "quốc kỳ", "mtq"]
 
 [[emoji]]
 name = "flag_mauritania"
 glyph = "🇲🇷"
 aliases = ["mr"]
-keywords = ["cờ", "mauritania", "flag", "quốc kỳ"]
+keywords = ["cờ", "mauritania", "flag", "quốc kỳ", "mrt"]
 
 [[emoji]]
 name = "flag_montserrat"
 glyph = "🇲🇸"
 aliases = ["ms"]
-keywords = ["cờ", "montserrat", "flag", "quốc kỳ"]
+keywords = ["cờ", "montserrat", "flag", "quốc kỳ", "msr"]
 
 [[emoji]]
 name = "flag_malta"
 glyph = "🇲🇹"
 aliases = ["mt"]
-keywords = ["cờ", "malta", "flag", "quốc kỳ"]
+keywords = ["cờ", "malta", "flag", "quốc kỳ", "mlt"]
 
 [[emoji]]
 name = "flag_mauritius"
 glyph = "🇲🇺"
 aliases = ["mu"]
-keywords = ["cờ", "mauritius", "flag", "quốc kỳ"]
+keywords = ["cờ", "mauritius", "flag", "quốc kỳ", "mus"]
 
 [[emoji]]
 name = "flag_maldives"
 glyph = "🇲🇻"
 aliases = ["mv"]
-keywords = ["cờ", "maldives", "flag", "quốc kỳ"]
+keywords = ["cờ", "maldives", "flag", "quốc kỳ", "mdv"]
 
 [[emoji]]
 name = "flag_malawi"
 glyph = "🇲🇼"
 aliases = ["mw"]
-keywords = ["cờ", "malawi", "flag", "quốc kỳ"]
+keywords = ["cờ", "malawi", "flag", "quốc kỳ", "mwi"]
 
 [[emoji]]
 name = "flag_mexico"
 glyph = "🇲🇽"
 aliases = ["mx"]
-keywords = ["cờ", "mexico", "flag", "quốc kỳ"]
+keywords = ["cờ", "mexico", "flag", "quốc kỳ", "mex"]
 
 [[emoji]]
 name = "flag_malaysia"
 glyph = "🇲🇾"
 aliases = ["my"]
-keywords = ["cờ", "malaysia", "flag", "quốc kỳ"]
+keywords = ["cờ", "malaysia", "flag", "quốc kỳ", "mys"]
 
 [[emoji]]
 name = "flag_mozambique"
 glyph = "🇲🇿"
 aliases = ["mz"]
-keywords = ["cờ", "mozambique", "flag", "quốc kỳ"]
+keywords = ["cờ", "mozambique", "flag", "quốc kỳ", "moz"]
 
 [[emoji]]
 name = "flag_namibia"
 glyph = "🇳🇦"
 aliases = ["na"]
-keywords = ["cờ", "namibia", "flag", "quốc kỳ"]
+keywords = ["cờ", "namibia", "flag", "quốc kỳ", "nam"]
 
 [[emoji]]
 name = "flag_new_caledonia"
 glyph = "🇳🇨"
 aliases = ["nc"]
-keywords = ["cờ", "new caledonia", "flag", "quốc kỳ"]
+keywords = ["cờ", "new caledonia", "flag", "quốc kỳ", "ncl"]
 
 [[emoji]]
 name = "flag_niger"
 glyph = "🇳🇪"
 aliases = ["ne"]
-keywords = ["cờ", "niger", "flag", "quốc kỳ"]
+keywords = ["cờ", "niger", "flag", "quốc kỳ", "ner"]
 
 [[emoji]]
 name = "flag_norfolk_island"
 glyph = "🇳🇫"
 aliases = ["nf"]
-keywords = ["cờ", "đảo norfolk", "flag", "norfolk island", "quốc kỳ"]
+keywords = ["cờ", "đảo norfolk", "flag", "norfolk island", "quốc kỳ", "nfk"]
 
 [[emoji]]
 name = "flag_nigeria"
 glyph = "🇳🇬"
 aliases = ["ng"]
-keywords = ["cờ", "nigeria", "flag", "quốc kỳ"]
+keywords = ["cờ", "nigeria", "flag", "quốc kỳ", "nga"]
 
 [[emoji]]
 name = "flag_nicaragua"
 glyph = "🇳🇮"
 aliases = ["ni"]
-keywords = ["cờ", "nicaragua", "flag", "quốc kỳ"]
+keywords = ["cờ", "nicaragua", "flag", "quốc kỳ", "nic"]
 
 [[emoji]]
 name = "flag_netherlands"
 glyph = "🇳🇱"
 aliases = ["nl"]
-keywords = ["cờ", "hà lan", "flag", "netherlands", "quốc kỳ"]
+keywords = ["cờ", "hà lan", "flag", "netherlands", "quốc kỳ", "nld", "holland"]
 
 [[emoji]]
 name = "flag_norway"
 glyph = "🇳🇴"
 aliases = ["no"]
-keywords = ["cờ", "na uy", "flag", "norway", "quốc kỳ"]
+keywords = ["cờ", "na uy", "flag", "norway", "quốc kỳ", "nor"]
 
 [[emoji]]
 name = "flag_nepal"
 glyph = "🇳🇵"
 aliases = ["np"]
-keywords = ["cờ", "nepal", "flag", "quốc kỳ"]
+keywords = ["cờ", "nepal", "flag", "quốc kỳ", "npl"]
 
 [[emoji]]
 name = "flag_nauru"
 glyph = "🇳🇷"
 aliases = ["nr"]
-keywords = ["cờ", "nauru", "flag", "quốc kỳ"]
+keywords = ["cờ", "nauru", "flag", "quốc kỳ", "nru"]
 
 [[emoji]]
 name = "flag_niue"
 glyph = "🇳🇺"
 aliases = ["nu"]
-keywords = ["cờ", "niue", "flag", "quốc kỳ"]
+keywords = ["cờ", "niue", "flag", "quốc kỳ", "niu"]
 
 [[emoji]]
 name = "flag_new_zealand"
 glyph = "🇳🇿"
 aliases = ["nz"]
-keywords = ["cờ", "new zealand", "flag", "quốc kỳ"]
+keywords = ["cờ", "new zealand", "flag", "quốc kỳ", "nzl"]
 
 [[emoji]]
 name = "flag_oman"
 glyph = "🇴🇲"
-keywords = ["cờ", "oman", "flag", "quốc kỳ"]
+keywords = ["cờ", "oman", "flag", "quốc kỳ", "omn"]
 
 [[emoji]]
 name = "flag_panama"
 glyph = "🇵🇦"
 aliases = ["pa"]
-keywords = ["cờ", "panama", "flag", "quốc kỳ"]
+keywords = ["cờ", "panama", "flag", "quốc kỳ", "pan"]
 
 [[emoji]]
 name = "flag_peru"
 glyph = "🇵🇪"
 aliases = ["pe"]
-keywords = ["cờ", "peru", "flag", "quốc kỳ"]
+keywords = ["cờ", "peru", "flag", "quốc kỳ", "per"]
 
 [[emoji]]
 name = "flag_french_polynesia"
 glyph = "🇵🇫"
 aliases = ["pf"]
-keywords = ["cờ", "polynesia thuộc pháp", "flag", "french polynesia", "quốc kỳ"]
+keywords = ["cờ", "polynesia thuộc pháp", "flag", "french polynesia", "quốc kỳ", "pyf"]
 
 [[emoji]]
 name = "flag_papua_new_guinea"
 glyph = "🇵🇬"
 aliases = ["pg"]
-keywords = ["cờ", "papua new guinea", "flag", "quốc kỳ"]
+keywords = ["cờ", "papua new guinea", "flag", "quốc kỳ", "png"]
 
 [[emoji]]
 name = "flag_philippines"
 glyph = "🇵🇭"
 aliases = ["ph"]
-keywords = ["cờ", "philippines", "flag", "quốc kỳ"]
+keywords = ["cờ", "philippines", "flag", "quốc kỳ", "phl"]
 
 [[emoji]]
 name = "flag_pakistan"
 glyph = "🇵🇰"
 aliases = ["pk"]
-keywords = ["cờ", "pakistan", "flag", "quốc kỳ"]
+keywords = ["cờ", "pakistan", "flag", "quốc kỳ", "pak"]
 
 [[emoji]]
 name = "flag_poland"
 glyph = "🇵🇱"
 aliases = ["pl"]
-keywords = ["cờ", "ba lan", "flag", "poland", "quốc kỳ"]
+keywords = ["cờ", "ba lan", "flag", "poland", "quốc kỳ", "pol"]
 
 [[emoji]]
 name = "flag_st_pierre_miquelon"
 glyph = "🇵🇲"
 aliases = ["pm"]
-keywords = ["cờ", "saint pierre và miquelon", "flag", "st. pierre & miquelon", "quốc kỳ"]
+keywords = ["cờ", "saint pierre và miquelon", "flag", "st. pierre & miquelon", "quốc kỳ", "spm"]
 
 [[emoji]]
 name = "flag_pitcairn_islands"
 glyph = "🇵🇳"
 aliases = ["pn"]
-keywords = ["cờ", "quần đảo pitcairn", "flag", "pitcairn islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo pitcairn", "flag", "pitcairn islands", "quốc kỳ", "pcn"]
 
 [[emoji]]
 name = "flag_puerto_rico"
 glyph = "🇵🇷"
 aliases = ["pr"]
-keywords = ["cờ", "puerto rico", "flag", "quốc kỳ"]
+keywords = ["cờ", "puerto rico", "flag", "quốc kỳ", "pri"]
 
 [[emoji]]
 name = "flag_palestinian_territories"
 glyph = "🇵🇸"
 aliases = ["ps"]
-keywords = ["cờ", "lãnh thổ palestine", "flag", "palestinian territories", "quốc kỳ"]
+keywords = ["cờ", "lãnh thổ palestine", "flag", "palestinian territories", "quốc kỳ", "pse"]
 
 [[emoji]]
 name = "flag_portugal"
 glyph = "🇵🇹"
 aliases = ["pt"]
-keywords = ["cờ", "bồ đào nha", "flag", "portugal", "quốc kỳ"]
+keywords = ["cờ", "bồ đào nha", "flag", "portugal", "quốc kỳ", "prt"]
 
 [[emoji]]
 name = "flag_palau"
 glyph = "🇵🇼"
 aliases = ["pw"]
-keywords = ["cờ", "palau", "flag", "quốc kỳ"]
+keywords = ["cờ", "palau", "flag", "quốc kỳ", "plw"]
 
 [[emoji]]
 name = "flag_paraguay"
 glyph = "🇵🇾"
 aliases = ["py"]
-keywords = ["cờ", "paraguay", "flag", "quốc kỳ"]
+keywords = ["cờ", "paraguay", "flag", "quốc kỳ", "pry"]
 
 [[emoji]]
 name = "flag_qatar"
 glyph = "🇶🇦"
 aliases = ["qa"]
-keywords = ["cờ", "qatar", "flag", "quốc kỳ"]
+keywords = ["cờ", "qatar", "flag", "quốc kỳ", "qat"]
 
 [[emoji]]
 name = "flag_r_union"
 glyph = "🇷🇪"
 aliases = ["re"]
-keywords = ["cờ", "réunion", "flag", "quốc kỳ"]
+keywords = ["cờ", "réunion", "flag", "quốc kỳ", "reu"]
 
 [[emoji]]
 name = "flag_romania"
 glyph = "🇷🇴"
 aliases = ["ro"]
-keywords = ["cờ", "romania", "flag", "quốc kỳ"]
+keywords = ["cờ", "romania", "flag", "quốc kỳ", "rou"]
 
 [[emoji]]
 name = "flag_serbia"
 glyph = "🇷🇸"
 aliases = ["rs"]
-keywords = ["cờ", "serbia", "flag", "quốc kỳ"]
+keywords = ["cờ", "serbia", "flag", "quốc kỳ", "srb"]
 
 [[emoji]]
 name = "flag_russia"
 glyph = "🇷🇺"
 aliases = ["ru"]
-keywords = ["cờ", "nga", "flag", "russia", "quốc kỳ"]
+keywords = ["cờ", "nga", "flag", "russia", "quốc kỳ", "rus"]
 
 [[emoji]]
 name = "flag_rwanda"
 glyph = "🇷🇼"
 aliases = ["rw"]
-keywords = ["cờ", "rwanda", "flag", "quốc kỳ"]
+keywords = ["cờ", "rwanda", "flag", "quốc kỳ", "rwa"]
 
 [[emoji]]
 name = "flag_saudi_arabia"
 glyph = "🇸🇦"
 aliases = ["sa"]
-keywords = ["cờ", "ả rập xê-út", "flag", "saudi arabia", "quốc kỳ"]
+keywords = ["cờ", "ả rập xê-út", "flag", "saudi arabia", "quốc kỳ", "sau", "saudi"]
 
 [[emoji]]
 name = "flag_solomon_islands"
 glyph = "🇸🇧"
 aliases = ["sb"]
-keywords = ["cờ", "quần đảo solomon", "flag", "solomon islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo solomon", "flag", "solomon islands", "quốc kỳ", "slb"]
 
 [[emoji]]
 name = "flag_seychelles"
 glyph = "🇸🇨"
 aliases = ["sc"]
-keywords = ["cờ", "seychelles", "flag", "quốc kỳ"]
+keywords = ["cờ", "seychelles", "flag", "quốc kỳ", "syc"]
 
 [[emoji]]
 name = "flag_sudan"
 glyph = "🇸🇩"
 aliases = ["sd"]
-keywords = ["cờ", "sudan", "flag", "quốc kỳ"]
+keywords = ["cờ", "sudan", "flag", "quốc kỳ", "sdn"]
 
 [[emoji]]
 name = "flag_sweden"
 glyph = "🇸🇪"
 aliases = ["se"]
-keywords = ["cờ", "thụy điển", "flag", "sweden", "quốc kỳ"]
+keywords = ["cờ", "thụy điển", "flag", "sweden", "quốc kỳ", "swe"]
 
 [[emoji]]
 name = "flag_singapore"
 glyph = "🇸🇬"
 aliases = ["sg"]
-keywords = ["cờ", "singapore", "flag", "quốc kỳ"]
+keywords = ["cờ", "singapore", "flag", "quốc kỳ", "sgp"]
 
 [[emoji]]
 name = "flag_st_helena_ascension_tristan_da_cunha"
 glyph = "🇸🇭"
 aliases = ["sh"]
-keywords = ["cờ", "st. helena", "flag", "st. helena, ascension & tristan da cunha", "quốc kỳ"]
+keywords = ["cờ", "st. helena", "flag", "st. helena, ascension & tristan da cunha", "quốc kỳ", "shn"]
 
 [[emoji]]
 name = "flag_slovenia"
 glyph = "🇸🇮"
 aliases = ["si"]
-keywords = ["cờ", "slovenia", "flag", "quốc kỳ"]
+keywords = ["cờ", "slovenia", "flag", "quốc kỳ", "svn"]
 
 [[emoji]]
 name = "flag_svalbard_jan_mayen"
 glyph = "🇸🇯"
 aliases = ["sj"]
-keywords = ["cờ", "svalbard và jan mayen", "flag", "svalbard & jan mayen", "quốc kỳ"]
+keywords = ["cờ", "svalbard và jan mayen", "flag", "svalbard & jan mayen", "quốc kỳ", "sjm"]
 
 [[emoji]]
 name = "flag_slovakia"
 glyph = "🇸🇰"
 aliases = ["sk"]
-keywords = ["cờ", "slovakia", "flag", "quốc kỳ"]
+keywords = ["cờ", "slovakia", "flag", "quốc kỳ", "svk"]
 
 [[emoji]]
 name = "flag_sierra_leone"
 glyph = "🇸🇱"
 aliases = ["sl"]
-keywords = ["cờ", "sierra leone", "flag", "quốc kỳ"]
+keywords = ["cờ", "sierra leone", "flag", "quốc kỳ", "sle"]
 
 [[emoji]]
 name = "flag_san_marino"
 glyph = "🇸🇲"
 aliases = ["sm"]
-keywords = ["cờ", "san marino", "flag", "quốc kỳ"]
+keywords = ["cờ", "san marino", "flag", "quốc kỳ", "smr"]
 
 [[emoji]]
 name = "flag_senegal"
 glyph = "🇸🇳"
 aliases = ["sn"]
-keywords = ["cờ", "senegal", "flag", "quốc kỳ"]
+keywords = ["cờ", "senegal", "flag", "quốc kỳ", "sen"]
 
 [[emoji]]
 name = "flag_somalia"
 glyph = "🇸🇴"
 aliases = ["so"]
-keywords = ["cờ", "somalia", "flag", "quốc kỳ"]
+keywords = ["cờ", "somalia", "flag", "quốc kỳ", "som"]
 
 [[emoji]]
 name = "flag_suriname"
 glyph = "🇸🇷"
 aliases = ["sr"]
-keywords = ["cờ", "suriname", "flag", "quốc kỳ"]
+keywords = ["cờ", "suriname", "flag", "quốc kỳ", "sur"]
 
 [[emoji]]
 name = "flag_south_sudan"
 glyph = "🇸🇸"
 aliases = ["ss"]
-keywords = ["cờ", "nam sudan", "flag", "south sudan", "quốc kỳ"]
+keywords = ["cờ", "nam sudan", "flag", "south sudan", "quốc kỳ", "ssd"]
 
 [[emoji]]
 name = "flag_s_o_tom_pr_ncipe"
 glyph = "🇸🇹"
 aliases = ["st"]
-keywords = ["cờ", "são tomé và príncipe", "flag", "são tomé & príncipe", "quốc kỳ"]
+keywords = ["cờ", "são tomé và príncipe", "flag", "são tomé & príncipe", "quốc kỳ", "stp"]
 
 [[emoji]]
 name = "flag_el_salvador"
 glyph = "🇸🇻"
 aliases = ["sv"]
-keywords = ["cờ", "el salvador", "flag", "quốc kỳ"]
+keywords = ["cờ", "el salvador", "flag", "quốc kỳ", "slv"]
 
 [[emoji]]
 name = "flag_sint_maarten"
 glyph = "🇸🇽"
 aliases = ["sx"]
-keywords = ["cờ", "sint maarten", "flag", "quốc kỳ"]
+keywords = ["cờ", "sint maarten", "flag", "quốc kỳ", "sxm"]
 
 [[emoji]]
 name = "flag_syria"
 glyph = "🇸🇾"
 aliases = ["sy"]
-keywords = ["cờ", "syria", "flag", "quốc kỳ"]
+keywords = ["cờ", "syria", "flag", "quốc kỳ", "syr"]
 
 [[emoji]]
 name = "flag_eswatini"
 glyph = "🇸🇿"
 aliases = ["sz"]
-keywords = ["cờ", "eswatini", "flag", "quốc kỳ"]
+keywords = ["cờ", "eswatini", "flag", "quốc kỳ", "swz"]
 
 [[emoji]]
 name = "flag_tristan_da_cunha"
@@ -9400,115 +9400,115 @@ keywords = ["cờ", "tristan da cunha", "flag", "quốc kỳ"]
 name = "flag_turks_caicos_islands"
 glyph = "🇹🇨"
 aliases = ["tc"]
-keywords = ["cờ", "quần đảo turks và caicos", "flag", "turks & caicos islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo turks và caicos", "flag", "turks & caicos islands", "quốc kỳ", "tca"]
 
 [[emoji]]
 name = "flag_chad"
 glyph = "🇹🇩"
 aliases = ["td"]
-keywords = ["cờ", "chad", "flag", "quốc kỳ"]
+keywords = ["cờ", "chad", "flag", "quốc kỳ", "tcd"]
 
 [[emoji]]
 name = "flag_french_southern_and_antarctic_lands"
 glyph = "🇹🇫"
 aliases = ["tf"]
-keywords = ["cờ", "lãnh thổ phía nam thuộc pháp", "flag", "french southern and antarctic lands", "quốc kỳ"]
+keywords = ["cờ", "lãnh thổ phía nam thuộc pháp", "flag", "french southern and antarctic lands", "quốc kỳ", "atf"]
 
 [[emoji]]
 name = "flag_togo"
 glyph = "🇹🇬"
 aliases = ["tg"]
-keywords = ["cờ", "togo", "flag", "quốc kỳ"]
+keywords = ["cờ", "togo", "flag", "quốc kỳ", "tgo"]
 
 [[emoji]]
 name = "flag_thailand"
 glyph = "🇹🇭"
 aliases = ["th"]
-keywords = ["cờ", "thái lan", "flag", "thailand", "quốc kỳ"]
+keywords = ["cờ", "thái lan", "flag", "thailand", "quốc kỳ", "tha", "thái"]
 
 [[emoji]]
 name = "flag_tajikistan"
 glyph = "🇹🇯"
 aliases = ["tj"]
-keywords = ["cờ", "tajikistan", "flag", "quốc kỳ"]
+keywords = ["cờ", "tajikistan", "flag", "quốc kỳ", "tjk"]
 
 [[emoji]]
 name = "flag_tokelau"
 glyph = "🇹🇰"
 aliases = ["tk"]
-keywords = ["cờ", "tokelau", "flag", "quốc kỳ"]
+keywords = ["cờ", "tokelau", "flag", "quốc kỳ", "tkl"]
 
 [[emoji]]
 name = "flag_timor_leste"
 glyph = "🇹🇱"
 aliases = ["tl"]
-keywords = ["cờ", "timor-leste", "flag", "quốc kỳ"]
+keywords = ["cờ", "timor-leste", "flag", "quốc kỳ", "tls"]
 
 [[emoji]]
 name = "flag_turkmenistan"
 glyph = "🇹🇲"
 aliases = ["tm"]
-keywords = ["cờ", "turkmenistan", "flag", "quốc kỳ"]
+keywords = ["cờ", "turkmenistan", "flag", "quốc kỳ", "tkm"]
 
 [[emoji]]
 name = "flag_tunisia"
 glyph = "🇹🇳"
 aliases = ["tn"]
-keywords = ["cờ", "tunisia", "flag", "quốc kỳ"]
+keywords = ["cờ", "tunisia", "flag", "quốc kỳ", "tun"]
 
 [[emoji]]
 name = "flag_tonga"
 glyph = "🇹🇴"
 aliases = ["to"]
-keywords = ["cờ", "tonga", "flag", "quốc kỳ"]
+keywords = ["cờ", "tonga", "flag", "quốc kỳ", "ton"]
 
 [[emoji]]
 name = "flag_t_rkiye"
 glyph = "🇹🇷"
 aliases = ["tr"]
-keywords = ["cờ", "thổ nhĩ kỳ", "flag", "türkiye", "quốc kỳ"]
+keywords = ["cờ", "thổ nhĩ kỳ", "flag", "türkiye", "quốc kỳ", "tur", "thổ", "turkey"]
 
 [[emoji]]
 name = "flag_trinidad_tobago"
 glyph = "🇹🇹"
 aliases = ["tt"]
-keywords = ["cờ", "trinidad và tobago", "flag", "trinidad & tobago", "quốc kỳ"]
+keywords = ["cờ", "trinidad và tobago", "flag", "trinidad & tobago", "quốc kỳ", "tto"]
 
 [[emoji]]
 name = "flag_tuvalu"
 glyph = "🇹🇻"
 aliases = ["tv"]
-keywords = ["cờ", "tuvalu", "flag", "quốc kỳ"]
+keywords = ["cờ", "tuvalu", "flag", "quốc kỳ", "tuv"]
 
 [[emoji]]
 name = "flag_taiwan"
 glyph = "🇹🇼"
 aliases = ["tw"]
-keywords = ["cờ", "đài loan", "flag", "taiwan", "quốc kỳ"]
+keywords = ["cờ", "đài loan", "flag", "taiwan", "quốc kỳ", "twn"]
 
 [[emoji]]
 name = "flag_tanzania"
 glyph = "🇹🇿"
 aliases = ["tz"]
-keywords = ["cờ", "tanzania", "flag", "quốc kỳ"]
+keywords = ["cờ", "tanzania", "flag", "quốc kỳ", "tza"]
 
 [[emoji]]
 name = "flag_ukraine"
 glyph = "🇺🇦"
 aliases = ["ua"]
-keywords = ["cờ", "ukraina", "flag", "ukraine", "quốc kỳ"]
+keywords = ["cờ", "ukraina", "flag", "ukraine", "quốc kỳ", "ukr"]
 
 [[emoji]]
 name = "flag_uganda"
 glyph = "🇺🇬"
 aliases = ["ug"]
-keywords = ["cờ", "uganda", "flag", "quốc kỳ"]
+keywords = ["cờ", "uganda", "flag", "quốc kỳ", "uga"]
 
 [[emoji]]
 name = "flag_u_s_outlying_islands"
 glyph = "🇺🇲"
 aliases = ["um"]
-keywords = ["cờ", "các tiểu đảo xa của hoa kỳ", "flag", "u.s. outlying islands", "quốc kỳ"]
+keywords = ["cờ", "các tiểu đảo xa của hoa kỳ", "flag", "u.s. outlying islands", "quốc kỳ", "umi"]
 
 [[emoji]]
 name = "flag_united_nations"
@@ -9520,67 +9520,67 @@ keywords = ["cờ", "liên hợp quốc", "flag", "united nations", "quốc kỳ
 name = "flag_united_states"
 glyph = "🇺🇸"
 aliases = ["us"]
-keywords = ["cờ", "hoa kỳ", "flag", "united states", "quốc kỳ"]
+keywords = ["cờ", "hoa kỳ", "flag", "united states", "quốc kỳ", "usa", "mỹ", "nước mỹ", "america"]
 
 [[emoji]]
 name = "flag_uruguay"
 glyph = "🇺🇾"
 aliases = ["uy"]
-keywords = ["cờ", "uruguay", "flag", "quốc kỳ"]
+keywords = ["cờ", "uruguay", "flag", "quốc kỳ", "ury"]
 
 [[emoji]]
 name = "flag_uzbekistan"
 glyph = "🇺🇿"
 aliases = ["uz"]
-keywords = ["cờ", "uzbekistan", "flag", "quốc kỳ"]
+keywords = ["cờ", "uzbekistan", "flag", "quốc kỳ", "uzb"]
 
 [[emoji]]
 name = "flag_vatican_city"
 glyph = "🇻🇦"
 aliases = ["va"]
-keywords = ["cờ", "thành vatican", "flag", "vatican city", "quốc kỳ"]
+keywords = ["cờ", "thành vatican", "flag", "vatican city", "quốc kỳ", "vat"]
 
 [[emoji]]
 name = "flag_st_vincent_grenadines"
 glyph = "🇻🇨"
 aliases = ["vc"]
-keywords = ["cờ", "st. vincent và grenadines", "flag", "st. vincent & grenadines", "quốc kỳ"]
+keywords = ["cờ", "st. vincent và grenadines", "flag", "st. vincent & grenadines", "quốc kỳ", "vct"]
 
 [[emoji]]
 name = "flag_venezuela"
 glyph = "🇻🇪"
 aliases = ["ve"]
-keywords = ["cờ", "venezuela", "flag", "quốc kỳ"]
+keywords = ["cờ", "venezuela", "flag", "quốc kỳ", "ven"]
 
 [[emoji]]
 name = "flag_british_virgin_islands"
 glyph = "🇻🇬"
 aliases = ["vg"]
-keywords = ["cờ", "quần đảo virgin thuộc anh", "flag", "british virgin islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo virgin thuộc anh", "flag", "british virgin islands", "quốc kỳ", "vgb"]
 
 [[emoji]]
 name = "flag_u_s_virgin_islands"
 glyph = "🇻🇮"
 aliases = ["vi"]
-keywords = ["cờ", "quần đảo virgin thuộc hoa kỳ", "flag", "u.s. virgin islands", "quốc kỳ"]
+keywords = ["cờ", "quần đảo virgin thuộc hoa kỳ", "flag", "u.s. virgin islands", "quốc kỳ", "vir"]
 
 [[emoji]]
 name = "flag_vanuatu"
 glyph = "🇻🇺"
 aliases = ["vu"]
-keywords = ["cờ", "vanuatu", "flag", "quốc kỳ"]
+keywords = ["cờ", "vanuatu", "flag", "quốc kỳ", "vut"]
 
 [[emoji]]
 name = "flag_wallis_futuna"
 glyph = "🇼🇫"
 aliases = ["wf"]
-keywords = ["cờ", "wallis và futuna", "flag", "wallis & futuna", "quốc kỳ"]
+keywords = ["cờ", "wallis và futuna", "flag", "wallis & futuna", "quốc kỳ", "wlf"]
 
 [[emoji]]
 name = "flag_samoa"
 glyph = "🇼🇸"
 aliases = ["ws"]
-keywords = ["cờ", "samoa", "flag", "quốc kỳ"]
+keywords = ["cờ", "samoa", "flag", "quốc kỳ", "wsm"]
 
 [[emoji]]
 name = "flag_kosovo"
@@ -9592,28 +9592,28 @@ keywords = ["cờ", "kosovo", "flag", "quốc kỳ"]
 name = "flag_yemen"
 glyph = "🇾🇪"
 aliases = ["ye"]
-keywords = ["cờ", "yemen", "flag", "quốc kỳ"]
+keywords = ["cờ", "yemen", "flag", "quốc kỳ", "yem"]
 
 [[emoji]]
 name = "flag_mayotte"
 glyph = "🇾🇹"
 aliases = ["yt"]
-keywords = ["cờ", "mayotte", "flag", "quốc kỳ"]
+keywords = ["cờ", "mayotte", "flag", "quốc kỳ", "myt"]
 
 [[emoji]]
 name = "flag_south_africa"
 glyph = "🇿🇦"
 aliases = ["za"]
-keywords = ["cờ", "nam phi", "flag", "south africa", "quốc kỳ"]
+keywords = ["cờ", "nam phi", "flag", "south africa", "quốc kỳ", "zaf"]
 
 [[emoji]]
 name = "flag_zambia"
 glyph = "🇿🇲"
 aliases = ["zm"]
-keywords = ["cờ", "zambia", "flag", "quốc kỳ"]
+keywords = ["cờ", "zambia", "flag", "quốc kỳ", "zmb"]
 
 [[emoji]]
 name = "flag_zimbabwe"
 glyph = "🇿🇼"
 aliases = ["zw"]
-keywords = ["cờ", "zimbabwe", "flag", "quốc kỳ"]
+keywords = ["cờ", "zimbabwe", "flag", "quốc kỳ", "zwe"]

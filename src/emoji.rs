@@ -97,19 +97,20 @@ pub fn search_rows(user: &BTreeMap<String, String>) -> Vec<SearchRow> {
         .map(|(name, glyph, keywords)| {
             let mut blob = fold_ascii(&name);
             for keyword in keywords {
-                for word in fold_ascii(&keyword).split_whitespace() {
-                    blob.push(' ');
-                    blob.push_str(word);
-                }
+                // fold_ascii has stripped the spaces: one keyword, one
+                // token, joined by a separator the query can never match.
+                blob.push(' ');
+                blob.push_str(&fold_ascii(&keyword));
             }
             SearchRow { name, glyph, blob }
         })
         .collect()
 }
 
-/// Fold Vietnamese diacritics to their ASCII base and lowercase. The
-/// picker's search runs on what the user types — bare letter keys — so
-/// `cuoi` must find "cười".
+/// Fold Vietnamese diacritics to their ASCII base, lowercase, and drop
+/// spaces and underscores. The picker's search runs without word
+/// boundaries — bare letter keys — so `cuoi` finds "cười", `nuocmy` finds
+/// "nước mỹ" and `united states` finds "flag_united_states".
 pub fn fold_ascii(s: &str) -> String {
     fn fold(c: char) -> char {
         match c {
@@ -129,7 +130,11 @@ pub fn fold_ascii(s: &str) -> String {
             _ => c,
         }
     }
-    s.to_lowercase().chars().map(fold).collect()
+    s.to_lowercase()
+        .chars()
+        .filter(|c| !matches!(c, ' ' | '_'))
+        .map(fold)
+        .collect()
 }
 
 /// The emoji recently picked through the picker, newest first — its first
@@ -303,10 +308,32 @@ mod tests {
     }
 
     #[test]
+    fn flag_search_finds_the_common_names() {
+        // The flags' CLDR keywords are the official names only; the picker
+        // must also find them by code and colloquial name — the way users
+        // actually type them.
+        let rows = search_rows(&BTreeMap::new());
+        let found = |q: &str| {
+            let q = fold_ascii(q);
+            rows.iter()
+                .any(|r| r.name == "flag_united_states" && r.blob.contains(&q))
+        };
+        assert!(found("usa"), "alpha-3 code");
+        assert!(found("america"), "english common name");
+        assert!(found("nuoc my"), "vietnamese, spaced");
+        assert!(found("nuocmy"), "vietnamese, no space");
+    }
+
+    #[test]
     fn fold_ascii_strips_vietnamese_diacritics() {
         assert_eq!(fold_ascii("Cười"), "cuoi");
         assert_eq!(fold_ascii("đặt"), "dat");
         assert_eq!(fold_ascii("Fire!"), "fire!");
+        // The search runs without word boundaries: a no-space query meets a
+        // spaced keyword, and a shortcode name's underscores never block a
+        // phrase.
+        assert_eq!(fold_ascii("nước mỹ"), "nuocmy");
+        assert_eq!(fold_ascii("flag_united_states"), "flagunitedstates");
     }
 
     #[test]
