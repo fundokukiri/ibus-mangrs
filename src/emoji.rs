@@ -264,6 +264,14 @@ mod tests {
         assert!(rows.len() > 1500, "{} rows", rows.len());
         assert!(embedded_names().contains_key("grinning_face_with_smiling_eyes"));
         assert!(embedded_names().contains_key("smile"));
+        // The flags live in the CLDR derived annotations, not the main
+        // ones; a table built from the main file alone silently drops
+        // them all.
+        assert!(embedded_names().contains_key("flag_vietnam"));
+        assert_eq!(embedded_names().get("vn").map(String::as_str), Some("🇻🇳"));
+        // Curated out as non-emoji (punctuation, math operators); a
+        // re-run of the bootstrap must not resurrect them.
+        assert!(!embedded_names().contains_key("en_dash"));
     }
 
     #[test]

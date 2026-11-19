@@ -1,1582 +1,8 @@
 # Emoji shortcodes and search keywords. Generated once by
-# tools/gen_emoji.py from the CLDR annotations (vi + en); edit
-# ~/.config/ibus-mangrs/emoji.toml to add or override entries.
-
-[[emoji]]
-name = "overline"
-glyph = "‾"
-keywords = ["đường trên đầu", "overline", "overstrike", "vinculum"]
-
-[[emoji]]
-name = "hyphen"
-glyph = "‐"
-keywords = ["dấu gạch ngang", "dấu gạch nối", "dash", "hyphen"]
-
-[[emoji]]
-name = "en_dash"
-glyph = "–"
-keywords = ["dấu gạch ngắn", "dấu gạch ngang", "ngắn", "dash", "en", "en dash"]
-
-[[emoji]]
-name = "em_dash"
-glyph = "—"
-keywords = ["dài", "dấu gạch dài", "dấu gạch ngang", "dash", "em", "em dash"]
-
-[[emoji]]
-name = "horizontal_bar"
-glyph = "―"
-keywords = ["dấu gạch ngang dài", "dòng", "gạch ngang", "gạch ngang dài", "thanh", "bar", "dash", "horizontal", "line", "horizontal bar"]
-
-[[emoji]]
-name = "katakana_middle_dot"
-glyph = "・"
-keywords = ["chấm", "dấu chấm giữa", "dấu chấm giữa katakana", "dấu chấm ở giữa", "điểm trung gian", "katakana", "dot", "dots", "interpunct", "middle", "middot", "katakana middle dot"]
-
-[[emoji]]
-name = "arabic_comma"
-glyph = "،"
-keywords = ["ả rập", "dấu phẩy", "dấu phẩy ả rập", "arabic", "comma", "arabic comma"]
-
-[[emoji]]
-name = "ideographic_comma"
-glyph = "、"
-keywords = ["dấu phẩy", "dấu phẩy tượng hình", "tượng hình", "comma", "ideographic", "ideographic comma"]
-
-[[emoji]]
-name = "arabic_semicolon"
-glyph = "؛"
-keywords = ["ả rập", "dấu chấm phẩy", "dấu chấm phẩy ả rập", "arabic", "semi-colon", "semicolon", "arabic semicolon"]
-
-[[emoji]]
-name = "inverted_exclamation_mark"
-glyph = "¡"
-keywords = ["chấm than", "dấu cảm", "dấu chấm than", "dấu chấm than ngược", "ngược", "bang", "exclamation", "inverted", "mark", "point", "inverted exclamation mark"]
-
-[[emoji]]
-name = "inverted_question_mark"
-glyph = "¿"
-keywords = ["dấu hỏi", "dấu hỏi ngược", "ngược", "inverted", "mark", "question", "inverted question mark"]
-
-[[emoji]]
-name = "arabic_question_mark"
-glyph = "؟"
-keywords = ["ả rập", "dấu hỏi", "dấu hỏi ả rập", "arabic", "mark", "question", "arabic question mark"]
-
-[[emoji]]
-name = "interrobang"
-glyph = "‽"
-keywords = ["dấu hỏi than", "interabang", "interrobang"]
-
-[[emoji]]
-name = "ellipsis"
-glyph = "…"
-keywords = ["chấm chấm", "dấu ba chấm", "dấu chấm lửng", "dấu lửng", "dots", "ellipsis", "omission"]
-
-[[emoji]]
-name = "ideographic_period"
-glyph = "。"
-keywords = ["chấm câu", "chấm hết", "dấu chấm", "dấu chấm tượng hình", "tượng hình", "full", "ideographic", "period", "stop", "ideographic period"]
-
-[[emoji]]
-name = "middle_dot"
-glyph = "·"
-keywords = ["chấm", "dấu chấm giữa", "dấu chấm giữa dòng", "dấu chấm ở giữa dòng", "giữa", "dot", "interpunct", "middle", "middot", "middle dot"]
-
-[[emoji]]
-name = "left_apostrophe"
-glyph = "‘"
-keywords = ["dấu móc lửng", "dấu móc lửng trái", "dấu nháy", "dấu nháy đơn", "dấu nháy thông minh", "apostrophe", "left", "quote", "single", "smart", "left apostrophe"]
-
-[[emoji]]
-name = "right_apostrophe"
-glyph = "’"
-keywords = ["dấu móc lửng", "dấu móc lửng phải", "dấu nháy", "dấu nháy đơn", "dấu nháy thông minh", "apostrophe", "quote", "right", "single", "smart", "right apostrophe"]
-
-[[emoji]]
-name = "low_right_apostrophe"
-glyph = "‚"
-keywords = ["dấu móc dưới", "dấu móc dưới phải", "dấu nháy", "dấu nháy dưới", "apostrophe", "low", "quote", "right", "low right apostrophe"]
-
-[[emoji]]
-name = "left_quotation_mark"
-glyph = "“"
-keywords = ["dấu nháy", "dấu nháy kép", "dấu nháy kép trái", "dấu nháy thông minh", "double", "left", "mark", "quotation", "quote", "smart", "left quotation mark"]
-
-[[emoji]]
-name = "right_quotation_mark"
-glyph = "”"
-keywords = ["dấu nháy", "dấu nháy kép", "dấu nháy kép phải", "dấu nháy thông minh", "double", "mark", "quotation", "quote", "right", "smart", "right quotation mark"]
-
-[[emoji]]
-name = "low_right_quotation_mark"
-glyph = "„"
-keywords = ["dấu nháy", "dấu nháy dưới", "dấu nháy kép", "dấu nháy kép dưới phải", "dấu nháy thông minh", "double", "low", "mark", "quotation", "quote", "right", "smart", "low right quotation mark"]
-
-[[emoji]]
-name = "left_guillemet"
-glyph = "«"
-keywords = ["dấu chữ v", "dấu ngoặc đơn", "dấu ngoặc góc", "dấu ngoặc kép", "dấu ngoặc kép trái", "dấu sót", "trái", "angle", "brackets", "carets", "chevron", "guillemet", "left", "quote"]
-
-[[emoji]]
-name = "right_guillemet"
-glyph = "»"
-keywords = ["dấu chữ v", "dấu ngoặc đơn", "dấu ngoặc góc", "dấu ngoặc kép", "dấu ngoặc kép phải", "dấu sót", "phải", "angle", "brackets", "carets", "chevron", "guillemet", "quote", "right"]
-
-[[emoji]]
-name = "open_angle_bracket"
-glyph = "〈"
-keywords = ["dấu ngoặc", "dấu ngoặc góc", "dấu ngoặc góc mở", "dấu ngoặc kim cương", "dấu ngoặc nhọn", "angle", "bracket", "brackets", "chevron", "diamond", "open", "pointy", "tuple", "open angle bracket"]
-
-[[emoji]]
-name = "close_angle_bracket"
-glyph = "〉"
-keywords = ["dấu ngoặc", "dấu ngoặc góc", "dấu ngoặc góc đóng", "dấu ngoặc kim cương", "dấu ngoặc nhọn", "angle", "bracket", "brackets", "chevron", "close", "diamond", "pointy", "tuple", "close angle bracket"]
-
-[[emoji]]
-name = "open_double_angle_bracket"
-glyph = "《"
-keywords = ["dấu ngoặc", "dấu ngoặc góc kép", "dấu ngoặc góc kép mở", "angle", "bracket", "double", "open", "open double angle bracket"]
-
-[[emoji]]
-name = "close_double_angle_bracket"
-glyph = "》"
-keywords = ["dấu ngoặc", "dấu ngoặc góc kép", "dấu ngoặc góc kép đóng", "angle", "bracket", "close", "double", "close double angle bracket"]
-
-[[emoji]]
-name = "open_corner_bracket"
-glyph = "「"
-keywords = ["dấu ngoặc", "dấu ngoặc chữ l", "dấu ngoặc chữ l mở", "bracket", "corner", "open", "open corner bracket"]
-
-[[emoji]]
-name = "close_corner_bracket"
-glyph = "」"
-keywords = ["dấu ngoặc", "dấu ngoặc chữ l", "dấu ngoặc chữ l đóng", "bracket", "close", "corner", "close corner bracket"]
-
-[[emoji]]
-name = "open_hollow_corner_bracket"
-glyph = "『"
-keywords = ["dấu ngoặc", "dấu ngoặc chữ l rỗng", "dấu ngoặc chữ l rỗng mở", "bracket", "corner", "hollow", "open", "open hollow corner bracket"]
-
-[[emoji]]
-name = "close_hollow_corner_bracket"
-glyph = "』"
-keywords = ["dấu ngoặc", "dấu ngoặc chữ l rỗng", "dấu ngoặc chữ l rỗng đóng", "bracket", "close", "corner", "hollow", "close hollow corner bracket"]
-
-[[emoji]]
-name = "open_black_lens_bracket"
-glyph = "【"
-keywords = ["dấu ngoặc", "dấu ngoặc thấu kính", "dấu ngoặc thấu kính đen mở", "black", "bracket", "lens", "lenticular", "open", "open black lens bracket"]
-
-[[emoji]]
-name = "close_black_lens_bracket"
-glyph = "】"
-keywords = ["dấu ngoặc", "dấu ngoặc thấu kính", "dấu ngoặc thấu kính đen đóng", "black", "bracket", "close", "lens", "lenticular", "close black lens bracket"]
-
-[[emoji]]
-name = "open_tortoise_shell_bracket"
-glyph = "〔"
-keywords = ["dấu ngoặc", "dấu ngoặc hình mai rùa", "dấu ngoặc mai rùa", "dấu ngoặc mai rùa mở", "bracket", "open", "shell", "tortoise", "open tortoise shell bracket"]
-
-[[emoji]]
-name = "close_tortoise_shell_bracket"
-glyph = "〕"
-keywords = ["dấu ngoặc", "dấu ngoặc hình mai rùa", "dấu ngoặc mai rùa", "dấu ngoặc mai rùa đóng", "bracket", "close", "shell", "tortoise", "close tortoise shell bracket"]
-
-[[emoji]]
-name = "open_hollow_lens_bracket"
-glyph = "〖"
-keywords = ["dấu ngoặc", "dấu ngoặc thấu kính rỗng", "dấu ngoặc thấu kính rỗng mở", "bracket", "hollow", "lens", "lenticular", "open", "open hollow lens bracket"]
-
-[[emoji]]
-name = "close_hollow_lens_bracket"
-glyph = "〗"
-keywords = ["dấu ngoặc", "dấu ngoặc thấu kính rỗng", "dấu ngoặc thấu kính rỗng đóng", "bracket", "close", "hollow", "lens", "lenticular", "close hollow lens bracket"]
-
-[[emoji]]
-name = "section"
-glyph = "§"
-keywords = ["biểu tượng chương mục", "đoạn", "mục", "phần", "paragraph", "part", "section", "silcrow"]
-
-[[emoji]]
-name = "paragraph_mark"
-glyph = "¶"
-keywords = ["dấu ngắt đoạn", "đoạn", "đoạn văn", "ký hiệu", "alinea", "mark", "paragraph", "paraph", "pilcrow", "paragraph mark"]
-
-[[emoji]]
-name = "per_mille"
-glyph = "‰"
-keywords = ["dấu phần nghìn", "phần nghìn", "mil", "mille", "per", "permil", "permille", "per mille"]
-
-[[emoji]]
-name = "dagger_sign"
-glyph = "†"
-keywords = ["biểu tượng kiếm ngược", "dao găm", "dấu thập giá", "kiếm ngược", "dagger", "obelisk", "obelus", "sign", "dagger sign"]
-
-[[emoji]]
-name = "double_dagger_sign"
-glyph = "‡"
-keywords = ["biểu tượng song kiếm", "dao găm", "dấu thập giá", "kiếm ngược", "song", "dagger", "double", "obelisk", "obelus", "sign", "double dagger sign"]
-
-[[emoji]]
-name = "bullet"
-glyph = "•"
-keywords = ["chấm", "dấu đầu câu", "bullet", "dot"]
-
-[[emoji]]
-name = "hyphenation_point"
-glyph = "‧"
-keywords = ["chấm", "dấu chấm nối", "nối", "dash", "hyphen", "hyphenation", "point", "hyphenation point"]
-
-[[emoji]]
-name = "prime"
-glyph = "′"
-keywords = ["dấu nháy", "prime"]
-
-[[emoji]]
-name = "double_prime"
-glyph = "″"
-keywords = ["dấu nháy", "dấu nháy kép", "nháy", "double", "prime", "double prime"]
-
-[[emoji]]
-name = "triple_prime"
-glyph = "‴"
-keywords = ["dấu nháy", "dấu nháy ba", "prime", "triple", "triple prime"]
-
-[[emoji]]
-name = "caret"
-glyph = "‸"
-keywords = ["dấu sót", "caret"]
-
-[[emoji]]
-name = "reference_mark"
-glyph = "※"
-keywords = ["dấu tham chiếu", "ký hiệu tham chiếu", "mark", "reference", "reference mark"]
-
-[[emoji]]
-name = "asterism"
-glyph = "⁂"
-keywords = ["dấu chia văn bản", "asterism", "dinkus", "stars"]
-
-[[emoji]]
-name = "acute_accent"
-glyph = "´"
-keywords = ["dấu", "nốt", "sắc", "dấu sắc", "accent", "acute", "tone", "acute accent"]
-
-[[emoji]]
-name = "diaeresis"
-glyph = "¨"
-keywords = ["dấu tách đôi", "diaeresis", "tréma", "umlaut"]
-
-[[emoji]]
-name = "degree"
-glyph = "°"
-keywords = ["chứng minh", "độ", "giờ", "degree", "hour", "proof"]
-
-[[emoji]]
-name = "sound_recording_copyright"
-glyph = "℗"
-keywords = ["âm thanh", "bản quyền", "bản quyền ghi âm", "ghi", "copyright", "recording", "sound", "sound recording copyright"]
-
-[[emoji]]
-name = "left_pointing_arrow"
-glyph = "←"
-keywords = ["bên trái", "mũi tên", "mũi tên hướng trái", "arrow", "left", "left-pointing", "left-pointing arrow"]
-
-[[emoji]]
-name = "leftwards_arrow_stroke"
-glyph = "↚"
-keywords = ["mũi tên trái có dấu gạch chéo", "arrow", "leftwards", "stroke", "leftwards arrow stroke"]
-
-[[emoji]]
-name = "right_pointing_arrow"
-glyph = "→"
-keywords = ["bên phải", "mũi tên", "mũi tên hướng phải", "arrow", "right", "right-pointing", "right-pointing arrow"]
-
-[[emoji]]
-name = "rightwards_arrow_stroke"
-glyph = "↛"
-keywords = ["mũi tên phải có dấu gạch chéo", "arrow", "rightwards", "stroke", "rightwards arrow stroke"]
-
-[[emoji]]
-name = "up_pointing_arrow"
-glyph = "↑"
-keywords = ["lên", "mũi tên", "mũi tên hướng lên", "arrow", "up", "up-pointing", "up-pointing arrow"]
-
-[[emoji]]
-name = "down_pointing_arrow"
-glyph = "↓"
-keywords = ["mũi tên", "mũi tên hướng xuống", "xuống", "arrow", "down", "down-pointing", "down-pointing arrow"]
-
-[[emoji]]
-name = "leftwards_wave_arrow"
-glyph = "↜"
-keywords = ["mũi tên sóng trái", "arrow", "leftwards", "wave", "leftwards wave arrow"]
-
-[[emoji]]
-name = "rightwards_wave_arrow"
-glyph = "↝"
-keywords = ["mũi tên sóng phải", "arrow", "rightwards", "wave", "rightwards wave arrow"]
-
-[[emoji]]
-name = "leftwards_two_headed_arrow"
-glyph = "↞"
-keywords = ["mũi tên trái hai đầu", "arrow", "headed", "leftwards", "two", "leftwards two headed arrow"]
-
-[[emoji]]
-name = "upwards_two_headed_arrow"
-glyph = "↟"
-keywords = ["mũi tên hướng lên hai đầu", "arrow", "headed", "two", "upwards", "upwards two headed arrow"]
-
-[[emoji]]
-name = "rightwards_two_headed_arrow"
-glyph = "↠"
-keywords = ["mũi tên phải hai đầu", "arrow", "headed", "rightwards", "two", "rightwards two headed arrow"]
-
-[[emoji]]
-name = "downwards_two_headed_arrow"
-glyph = "↡"
-keywords = ["mũi tên hướng xuống hai đầu", "arrow", "downwards", "headed", "two", "downwards two headed arrow"]
-
-[[emoji]]
-name = "leftwards_arrow_tail"
-glyph = "↢"
-keywords = ["mũi tên trái có đuôi", "arrow", "leftwards", "tail", "leftwards arrow tail"]
-
-[[emoji]]
-name = "rightwards_arrow_tail"
-glyph = "↣"
-keywords = ["mũi tên phải có đuôi", "arrow", "rightwards", "tail", "rightwards arrow tail"]
-
-[[emoji]]
-name = "leftwards_arrow_from_bar"
-glyph = "↤"
-keywords = ["mũi tên trái từ thanh", "arrow", "bar", "from", "leftwards", "leftwards arrow from bar"]
-
-[[emoji]]
-name = "upwards_arrow_from_bar"
-glyph = "↥"
-keywords = ["mũi tên hướng lên từ thanh", "arrow", "bar", "from", "upwards", "upwards arrow from bar"]
-
-[[emoji]]
-name = "rightwards_arrow_from_bar"
-glyph = "↦"
-keywords = ["mũi tên phải từ thanh", "arrow", "bar", "from", "rightwards", "rightwards arrow from bar"]
-
-[[emoji]]
-name = "downwards_arrow_from_bar"
-glyph = "↧"
-keywords = ["mũi tên hướng xuống từ thanh", "arrow", "bar", "downwards", "from", "downwards arrow from bar"]
-
-[[emoji]]
-name = "up_down_arrow_with_base"
-glyph = "↨"
-keywords = ["mũi tên lên xuống có nét ngang", "arrow", "base", "down", "up", "with", "up down arrow with base"]
-
-[[emoji]]
-name = "leftwards_arrow_loop"
-glyph = "↫"
-keywords = ["mũi tên trái có vòng tròn nhỏ", "arrow", "leftwards", "loop", "leftwards arrow loop"]
-
-[[emoji]]
-name = "rightwards_arrow_loop"
-glyph = "↬"
-keywords = ["mũi tên phải có vòng tròn nhỏ", "arrow", "loop", "rightwards", "rightwards arrow loop"]
-
-[[emoji]]
-name = "left_right_wave_arrow"
-glyph = "↭"
-keywords = ["mũi tên sóng trái phải", "arrow", "left", "right", "wave", "left right wave arrow"]
-
-[[emoji]]
-name = "downwards_zigzag_arrow"
-glyph = "↯"
-keywords = ["mũi tên xuống hình dích dắc", "arrow", "downwards", "zigzag", "downwards zigzag arrow"]
-
-[[emoji]]
-name = "upwards_arrow_tip_leftwards"
-glyph = "↰"
-keywords = ["mũi tên hướng lên có đầu sang trái", "arrow", "leftwards", "tip", "upwards", "upwards arrow tip leftwards"]
-
-[[emoji]]
-name = "upwards_arrow_tip_rightwards"
-glyph = "↱"
-keywords = ["mũi tên hướng lên có đầu sang phải", "arrow", "rightwards", "tip", "upwards", "upwards arrow tip rightwards"]
-
-[[emoji]]
-name = "downwards_arrow_tip_leftwards"
-glyph = "↲"
-keywords = ["mũi tên hướng xuống có đầu sang trái", "arrow", "downwards", "leftwards", "tip", "downwards arrow tip leftwards"]
-
-[[emoji]]
-name = "downwards_arrow_tip_rightwards"
-glyph = "↳"
-keywords = ["mũi tên hướng xuống có đầu sang phải", "arrow", "downwards", "rightwards", "tip", "downwards arrow tip rightwards"]
-
-[[emoji]]
-name = "rightwards_arrow_corner_downwards"
-glyph = "↴"
-keywords = ["mũi tên phải có góc hướng xuống", "arrow", "corner", "downwards", "rightwards", "rightwards arrow corner downwards"]
-
-[[emoji]]
-name = "downwards_arrow_corner_leftwards"
-glyph = "↵"
-keywords = ["mũi tên hướng xuống có góc sang trái", "arrow", "corner", "downwards", "leftwards", "downwards arrow corner leftwards"]
-
-[[emoji]]
-name = "anticlockwise_top_semicircle_arrow"
-glyph = "↶"
-keywords = ["mũi tên hình bán nguyệt đầu ngược chiều kim đồng hồ", "anticlockwise", "arrow", "semicircle", "top", "anticlockwise top semicircle arrow"]
-
-[[emoji]]
-name = "clockwise_top_semicircle_arrow"
-glyph = "↷"
-keywords = ["mũi tên hình bán nguyệt đầu theo chiều kim đồng hồ", "arrow", "clockwise", "semicircle", "top", "clockwise top semicircle arrow"]
-
-[[emoji]]
-name = "north_west_arrow_long_bar"
-glyph = "↸"
-keywords = ["mũi tên tây bắc đến thanh dài", "arrow", "bar", "long", "north", "west", "north west arrow long bar"]
-
-[[emoji]]
-name = "leftwards_over_rightwards_arrow_bars"
-glyph = "↹"
-keywords = ["mũi tên trái đến thanh trên mũi tên phải đến thanh", "arrow", "bar", "bars", "leftwards", "over", "rightwards", "leftwards over rightwards arrow bars"]
-
-[[emoji]]
-name = "anticlockwise_open_circle_arrow"
-glyph = "↺"
-keywords = ["mũi tên mở tròn ngược chiều kim đồng hồ", "anticlockwise", "arrow", "circle", "open", "anticlockwise open circle arrow"]
-
-[[emoji]]
-name = "clockwise_open_circle_arrow"
-glyph = "↻"
-keywords = ["mũi tên mở tròn theo chiều kim đồng hồ", "arrow", "circle", "clockwise", "open", "clockwise open circle arrow"]
-
-[[emoji]]
-name = "leftwards_harpoon_barb_upwards"
-glyph = "↼"
-keywords = ["nét thẳng trái có ngạnh hướng lên", "barb", "harpoon", "leftwards", "upwards", "leftwards harpoon barb upwards"]
-
-[[emoji]]
-name = "leftwards_harpoon_barb_downwards"
-glyph = "↽"
-keywords = ["nét thẳng trái có ngạnh hướng xuống", "barb", "downwards", "harpoon", "leftwards", "leftwards harpoon barb downwards"]
-
-[[emoji]]
-name = "upwards_harpoon_barb_rightwards"
-glyph = "↾"
-keywords = ["nét thẳng hướng lên có ngạnh sang phải", "barb", "harpoon", "rightwards", "upwards", "upwards harpoon barb rightwards"]
-
-[[emoji]]
-name = "upwards_harpoon_barb_leftwards"
-glyph = "↿"
-keywords = ["nét thẳng hướng lên có ngạnh sang trái", "barb", "harpoon", "leftwards", "upwards", "upwards harpoon barb leftwards"]
-
-[[emoji]]
-name = "rightwards_harpoon_barb_upwards"
-glyph = "⇀"
-keywords = ["nét thẳng phải có ngạnh hướng lên", "barb", "harpoon", "rightwards", "upwards", "rightwards harpoon barb upwards"]
-
-[[emoji]]
-name = "rightwards_harpoon_barb_downwards"
-glyph = "⇁"
-keywords = ["nét thẳng phải có ngạnh hướng xuống", "barb", "downwards", "harpoon", "rightwards", "rightwards harpoon barb downwards"]
-
-[[emoji]]
-name = "downwards_harpoon_barb_rightwards"
-glyph = "⇂"
-keywords = ["nét thẳng hướng xuống có ngạnh sang phải", "barb", "downwards", "harpoon", "rightwards", "downwards harpoon barb rightwards"]
-
-[[emoji]]
-name = "downwards_harpoon_barb_leftwards"
-glyph = "⇃"
-keywords = ["nét thẳng hướng xuống có ngạnh sang trái", "barb", "downwards", "harpoon", "leftwards", "downwards harpoon barb leftwards"]
-
-[[emoji]]
-name = "rightwards_arrow_over_leftwards_arrow"
-glyph = "⇄"
-keywords = ["mũi tên phải trên mũi tên trái", "arrow", "leftwards", "over", "rightwards", "rightwards arrow over leftwards arrow"]
-
-[[emoji]]
-name = "up_pointing_and_down_pointing_arrows"
-glyph = "⇅"
-keywords = ["lên", "mũi tên", "mũi tên lên/xuống", "xuống", "and", "arrow", "arrows", "down", "down-pointing", "up", "up-pointing", "up-pointing and down-pointing arrows"]
-
-[[emoji]]
-name = "left_pointing_over_right_pointing_arrows"
-glyph = "⇆"
-keywords = ["mũi tên", "mũi tên trái/phải", "phải", "trái", "arrow", "arrows", "left", "left-pointing", "over", "right", "right-pointing", "left-pointing over right-pointing arrows"]
-
-[[emoji]]
-name = "leftwards_paired_arrows"
-glyph = "⇇"
-keywords = ["mũi tên ghép trái", "arrows", "leftwards", "paired", "leftwards paired arrows"]
-
-[[emoji]]
-name = "upwards_paired_arrows"
-glyph = "⇈"
-keywords = ["mũi tên ghép hướng lên", "arrows", "paired", "upwards", "upwards paired arrows"]
-
-[[emoji]]
-name = "rightwards_paired_arrows"
-glyph = "⇉"
-keywords = ["mũi tên ghép phải", "arrows", "paired", "rightwards", "rightwards paired arrows"]
-
-[[emoji]]
-name = "downwards_paired_arrows"
-glyph = "⇊"
-keywords = ["mũi tên ghép hướng xuống", "arrows", "downwards", "paired", "downwards paired arrows"]
-
-[[emoji]]
-name = "leftwards_harpoon_over_rightwards_harpoon"
-glyph = "⇋"
-keywords = ["nét thẳng có ngạnh trái trên nét thẳng có ngạnh phải", "harpoon", "leftwards", "over", "rightwards", "leftwards harpoon over rightwards harpoon"]
-
-[[emoji]]
-name = "rightwards_harpoon_over_leftwards_harpoon"
-glyph = "⇌"
-keywords = ["nét thẳng có ngạnh phải trên nét thẳng có ngạnh trái", "harpoon", "leftwards", "over", "rightwards", "rightwards harpoon over leftwards harpoon"]
-
-[[emoji]]
-name = "leftwards_double_arrow"
-glyph = "⇐"
-keywords = ["mũi tên kép trái", "arrow", "double", "leftwards", "leftwards double arrow"]
-
-[[emoji]]
-name = "leftwards_double_arrow_stroke"
-glyph = "⇍"
-keywords = ["mũi tên kép trái có dấu gạch chéo", "arrow", "double", "leftwards", "stroke", "leftwards double arrow stroke"]
-
-[[emoji]]
-name = "upwards_double_arrow"
-glyph = "⇑"
-keywords = ["mũi tên kép hướng lên", "arrow", "double", "upwards", "upwards double arrow"]
-
-[[emoji]]
-name = "rightwards_double_arrow"
-glyph = "⇒"
-keywords = ["mũi tên kép phải", "arrow", "double", "rightwards", "rightwards double arrow"]
-
-[[emoji]]
-name = "rightwards_double_arrow_stroke"
-glyph = "⇏"
-keywords = ["mũi tên kép phải có dấu gạch chéo", "arrow", "double", "rightwards", "stroke", "rightwards double arrow stroke"]
-
-[[emoji]]
-name = "downwards_double_arrow"
-glyph = "⇓"
-keywords = ["mũi tên kép xuống", "arrow", "double", "downwards", "downwards double arrow"]
-
-[[emoji]]
-name = "left_right_double_arrow"
-glyph = "⇔"
-keywords = ["mũi tên kép trái phải", "arrow", "double", "left", "right", "left right double arrow"]
-
-[[emoji]]
-name = "left_right_double_arrow_stroke"
-glyph = "⇎"
-keywords = ["mũi tên kép trái phải có dấu gạch chéo", "arrow", "double", "left", "right", "stroke", "left right double arrow stroke"]
-
-[[emoji]]
-name = "north_west_double_arrow"
-glyph = "⇖"
-keywords = ["mũi tên kép tây bắc", "arrow", "double", "north", "west", "north west double arrow"]
-
-[[emoji]]
-name = "north_east_double_arrow"
-glyph = "⇗"
-keywords = ["mũi tên kép đông bắc", "arrow", "double", "east", "north", "north east double arrow"]
-
-[[emoji]]
-name = "south_east_double_arrow"
-glyph = "⇘"
-keywords = ["mũi tên kép đông nam", "arrow", "double", "east", "south", "south east double arrow"]
-
-[[emoji]]
-name = "south_west_double_arrow"
-glyph = "⇙"
-keywords = ["mũi tên kép tây nam", "arrow", "double", "south", "west", "south west double arrow"]
-
-[[emoji]]
-name = "leftwards_triple_arrow"
-glyph = "⇚"
-keywords = ["mũi tên ba trái", "arrow", "leftwards", "triple", "leftwards triple arrow"]
-
-[[emoji]]
-name = "rightwards_triple_arrow"
-glyph = "⇛"
-keywords = ["mũi tên ba phải", "arrow", "rightwards", "triple", "rightwards triple arrow"]
-
-[[emoji]]
-name = "leftwards_squiggle_arrow"
-glyph = "⇜"
-keywords = ["mũi tên ngoằn ngoèo trái", "arrow", "leftwards", "squiggle", "leftwards squiggle arrow"]
-
-[[emoji]]
-name = "rightwards_squiggle_arrow"
-glyph = "⇝"
-keywords = ["mũi tên ngoằn ngoèo phải", "arrow", "rightwards", "squiggle", "rightwards squiggle arrow"]
-
-[[emoji]]
-name = "upwards_arrow_double_stroke"
-glyph = "⇞"
-keywords = ["mũi tên hướng lên có hai nét gạch", "arrow", "double", "stroke", "upwards", "upwards arrow double stroke"]
-
-[[emoji]]
-name = "downwards_arrow_double_stroke"
-glyph = "⇟"
-keywords = ["mũi tên hướng xuống có hai nét gạch", "arrow", "double", "downwards", "stroke", "downwards arrow double stroke"]
-
-[[emoji]]
-name = "leftwards_dashed_arrow"
-glyph = "⇠"
-keywords = ["mũi tên trái nét đứt", "arrow", "dashed", "leftwards", "leftwards dashed arrow"]
-
-[[emoji]]
-name = "upwards_dashed_arrow"
-glyph = "⇡"
-keywords = ["mũi tên hướng lên nét đứt", "arrow", "dashed", "upwards", "upwards dashed arrow"]
-
-[[emoji]]
-name = "rightwards_dashed_arrow"
-glyph = "⇢"
-keywords = ["mũi tên phải nét đứt", "arrow", "dashed", "rightwards", "rightwards dashed arrow"]
-
-[[emoji]]
-name = "downwards_dashed_arrow"
-glyph = "⇣"
-keywords = ["mũi tên hướng xuống nét đứt", "arrow", "dashed", "downwards", "downwards dashed arrow"]
-
-[[emoji]]
-name = "leftwards_arrow_bar"
-glyph = "⇤"
-keywords = ["mũi tên trái đến thanh", "arrow", "bar", "leftwards", "leftwards arrow bar"]
-
-[[emoji]]
-name = "rightwards_arrow_bar"
-glyph = "⇥"
-keywords = ["mũi tên phải đến thanh", "arrow", "bar", "rightwards", "rightwards arrow bar"]
-
-[[emoji]]
-name = "leftwards_hollow_arrow"
-glyph = "⇦"
-keywords = ["mũi tên rỗng trái", "arrow", "hollow", "leftwards", "leftwards hollow arrow"]
-
-[[emoji]]
-name = "upwards_hollow_arrow"
-glyph = "⇧"
-keywords = ["mũi tên rỗng hướng lên", "arrow", "hollow", "upwards", "upwards hollow arrow"]
-
-[[emoji]]
-name = "rightwards_hollow_arrow"
-glyph = "⇨"
-keywords = ["mũi tên rỗng phải", "arrow", "hollow", "rightwards", "rightwards hollow arrow"]
-
-[[emoji]]
-name = "downwards_hollow_arrow"
-glyph = "⇩"
-keywords = ["mũi tên rỗng hướng xuống", "arrow", "downwards", "hollow", "downwards hollow arrow"]
-
-[[emoji]]
-name = "upwards_hollow_arrow_from_bar"
-glyph = "⇪"
-keywords = ["mũi tên rỗng hướng lên từ thanh", "arrow", "bar", "from", "hollow", "upwards", "upwards hollow arrow from bar"]
-
-[[emoji]]
-name = "downwards_arrow_leftwards_upwards_arrow"
-glyph = "⇵"
-keywords = ["mũi tên hướng xuống bên trái mũi tên hướng lên", "arrow", "downwards", "leftwards", "upwards", "downwards arrow leftwards upwards arrow"]
-
-[[emoji]]
-name = "for_all"
-glyph = "∀"
-keywords = ["với mọi", "all", "any", "for", "given", "universal", "for all"]
-
-[[emoji]]
-name = "partial_differential"
-glyph = "∂"
-keywords = ["vi phân", "vi phân riêng phần", "differential", "partial", "partial differential"]
-
-[[emoji]]
-name = "there_exists"
-glyph = "∃"
-keywords = ["tồn tại", "exists", "there", "there exists"]
-
-[[emoji]]
-name = "empty_set"
-glyph = "∅"
-keywords = ["tập hợp rỗng", "toán học", "toán tử tập hợp", "empty", "mathematics", "operator", "set", "empty set"]
-
-[[emoji]]
-name = "increment"
-glyph = "∆"
-keywords = ["hình tam giác", "số gia", "increment", "triangle"]
-
-[[emoji]]
-name = "nabla"
-glyph = "∇"
-keywords = ["hình tam giác", "nabla", "triangle"]
-
-[[emoji]]
-name = "element_of"
-glyph = "∈"
-keywords = ["chứa", "phần tử", "phần tử của", "tập hợp", "thuộc", "contains", "element", "membership", "of", "set", "element of"]
-
-[[emoji]]
-name = "not_an_element"
-glyph = "∉"
-keywords = ["không thuộc", "thuộc", "an", "element", "not", "not an element"]
-
-[[emoji]]
-name = "contains_as_member"
-glyph = "∋"
-keywords = ["chứa", "thuộc", "as", "contains", "element", "member", "contains as member"]
-
-[[emoji]]
-name = "end_proof"
-glyph = "∎"
-keywords = ["chứng minh kết thúc", "halmos", "q.e.d.", "qed", "end", "proof", "tombstone", "end proof"]
-
-[[emoji]]
-name = "n_ary_product"
-glyph = "∏"
-keywords = ["logic", "tích", "tích đa phân", "n-ary", "product", "n-ary product"]
-
-[[emoji]]
-name = "n_ary_summation"
-glyph = "∑"
-keywords = ["toán học", "tổng", "tổng đa phân", "mathematics", "n-ary", "summation", "n-ary summation"]
-
-[[emoji]]
-name = "plus_minus"
-glyph = "±"
-keywords = ["dấu cộng trừ", "plus-minus"]
-
-[[emoji]]
-name = "division_sign"
-glyph = "÷"
-keywords = ["biểu tượng dấu chia", "chia", "dấu chia", "phép chia", "divide", "division", "obelus", "sign", "division sign"]
-
-[[emoji]]
-name = "multiplication_sign"
-glyph = "×"
-keywords = ["biểu tượng dấu nhân", "dấu nhân", "lần", "nhân", "phép nhân", "multiplication", "multiply", "sign", "times", "multiplication sign"]
-
-[[emoji]]
-name = "not_less_than"
-glyph = "≮"
-keywords = ["bất đẳng thức", "không nhỏ hơn", "toán học", "inequality", "less-than", "mathematics", "not", "not less-than"]
-
-[[emoji]]
-name = "not_equal"
-glyph = "≠"
-keywords = ["dấu khác", "khác", "không bằng", "không giống", "equal", "inequality", "inequation", "not", "not equal"]
-
-[[emoji]]
-name = "not_greater_than"
-glyph = "≯"
-keywords = ["bất đẳng thức", "không lớn hơn", "toán học", "greater-than", "inequality", "mathematics", "not", "not greater-than"]
-
-[[emoji]]
-name = "negation"
-glyph = "¬"
-keywords = ["dấu phủ định", "không", "phủ định", "negation", "not"]
-
-[[emoji]]
-name = "minus_sign"
-glyph = "−"
-keywords = ["dấu trừ", "trừ", "minus", "sign", "subtract", "minus sign"]
-
-[[emoji]]
-name = "superscript_minus"
-glyph = "⁻"
-keywords = ["chỉ số trên", "dấu trừ", "dấu trừ trên", "minus", "superscript", "superscript minus"]
-
-[[emoji]]
-name = "minus_or_plus"
-glyph = "∓"
-keywords = ["cộng trừ", "trừ hoặc cộng", "minus-or-plus", "plus-minus"]
-
-[[emoji]]
-name = "division_slash"
-glyph = "∕"
-keywords = ["dấu gạch chéo", "dấu gạch chéo phân chia", "nét", "division", "slash", "stroke", "virgule", "division slash"]
-
-[[emoji]]
-name = "fraction_slash"
-glyph = "⁄"
-keywords = ["dấu gạch chéo", "dấu gạch chéo phân số", "nét", "fraction", "slash", "stroke", "virgule", "fraction slash"]
-
-[[emoji]]
-name = "asterisk_operator"
-glyph = "∗"
-keywords = ["dấu sao", "toán tử dấu hoa thị", "asterisk", "operator", "star", "asterisk operator"]
-
-[[emoji]]
-name = "ring_operator"
-glyph = "∘"
-keywords = ["hàm hợp", "toán tử", "vòng toán tử", "composition", "operator", "ring", "ring operator"]
-
-[[emoji]]
-name = "bullet_operator"
-glyph = "∙"
-keywords = ["toán tử", "toán tử dấu đầu dòng", "bullet", "operator", "bullet operator"]
-
-[[emoji]]
-name = "square_root"
-glyph = "√"
-keywords = ["bậc hai", "căn", "căn bậc hai", "căn số", "cơ số", "vô tỷ", "radical", "radix", "root", "square", "surd", "square root"]
-
-[[emoji]]
-name = "proportional"
-glyph = "∝"
-keywords = ["tính cân xứng", "tỷ lệ", "proportional", "proportionality"]
-
-[[emoji]]
-name = "infinity_sign"
-glyph = "∞"
-keywords = ["biểu tượng vô cực", "vô cực", "infinity", "sign", "infinity sign"]
-
-[[emoji]]
-name = "right_angle"
-glyph = "∟"
-keywords = ["góc vuông", "toán học", "angle", "mathematics", "right", "right angle"]
-
-[[emoji]]
-name = "angle"
-glyph = "∠"
-keywords = ["góc", "nhọn", "acute", "angle"]
-
-[[emoji]]
-name = "divides"
-glyph = "∣"
-keywords = ["chia ra", "số chia", "divides", "divisor"]
-
-[[emoji]]
-name = "parallel"
-glyph = "∥"
-keywords = ["song song", "parallel"]
-
-[[emoji]]
-name = "logical_and"
-glyph = "∧"
-keywords = ["chữ v ngược", "logic và", "ac", "and", "atque", "logical", "wedge", "logical and"]
-
-[[emoji]]
-name = "intersection"
-glyph = "∩"
-keywords = ["giao", "tập hợp", "intersection", "set"]
-
-[[emoji]]
-name = "union"
-glyph = "∪"
-keywords = ["hợp", "sự tụ tập", "tập hợp", "collection", "set", "union"]
-
-[[emoji]]
-name = "integral"
-glyph = "∫"
-keywords = ["giải tích", "tích phân", "calculus", "integral"]
-
-[[emoji]]
-name = "double_integral"
-glyph = "∬"
-keywords = ["giải tích", "tích phân kép", "calculus", "double", "integral", "double integral"]
-
-[[emoji]]
-name = "contour_integral"
-glyph = "∮"
-keywords = ["tích phân theo chu tuyến", "contour", "integral", "contour integral"]
-
-[[emoji]]
-name = "therefore"
-glyph = "∴"
-keywords = ["do đó", "logic", "therefore"]
-
-[[emoji]]
-name = "because"
-glyph = "∵"
-keywords = ["logic", "vì", "because"]
-
-[[emoji]]
-name = "ratio"
-glyph = "∶"
-keywords = ["tỉ số", "ratio"]
-
-[[emoji]]
-name = "proportion"
-glyph = "∷"
-keywords = ["tính cân xứng", "tỷ lệ thức", "proportion", "proportionality"]
-
-[[emoji]]
-name = "tilde_operator"
-glyph = "∼"
-keywords = ["toán tử", "toán tử tương ứng", "operator", "tilde", "tilde operator"]
-
-[[emoji]]
-name = "reversed_tilde"
-glyph = "∽"
-keywords = ["dấu ngã", "dấu ngã ngược", "reversed", "tilde", "reversed tilde"]
-
-[[emoji]]
-name = "inverted_lazy_s"
-glyph = "∾"
-keywords = ["cực thuận", "inverted", "lazy", "s", "inverted lazy s"]
-
-[[emoji]]
-name = "asymptotically_equal"
-glyph = "≃"
-keywords = ["gần bằng", "tiệm cận", "toán học", "asymptote", "asymptotically", "equal", "mathematics", "asymptotically equal"]
-
-[[emoji]]
-name = "approximately_equal"
-glyph = "≅"
-keywords = ["bằng", "đẳng tích", "đồng dạng", "toán học", "xấp xỉ bằng", "approximately", "congruence", "equal", "equality", "isomorphism", "mathematics", "approximately equal"]
-
-[[emoji]]
-name = "almost_equal"
-glyph = "≈"
-keywords = ["dấu xấp xỉ", "gần bằng", "khoảng", "xấp xỉ", "almost", "approximate", "approximation", "equal", "almost equal"]
-
-[[emoji]]
-name = "all_equal"
-glyph = "≌"
-keywords = ["bằng", "như nhau", "toán học", "all", "equal", "equality", "mathematics", "all equal"]
-
-[[emoji]]
-name = "approximately_equal_the_image"
-glyph = "≒"
-keywords = ["xấp xỉ", "approximately", "equal", "image", "the", "approximately equal the image"]
-
-[[emoji]]
-name = "ring_in_equal"
-glyph = "≖"
-keywords = ["bằng", "toán học", "tương đương", "equal", "equality", "in", "mathematics", "ring", "ring in equal"]
-
-[[emoji]]
-name = "identical_to"
-glyph = "≡"
-keywords = ["bằng", "bằng nhau", "dấu bằng", "gấp ba", "giống", "exact", "identical", "to", "triple", "identical to"]
-
-[[emoji]]
-name = "strictly_equivalent"
-glyph = "≣"
-keywords = ["bằng", "toán học", "tương đồng", "equality", "equivalent", "mathematics", "strictly", "strictly equivalent"]
-
-[[emoji]]
-name = "less_than_or_equal"
-glyph = "≤"
-keywords = ["bằng", "dấu nhỏ hơn hoặc bằng", "không bằng", "nhỏ hơn hoặc bằng", "equal", "equals", "inequality", "less-than", "or", "less-than or equal"]
-
-[[emoji]]
-name = "greater_than_or_equal"
-glyph = "≥"
-keywords = ["bằng", "dấu lớn hơn hoặc bằng", "không bằng", "lớn hơn", "equal", "equals", "greater-than", "inequality", "or", "greater-than or equal"]
-
-[[emoji]]
-name = "less_than_over_equal"
-glyph = "≦"
-keywords = ["bất đẳng thức", "nhỏ hơn bằng", "toán học", "equal", "inequality", "less-than", "mathematics", "over", "less-than over equal"]
-
-[[emoji]]
-name = "greater_than_over_equal"
-glyph = "≧"
-keywords = ["bất đẳng thức", "lớn hơn bằng", "toán học", "equal", "greater-than", "inequality", "mathematics", "over", "greater-than over equal"]
-
-[[emoji]]
-name = "much_less_than"
-glyph = "≪"
-keywords = ["bất đẳng thức", "ít hơn rất nhiều so với", "toán học", "inequality", "less-than", "mathematics", "much", "much less-than"]
-
-[[emoji]]
-name = "much_greater_than"
-glyph = "≫"
-keywords = ["bất đẳng thức", "lớn hơn nhiều", "toán học", "greater-than", "inequality", "mathematics", "much", "much greater-than"]
-
-[[emoji]]
-name = "between"
-glyph = "≬"
-keywords = ["trong khoảng", "between"]
-
-[[emoji]]
-name = "greater_than_equivalent"
-glyph = "≳"
-keywords = ["bất đẳng thức", "lớn hơn tương đương", "toán học", "equivalent", "greater-than", "inequality", "mathematics", "greater-than equivalent"]
-
-[[emoji]]
-name = "precedes"
-glyph = "≺"
-keywords = ["đứng trước", "toán học", "toán tử tập hợp", "mathematics", "operator", "precedes", "set"]
-
-[[emoji]]
-name = "succeeds"
-glyph = "≻"
-keywords = ["đứng sau", "toán học", "toán tử tập hợp", "mathematics", "operator", "set", "succeeds"]
-
-[[emoji]]
-name = "does_not_succeed"
-glyph = "⊁"
-keywords = ["không đứng sau", "toán học", "toán tử tập hợp", "does", "mathematics", "not", "operator", "set", "succeed", "does not succeed"]
-
-[[emoji]]
-name = "subset_of"
-glyph = "⊂"
-keywords = ["tập hợp", "tập hợp con", "tập hợp con của", "of", "set", "subset", "subset of"]
-
-[[emoji]]
-name = "superset"
-glyph = "⊃"
-keywords = ["tập cha", "toán học", "toán tử tập hợp", "mathematics", "operator", "set", "superset"]
-
-[[emoji]]
-name = "subset_equal"
-glyph = "⊆"
-keywords = ["tập con bằng", "equal", "subset", "subset equal"]
-
-[[emoji]]
-name = "superset_equal"
-glyph = "⊇"
-keywords = ["bằng", "tập cha bằng", "toán học", "equal", "equality", "mathematics", "superset", "superset equal"]
-
-[[emoji]]
-name = "circled_plus"
-glyph = "⊕"
-keywords = ["cộng", "dấu cộng trong vòng tròn", "circled", "plus", "circled plus"]
-
-[[emoji]]
-name = "circled_minus"
-glyph = "⊖"
-keywords = ["dấu trừ trong vòng tròn", "hiệu số đối xứng", "phép co", "circled", "difference", "erosion", "minus", "symmetric", "circled minus"]
-
-[[emoji]]
-name = "circled_times"
-glyph = "⊗"
-keywords = ["dấu nhân trong vòng tròn", "tenxơ", "tích", "circled", "product", "tensor", "times", "circled times"]
-
-[[emoji]]
-name = "circled_division_slash"
-glyph = "⊘"
-keywords = ["dấu chia trong vòng tròn", "giống phép chia", "toán học", "circled", "division", "division-like", "mathematics", "slash", "circled division slash"]
-
-[[emoji]]
-name = "circled_dot_operator"
-glyph = "⊙"
-keywords = ["toán tử", "toán tử dấu chấm trong vòng tròn", "xnor", "circled", "dot", "operator", "circled dot operator"]
-
-[[emoji]]
-name = "circled_ring_operator"
-glyph = "⊚"
-keywords = ["toán tử hình khuyên trong vòng tròn", "circled", "operator", "ring", "circled ring operator"]
-
-[[emoji]]
-name = "circled_asterisk_operator"
-glyph = "⊛"
-keywords = ["hoa thị", "toán tử", "toán tử hoa thị trong vòng tròn", "asterisk", "circled", "operator", "circled asterisk operator"]
-
-[[emoji]]
-name = "squared_plus"
-glyph = "⊞"
-keywords = ["dấu cộng trong hình vuông", "giống phép cộng", "toán học", "addition-like", "mathematics", "plus", "squared", "squared plus"]
-
-[[emoji]]
-name = "squared_minus"
-glyph = "⊟"
-keywords = ["dấu trừ trong hình vuông", "giống phép trừ", "toán học", "mathematics", "minus", "squared", "subtraction-like", "squared minus"]
-
-[[emoji]]
-name = "up_tack"
-glyph = "⊥"
-keywords = ["chữ t lộn ngược", "đinh bẹt", "sai", "t ngược", "eet", "falsum", "tack", "up", "up tack"]
-
-[[emoji]]
-name = "does_not_force"
-glyph = "⊮"
-keywords = ["không bắt buộc", "does", "force", "not", "does not force"]
-
-[[emoji]]
-name = "precedes_under_relation"
-glyph = "⊰"
-keywords = ["đứng trước trong hệ thức", "toán học", "toán tử tập hợp", "mathematics", "operator", "precedes", "relation", "set", "under", "precedes under relation"]
-
-[[emoji]]
-name = "succeeds_under_relation"
-glyph = "⊱"
-keywords = ["đứng sau trong hệ thức", "toán học", "toán tử tập hợp", "mathematics", "operator", "relation", "set", "succeeds", "under", "succeeds under relation"]
-
-[[emoji]]
-name = "does_not_contain_as_normal_subgroup_equal"
-glyph = "⋭"
-keywords = ["không chứa như nhóm con bình thường bằng", "lý thuyết nhóm", "toán học", "as", "contain", "does", "equal", "group", "mathematics", "normal", "not", "subgroup", "theory", "does not contain as normal subgroup equal"]
-
-[[emoji]]
-name = "original"
-glyph = "⊶"
-keywords = ["gốc", "original"]
-
-[[emoji]]
-name = "hermitian_conjugate_matrix"
-glyph = "⊹"
-keywords = ["ma trận liên hợp hermitian", "ma trận tự liên hợp", "ma trận vuông", "toán học", "conjugate", "hermitian", "mathematics", "matrix", "self-adjoint", "square", "hermitian conjugate matrix"]
-
-[[emoji]]
-name = "right_triangle"
-glyph = "⊿"
-keywords = ["tam giác có góc vuông", "tam giác vuông", "toán học", "mathematics", "right", "right-angled", "triangle", "right triangle"]
-
-[[emoji]]
-name = "n_ary_logical_or"
-glyph = "⋁"
-keywords = ["logic", "logic hoặc đa phân", "tuyển", "disjunction", "logical", "n-ary", "or", "n-ary logical or"]
-
-[[emoji]]
-name = "n_ary_intersection"
-glyph = "⋂"
-keywords = ["giao", "giao đa phân", "toán học", "toán tử tập hợp", "intersection", "mathematics", "n-ary", "operator", "set", "n-ary intersection"]
-
-[[emoji]]
-name = "n_ary_union"
-glyph = "⋃"
-keywords = ["hợp", "hợp đa phân", "toán học", "toán tử tập hợp", "mathematics", "n-ary", "operator", "set", "union", "n-ary union"]
-
-[[emoji]]
-name = "dot_operator"
-glyph = "⋅"
-keywords = ["toán tử", "toán tử dấu chấm", "dot", "operator", "dot operator"]
-
-[[emoji]]
-name = "star_operator"
-glyph = "⋆"
-keywords = ["toán tử", "toán tử dấu sao", "operator", "star", "star operator"]
-
-[[emoji]]
-name = "natural_join"
-glyph = "⋈"
-keywords = ["hình nơ", "phép nối tự nhiên", "toán tử nhị phân", "binary", "bowtie", "join", "natural", "operator", "natural join"]
-
-[[emoji]]
-name = "double_intersection"
-glyph = "⋒"
-keywords = ["giao", "giao kép", "toán học", "toán tử tập hợp", "double", "intersection", "mathematics", "operator", "set", "double intersection"]
-
-[[emoji]]
-name = "very_much_less_than"
-glyph = "⋘"
-keywords = ["bất đẳng thức", "ít hơn rất nhiều", "toán học", "inequality", "less-than", "mathematics", "much", "very", "very much less-than"]
-
-[[emoji]]
-name = "very_much_greater_than"
-glyph = "⋙"
-keywords = ["bất đẳng thức", "lớn hơn rất nhiều", "toán học", "greater-than", "inequality", "mathematics", "much", "very", "very much greater-than"]
-
-[[emoji]]
-name = "vertical_ellipsis"
-glyph = "⋮"
-keywords = ["dấu ba chấm", "dấu ba chấm dọc", "toán học", "ellipsis", "mathematics", "vertical", "vertical ellipsis"]
-
-[[emoji]]
-name = "midline_horizontal_ellipsis"
-glyph = "⋯"
-keywords = ["dấu ba chấm", "dấu ba chấm ngang đường trung tuyến", "ellipsis", "horizontal", "midline", "midline horizontal ellipsis"]
-
-[[emoji]]
-name = "up_right_diagonal_ellipsis"
-glyph = "⋰"
-keywords = ["dấu ba chấm", "dấu ba chấm chéo phải trên", "toán học", "diagonal", "ellipsis", "mathematics", "right", "up", "up right diagonal ellipsis"]
-
-[[emoji]]
-name = "down_right_diagonal_ellipsis"
-glyph = "⋱"
-keywords = ["dấu ba chấm", "dấu ba chấm chéo phải xuống", "toán học", "diagonal", "down", "ellipsis", "mathematics", "right", "down right diagonal ellipsis"]
-
-[[emoji]]
-name = "filled_square"
-glyph = "■"
-keywords = ["hình vuông đặc", "filled", "square", "filled square"]
-
-[[emoji]]
-name = "hollow_square"
-glyph = "□"
-keywords = ["hình vuông rỗng", "hollow", "square", "hollow square"]
-
-[[emoji]]
-name = "hollow_square_with_rounded_corners"
-glyph = "▢"
-keywords = ["hình vuông rỗng có góc bo tròn", "corners", "hollow", "rounded", "square", "with", "hollow square with rounded corners"]
-
-[[emoji]]
-name = "hollow_square_containing_filled_square"
-glyph = "▣"
-keywords = ["hình vuông rỗng chứa hình vuông đặc", "containing", "filled", "hollow", "square", "hollow square containing filled square"]
-
-[[emoji]]
-name = "square_with_horizontal_fill"
-glyph = "▤"
-keywords = ["hình vuông có sọc ngang", "fill", "horizontal", "square", "with", "square with horizontal fill"]
-
-[[emoji]]
-name = "square_with_vertical_fill"
-glyph = "▥"
-keywords = ["hình vuông có sọc dọc", "fill", "square", "vertical", "with", "square with vertical fill"]
-
-[[emoji]]
-name = "square_orthogonal_crosshatch_fill"
-glyph = "▦"
-keywords = ["hình vuông có sọc ngang dọc thẳng góc", "crosshatch", "fill", "orthogonal", "square", "square orthogonal crosshatch fill"]
-
-[[emoji]]
-name = "square_upper_left_lower_right_fill"
-glyph = "▧"
-keywords = ["hình vuông có sọc chéo từ trái trên xuống phải dưới", "fill", "left", "lower", "right", "square", "upper", "square upper left lower right fill"]
-
-[[emoji]]
-name = "square_upper_right_lower_left_fill"
-glyph = "▨"
-keywords = ["hình vuông có sọc chéo từ phải trên xuống trái dưới", "fill", "left", "lower", "right", "square", "upper", "square upper right lower left fill"]
-
-[[emoji]]
-name = "square_diagonal_crosshatch_fill"
-glyph = "▩"
-keywords = ["hình vuông có sọc chéo song song", "crosshatch", "diagonal", "fill", "square", "square diagonal crosshatch fill"]
-
-[[emoji]]
-name = "filled_rectangle"
-glyph = "▬"
-keywords = ["hình chữ nhật đặc", "filled", "rectangle", "filled rectangle"]
-
-[[emoji]]
-name = "hollow_rectangle"
-glyph = "▭"
-keywords = ["hình chữ nhật rỗng", "hollow", "rectangle", "hollow rectangle"]
-
-[[emoji]]
-name = "filled_vertical_rectangle"
-glyph = "▮"
-keywords = ["hình chữ nhật dọc đặc", "filled", "rectangle", "vertical", "filled vertical rectangle"]
-
-[[emoji]]
-name = "filled_parallelogram"
-glyph = "▰"
-keywords = ["hình bình hành đặc", "filled", "parallelogram", "filled parallelogram"]
-
-[[emoji]]
-name = "filled_up_pointing_triangle"
-glyph = "▲"
-keywords = ["kín", "lên", "mũi tên", "tam giác", "tam giác hướng lên", "arrow", "filled", "triangle", "up", "up-pointing", "filled up-pointing triangle"]
-
-[[emoji]]
-name = "hollow_up_pointing_triangle"
-glyph = "△"
-keywords = ["hình tam giác rỗng hướng lên", "hollow", "triangle", "up-pointing", "hollow up-pointing triangle"]
-
-[[emoji]]
-name = "filled_up_pointing_small_triangle"
-glyph = "▴"
-keywords = ["hình tam giác nhỏ đặc hướng lên", "filled", "small", "triangle", "up-pointing", "filled up-pointing small triangle"]
-
-[[emoji]]
-name = "hollow_up_pointing_small_triangle"
-glyph = "▵"
-keywords = ["hình tam giác nhỏ rỗng hướng lên", "hollow", "small", "triangle", "up-pointing", "hollow up-pointing small triangle"]
-
-[[emoji]]
-name = "hollow_right_pointing_triangle"
-glyph = "▷"
-keywords = ["hình tam giác rỗng hướng sang phải", "hollow", "right-pointing", "triangle", "hollow right-pointing triangle"]
-
-[[emoji]]
-name = "filled_right_pointing_small_triangle"
-glyph = "▸"
-keywords = ["hình tam giác nhỏ đặc hướng sang phải", "filled", "right-pointing", "small", "triangle", "filled right-pointing small triangle"]
-
-[[emoji]]
-name = "hollow_right_pointing_small_triangle"
-glyph = "▹"
-keywords = ["hình tam giác nhỏ rỗng hướng sang phải", "hollow", "right-pointing", "small", "triangle", "hollow right-pointing small triangle"]
-
-[[emoji]]
-name = "filled_right_pointing_pointer"
-glyph = "►"
-keywords = ["con trỏ đặc hướng sang phải", "filled", "pointer", "right-pointing", "filled right-pointing pointer"]
-
-[[emoji]]
-name = "hollow_right_pointing_pointer"
-glyph = "▻"
-keywords = ["con trỏ rỗng hướng sang phải", "hollow", "pointer", "right-pointing", "hollow right-pointing pointer"]
-
-[[emoji]]
-name = "filled_down_pointing_triangle"
-glyph = "▼"
-keywords = ["kín", "mũi tên", "tam giác", "tam giác hướng xuống", "xuống", "arrow", "down", "down-pointing", "filled", "triangle", "filled down-pointing triangle"]
-
-[[emoji]]
-name = "hollow_down_pointing_triangle"
-glyph = "▽"
-keywords = ["hình tam giác rỗng hướng xuống", "down-pointing", "hollow", "triangle", "hollow down-pointing triangle"]
-
-[[emoji]]
-name = "filled_down_pointing_small_triangle"
-glyph = "▾"
-keywords = ["hình tam giác nhỏ đặc hướng xuống", "down-pointing", "filled", "small", "triangle", "filled down-pointing small triangle"]
-
-[[emoji]]
-name = "hollow_down_pointing_small_triangle"
-glyph = "▿"
-keywords = ["hình tam giác nhỏ rỗng hướng xuống", "down-pointing", "hollow", "small", "triangle", "hollow down-pointing small triangle"]
-
-[[emoji]]
-name = "hollow_left_pointing_triangle"
-glyph = "◁"
-keywords = ["hình tam giác rỗng hướng sang trái", "hollow", "left-pointing", "triangle", "hollow left-pointing triangle"]
-
-[[emoji]]
-name = "filled_left_pointing_small_triangle"
-glyph = "◂"
-keywords = ["hình tam giác nhỏ đặc hướng sang trái", "filled", "left-pointing", "small", "triangle", "filled left-pointing small triangle"]
-
-[[emoji]]
-name = "hollow_left_pointing_small_triangle"
-glyph = "◃"
-keywords = ["hình tam giác nhỏ rỗng hướng sang trái", "hollow", "left-pointing", "small", "triangle", "hollow left-pointing small triangle"]
-
-[[emoji]]
-name = "filled_left_pointing_pointer"
-glyph = "◄"
-keywords = ["con trỏ đặc hướng sang trái", "filled", "left-pointing", "pointer", "filled left-pointing pointer"]
-
-[[emoji]]
-name = "hollow_left_pointing_pointer"
-glyph = "◅"
-keywords = ["con trỏ rỗng hướng sang trái", "hollow", "left-pointing", "pointer", "hollow left-pointing pointer"]
-
-[[emoji]]
-name = "filled_diamond"
-glyph = "◆"
-keywords = ["hình kim cương đặc", "diamond", "filled", "filled diamond"]
-
-[[emoji]]
-name = "hollow_diamond"
-glyph = "◇"
-keywords = ["hình kim cương rỗng", "diamond", "hollow", "hollow diamond"]
-
-[[emoji]]
-name = "hollow_diamond_containing_filled_diamond"
-glyph = "◈"
-keywords = ["hình kim cương rỗng chứa hình kim cương đặc", "containing", "diamond", "filled", "hollow", "hollow diamond containing filled diamond"]
-
-[[emoji]]
-name = "hollow_circle_containing_filled_circle"
-glyph = "◉"
-keywords = ["dấu chấm trong vòng tròn", "hình tròn đồng tâm đặc", "hình tròn rỗng chứa hình tròn đặc", "mắt cá", "quận", "cicles", "circle", "circled", "concentric", "containing", "dot", "filled", "fisheye", "hollow"]
-
-[[emoji]]
-name = "lozenge"
-glyph = "◊"
-keywords = ["hình quả trám", "hình thoi", "kim cương", "diamond", "lozenge", "rhombus"]
-
-[[emoji]]
-name = "hollow_circle"
-glyph = "○"
-keywords = ["chấm rỗng", "hình tròn", "vòng tròn", "circle", "hollow", "ring", "hollow circle"]
-
-[[emoji]]
-name = "dotted_circle"
-glyph = "◌"
-keywords = ["hình tròn chấm chấm", "circle", "dotted", "dotted circle"]
-
-[[emoji]]
-name = "circle_with_vertical_fill"
-glyph = "◍"
-keywords = ["hình tròn có sọc dọc", "circle", "fill", "vertical", "with", "circle with vertical fill"]
-
-[[emoji]]
-name = "concentric_circles"
-glyph = "◎"
-keywords = ["đích", "hình tròn đồng tâm", "hình tròn kép", "circle", "circles", "concentric", "double", "target", "concentric circles"]
-
-[[emoji]]
-name = "filled_circle"
-glyph = "●"
-keywords = ["chấm tròn", "hình tròn", "circle", "filled", "filled circle"]
-
-[[emoji]]
-name = "circle_left_half_filled"
-glyph = "◐"
-keywords = ["hình tròn nửa trái đặc", "circle", "filled", "half", "left", "circle left half filled"]
-
-[[emoji]]
-name = "circle_right_half_filled"
-glyph = "◑"
-keywords = ["hình tròn nửa phải đặc", "circle", "filled", "half", "right", "circle right half filled"]
-
-[[emoji]]
-name = "circle_lower_half_filled"
-glyph = "◒"
-keywords = ["hình tròn nửa dưới đặc", "circle", "filled", "half", "lower", "circle lower half filled"]
-
-[[emoji]]
-name = "circle_upper_half_filled"
-glyph = "◓"
-keywords = ["hình tròn nửa trên đặc", "circle", "filled", "half", "upper", "circle upper half filled"]
-
-[[emoji]]
-name = "circle_upper_right_quadrant_filled"
-glyph = "◔"
-keywords = ["hình tròn góc phần tư phía trên bên phải đặc", "circle", "filled", "quadrant", "right", "upper", "circle upper right quadrant filled"]
-
-[[emoji]]
-name = "circle_all_but_upper_left_quadrant_filled"
-glyph = "◕"
-keywords = ["hình tròn góc phần tư phía trên bên trái rỗng", "all", "but", "circle", "filled", "left", "quadrant", "upper", "circle all but upper left quadrant filled"]
-
-[[emoji]]
-name = "left_half_filled_circle"
-glyph = "◖"
-keywords = ["nửa hình tròn bên trái đặc", "circle", "filled", "half", "left", "left half filled circle"]
-
-[[emoji]]
-name = "right_half_filled_circle"
-glyph = "◗"
-keywords = ["nửa hình tròn bên phải đặc", "circle", "filled", "half", "right", "right half filled circle"]
-
-[[emoji]]
-name = "inverse_bullet"
-glyph = "◘"
-keywords = ["dấu đầu dòng ngược", "bullet", "inverse", "inverse bullet"]
-
-[[emoji]]
-name = "filled_square_containing_hollow_circle"
-glyph = "◙"
-keywords = ["hình tròn rỗng ngược", "hình vuông đặc chứa hình tròn rỗng", "circle", "containing", "filled", "hollow", "inverse", "square", "filled square containing hollow circle"]
-
-[[emoji]]
-name = "upper_left_quadrant_circular_arc"
-glyph = "◜"
-keywords = ["cung tròn góc phần tư phía trên bên trái", "arc", "circular", "left", "quadrant", "upper", "upper left quadrant circular arc"]
-
-[[emoji]]
-name = "upper_right_quadrant_circular_arc"
-glyph = "◝"
-keywords = ["cung tròn góc phần tư phía trên bên phải", "arc", "circular", "quadrant", "right", "upper", "upper right quadrant circular arc"]
-
-[[emoji]]
-name = "lower_right_quadrant_circular_arc"
-glyph = "◞"
-keywords = ["cung tròn góc phần tư phía dưới bên phải", "arc", "circular", "lower", "quadrant", "right", "lower right quadrant circular arc"]
-
-[[emoji]]
-name = "lower_left_quadrant_circular_arc"
-glyph = "◟"
-keywords = ["cung tròn góc phần tư phía dưới bên trái", "arc", "circular", "left", "lower", "quadrant", "lower left quadrant circular arc"]
-
-[[emoji]]
-name = "upper_half_circle"
-glyph = "◠"
-keywords = ["nửa hình tròn trên", "circle", "half", "upper", "upper half circle"]
-
-[[emoji]]
-name = "lower_half_circle"
-glyph = "◡"
-keywords = ["nửa hình tròn dưới", "circle", "half", "lower", "lower half circle"]
-
-[[emoji]]
-name = "filled_lower_right_triangle"
-glyph = "◢"
-keywords = ["hình tam giác phía dưới bên phải đặc", "filled", "lower", "right", "triangle", "filled lower right triangle"]
-
-[[emoji]]
-name = "filled_lower_left_triangle"
-glyph = "◣"
-keywords = ["hình tam giác phía dưới bên trái đặc", "filled", "left", "lower", "triangle", "filled lower left triangle"]
-
-[[emoji]]
-name = "filled_upper_left_triangle"
-glyph = "◤"
-keywords = ["hình tam giác phía trên bên trái đặc", "filled", "left", "triangle", "upper", "filled upper left triangle"]
-
-[[emoji]]
-name = "filled_upper_right_triangle"
-glyph = "◥"
-keywords = ["hình tam giác phía trên bên phải đặc", "filled", "right", "triangle", "upper", "filled upper right triangle"]
-
-[[emoji]]
-name = "hollow_bullet"
-glyph = "◦"
-keywords = ["dấu đầu dòng rỗng", "bullet", "hollow", "hollow bullet"]
-
-[[emoji]]
-name = "large_hollow_circle"
-glyph = "◯"
-keywords = ["chấm rỗng lớn", "hình tròn", "vòng tròn", "circle", "hollow", "large", "ring", "large hollow circle"]
-
-[[emoji]]
-name = "hollow_square_upper_right_quadrant"
-glyph = "◳"
-keywords = ["hình vuông rỗng góc phần tư phía trên bên phải", "hollow", "quadrant", "right", "square", "upper", "hollow square upper right quadrant"]
-
-[[emoji]]
-name = "hollow_circle_with_upper_right_quadrant"
-glyph = "◷"
-keywords = ["hình tròn rỗng với góc phần tư phía trên bên phải", "circle", "hollow", "quadrant", "right", "upper", "with", "hollow circle with upper right quadrant"]
-
-[[emoji]]
-name = "lower_right_triangle"
-glyph = "◿"
-keywords = ["hình tam giác dưới bên phải", "lower", "right", "triangle", "lower right triangle"]
-
-[[emoji]]
-name = "eighth_note"
-glyph = "♪"
-keywords = ["âm nhạc", "móc đơn", "nốt", "nốt móc đơn", "phần tám", "eighth", "music", "note", "eighth note"]
-
-[[emoji]]
-name = "plus_subscript_two"
-glyph = "⨧"
-keywords = ["dấu cộng với chỉ số dưới hai", "plus", "subscript", "two", "plus subscript two"]
-
-[[emoji]]
-name = "vector_cross_product"
-glyph = "⨯"
-keywords = ["tích vectơ hữu hướng", "cross", "product", "vector", "vector cross product"]
-
-[[emoji]]
-name = "interior_product"
-glyph = "⨼"
-keywords = ["tích tự đẳng cấu trong", "interior", "product", "interior product"]
-
-[[emoji]]
-name = "logical_or_double_underbar"
-glyph = "⩣"
-keywords = ["logic hoặc gạch dưới kép", "double", "logical", "or", "underbar", "logical or double underbar"]
-
-[[emoji]]
-name = "less_than_slanted_equal"
-glyph = "⩽"
-keywords = ["nhỏ hơn hoặc nghiêng bằng", "equal", "less-than", "slanted", "less-than slanted equal"]
-
-[[emoji]]
-name = "less_than_above_similar_equal"
-glyph = "⪍"
-keywords = ["nhỏ hơn hoặc đồng dạng bằng", "above", "equal", "less-than", "similar", "less-than above similar equal"]
-
-[[emoji]]
-name = "double_line_equal_greater_than"
-glyph = "⪚"
-keywords = ["bất đẳng thức", "dấu bằng kép hoặc lớn hơn", "toán học", "double-line", "equal", "greater-than", "inequality", "mathematics", "double-line equal greater-than"]
-
-[[emoji]]
-name = "succeeds_above_not_almost_equal"
-glyph = "⪺"
-keywords = ["đứng sau hoặc gần như không bằng", "above", "almost", "equal", "not", "succeeds", "succeeds above not almost equal"]
-
-[[emoji]]
-name = "flat"
-glyph = "♭"
-keywords = ["âm nhạc", "giáng", "nốt", "nốt giáng", "bemolle", "flat", "music", "note"]
-
-[[emoji]]
-name = "sharp"
-glyph = "♯"
-keywords = ["âm nhạc", "cao", "nốt", "thăng", "nốt thăng", "dièse", "diesis", "music", "note", "sharp"]
-
+# tools/gen_emoji.py from the CLDR annotations (vi + en), then curated:
+# the non-emoji rows dropped and the flag rows appended from the CLDR
+# derived annotations; edit ~/.config/ibus-mangrs/emoji.toml to add or
+# override entries.
 [[emoji]]
 name = "grinning_face"
 glyph = "😀"
@@ -8673,11 +7099,6 @@ glyph = "↔"
 keywords = ["mũi tên", "mũi tên hai chiều", "mũi tên hai hướng", "mũi tên trái phải", "arrow", "left-right", "left-right arrow"]
 
 [[emoji]]
-name = "left_right_arrow_stroke"
-glyph = "↮"
-keywords = ["mũi tên trái phải có dấu gạch chéo", "arrow", "left", "right", "stroke", "left right arrow stroke"]
-
-[[emoji]]
 name = "right_arrow_curving_left"
 glyph = "↩"
 keywords = ["mũi tên", "mũi tên phải cong sang trái", "arrow", "curving", "left", "right", "right arrow curving left"]
@@ -9595,91 +8016,6 @@ glyph = "🏴‍☠"
 keywords = ["cờ cướp biển", "cướp biển", "cướp bóc", "hải tặc", "jolly roger", "kho báu", "flag", "jolly", "pirate", "plunder", "roger", "treasure", "pirate flag"]
 
 [[emoji]]
-name = "cent"
-glyph = "¢"
-keywords = ["cent", "xu"]
-
-[[emoji]]
-name = "pound"
-glyph = "£"
-keywords = ["bảng anh", "egp", "gbp", "tiền tệ", "currency", "pound"]
-
-[[emoji]]
-name = "yen"
-glyph = "¥"
-keywords = ["cny", "jpy", "nhân dân tệ", "tiền tệ", "yên nhật", "currency", "yen", "yuan"]
-
-[[emoji]]
-name = "cruzeiro"
-glyph = "₢"
-keywords = ["brb", "cruzeiro", "tiền tệ", "currency"]
-
-[[emoji]]
-name = "french_franc"
-glyph = "₣"
-keywords = ["đồng franc", "đồng franc pháp", "tiền tệ", "currency", "franc", "french", "french franc"]
-
-[[emoji]]
-name = "lira"
-glyph = "₤"
-keywords = ["lira", "tiền tệ", "currency"]
-
-[[emoji]]
-name = "mill"
-glyph = "₥"
-keywords = ["mil", "mill"]
-
-[[emoji]]
-name = "won"
-glyph = "₩"
-keywords = ["kpw", "krw", "won"]
-
-[[emoji]]
-name = "euro"
-glyph = "€"
-keywords = ["eur", "euro", "tiền tệ", "currency"]
-
-[[emoji]]
-name = "german_penny"
-glyph = "₰"
-keywords = ["pfennig", "tiền tệ", "xu đức", "currency", "german", "penny", "german penny"]
-
-[[emoji]]
-name = "peso"
-glyph = "₱"
-keywords = ["peso"]
-
-[[emoji]]
-name = "austral"
-glyph = "₳"
-keywords = ["ara", "austral", "tiền tệ", "currency"]
-
-[[emoji]]
-name = "livre_tournois"
-glyph = "₶"
-keywords = ["đồng livre", "tiền tệ", "currency", "livre", "tournois", "livre tournois"]
-
-[[emoji]]
-name = "spesmilo"
-glyph = "₷"
-keywords = ["đồng spesmilo", "tiền tệ", "currency", "spesmilo"]
-
-[[emoji]]
-name = "indian_rupee"
-glyph = "₹"
-keywords = ["rupee", "rupee ấn độ", "tiền tệ", "currency", "indian", "indian rupee"]
-
-[[emoji]]
-name = "ruble"
-glyph = "₽"
-keywords = ["rúp", "tiền tệ", "currency", "ruble"]
-
-[[emoji]]
-name = "bitcoin"
-glyph = "₿"
-keywords = ["bitcoin", "btc"]
-
-[[emoji]]
 name = "keycap_0"
 glyph = "0⃣"
 keywords = ["0", "không", "mũ phím", "mũ phím: 0", "keycap", "zero", "keycap: 0"]
@@ -9730,31 +8066,1554 @@ glyph = "9⃣"
 keywords = ["9", "chín", "mũ phím", "mũ phím: 9", "keycap", "nine", "keycap: 9"]
 
 [[emoji]]
-name = "superscript_one"
-glyph = "¹"
-keywords = ["một", "mũ", "mũ một", "one", "superscript", "superscript one"]
+name = "flag_vietnam"
+glyph = "🇻🇳"
+aliases = ["vn"]
+keywords = ["cờ", "việt nam", "flag", "vietnam", "quốc kỳ"]
 
 [[emoji]]
-name = "superscript_two"
-glyph = "²"
-keywords = ["bình phương", "hai", "mũ hai", "số mũ", "squared", "superscript", "two", "superscript two"]
+name = "flag_ascension_island"
+glyph = "🇦🇨"
+aliases = ["ac"]
+keywords = ["cờ", "đảo ascension", "flag", "ascension island", "quốc kỳ"]
 
 [[emoji]]
-name = "superscript_three"
-glyph = "³"
-keywords = ["ba", "lũy thừa ba", "mũ ba", "số mũ", "cubed", "superscript", "three", "superscript three"]
+name = "flag_andorra"
+glyph = "🇦🇩"
+aliases = ["ad"]
+keywords = ["cờ", "andorra", "flag", "quốc kỳ"]
 
 [[emoji]]
-name = "rupee"
-glyph = "₨"
-keywords = ["rupee", "tiền tệ", "currency"]
+name = "flag_united_arab_emirates"
+glyph = "🇦🇪"
+aliases = ["ae"]
+keywords = ["cờ", "các tiểu vương quốc ả rập thống nhất", "flag", "united arab emirates", "quốc kỳ"]
 
 [[emoji]]
-name = "micro_sign"
-glyph = "µ"
-keywords = ["đo lường", "ký hiệu micro", "measure", "micro", "sign", "micro sign"]
+name = "flag_afghanistan"
+glyph = "🇦🇫"
+aliases = ["af"]
+keywords = ["cờ", "afghanistan", "flag", "quốc kỳ"]
 
 [[emoji]]
-name = "rial"
-glyph = "﷼"
-keywords = ["rial", "tiền tệ", "currency"]
+name = "flag_antigua_barbuda"
+glyph = "🇦🇬"
+aliases = ["ag"]
+keywords = ["cờ", "antigua và barbuda", "flag", "antigua & barbuda", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_anguilla"
+glyph = "🇦🇮"
+aliases = ["ai"]
+keywords = ["cờ", "anguilla", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_albania"
+glyph = "🇦🇱"
+aliases = ["al"]
+keywords = ["cờ", "albania", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_armenia"
+glyph = "🇦🇲"
+aliases = ["am"]
+keywords = ["cờ", "armenia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_angola"
+glyph = "🇦🇴"
+aliases = ["ao"]
+keywords = ["cờ", "angola", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_antarctica"
+glyph = "🇦🇶"
+aliases = ["aq"]
+keywords = ["cờ", "nam cực", "flag", "antarctica", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_argentina"
+glyph = "🇦🇷"
+aliases = ["ar"]
+keywords = ["cờ", "argentina", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_american_samoa"
+glyph = "🇦🇸"
+aliases = ["as"]
+keywords = ["cờ", "samoa thuộc mỹ", "flag", "american samoa", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_austria"
+glyph = "🇦🇹"
+aliases = ["at"]
+keywords = ["cờ", "áo", "flag", "austria", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_australia"
+glyph = "🇦🇺"
+aliases = ["au"]
+keywords = ["cờ", "úc", "flag", "australia", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_aruba"
+glyph = "🇦🇼"
+aliases = ["aw"]
+keywords = ["cờ", "aruba", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_land_islands"
+glyph = "🇦🇽"
+aliases = ["ax"]
+keywords = ["cờ", "quần đảo åland", "flag", "åland islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_azerbaijan"
+glyph = "🇦🇿"
+aliases = ["az"]
+keywords = ["cờ", "azerbaijan", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_bosnia_herzegovina"
+glyph = "🇧🇦"
+aliases = ["ba"]
+keywords = ["cờ", "bosnia và herzegovina", "flag", "bosnia & herzegovina", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_barbados"
+glyph = "🇧🇧"
+aliases = ["bb"]
+keywords = ["cờ", "barbados", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_bangladesh"
+glyph = "🇧🇩"
+aliases = ["bd"]
+keywords = ["cờ", "bangladesh", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_belgium"
+glyph = "🇧🇪"
+aliases = ["be"]
+keywords = ["cờ", "bỉ", "flag", "belgium", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_burkina_faso"
+glyph = "🇧🇫"
+aliases = ["bf"]
+keywords = ["cờ", "burkina faso", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_bulgaria"
+glyph = "🇧🇬"
+aliases = ["bg"]
+keywords = ["cờ", "bulgaria", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_bahrain"
+glyph = "🇧🇭"
+aliases = ["bh"]
+keywords = ["cờ", "bahrain", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_burundi"
+glyph = "🇧🇮"
+aliases = ["bi"]
+keywords = ["cờ", "burundi", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_benin"
+glyph = "🇧🇯"
+aliases = ["bj"]
+keywords = ["cờ", "benin", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_st_barth_lemy"
+glyph = "🇧🇱"
+aliases = ["bl"]
+keywords = ["cờ", "st. barthélemy", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_bermuda"
+glyph = "🇧🇲"
+aliases = ["bm"]
+keywords = ["cờ", "bermuda", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_brunei"
+glyph = "🇧🇳"
+aliases = ["bn"]
+keywords = ["cờ", "brunei", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_bolivia"
+glyph = "🇧🇴"
+aliases = ["bo"]
+keywords = ["cờ", "bolivia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_caribbean_netherlands"
+glyph = "🇧🇶"
+aliases = ["bq"]
+keywords = ["cờ", "ca-ri-bê hà lan", "flag", "caribbean netherlands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_brazil"
+glyph = "🇧🇷"
+aliases = ["br"]
+keywords = ["cờ", "brazil", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_bahamas"
+glyph = "🇧🇸"
+aliases = ["bs"]
+keywords = ["cờ", "bahamas", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_bhutan"
+glyph = "🇧🇹"
+aliases = ["bt"]
+keywords = ["cờ", "bhutan", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_bouvet_island"
+glyph = "🇧🇻"
+aliases = ["bv"]
+keywords = ["cờ", "đảo bouvet", "flag", "bouvet island", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_botswana"
+glyph = "🇧🇼"
+aliases = ["bw"]
+keywords = ["cờ", "botswana", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_belarus"
+glyph = "🇧🇾"
+aliases = ["by"]
+keywords = ["cờ", "belarus", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_belize"
+glyph = "🇧🇿"
+aliases = ["bz"]
+keywords = ["cờ", "belize", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_canada"
+glyph = "🇨🇦"
+aliases = ["ca"]
+keywords = ["cờ", "canada", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_cocos_keeling_islands"
+glyph = "🇨🇨"
+aliases = ["cc"]
+keywords = ["cờ", "quần đảo cocos (keeling)", "flag", "cocos (keeling) islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_congo_kinshasa"
+glyph = "🇨🇩"
+aliases = ["cd"]
+keywords = ["cờ", "congo - kinshasa", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_central_african_republic"
+glyph = "🇨🇫"
+aliases = ["cf"]
+keywords = ["cờ", "cộng hòa trung phi", "flag", "central african republic", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_congo_brazzaville"
+glyph = "🇨🇬"
+aliases = ["cg"]
+keywords = ["cờ", "congo - brazzaville", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_switzerland"
+glyph = "🇨🇭"
+aliases = ["ch"]
+keywords = ["cờ", "thụy sĩ", "flag", "switzerland", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_c_te_d_ivoire"
+glyph = "🇨🇮"
+aliases = ["ci"]
+keywords = ["cờ", "côte d’ivoire", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_cook_islands"
+glyph = "🇨🇰"
+aliases = ["ck"]
+keywords = ["cờ", "quần đảo cook", "flag", "cook islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_chile"
+glyph = "🇨🇱"
+aliases = ["cl"]
+keywords = ["cờ", "chile", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_cameroon"
+glyph = "🇨🇲"
+aliases = ["cm"]
+keywords = ["cờ", "cameroon", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_china"
+glyph = "🇨🇳"
+aliases = ["cn"]
+keywords = ["cờ", "trung quốc", "flag", "china", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_colombia"
+glyph = "🇨🇴"
+aliases = ["co"]
+keywords = ["cờ", "colombia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_clipperton_island"
+glyph = "🇨🇵"
+aliases = ["cp"]
+keywords = ["cờ", "đảo clipperton", "flag", "clipperton island", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_sark"
+glyph = "🇨🇶"
+aliases = ["cq"]
+keywords = ["cờ", "sark", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_costa_rica"
+glyph = "🇨🇷"
+aliases = ["cr"]
+keywords = ["cờ", "costa rica", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_cuba"
+glyph = "🇨🇺"
+aliases = ["cu"]
+keywords = ["cờ", "cuba", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_cape_verde"
+glyph = "🇨🇻"
+aliases = ["cv"]
+keywords = ["cờ", "cape verde", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_cura_ao"
+glyph = "🇨🇼"
+aliases = ["cw"]
+keywords = ["cờ", "curaçao", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_christmas_island"
+glyph = "🇨🇽"
+aliases = ["cx"]
+keywords = ["cờ", "đảo giáng sinh", "flag", "christmas island", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_cyprus"
+glyph = "🇨🇾"
+aliases = ["cy"]
+keywords = ["cờ", "síp", "flag", "cyprus", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_czechia"
+glyph = "🇨🇿"
+aliases = ["cz"]
+keywords = ["cờ", "séc", "flag", "czechia", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_germany"
+glyph = "🇩🇪"
+aliases = ["de"]
+keywords = ["cờ", "đức", "flag", "germany", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_diego_garcia"
+glyph = "🇩🇬"
+aliases = ["dg"]
+keywords = ["cờ", "diego garcia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_djibouti"
+glyph = "🇩🇯"
+aliases = ["dj"]
+keywords = ["cờ", "djibouti", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_denmark"
+glyph = "🇩🇰"
+aliases = ["dk"]
+keywords = ["cờ", "đan mạch", "flag", "denmark", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_dominica"
+glyph = "🇩🇲"
+aliases = ["dm"]
+keywords = ["cờ", "dominica", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_dominican_republic"
+glyph = "🇩🇴"
+aliases = ["do"]
+keywords = ["cờ", "cộng hòa dominica", "flag", "dominican republic", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_algeria"
+glyph = "🇩🇿"
+aliases = ["dz"]
+keywords = ["cờ", "algeria", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_ceuta_melilla"
+glyph = "🇪🇦"
+aliases = ["ea"]
+keywords = ["cờ", "ceuta và melilla", "flag", "ceuta & melilla", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_ecuador"
+glyph = "🇪🇨"
+aliases = ["ec"]
+keywords = ["cờ", "ecuador", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_estonia"
+glyph = "🇪🇪"
+aliases = ["ee"]
+keywords = ["cờ", "estonia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_egypt"
+glyph = "🇪🇬"
+aliases = ["eg"]
+keywords = ["cờ", "ai cập", "flag", "egypt", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_western_sahara"
+glyph = "🇪🇭"
+aliases = ["eh"]
+keywords = ["cờ", "tây sahara", "flag", "western sahara", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_eritrea"
+glyph = "🇪🇷"
+aliases = ["er"]
+keywords = ["cờ", "eritrea", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_spain"
+glyph = "🇪🇸"
+aliases = ["es"]
+keywords = ["cờ", "tây ban nha", "flag", "spain", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_ethiopia"
+glyph = "🇪🇹"
+aliases = ["et"]
+keywords = ["cờ", "ethiopia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_european_union"
+glyph = "🇪🇺"
+aliases = ["eu"]
+keywords = ["cờ", "liên minh châu âu", "flag", "european union", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_finland"
+glyph = "🇫🇮"
+aliases = ["fi"]
+keywords = ["cờ", "phần lan", "flag", "finland", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_fiji"
+glyph = "🇫🇯"
+aliases = ["fj"]
+keywords = ["cờ", "fiji", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_falkland_islands"
+glyph = "🇫🇰"
+aliases = ["fk"]
+keywords = ["cờ", "quần đảo falkland", "flag", "falkland islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_micronesia"
+glyph = "🇫🇲"
+aliases = ["fm"]
+keywords = ["cờ", "micronesia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_faroe_islands"
+glyph = "🇫🇴"
+aliases = ["fo"]
+keywords = ["cờ", "quần đảo faroe", "flag", "faroe islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_france"
+glyph = "🇫🇷"
+aliases = ["fr"]
+keywords = ["cờ", "pháp", "flag", "france", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_gabon"
+glyph = "🇬🇦"
+aliases = ["ga"]
+keywords = ["cờ", "gabon", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_united_kingdom"
+glyph = "🇬🇧"
+aliases = ["gb"]
+keywords = ["cờ", "vương quốc anh", "flag", "united kingdom", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_grenada"
+glyph = "🇬🇩"
+aliases = ["gd"]
+keywords = ["cờ", "grenada", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_georgia"
+glyph = "🇬🇪"
+aliases = ["ge"]
+keywords = ["cờ", "georgia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_french_guiana"
+glyph = "🇬🇫"
+aliases = ["gf"]
+keywords = ["cờ", "guiana thuộc pháp", "flag", "french guiana", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_guernsey"
+glyph = "🇬🇬"
+aliases = ["gg"]
+keywords = ["cờ", "guernsey", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_ghana"
+glyph = "🇬🇭"
+aliases = ["gh"]
+keywords = ["cờ", "ghana", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_gibraltar"
+glyph = "🇬🇮"
+aliases = ["gi"]
+keywords = ["cờ", "gibraltar", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_greenland"
+glyph = "🇬🇱"
+aliases = ["gl"]
+keywords = ["cờ", "greenland", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_gambia"
+glyph = "🇬🇲"
+aliases = ["gm"]
+keywords = ["cờ", "gambia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_guinea"
+glyph = "🇬🇳"
+aliases = ["gn"]
+keywords = ["cờ", "guinea", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_guadeloupe"
+glyph = "🇬🇵"
+aliases = ["gp"]
+keywords = ["cờ", "guadeloupe", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_equatorial_guinea"
+glyph = "🇬🇶"
+aliases = ["gq"]
+keywords = ["cờ", "guinea xích đạo", "flag", "equatorial guinea", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_greece"
+glyph = "🇬🇷"
+aliases = ["gr"]
+keywords = ["cờ", "hy lạp", "flag", "greece", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_south_georgia_south_sandwich_islands"
+glyph = "🇬🇸"
+aliases = ["gs"]
+keywords = ["cờ", "nam georgia & quần đảo nam sandwich", "flag", "south georgia & south sandwich islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_guatemala"
+glyph = "🇬🇹"
+aliases = ["gt"]
+keywords = ["cờ", "guatemala", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_guam"
+glyph = "🇬🇺"
+aliases = ["gu"]
+keywords = ["cờ", "guam", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_guinea_bissau"
+glyph = "🇬🇼"
+aliases = ["gw"]
+keywords = ["cờ", "guinea-bissau", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_guyana"
+glyph = "🇬🇾"
+aliases = ["gy"]
+keywords = ["cờ", "guyana", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_hong_kong_sar_china"
+glyph = "🇭🇰"
+aliases = ["hk"]
+keywords = ["cờ", "đặc khu hành chính hồng kông, trung quốc", "flag", "hong kong sar china", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_heard_island_mcdonald_islands"
+glyph = "🇭🇲"
+aliases = ["hm"]
+keywords = ["cờ", "quần đảo heard và mcdonald", "flag", "heard island & mcdonald islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_honduras"
+glyph = "🇭🇳"
+aliases = ["hn"]
+keywords = ["cờ", "honduras", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_croatia"
+glyph = "🇭🇷"
+aliases = ["hr"]
+keywords = ["cờ", "croatia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_haiti"
+glyph = "🇭🇹"
+aliases = ["ht"]
+keywords = ["cờ", "haiti", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_hungary"
+glyph = "🇭🇺"
+aliases = ["hu"]
+keywords = ["cờ", "hungary", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_canary_islands"
+glyph = "🇮🇨"
+aliases = ["ic"]
+keywords = ["cờ", "quần đảo canary", "flag", "canary islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_indonesia"
+glyph = "🇮🇩"
+aliases = ["id"]
+keywords = ["cờ", "indonesia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_ireland"
+glyph = "🇮🇪"
+aliases = ["ie"]
+keywords = ["cờ", "ireland", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_israel"
+glyph = "🇮🇱"
+aliases = ["il"]
+keywords = ["cờ", "israel", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_isle_of_man"
+glyph = "🇮🇲"
+aliases = ["im"]
+keywords = ["cờ", "đảo man", "flag", "isle of man", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_india"
+glyph = "🇮🇳"
+aliases = ["in"]
+keywords = ["cờ", "ấn độ", "flag", "india", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_british_indian_ocean_territory"
+glyph = "🇮🇴"
+aliases = ["io"]
+keywords = ["cờ", "lãnh thổ ấn độ dương thuộc anh", "flag", "british indian ocean territory", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_iraq"
+glyph = "🇮🇶"
+aliases = ["iq"]
+keywords = ["cờ", "iraq", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_iran"
+glyph = "🇮🇷"
+aliases = ["ir"]
+keywords = ["cờ", "iran", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_iceland"
+glyph = "🇮🇸"
+aliases = ["is"]
+keywords = ["cờ", "iceland", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_italy"
+glyph = "🇮🇹"
+aliases = ["it"]
+keywords = ["cờ", "italy", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_jersey"
+glyph = "🇯🇪"
+aliases = ["je"]
+keywords = ["cờ", "jersey", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_jamaica"
+glyph = "🇯🇲"
+aliases = ["jm"]
+keywords = ["cờ", "jamaica", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_jordan"
+glyph = "🇯🇴"
+aliases = ["jo"]
+keywords = ["cờ", "jordan", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_japan"
+glyph = "🇯🇵"
+aliases = ["jp"]
+keywords = ["cờ", "nhật bản", "flag", "japan", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_kenya"
+glyph = "🇰🇪"
+aliases = ["ke"]
+keywords = ["cờ", "kenya", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_kyrgyzstan"
+glyph = "🇰🇬"
+aliases = ["kg"]
+keywords = ["cờ", "kyrgyzstan", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_cambodia"
+glyph = "🇰🇭"
+aliases = ["kh"]
+keywords = ["cờ", "campuchia", "flag", "cambodia", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_kiribati"
+glyph = "🇰🇮"
+aliases = ["ki"]
+keywords = ["cờ", "kiribati", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_comoros"
+glyph = "🇰🇲"
+aliases = ["km"]
+keywords = ["cờ", "comoros", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_st_kitts_nevis"
+glyph = "🇰🇳"
+aliases = ["kn"]
+keywords = ["cờ", "st. kitts và nevis", "flag", "st. kitts & nevis", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_north_korea"
+glyph = "🇰🇵"
+aliases = ["kp"]
+keywords = ["cờ", "triều tiên", "flag", "north korea", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_south_korea"
+glyph = "🇰🇷"
+aliases = ["kr"]
+keywords = ["cờ", "hàn quốc", "flag", "south korea", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_kuwait"
+glyph = "🇰🇼"
+aliases = ["kw"]
+keywords = ["cờ", "kuwait", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_cayman_islands"
+glyph = "🇰🇾"
+aliases = ["ky"]
+keywords = ["cờ", "quần đảo cayman", "flag", "cayman islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_kazakhstan"
+glyph = "🇰🇿"
+aliases = ["kz"]
+keywords = ["cờ", "kazakhstan", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_laos"
+glyph = "🇱🇦"
+aliases = ["la"]
+keywords = ["cờ", "lào", "flag", "laos", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_lebanon"
+glyph = "🇱🇧"
+aliases = ["lb"]
+keywords = ["cờ", "li-băng", "flag", "lebanon", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_st_lucia"
+glyph = "🇱🇨"
+aliases = ["lc"]
+keywords = ["cờ", "st. lucia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_liechtenstein"
+glyph = "🇱🇮"
+aliases = ["li"]
+keywords = ["cờ", "liechtenstein", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_sri_lanka"
+glyph = "🇱🇰"
+aliases = ["lk"]
+keywords = ["cờ", "sri lanka", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_liberia"
+glyph = "🇱🇷"
+aliases = ["lr"]
+keywords = ["cờ", "liberia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_lesotho"
+glyph = "🇱🇸"
+aliases = ["ls"]
+keywords = ["cờ", "lesotho", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_lithuania"
+glyph = "🇱🇹"
+aliases = ["lt"]
+keywords = ["cờ", "litva", "flag", "lithuania", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_luxembourg"
+glyph = "🇱🇺"
+aliases = ["lu"]
+keywords = ["cờ", "luxembourg", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_latvia"
+glyph = "🇱🇻"
+aliases = ["lv"]
+keywords = ["cờ", "latvia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_libya"
+glyph = "🇱🇾"
+aliases = ["ly"]
+keywords = ["cờ", "libya", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_morocco"
+glyph = "🇲🇦"
+aliases = ["ma"]
+keywords = ["cờ", "ma-rốc", "flag", "morocco", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_monaco"
+glyph = "🇲🇨"
+aliases = ["mc"]
+keywords = ["cờ", "monaco", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_moldova"
+glyph = "🇲🇩"
+aliases = ["md"]
+keywords = ["cờ", "moldova", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_montenegro"
+glyph = "🇲🇪"
+aliases = ["me"]
+keywords = ["cờ", "montenegro", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_st_martin"
+glyph = "🇲🇫"
+aliases = ["mf"]
+keywords = ["cờ", "st. martin", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_madagascar"
+glyph = "🇲🇬"
+aliases = ["mg"]
+keywords = ["cờ", "madagascar", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_marshall_islands"
+glyph = "🇲🇭"
+aliases = ["mh"]
+keywords = ["cờ", "quần đảo marshall", "flag", "marshall islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_north_macedonia"
+glyph = "🇲🇰"
+aliases = ["mk"]
+keywords = ["cờ", "bắc macedonia", "flag", "north macedonia", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_mali"
+glyph = "🇲🇱"
+aliases = ["ml"]
+keywords = ["cờ", "mali", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_myanmar_burma"
+glyph = "🇲🇲"
+aliases = ["mm"]
+keywords = ["cờ", "myanmar (miến điện)", "flag", "myanmar (burma)", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_mongolia"
+glyph = "🇲🇳"
+aliases = ["mn"]
+keywords = ["cờ", "mông cổ", "flag", "mongolia", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_macao_sar_china"
+glyph = "🇲🇴"
+aliases = ["mo"]
+keywords = ["cờ", "đặc khu hành chính macao, trung quốc", "flag", "macao sar china", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_northern_mariana_islands"
+glyph = "🇲🇵"
+aliases = ["mp"]
+keywords = ["cờ", "quần đảo bắc mariana", "flag", "northern mariana islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_martinique"
+glyph = "🇲🇶"
+aliases = ["mq"]
+keywords = ["cờ", "martinique", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_mauritania"
+glyph = "🇲🇷"
+aliases = ["mr"]
+keywords = ["cờ", "mauritania", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_montserrat"
+glyph = "🇲🇸"
+aliases = ["ms"]
+keywords = ["cờ", "montserrat", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_malta"
+glyph = "🇲🇹"
+aliases = ["mt"]
+keywords = ["cờ", "malta", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_mauritius"
+glyph = "🇲🇺"
+aliases = ["mu"]
+keywords = ["cờ", "mauritius", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_maldives"
+glyph = "🇲🇻"
+aliases = ["mv"]
+keywords = ["cờ", "maldives", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_malawi"
+glyph = "🇲🇼"
+aliases = ["mw"]
+keywords = ["cờ", "malawi", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_mexico"
+glyph = "🇲🇽"
+aliases = ["mx"]
+keywords = ["cờ", "mexico", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_malaysia"
+glyph = "🇲🇾"
+aliases = ["my"]
+keywords = ["cờ", "malaysia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_mozambique"
+glyph = "🇲🇿"
+aliases = ["mz"]
+keywords = ["cờ", "mozambique", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_namibia"
+glyph = "🇳🇦"
+aliases = ["na"]
+keywords = ["cờ", "namibia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_new_caledonia"
+glyph = "🇳🇨"
+aliases = ["nc"]
+keywords = ["cờ", "new caledonia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_niger"
+glyph = "🇳🇪"
+aliases = ["ne"]
+keywords = ["cờ", "niger", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_norfolk_island"
+glyph = "🇳🇫"
+aliases = ["nf"]
+keywords = ["cờ", "đảo norfolk", "flag", "norfolk island", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_nigeria"
+glyph = "🇳🇬"
+aliases = ["ng"]
+keywords = ["cờ", "nigeria", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_nicaragua"
+glyph = "🇳🇮"
+aliases = ["ni"]
+keywords = ["cờ", "nicaragua", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_netherlands"
+glyph = "🇳🇱"
+aliases = ["nl"]
+keywords = ["cờ", "hà lan", "flag", "netherlands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_norway"
+glyph = "🇳🇴"
+aliases = ["no"]
+keywords = ["cờ", "na uy", "flag", "norway", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_nepal"
+glyph = "🇳🇵"
+aliases = ["np"]
+keywords = ["cờ", "nepal", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_nauru"
+glyph = "🇳🇷"
+aliases = ["nr"]
+keywords = ["cờ", "nauru", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_niue"
+glyph = "🇳🇺"
+aliases = ["nu"]
+keywords = ["cờ", "niue", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_new_zealand"
+glyph = "🇳🇿"
+aliases = ["nz"]
+keywords = ["cờ", "new zealand", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_oman"
+glyph = "🇴🇲"
+keywords = ["cờ", "oman", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_panama"
+glyph = "🇵🇦"
+aliases = ["pa"]
+keywords = ["cờ", "panama", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_peru"
+glyph = "🇵🇪"
+aliases = ["pe"]
+keywords = ["cờ", "peru", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_french_polynesia"
+glyph = "🇵🇫"
+aliases = ["pf"]
+keywords = ["cờ", "polynesia thuộc pháp", "flag", "french polynesia", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_papua_new_guinea"
+glyph = "🇵🇬"
+aliases = ["pg"]
+keywords = ["cờ", "papua new guinea", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_philippines"
+glyph = "🇵🇭"
+aliases = ["ph"]
+keywords = ["cờ", "philippines", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_pakistan"
+glyph = "🇵🇰"
+aliases = ["pk"]
+keywords = ["cờ", "pakistan", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_poland"
+glyph = "🇵🇱"
+aliases = ["pl"]
+keywords = ["cờ", "ba lan", "flag", "poland", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_st_pierre_miquelon"
+glyph = "🇵🇲"
+aliases = ["pm"]
+keywords = ["cờ", "saint pierre và miquelon", "flag", "st. pierre & miquelon", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_pitcairn_islands"
+glyph = "🇵🇳"
+aliases = ["pn"]
+keywords = ["cờ", "quần đảo pitcairn", "flag", "pitcairn islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_puerto_rico"
+glyph = "🇵🇷"
+aliases = ["pr"]
+keywords = ["cờ", "puerto rico", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_palestinian_territories"
+glyph = "🇵🇸"
+aliases = ["ps"]
+keywords = ["cờ", "lãnh thổ palestine", "flag", "palestinian territories", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_portugal"
+glyph = "🇵🇹"
+aliases = ["pt"]
+keywords = ["cờ", "bồ đào nha", "flag", "portugal", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_palau"
+glyph = "🇵🇼"
+aliases = ["pw"]
+keywords = ["cờ", "palau", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_paraguay"
+glyph = "🇵🇾"
+aliases = ["py"]
+keywords = ["cờ", "paraguay", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_qatar"
+glyph = "🇶🇦"
+aliases = ["qa"]
+keywords = ["cờ", "qatar", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_r_union"
+glyph = "🇷🇪"
+aliases = ["re"]
+keywords = ["cờ", "réunion", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_romania"
+glyph = "🇷🇴"
+aliases = ["ro"]
+keywords = ["cờ", "romania", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_serbia"
+glyph = "🇷🇸"
+aliases = ["rs"]
+keywords = ["cờ", "serbia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_russia"
+glyph = "🇷🇺"
+aliases = ["ru"]
+keywords = ["cờ", "nga", "flag", "russia", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_rwanda"
+glyph = "🇷🇼"
+aliases = ["rw"]
+keywords = ["cờ", "rwanda", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_saudi_arabia"
+glyph = "🇸🇦"
+aliases = ["sa"]
+keywords = ["cờ", "ả rập xê-út", "flag", "saudi arabia", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_solomon_islands"
+glyph = "🇸🇧"
+aliases = ["sb"]
+keywords = ["cờ", "quần đảo solomon", "flag", "solomon islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_seychelles"
+glyph = "🇸🇨"
+aliases = ["sc"]
+keywords = ["cờ", "seychelles", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_sudan"
+glyph = "🇸🇩"
+aliases = ["sd"]
+keywords = ["cờ", "sudan", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_sweden"
+glyph = "🇸🇪"
+aliases = ["se"]
+keywords = ["cờ", "thụy điển", "flag", "sweden", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_singapore"
+glyph = "🇸🇬"
+aliases = ["sg"]
+keywords = ["cờ", "singapore", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_st_helena_ascension_tristan_da_cunha"
+glyph = "🇸🇭"
+aliases = ["sh"]
+keywords = ["cờ", "st. helena", "flag", "st. helena, ascension & tristan da cunha", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_slovenia"
+glyph = "🇸🇮"
+aliases = ["si"]
+keywords = ["cờ", "slovenia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_svalbard_jan_mayen"
+glyph = "🇸🇯"
+aliases = ["sj"]
+keywords = ["cờ", "svalbard và jan mayen", "flag", "svalbard & jan mayen", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_slovakia"
+glyph = "🇸🇰"
+aliases = ["sk"]
+keywords = ["cờ", "slovakia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_sierra_leone"
+glyph = "🇸🇱"
+aliases = ["sl"]
+keywords = ["cờ", "sierra leone", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_san_marino"
+glyph = "🇸🇲"
+aliases = ["sm"]
+keywords = ["cờ", "san marino", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_senegal"
+glyph = "🇸🇳"
+aliases = ["sn"]
+keywords = ["cờ", "senegal", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_somalia"
+glyph = "🇸🇴"
+aliases = ["so"]
+keywords = ["cờ", "somalia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_suriname"
+glyph = "🇸🇷"
+aliases = ["sr"]
+keywords = ["cờ", "suriname", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_south_sudan"
+glyph = "🇸🇸"
+aliases = ["ss"]
+keywords = ["cờ", "nam sudan", "flag", "south sudan", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_s_o_tom_pr_ncipe"
+glyph = "🇸🇹"
+aliases = ["st"]
+keywords = ["cờ", "são tomé và príncipe", "flag", "são tomé & príncipe", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_el_salvador"
+glyph = "🇸🇻"
+aliases = ["sv"]
+keywords = ["cờ", "el salvador", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_sint_maarten"
+glyph = "🇸🇽"
+aliases = ["sx"]
+keywords = ["cờ", "sint maarten", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_syria"
+glyph = "🇸🇾"
+aliases = ["sy"]
+keywords = ["cờ", "syria", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_eswatini"
+glyph = "🇸🇿"
+aliases = ["sz"]
+keywords = ["cờ", "eswatini", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_tristan_da_cunha"
+glyph = "🇹🇦"
+aliases = ["ta"]
+keywords = ["cờ", "tristan da cunha", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_turks_caicos_islands"
+glyph = "🇹🇨"
+aliases = ["tc"]
+keywords = ["cờ", "quần đảo turks và caicos", "flag", "turks & caicos islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_chad"
+glyph = "🇹🇩"
+aliases = ["td"]
+keywords = ["cờ", "chad", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_french_southern_and_antarctic_lands"
+glyph = "🇹🇫"
+aliases = ["tf"]
+keywords = ["cờ", "lãnh thổ phía nam thuộc pháp", "flag", "french southern and antarctic lands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_togo"
+glyph = "🇹🇬"
+aliases = ["tg"]
+keywords = ["cờ", "togo", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_thailand"
+glyph = "🇹🇭"
+aliases = ["th"]
+keywords = ["cờ", "thái lan", "flag", "thailand", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_tajikistan"
+glyph = "🇹🇯"
+aliases = ["tj"]
+keywords = ["cờ", "tajikistan", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_tokelau"
+glyph = "🇹🇰"
+aliases = ["tk"]
+keywords = ["cờ", "tokelau", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_timor_leste"
+glyph = "🇹🇱"
+aliases = ["tl"]
+keywords = ["cờ", "timor-leste", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_turkmenistan"
+glyph = "🇹🇲"
+aliases = ["tm"]
+keywords = ["cờ", "turkmenistan", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_tunisia"
+glyph = "🇹🇳"
+aliases = ["tn"]
+keywords = ["cờ", "tunisia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_tonga"
+glyph = "🇹🇴"
+aliases = ["to"]
+keywords = ["cờ", "tonga", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_t_rkiye"
+glyph = "🇹🇷"
+aliases = ["tr"]
+keywords = ["cờ", "thổ nhĩ kỳ", "flag", "türkiye", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_trinidad_tobago"
+glyph = "🇹🇹"
+aliases = ["tt"]
+keywords = ["cờ", "trinidad và tobago", "flag", "trinidad & tobago", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_tuvalu"
+glyph = "🇹🇻"
+aliases = ["tv"]
+keywords = ["cờ", "tuvalu", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_taiwan"
+glyph = "🇹🇼"
+aliases = ["tw"]
+keywords = ["cờ", "đài loan", "flag", "taiwan", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_tanzania"
+glyph = "🇹🇿"
+aliases = ["tz"]
+keywords = ["cờ", "tanzania", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_ukraine"
+glyph = "🇺🇦"
+aliases = ["ua"]
+keywords = ["cờ", "ukraina", "flag", "ukraine", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_uganda"
+glyph = "🇺🇬"
+aliases = ["ug"]
+keywords = ["cờ", "uganda", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_u_s_outlying_islands"
+glyph = "🇺🇲"
+aliases = ["um"]
+keywords = ["cờ", "các tiểu đảo xa của hoa kỳ", "flag", "u.s. outlying islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_united_nations"
+glyph = "🇺🇳"
+aliases = ["un"]
+keywords = ["cờ", "liên hợp quốc", "flag", "united nations", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_united_states"
+glyph = "🇺🇸"
+aliases = ["us"]
+keywords = ["cờ", "hoa kỳ", "flag", "united states", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_uruguay"
+glyph = "🇺🇾"
+aliases = ["uy"]
+keywords = ["cờ", "uruguay", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_uzbekistan"
+glyph = "🇺🇿"
+aliases = ["uz"]
+keywords = ["cờ", "uzbekistan", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_vatican_city"
+glyph = "🇻🇦"
+aliases = ["va"]
+keywords = ["cờ", "thành vatican", "flag", "vatican city", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_st_vincent_grenadines"
+glyph = "🇻🇨"
+aliases = ["vc"]
+keywords = ["cờ", "st. vincent và grenadines", "flag", "st. vincent & grenadines", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_venezuela"
+glyph = "🇻🇪"
+aliases = ["ve"]
+keywords = ["cờ", "venezuela", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_british_virgin_islands"
+glyph = "🇻🇬"
+aliases = ["vg"]
+keywords = ["cờ", "quần đảo virgin thuộc anh", "flag", "british virgin islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_u_s_virgin_islands"
+glyph = "🇻🇮"
+aliases = ["vi"]
+keywords = ["cờ", "quần đảo virgin thuộc hoa kỳ", "flag", "u.s. virgin islands", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_vanuatu"
+glyph = "🇻🇺"
+aliases = ["vu"]
+keywords = ["cờ", "vanuatu", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_wallis_futuna"
+glyph = "🇼🇫"
+aliases = ["wf"]
+keywords = ["cờ", "wallis và futuna", "flag", "wallis & futuna", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_samoa"
+glyph = "🇼🇸"
+aliases = ["ws"]
+keywords = ["cờ", "samoa", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_kosovo"
+glyph = "🇽🇰"
+aliases = ["xk"]
+keywords = ["cờ", "kosovo", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_yemen"
+glyph = "🇾🇪"
+aliases = ["ye"]
+keywords = ["cờ", "yemen", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_mayotte"
+glyph = "🇾🇹"
+aliases = ["yt"]
+keywords = ["cờ", "mayotte", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_south_africa"
+glyph = "🇿🇦"
+aliases = ["za"]
+keywords = ["cờ", "nam phi", "flag", "south africa", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_zambia"
+glyph = "🇿🇲"
+aliases = ["zm"]
+keywords = ["cờ", "zambia", "flag", "quốc kỳ"]
+
+[[emoji]]
+name = "flag_zimbabwe"
+glyph = "🇿🇼"
+aliases = ["zw"]
+keywords = ["cờ", "zimbabwe", "flag", "quốc kỳ"]
