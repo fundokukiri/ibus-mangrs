@@ -56,6 +56,12 @@ pub struct Config {
     /// (`Method::uses_digit_tone_keys`): their digits are tone keys, so the
     /// strip must not claim them.
     pub suggest_words: bool,
+    /// Experimental: the prediction upgrade on the strip — compound
+    /// completions for the word in flight and next-word predictions after a
+    /// space (the n-gram tiers of the word-prediction design). Layers under
+    /// `experimental_features` and `suggest_words`: with this off the strip
+    /// is byte-identical to the syllable-only behavior.
+    pub suggest_predict: bool,
     /// Experimental: the suggestion strip's display while the strip is up —
     /// `floating` (default) only in the box (the client's field stays clean
     /// until the word commits), `mirror` in both places (the box's input line
@@ -903,6 +909,7 @@ impl Default for Config {
             keep_composed_words: false,
             keep_repeats_raw: false,
             suggest_words: false,
+            suggest_predict: false,
             suggest_display: SuggestDisplayConfig::Floating,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
@@ -1779,6 +1786,16 @@ children = ["preedit", "flow"]
         assert!(!c.suggest_words);
         let c: Config = toml::from_str("suggest_words = true").unwrap();
         assert!(c.suggest_words);
+    }
+
+    #[test]
+    fn suggest_predict_defaults_off_and_round_trips() {
+        // Layered under suggest_words: with it off the strip is the
+        // syllable-only behavior, whatever this row says.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.suggest_predict);
+        let c: Config = toml::from_str("suggest_predict = true").unwrap();
+        assert!(c.suggest_predict);
     }
 
     #[test]

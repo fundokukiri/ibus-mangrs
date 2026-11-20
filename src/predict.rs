@@ -501,6 +501,23 @@ mod tests {
     }
 
     #[test]
+    fn compounds_match_decomposed_prefix() {
+        // NFD typed input folds through the same toneless key: học has no
+        // precomposed ô-hook form, so its decomposition is plain o + the
+        // hook mark U+0323 — toneless drops the mark and reaches the same
+        // compounds as the NFC spelling.
+        let m = sample();
+        assert_eq!(
+            m.compounds_for_prefix("ho\u{0323}c"),
+            m.compounds_for_prefix("học")
+        );
+        assert!(
+            !m.compounds_for_prefix("ho\u{0323}c").is_empty(),
+            "học carries compounds in the fixture"
+        );
+    }
+
+    #[test]
     fn sample_prefix_range() {
         let m = sample();
         let (start, end) = m.prefix_range("si");

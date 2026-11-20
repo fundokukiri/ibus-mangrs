@@ -5057,6 +5057,33 @@ fn candidates_of(actions: &[Action]) -> Option<&Vec<String>> {
     })
 }
 
+/// The committed sample model for the predict tests. Injected straight into
+/// the engine's `model` field: an env override would be process-global and
+/// leak into the concurrent legacy strip tests.
+fn sample_model() -> crate::predict::PredictModel {
+    // Test-only expect: the committed fixture's absence is the failure.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("data/model-sample.bin");
+    crate::predict::open(&path)
+        .expect("data/model-sample.bin missing — run scripts/build-predict-model.py --sample")
+}
+
+/// Engine with the prediction tier on top of the strip: the same bake-in as
+/// `suggest_engine` plus `suggest_predict` — compounds join the state-A
+/// list from the committed sample model.
+fn predict_engine(method: Method, mode: Mode) -> Engine {
+    let mut e = suggest_engine(method, mode, true);
+    e.apply_config(&Config {
+        mode: mode.into(),
+        suggest_words: true,
+        suggest_predict: true,
+        experimental_features: true,
+        ..Config::default()
+    });
+    e.set_method(method);
+    e.model = Some(sample_model());
+    e
+}
+
 /// The candidate a pick at `index` commits, off the list the strip emitted.
 /// The runtime table merges the user dictionary above every builtin, so the
 /// entry itself is machine-dependent — every exact-commit assert must ride
@@ -5304,6 +5331,48 @@ fn suggest_digit_still_ends_the_word_and_hides() {
     assert!(candidates_of(&keys[2]).is_none(), "{:?}", keys[2]);
     let after = suggest_keys(&mut e, "1");
     assert!(strip_actions(&after[0]).is_empty(), "{:?}", after[0]);
+}
+
+// --- prediction tier (state A) ---
+
+#[test]
+fn compounds_lead_state_a() {
+    // Typing `sinh` completes no syllable (it IS a syllable), so the legacy
+    // strip stays silent — under the predict gate the model's compounds
+    // fill the list, strongest first.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "sinh");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on sinh");
+    assert_eq!(items.first().map(String::as_str), Some("sinh viên"));
+}
+
+#[test]
+fn predict_gate_off_keeps_legacy_lists() {
+    // The isolation guarantee, state-A edition: with the predict switch off
+    // the strip still serves its legacy sibling lists for `sinh`, but no
+    // compound can appear — compounds are the only space-bearing candidates
+    // the state-A builder can add, so a space in any item means a leak.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let keys = suggest_keys(&mut e, "sinh");
+    for batch in &keys {
+        if let Some(items) = candidates_of(batch) {
+            assert!(
+                items.iter().all(|item| !item.contains(' ')),
+                "no compound leaks on the legacy path: {items:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn compounds_pick_commits_word_and_space() {
+    // A compound pick replaces the in-flight word through the existing
+    // state-A commit machinery — no new transport, and the strip closes.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "sinh");
+    let actions = e.accept_candidate(0);
+    assert_eq!(replay(&actions), "sinh viên ");
+    assert!(!e.suggest_open);
 }
 
 #[test]

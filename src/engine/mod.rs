@@ -426,6 +426,14 @@ pub struct Engine {
     last_committed_word: Option<String>,
     /// The `suggest_words` switch, mirrored like the other settings.
     suggest_words: bool,
+    /// The `suggest_predict` switch, baked under the experimental gate like
+    /// `suggest_words` — the prediction tiers join the strip only when both
+    /// are on.
+    suggest_predict: bool,
+    /// The prediction model opened at the last config apply: its compounds
+    /// serve the state-A list and its n-grams the state-B surface; `None`
+    /// (no model file) keeps the strip legacy-only.
+    model: Option<crate::predict::PredictModel>,
     /// The table the strip serves from: the builtin rows (model-harvested
     /// or embedded) merged with the user dictionary at a weight that
     /// outranks every builtin frequency. Rebuilt on every config apply.
@@ -575,10 +583,12 @@ impl Engine {
             suggest_display: SuggestDisplayConfig::Floating,
             last_committed_word: None,
             suggest_words: false,
+            suggest_predict: false,
+            model: None,
             // The builtin rows stand in until apply_config merges the user
             // dictionary below; on a machine without dictionary.txt this
             // stays the whole table.
-            suggest_table: SuggestTable::from_rows(crate::suggest::builtin_rows()),
+            suggest_table: SuggestTable::from_rows(crate::suggest::builtin_rows_with(None)),
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -701,12 +711,13 @@ impl Engine {
         // outranks every builtin frequency — independent of
         // `dictionary_enabled` (owner decision: the strip learns from the
         // same file even when the auto-restore whitelist is off). The
-        // builtin half comes from the prediction model when one is
-        // installed (a fresh open here is the model's reload path — the
-        // file changes only at install), the embedded table otherwise;
-        // rebuilt on every config apply, so a new model or dictionary
-        // needs no engine restart.
-        let mut rows = crate::suggest::builtin_rows();
+        // model opens once per config apply — a fresh open here is the
+        // model's reload path (the file changes only at install) — and
+        // feeds both the builtin rows and the predict tier; `None` keeps
+        // the strip legacy-only. Rebuilt on every config apply, so a new
+        // model or dictionary needs no engine restart.
+        let model = crate::predict::located_path().and_then(|path| crate::predict::open(&path));
+        let mut rows = crate::suggest::builtin_rows_with(model.as_ref());
         rows.extend(merge_user_entries(
             Dictionary::load()
                 .words()
@@ -714,6 +725,7 @@ impl Engine {
                 .collect(),
         ));
         self.suggest_table = SuggestTable::from_rows(rows);
+        self.model = model;
         self.wrapper.set_abbreviations(config.abbreviations);
         // Experimental master gate: the keep stays off while the gate is
         // closed, whatever the row says (same bake-in as the other
@@ -725,6 +737,7 @@ impl Engine {
         // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
+        self.suggest_predict = experimental && config.suggest_predict;
         // Display-only choice: it shapes nothing while the strip is off, so
         // it rides without the gate bake-in.
         self.suggest_display = config.suggest_display;
@@ -1777,6 +1790,62 @@ impl Engine {
             && self.strip_possible(self.word_mode.unwrap_or(self.mode))
     }
 
+    /// The prediction tier gate, layered under the strip gate: compounds
+    /// join the state-A list only when the strip itself may open and the
+    /// switch is on (both baked under the experimental gate in
+    /// apply_config).
+    fn predict_active(&self) -> bool {
+        self.suggest_words && self.suggest_predict
+    }
+
+    /// The state-A candidate list for the in-flight word: the table's
+    /// completions and corrections plus — under the predict gate — the
+    /// model's compounds for the same prefix. Ordering follows the word's
+    /// state: a COMPLETE syllable leads with its compounds (what continues
+    /// it outranks the tone-variant siblings behind it — `sinh` shows
+    /// `sinh viên` before `sính`), a partial prefix leads with its
+    /// completions (finishing the syllable outranks the compounds of its
+    /// possible endings). One builder for the strip emit and the pick path,
+    /// so the two can never drift apart: the pick indexes into the list the
+    /// strip emitted. The real scoring fusion lands with the trigram tier.
+    fn state_a_candidates(&self, word: &str) -> Vec<String> {
+        let mut items: Vec<String> = self
+            .suggest_table
+            .candidates(word)
+            .into_iter()
+            .map(|candidate| candidate.word)
+            .collect();
+        if !self.predict_active() {
+            return items;
+        }
+        let compounds: Vec<String> = self
+            .model
+            .as_ref()
+            .map(|model| model.compounds_for_prefix(&crate::suggest::toneless(word)))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(surface, _strength)| surface)
+            .collect();
+        if compounds.is_empty() {
+            return items;
+        }
+        let cap = crate::suggest::MAX_CANDIDATES;
+        if self.suggest_table.contains(word) {
+            // Compounds lead, the table's siblings fill the rest.
+            let mut out: Vec<String> = compounds.into_iter().take(cap).collect();
+            let room = cap - out.len();
+            out.extend(items.into_iter().take(room));
+            out
+        } else {
+            // Completions lead, the compounds of the possible endings fill
+            // the rest.
+            items.truncate(cap);
+            let room = cap - items.len();
+            items.extend(compounds.into_iter().take(room));
+            items
+        }
+    }
+
     /// Where the strip's word-in-flight shows — the server reads it in the
     /// emit funnel to shape the preedit/auxiliary signals.
     pub fn suggest_display(&self) -> SuggestDisplayConfig {
@@ -1806,11 +1875,7 @@ impl Engine {
         let items = if word.chars().count() < 2 {
             Vec::new()
         } else {
-            self.suggest_table
-                .candidates(&word)
-                .into_iter()
-                .map(|candidate| candidate.word)
-                .collect()
+            self.state_a_candidates(&word)
         };
         if items.is_empty() {
             // Idle keys cost nothing: the hide fires only on the open→closed
@@ -1846,7 +1911,7 @@ impl Engine {
         if word.chars().count() < 2 {
             return Vec::new();
         }
-        let Some(candidate) = self.suggest_table.candidates(&word).into_iter().nth(index) else {
+        let Some(candidate) = self.state_a_candidates(&word).into_iter().nth(index) else {
             return Vec::new();
         };
         // The candidate replaces the word wholesale: no macro, no
@@ -1855,9 +1920,9 @@ impl Engine {
         // the composition path's own capitalization decision (`cap_word`,
         // recorded at the word's first key), first character only.
         let word = if std::mem::take(&mut self.cap_word) {
-            capitalize_first(&candidate.word)
+            capitalize_first(&candidate)
         } else {
-            candidate.word
+            candidate
         };
         let text = format!("{} ", encode(self.charset, &word));
         // The mode the word was served in decides the rewrite: preedit holds

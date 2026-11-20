@@ -258,6 +258,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Trong ô soạn",
         ],
     );
+    let suggest_predict = switch_row(
+        &t("rows.suggest_predict.title", "Dự đoán từ (n-gram)"),
+        &t(
+            "rows.suggest_predict.subtitle",
+            "Từ ghép khi đang gõ, từ kế tiếp sau dấu cách — cần file mô hình dự đoán",
+        ),
+    );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Backend ưu tiên"),
         &t(
@@ -808,6 +815,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Từ đang gõ hiện trong ô nổi cạnh con trỏ kèm dải gợi ý bên dưới; ô soạn giữ sạch đến khi từ được commit (mặc định Ô nổi). Bấm 1–5 hoặc click thẳng dòng gợi ý để chọn, lật trang bằng nút ◀▶ trên khung hoặc Ctrl+, / Ctrl+., phím Escape vẫn kết thúc từ như thường, mũi tên giữ nguyên vai trò di chuyển con trỏ. Chạy ở chế độ Preedit và các chế độ có kênh xóa chữ (Surrounding, Forward Backspace, Flow) — một lựa chọn sẽ xóa chữ app đang giữ trước khi commit. Chỉ với preset Telex, Telex 2, Telex W, VIQR — các preset khác dùng số làm phím dấu nên không dùng được. Kiểu hiển thị đổi bằng hàng 'Kiểu hiển thị gợi ý' ngay dưới. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
     );
     tip!(
+        suggest_predict,
+        "tips.suggest_predict",
+        "Tầng dự đoán của dải gợi ý: khi đang gõ dở một từ, các từ ghép phổ biến bắt đầu bằng âm tiết đó hiện trong danh sách (gõ 'sinh' thấy 'sinh viên'); chọn một gợi ý sẽ thay cả từ đang gõ và thêm dấu cách. Cần file mô hình dự đoán đã cài (nạp bằng mmap, tra dưới 1ms); không có mô hình thì hàng này im lặng. Chỉ chạy khi 'Gợi ý từ điển' đang bật. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
+    );
+    tip!(
         suggest_display,
         "tips.suggest_display",
         "Chọn chỗ hiện phần đang gõ khi dải gợi ý mở: Ô nổi (mặc định) — chỉ trong khung, ô soạn sạch đến khi từ được commit; Cả hai — từ hiện ở cả khung gợi ý và trong ô soạn, gõ tiếp hay xóa đều cập nhật đồng bộ; Trong ô soạn — preedit nằm trong văn bản như các bộ gõ cũ, dải gợi ý hiện bên cạnh, không có dòng chữ trong khung. Chỉ có tác dụng khi 'Gợi ý từ điển' đang bật."
@@ -898,6 +910,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_repeats_raw,
         suggest_words,
         suggest_display,
+        suggest_predict,
         preferred_backend,
         time_format,
         date_format,

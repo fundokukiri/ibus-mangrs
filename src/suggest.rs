@@ -21,8 +21,9 @@ use std::sync::OnceLock;
 const FREQ_DATA: &str = include_str!("../data/vietnamese-freq.dict");
 
 /// Completions and corrections lists never grow past this; the strip pages
-/// through the rest.
-const MAX_CANDIDATES: usize = 25;
+/// through the rest. The engine's state-A builder shares the cap so the
+/// emitted list and the pick path stay one list.
+pub(crate) const MAX_CANDIDATES: usize = 25;
 
 /// User-dictionary rows land at half of `u32::MAX`: above every builtin
 /// frequency in the table, with headroom left for later weighting.
@@ -347,21 +348,10 @@ impl SuggestTable {
     }
 }
 
-/// The builtin half of the runtime strip table: rows harvested from the
-/// prediction model when one is installed, the compiled-in frequency table
-/// otherwise. Called per config apply — the fresh open there is the model's
-/// reload path (the file changes only at install time).
-pub(crate) fn builtin_rows() -> Vec<(String, u32)> {
-    match crate::predict::located_path().and_then(|path| crate::predict::open(&path)) {
-        Some(model) => builtin_rows_with(Some(&model)),
-        None => builtin_rows_with(None),
-    }
-}
-
-/// The harvest behind [`builtin_rows`], split out so tests can hand in a
-/// specific model: a model contributes its VN-syllable rows (surface,
-/// unigram); no model falls back to the embedded table unchanged. EN rows
-/// stay invisible until the band integration joins them.
+/// The builtin half of the runtime strip table, split out so the engine can
+/// hand in the model it already opened: a model contributes its VN-syllable
+/// rows (surface, unigram); no model falls back to the embedded table
+/// unchanged. EN rows stay invisible until the band integration joins them.
 pub(crate) fn builtin_rows_with(
     model: Option<&crate::predict::PredictModel>,
 ) -> Vec<(String, u32)> {
