@@ -23,6 +23,7 @@ pub mod ibus_prop;
 pub mod ibus_text;
 pub mod keymap;
 pub mod macros;
+mod predict;
 pub mod server;
 mod suggest;
 pub mod transport;

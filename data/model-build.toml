@@ -1,0 +1,127 @@
+# Pinned build configuration for the MăngRS prediction model.
+#
+# Every corpus row carries its full provenance (URL, version, license) and
+# is embedded verbatim into the model's PROVENANCE section by the builder —
+# the release-attached binary carries its attribution standalone. URLs were
+# verified live (HTTP 200) on 21/11/2026. The raw corpora are never
+# committed; the build runs on Google Colab in the owner's hands (spec:
+# "Data build and distribution").
+#
+# Wikipedia-derived sources (viwiki dump, eng_wikipedia_2016_1M) carry
+# `enabled` switches: the no-Wikipedia model is one flag away. The release
+# configuration waits on the owner's share-alike decision recorded in the
+# spec section "License decision — WAITING ON OWNER"; until then the
+# release build is BLOCKED.
+
+output = "mangrs-predict-v1.bin"
+whitelist = "data/vietnamese-freq.dict"
+
+# English vocabulary rows (surface + frequency). Leipzig eng_web_2014_1M.
+en_words = { file = "eng_web_2014_1M/eng_web_2014_1M-words.txt", url = "https://downloads.wortschatz-leipzig.de/corpora/eng_web_2014_1M.tar.gz", version = "2014-1M", license = "CC BY-4.0", weight = 1.0 }
+
+# Pruning: counts are rounded (weighted floats -> integers, floor 1) before
+# these thresholds apply; the builder raises trigram_min then bigram_min
+# until the file fits max_model_mb, logging every section size.
+thresholds = { bigram_min = 2, trigram_min = 3, min_compound = 20, top_compounds_per_head = 8 }
+
+# Dedup: per-language normalized-sentence hash, before counting.
+dedup_sentences = true
+
+# viwiki noise filter (applied to corpora with filter_noise = true): drop a
+# sentence when the non-whitelist token ratio exceeds max_noise_ratio or it
+# is shorter than min_sentence_tokens tokens.
+max_noise_ratio = 0.12
+min_sentence_tokens = 4
+
+# Held-out split: taken BEFORE counting, per sentence hash; the builder
+# writes held-out/<corpus>.txt next to the model for the offline evaluator.
+eval_split = 0.05
+eval_seed = 20261121
+
+# Size budget; the builder auto-raises pruning thresholds to fit.
+max_model_mb = 30
+
+# --- Vietnamese sentence corpora (VN-syllable bigram/trigram rows) ---------
+
+[[corpora]]
+name = "vie_mixed_2014_1M"
+language = "vi"
+kind = "sentences"
+url = "https://downloads.wortschatz-leipzig.de/corpora/vie_mixed_2014_1M.tar.gz"
+file = "vie_mixed_2014_1M/vie_mixed_2014_1M-sentences.txt"
+version = "2014-1M"
+license = "CC BY-4.0"
+weight = 1.0
+enabled = true
+
+[[corpora]]
+name = "vie_news_2020_1M"
+language = "vi"
+kind = "sentences"
+url = "https://downloads.wortschatz-leipzig.de/corpora/vie_news_2020_1M.tar.gz"
+file = "vie_news_2020_1M/vie_news_2020_1M-sentences.txt"
+version = "2020-1M"
+license = "CC BY-4.0"
+weight = 1.0
+enabled = true
+
+[[corpora]]
+name = "viwiki"
+language = "vi"
+kind = "viwiki"
+url = "https://dumps.wikimedia.org/viwiki/latest/viwiki-latest-pages-articles.xml.bz2"
+file = "viwiki-latest-pages-articles.xml.bz2"
+version = "latest pages-articles (record the dump date at build time)"
+license = "CC BY-SA 4.0 (older revisions dual GFDL) — verify the dump's license statement at build time and record it verbatim"
+# Initial values, tuned by the offline evaluation (spec: they must not
+# drown the two Leipzig VN sets).
+weight = 0.5
+max_sentences = 2000000
+filter_noise = true
+enabled = true
+
+# --- English sentence corpora (EN-word bigram/trigram rows, same id space) -
+
+[[corpora]]
+name = "eng_web_2014_1M"
+language = "en"
+kind = "sentences"
+url = "https://downloads.wortschatz-leipzig.de/corpora/eng_web_2014_1M.tar.gz"
+file = "eng_web_2014_1M/eng_web_2014_1M-sentences.txt"
+version = "2014-1M"
+license = "CC BY-4.0"
+weight = 1.0
+enabled = true
+
+[[corpora]]
+name = "eng_news_2020_1M"
+language = "en"
+kind = "sentences"
+url = "https://downloads.wortschatz-leipzig.de/corpora/eng_news_2020_1M.tar.gz"
+file = "eng_news_2020_1M/eng_news_2020_1M-sentences.txt"
+version = "2020-1M"
+license = "CC BY-4.0"
+weight = 1.0
+enabled = true
+
+[[corpora]]
+name = "eng_news_2015_1M"
+language = "en"
+kind = "sentences"
+url = "https://downloads.wortschatz-leipzig.de/corpora/eng_news_2015_1M.tar.gz"
+file = "eng_news_2015_1M/eng_news_2015_1M-sentences.txt"
+version = "2015-1M"
+license = "CC BY-4.0"
+weight = 1.0
+enabled = true
+
+[[corpora]]
+name = "eng_wikipedia_2016_1M"
+language = "en"
+kind = "sentences"
+url = "https://downloads.wortschatz-leipzig.de/corpora/eng_wikipedia_2016_1M.tar.gz"
+file = "eng_wikipedia_2016_1M/eng_wikipedia_2016_1M-sentences.txt"
+version = "2016-1M"
+license = "CC BY-4.0 (Leipzig collection; the underlying Wikipedia text carries CC BY-SA — see the spec's license decision)"
+weight = 1.0
+enabled = true
