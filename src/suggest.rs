@@ -347,6 +347,33 @@ impl SuggestTable {
     }
 }
 
+/// The builtin half of the runtime strip table: rows harvested from the
+/// prediction model when one is installed, the compiled-in frequency table
+/// otherwise. Called per config apply — the fresh open there is the model's
+/// reload path (the file changes only at install time).
+pub(crate) fn builtin_rows() -> Vec<(String, u32)> {
+    match crate::predict::located_path().and_then(|path| crate::predict::open(&path)) {
+        Some(model) => builtin_rows_with(Some(&model)),
+        None => builtin_rows_with(None),
+    }
+}
+
+/// The harvest behind [`builtin_rows`], split out so tests can hand in a
+/// specific model: a model contributes its VN-syllable rows (surface,
+/// unigram); no model falls back to the embedded table unchanged. EN rows
+/// stay invisible until the band integration joins them.
+pub(crate) fn builtin_rows_with(
+    model: Option<&crate::predict::PredictModel>,
+) -> Vec<(String, u32)> {
+    match model {
+        Some(model) => (0..model.row_count() as u16)
+            .filter(|id| model.flags(*id) & crate::predict::FLAG_VN_SYLLABLE != 0)
+            .map(|id| (model.surface(id).to_string(), model.unigram(id)))
+            .collect(),
+        None => SuggestTable::embedded().rows(),
+    }
+}
+
 #[cfg(test)]
 mod data_tests {
     use super::*;
@@ -437,6 +464,57 @@ mod tests {
         list.iter()
             .map(|(word, freq)| (word.to_string(), *freq))
             .collect()
+    }
+
+    fn sample_model() -> crate::predict::PredictModel {
+        // Test-only expect: the committed fixture's absence is the failure.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("data/model-sample.bin");
+        crate::predict::open(&path)
+            .expect("data/model-sample.bin missing — run scripts/build-predict-model.py --sample")
+    }
+
+    // ---- builtin rows (model harvest / legacy fallback) ----
+
+    #[test]
+    fn builtin_rows_falls_back_to_the_embedded_table_without_a_model() {
+        assert_eq!(builtin_rows_with(None), SuggestTable::embedded().rows());
+    }
+
+    #[test]
+    fn builtin_rows_harvest_vn_rows_from_a_model() {
+        let model = sample_model();
+        let harvest = builtin_rows_with(Some(&model));
+        assert!(!harvest.is_empty(), "the sample carries VN rows");
+        assert!(
+            harvest.iter().all(|(word, _)| model
+                .id_of(word)
+                .is_some_and(|id| model.flags(id) & crate::predict::FLAG_VN_SYLLABLE != 0)),
+            "every harvested row is a VN-syllable row"
+        );
+        assert!(
+            harvest.iter().all(|(word, _)| word != "hello"),
+            "EN rows stay invisible before the band integration"
+        );
+        assert!(
+            harvest
+                .iter()
+                .any(|(word, count)| word == "sinh" && *count > 0),
+            "sinh is harvested with its unigram count"
+        );
+    }
+
+    #[test]
+    fn model_harvest_feeds_the_runtime_table_like_the_strip_expects() {
+        let model = sample_model();
+        let table = SuggestTable::from_rows(builtin_rows_with(Some(&model)));
+        // Toneless prefix reach over the harvested rows: họ -> học.
+        let got = table.completions("họ");
+        assert!(
+            got.iter().any(|c| c.word == "học"),
+            "the harvested table completes họ to học, got {got:?}"
+        );
+        // The typed word never completes itself.
+        assert!(table.completions("sinh").iter().all(|c| c.word != "sinh"));
     }
 
     // ---- toneless ----

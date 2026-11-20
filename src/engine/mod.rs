@@ -426,13 +426,10 @@ pub struct Engine {
     last_committed_word: Option<String>,
     /// The `suggest_words` switch, mirrored like the other settings.
     suggest_words: bool,
-    /// The table the strip serves from: the embedded rows merged with the
-    /// user dictionary at a weight that outranks every builtin frequency.
-    /// Rebuilt only when the dictionary file's mtime changes.
+    /// The table the strip serves from: the builtin rows (model-harvested
+    /// or embedded) merged with the user dictionary at a weight that
+    /// outranks every builtin frequency. Rebuilt on every config apply.
     suggest_table: SuggestTable,
-    /// mtime of the user dictionary behind `suggest_table`; the same
-    /// reload-gate pattern as the macros and the auto-restore dictionary.
-    suggest_dict_mtime: Option<SystemTime>,
 }
 
 /// `IBUS_CAP_PREEDIT_TEXT` and `IBUS_CAP_SURROUNDING_TEXT` from ibustypes.h.
@@ -578,11 +575,10 @@ impl Engine {
             suggest_display: SuggestDisplayConfig::Floating,
             last_committed_word: None,
             suggest_words: false,
-            // The embedded rows stand in until apply_config merges the user
+            // The builtin rows stand in until apply_config merges the user
             // dictionary below; on a machine without dictionary.txt this
-            // stays the whole table (mtime None never differs from None).
-            suggest_table: SuggestTable::from_rows(SuggestTable::embedded().rows()),
-            suggest_dict_mtime: None,
+            // stays the whole table.
+            suggest_table: SuggestTable::from_rows(crate::suggest::builtin_rows()),
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -704,21 +700,20 @@ impl Engine {
         // The strip's table merges the user dictionary at a weight that
         // outranks every builtin frequency — independent of
         // `dictionary_enabled` (owner decision: the strip learns from the
-        // same file even when the auto-restore whitelist is off). Same
-        // mtime gate as the reloads above; a missing file leaves just the
-        // embedded rows.
-        let suggest_dict_time = file_time(Dictionary::path().as_deref());
-        if suggest_dict_time != self.suggest_dict_mtime {
-            self.suggest_dict_mtime = suggest_dict_time;
-            let mut rows = SuggestTable::embedded().rows();
-            rows.extend(merge_user_entries(
-                Dictionary::load()
-                    .words()
-                    .map(|w| (w.to_string(), 0))
-                    .collect(),
-            ));
-            self.suggest_table = SuggestTable::from_rows(rows);
-        }
+        // same file even when the auto-restore whitelist is off). The
+        // builtin half comes from the prediction model when one is
+        // installed (a fresh open here is the model's reload path — the
+        // file changes only at install), the embedded table otherwise;
+        // rebuilt on every config apply, so a new model or dictionary
+        // needs no engine restart.
+        let mut rows = crate::suggest::builtin_rows();
+        rows.extend(merge_user_entries(
+            Dictionary::load()
+                .words()
+                .map(|w| (w.to_string(), 0))
+                .collect(),
+        ));
+        self.suggest_table = SuggestTable::from_rows(rows);
         self.wrapper.set_abbreviations(config.abbreviations);
         // Experimental master gate: the keep stays off while the gate is
         // closed, whatever the row says (same bake-in as the other

@@ -15,13 +15,14 @@
 //! to the legacy embedded table); all accessors stay in bounds by
 //! construction of that validation and never panic on a truncated section.
 
-// Task 0 lands the reader before its first caller: the tier-1 integration
-// wires `locate`/`open` into suggest and retires this allow.
+// Task 1 wires the harvest (row_count/flags/surface/unigram/located_path/
+// open); the context and compound lookups stay unwired until Tasks 2-6, so
+// the module-level allow covers exactly that surface and retires at the
+// last wiring.
 #![allow(dead_code)]
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use memmap2::Mmap;
 
@@ -67,7 +68,7 @@ fn u64_le(b: &[u8]) -> Option<u64> {
 /// The model file search order: an env override for dev and tests, then the
 /// user config dir, then the system install path. `None` when no file exists
 /// — callers log that and the strip falls back to the legacy embedded table.
-fn locate_path() -> Option<PathBuf> {
+pub fn located_path() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("MANGRS_MODEL_PATH") {
         let path = PathBuf::from(path);
         if path.is_file() {
@@ -81,16 +82,6 @@ fn locate_path() -> Option<PathBuf> {
     }
     let path = PathBuf::from("/usr/share/ibus-mangrs/model/mangrs-predict-v1.bin");
     path.is_file().then_some(path)
-}
-
-/// The process-wide model, located and mapped once. `None` persists too — a
-/// machine without a model file must not retry the probe on every config
-/// reload.
-pub fn locate() -> Option<&'static PredictModel> {
-    static MODEL: OnceLock<Option<PredictModel>> = OnceLock::new();
-    MODEL
-        .get_or_init(|| locate_path().and_then(|path| open(&path)))
-        .as_ref()
 }
 
 /// Maps and validates a model file. `None` on any malformed input: the
