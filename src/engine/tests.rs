@@ -5375,6 +5375,93 @@ fn compounds_pick_commits_word_and_space() {
     assert!(!e.suggest_open);
 }
 
+// --- prediction tier (state B) ---
+
+#[test]
+fn state_b_predicts_next_syllable() {
+    // `sinh ` lands the word and the strip re-opens with the model's
+    // next-word list for the new context, strongest follower first.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "sinh ");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens after the space");
+    assert_eq!(items.first().map(String::as_str), Some("viên"));
+}
+
+#[test]
+fn state_b_english_context_predicts_english() {
+    // The unified id space: an EN context finds its EN followers in the
+    // same bigram table — no VN syllable leaks into the list.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "hello ");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens after the space");
+    assert_eq!(items, &["world".to_string(), "there".to_string()]);
+}
+
+#[test]
+fn state_b_pick_inserts_word_and_space() {
+    // The state-B pick commits the candidate wholesale (nothing is held —
+    // no delete transport) and chains the new context's list in place.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "sinh ");
+    let actions = e.accept_candidate(0);
+    assert_eq!(replay(&actions), "viên ");
+    let chained = actions
+        .iter()
+        .find_map(|a| match a {
+            Action::UpdateCandidates { items, .. } => Some(items),
+            _ => None,
+        })
+        .expect("the strip chains into the next context");
+    assert_eq!(chained.first().map(String::as_str), Some("học"));
+}
+
+#[test]
+fn state_b_confined_to_strip_modes() {
+    // The state-B hook lives on the common-path word landing only: Flow's
+    // uinput word ends never reach it (its state-A strip still runs — the
+    // space batch just hides without offering a next-word list) and OFF
+    // turns the strip off outright.
+    for mode in [Mode::Flow, Mode::Off] {
+        let mut e = predict_engine(Method::Telex, mode);
+        let keys = suggest_keys(&mut e, "sinh ");
+        assert!(
+            candidates_of(keys.last().unwrap()).is_none(),
+            "no state-B list after the space in {mode:?}: {:?}",
+            keys.last().unwrap()
+        );
+    }
+}
+
+#[test]
+fn state_b_never_fires_with_predict_off() {
+    // Isolation, state-B edition: the legacy space batch hides the strip
+    // and offers nothing — only the syllable sibling lists from the word
+    // itself were ever emitted.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let keys = suggest_keys(&mut e, "sinh ");
+    assert!(
+        candidates_of(keys.last().unwrap()).is_none(),
+        "the state-B surface stays silent on the legacy path: {:?}",
+        keys.last().unwrap()
+    );
+    for batch in &keys {
+        if let Some(items) = candidates_of(batch) {
+            assert!(
+                items.iter().all(|item| !item.contains(' ')),
+                "no compound leaks on the legacy path: {items:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn state_b_without_context_stays_silent() {
+    // A bare space with no word before it: no context, no strip.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, " ");
+    assert!(keys.iter().all(|b| candidates_of(b).is_none()));
+}
+
 #[test]
 fn suggest_digit_tone_presets_stay_silent() {
     // The presets whose digits are tone keys never run the strip: the

@@ -1029,11 +1029,35 @@ impl Engine {
     }
 
     /// Word end: macros and auto-restore replace the committed word, preedit
-    /// commits the word it still holds, and everything moves on. A shortcode
-    /// candidate word never word-macro-expands — the ':name:' key is the
-    /// emoji path's own lookup — and a missed close puts the raw keys back
-    /// instead of the composed word.
+    /// commits the word it still holds, and everything moves on; then the
+    /// state-B surface offers the landed word's next-word predictions (the
+    /// legacy path emits nothing there). A shortcode candidate word never
+    /// word-macro-expands — the ':name:' key is the emoji path's own lookup
+    /// — and a missed close puts the raw keys back instead of the composed
+    /// word.
     pub(super) fn on_finish(
+        &mut self,
+        mode: Mode,
+        word: String,
+        raw: String,
+        valid: bool,
+        valid_prefix: bool,
+        candidate: CandidateEnd,
+    ) -> Vec<Action> {
+        let mut actions = self.on_finish_inner(mode, word, raw, valid, valid_prefix, candidate);
+        // The state-B surface: only when the in-flight word is actually
+        // gone. The wrapper releases the word lazily — its output can still
+        // be the finished word here — and re-running the state-A step on
+        // that stale word would re-open the strip the landing just closed.
+        if self.wrapper.output().chars().count() < 2 {
+            actions.extend(self.suggest_step());
+        }
+        actions
+    }
+
+    /// The landing itself — every branch returns through the wrapper above,
+    /// which is the single state-B hook point.
+    fn on_finish_inner(
         &mut self,
         mode: Mode,
         word: String,

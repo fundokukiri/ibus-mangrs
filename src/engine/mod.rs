@@ -1869,11 +1869,13 @@ impl Engine {
         }
         // Below two characters the table is never consulted: an empty word
         // would match every row (degenerate full-table scan), and a 1-char
-        // prefix matches ~1500 — the strip never renders for a lone first
-        // key, so the call sites need no word-length guard of their own.
+        // prefix matches ~1500. Under the predict gate the empty word is
+        // exactly the state-B surface — the last committed word's next-word
+        // predictions hold the strip open; the legacy path stays silent.
         let word = self.wrapper.output();
-        let items = if word.chars().count() < 2 {
-            Vec::new()
+        let state_b = word.chars().count() < 2;
+        let items = if state_b {
+            self.state_b_candidates(self.last_committed_word.as_deref().unwrap_or(""))
         } else {
             self.state_a_candidates(&word)
         };
@@ -1887,10 +1889,43 @@ impl Engine {
             return Vec::new();
         }
         self.suggest_open = true;
+        // The box's input line: the word being typed, or — on the state-B
+        // surface — the context word the predictions continue.
+        let display_word = if state_b {
+            self.last_committed_word.clone().unwrap_or_default()
+        } else {
+            word.clone()
+        };
         vec![Action::UpdateCandidates {
-            word: word.to_string(),
+            word: display_word,
             items,
         }]
+    }
+
+    /// The state-B next-word list for `context`: the model's bigram rows
+    /// after the context token, strongest count first (within one context
+    /// the count order IS the probability order), surfaces only, capped.
+    /// Empty when the predict gate is off, there is no model, the context
+    /// is not a model token, or nothing follows it — the strip then goes
+    /// quiet. The full backoff scorer and the trigram terms land with the
+    /// tuning task.
+    fn state_b_candidates(&self, context: &str) -> Vec<String> {
+        if !self.predict_active() {
+            return Vec::new();
+        }
+        let Some(model) = self.model.as_ref() else {
+            return Vec::new();
+        };
+        let Some(id) = model.id_of(context) else {
+            return Vec::new();
+        };
+        let mut entries: Vec<(u16, u32)> = model.bigram_iter(id).collect();
+        entries.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        entries
+            .into_iter()
+            .take(crate::suggest::MAX_CANDIDATES)
+            .map(|(next, _count)| model.surface(next).to_string())
+            .collect()
     }
 
     /// Commit the strip candidate at `index` — the position in the FULL
@@ -1909,7 +1944,10 @@ impl Engine {
         }
         let word = self.wrapper.output();
         if word.chars().count() < 2 {
-            return Vec::new();
+            // State B: nothing is in flight — the strip holds the last
+            // committed word's next-word list and the pick commits that
+            // word wholesale, then chains the next context's list.
+            return self.accept_state_b(index);
         }
         let Some(candidate) = self.state_a_candidates(&word).into_iter().nth(index) else {
             return Vec::new();
@@ -1974,6 +2012,35 @@ impl Engine {
         // word — a space re-opens the em-dash/double-space windows.
         self.note_committed(&text);
         actions.push(Action::Commit(text));
+        actions
+    }
+
+    /// The state-B pick: nothing is in flight, so the candidate commits
+    /// wholesale — a plain commit, no delete transport exists or is needed —
+    /// and becomes the next context word; the strip chains into the new
+    /// context's predictions in place, hiding when the model offers nothing
+    /// further.
+    fn accept_state_b(&mut self, index: usize) -> Vec<Action> {
+        let Some(context) = self.last_committed_word.clone() else {
+            return Vec::new();
+        };
+        let Some(candidate) = self.state_b_candidates(&context).into_iter().nth(index) else {
+            return Vec::new();
+        };
+        let text = format!("{} ", encode(self.charset, &candidate));
+        // The pick's trailing space re-opens the em-dash/double-space
+        // windows like every committed word.
+        self.note_committed(&text);
+        let mut actions = vec![Action::Commit(text)];
+        self.last_committed_word = Some(candidate);
+        let items = self.state_b_candidates(self.last_committed_word.as_deref().unwrap_or(""));
+        if items.is_empty() {
+            self.suggest_open = false;
+            actions.push(Action::HideCandidates);
+        } else {
+            let word = self.last_committed_word.clone().unwrap_or_default();
+            actions.push(Action::UpdateCandidates { word, items });
+        }
         actions
     }
 
