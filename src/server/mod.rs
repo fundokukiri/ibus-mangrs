@@ -25,7 +25,9 @@ use dbus::ffidisp::{BusType, Connection, NameFlag};
 use dbus::strings::{BusName, Interface, Member, Path as DbusPath};
 use dbus::{Message, MessageType};
 
-use crate::config::{CharsetConfig, Config, MethodConfig, ModeConfig, PreferredBackendConfig};
+use crate::config::{
+    CharsetConfig, Config, MethodConfig, ModeConfig, PreferredBackendConfig, SuggestDisplayConfig,
+};
 use crate::debug_log::{self, brief};
 use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
@@ -1703,14 +1705,18 @@ fn emit_with(
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
     let mut delete_failed = false;
-    // The strip shapes this batch's preedit signal (when the strip is up —
-    // a batch carrying candidates): the word-in-flight shows ONLY in the
-    // candidate window's input line (the client's field stays clean — ibus
-    // intelligent pinyin's aux shape). A batch without candidates forwards
-    // the preedit inline again.
+    // The strip's display shapes this batch's preedit signal (when the strip
+    // is up — a batch carrying candidates): floating only in the candidate
+    // window's input line (the client's field stays clean — ibus intelligent
+    // pinyin's aux shape), mirror in BOTH places, inline keeps the classic
+    // preedit beside the table. A batch without candidates forwards the
+    // preedit inline again. The box's input line rides `UpdateCandidates`
+    // (the inline modes have no preedit signal to convert), so the display
+    // gates it there instead.
     let strip_up = actions
         .iter()
         .any(|a| matches!(a, Action::UpdateCandidates { .. }));
+    let display = engine.suggest_display();
     let strip_was = strip_open();
     for action in actions {
         match action {
@@ -1824,7 +1830,8 @@ fn emit_with(
                 }
             }
             Action::UpdatePreedit { text, cursor } => {
-                if strip_up && !strip_was {
+                let floating = strip_up && display == SuggestDisplayConfig::Floating;
+                if floating && !strip_was {
                     // The opening transition: the client still shows the
                     // inline preedit from before the strip — clear it so the
                     // word only lives in the floating box.
@@ -1836,7 +1843,10 @@ fn emit_with(
                             .append1(0u32),
                     );
                 }
-                if !strip_up {
+                if !floating {
+                    // The strip is closed (plain inline preedit) or the
+                    // mirror/inline displays keep the classic preedit beside
+                    // the table.
                     let len = text.chars().count() as u32;
                     let attrs: &[Attr] = if hide_underline {
                         &[]
@@ -1858,9 +1868,10 @@ fn emit_with(
                 }
                 // The box's input line is not shaped here: the word rides
                 // `UpdateCandidates` (the inline modes have no preedit signal
-                // to convert) and `strip_show` writes it. While the strip is
-                // up the inline preedit stays cleared — the word lives only
-                // in the box.
+                // to convert) and `strip_show` writes it — except for the
+                // inline display, where the classic preedit is the word's
+                // only surface. While the strip is up in floating the inline
+                // preedit stays cleared — the word lives only in the box.
             }
             Action::HidePreedit => {
                 out.push(
@@ -1922,8 +1933,12 @@ fn emit_with(
             // The strip renders server-side, the picker's lookup-table
             // precedent: the candidate actions carry the word-in-flight
             // (the box's input line) and the engine's full list, the server
-            // pages and labels the list (below).
-            Action::UpdateCandidates { word, items } => strip_show(word, items, out),
+            // pages and labels the list (below). The inline display has no
+            // input line — the classic preedit is the word's only surface.
+            Action::UpdateCandidates { word, items } => {
+                let aux = display != SuggestDisplayConfig::Inline;
+                strip_show(aux, word, items, out)
+            }
             Action::HideCandidates => strip_hide(out),
         }
     }
@@ -1960,7 +1975,7 @@ thread_local! {
 /// is a word change, so the input line is rewritten and the pager's page
 /// never survives it. An empty list would render an empty table — hide
 /// instead, keeping the state and the screen in step.
-fn strip_show(word: &str, items: &[String], out: &mut Vec<Message>) {
+fn strip_show(aux: bool, word: &str, items: &[String], out: &mut Vec<Message>) {
     if items.is_empty() {
         strip_hide(out);
         return;
@@ -1969,11 +1984,15 @@ fn strip_show(word: &str, items: &[String], out: &mut Vec<Message>) {
     // window (ibus intelligent pinyin's aux line); the cursor arg carries
     // no meaning there. The action carries the word because the inline
     // modes have no preedit signal to convert — this is the only source.
-    out.push(
-        signal("UpdateAuxiliaryText")
-            .append1(plain_text(word))
-            .append1(true),
-    );
+    // The inline display keeps the classic preedit as the word's only
+    // surface, so no line at all.
+    if aux {
+        out.push(
+            signal("UpdateAuxiliaryText")
+                .append1(plain_text(word))
+                .append1(true),
+        );
+    }
     STRIP.with(|cell| {
         *cell.borrow_mut() = Some(StripState {
             items: items.to_vec(),

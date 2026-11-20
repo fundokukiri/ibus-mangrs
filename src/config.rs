@@ -56,6 +56,12 @@ pub struct Config {
     /// (`Method::uses_digit_tone_keys`): their digits are tone keys, so the
     /// strip must not claim them.
     pub suggest_words: bool,
+    /// Experimental: the suggestion strip's display while the strip is up —
+    /// `floating` (default) only in the box (the client's field stays clean
+    /// until the word commits), `mirror` in both places (the box's input line
+    /// and the client's inline preedit, synced per keystroke), `inline` only
+    /// the classic preedit beside the table.
+    pub suggest_display: SuggestDisplayConfig,
     /// Experimental: the preferred injection backend — `auto` keeps the
     /// environment matrix; a named backend leads the selection walk and the
     /// matrix falls back when it cannot build. Off (`auto`) is exactly the
@@ -604,6 +610,24 @@ pub enum BackspaceToneConfig {
     UnikeyWalk,
 }
 
+/// Where the suggestion strip's word-in-flight shows while the strip is up
+/// (experimental `suggest_words`): only the floating box's input line, both
+/// that and the client's inline preedit kept in sync, or only the classic
+/// inline preedit beside the table. Floating is the shipped default — the
+/// ibus intelligent pinyin shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SuggestDisplayConfig {
+    /// Only the floating box; the client's field stays clean until the word
+    /// commits.
+    #[default]
+    Floating,
+    /// The word shows in both places, synced per keystroke.
+    Mirror,
+    /// Only the classic inline preedit beside the table.
+    Inline,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum W2uConfig {
@@ -879,6 +903,7 @@ impl Default for Config {
             keep_composed_words: false,
             keep_repeats_raw: false,
             suggest_words: false,
+            suggest_display: SuggestDisplayConfig::Floating,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
@@ -1754,6 +1779,18 @@ children = ["preedit", "flow"]
         assert!(!c.suggest_words);
         let c: Config = toml::from_str("suggest_words = true").unwrap();
         assert!(c.suggest_words);
+    }
+
+    #[test]
+    fn suggest_display_defaults_to_floating_and_round_trips() {
+        // Display-only switch: the floating box is the shipped look, the
+        // mirror and inline-only choices are the alternatives.
+        let c: Config = toml::from_str("").unwrap();
+        assert_eq!(c.suggest_display, SuggestDisplayConfig::Floating);
+        let c: Config = toml::from_str("suggest_display = \"mirror\"").unwrap();
+        assert_eq!(c.suggest_display, SuggestDisplayConfig::Mirror);
+        let c: Config = toml::from_str("suggest_display = \"inline\"").unwrap();
+        assert_eq!(c.suggest_display, SuggestDisplayConfig::Inline);
     }
 
     #[test]

@@ -3731,6 +3731,93 @@ fn backspace_tracks_the_box_line_and_the_list() {
 }
 
 #[test]
+fn the_mirror_display_shows_the_word_in_both_places() {
+    strip_reset_for_test();
+    // The mirror choice: the word-in-flight lives in both places at once —
+    // the client's inline preedit AND the box's input line — one source,
+    // both surfaces, synced per keystroke.
+    let (engine, mut handler) = strip_handler(true);
+    {
+        let mut e = lock_engine(&engine);
+        e.apply_config(&Config {
+            suggest_display: SuggestDisplayConfig::Mirror,
+            suggest_words: true,
+            experimental_features: true,
+            ..Config::default()
+        });
+    }
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert_eq!(
+        members(&out),
+        vec![
+            "UpdatePreeditText",
+            "UpdateAuxiliaryText",
+            "UpdateLookupTable"
+        ],
+        "both surfaces ride the same batch"
+    );
+    let inline = out[0]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("preedit variant");
+    let aux = out[1]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("auxiliary variant");
+    assert_eq!(
+        text_from_variant(&inline).as_deref(),
+        Some("th"),
+        "the inline preedit carries the word"
+    );
+    assert_eq!(
+        text_from_variant(&aux).as_deref(),
+        Some("th"),
+        "the box's input line carries the same word"
+    );
+    // Backspace below the two-char floor: the strip closes and the word
+    // returns inline — the box never shows a word shorter than the strip's
+    // floor, machine-independently (the old shape expected the aux to keep
+    // tracking below it, which only held while a list still existed).
+    let (consumed, out) = press(&mut handler, keymap::BACKSPACE);
+    assert!(consumed, "backspace edits the word inside the box");
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "HideAuxiliaryText", "HideLookupTable"]
+    );
+    let inline = out[0]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("preedit variant");
+    assert_eq!(
+        text_from_variant(&inline).as_deref(),
+        Some("t"),
+        "the remaining key shows inline"
+    );
+}
+
+#[test]
+fn the_classic_display_keeps_the_inline_preedit() {
+    strip_reset_for_test();
+    // The inline-only choice: the word stays inline in the client and the
+    // table rides beside it — no floating input line anywhere.
+    let (engine, mut handler) = strip_handler(true);
+    {
+        let mut e = lock_engine(&engine);
+        e.apply_config(&Config {
+            suggest_display: SuggestDisplayConfig::Inline,
+            suggest_words: true,
+            experimental_features: true,
+            ..Config::default()
+        });
+    }
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "classic: the preedit stays inline, no auxiliary line"
+    );
+}
+
+#[test]
 fn minus_equals_end_the_word_while_the_strip_is_up() {
     strip_reset_for_test();
     // `-`/`=` are word terminators again: the strip owns no paging keys —
