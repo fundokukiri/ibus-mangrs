@@ -4056,8 +4056,8 @@ fn candidate_clicked_picks_through_the_strip() {
         .unwrap_or_else(|| panic!("the clicked entry commits: {:?}", members_seen));
     assert_eq!(
         committed.as_deref(),
-        Some(cands[0].as_str()),
-        "the clicked row commits, not the raw keys"
+        Some(format!("{} ", cands[0]).as_str()),
+        "the clicked row commits (plus the pick's space), not the raw keys"
     );
 }
 
@@ -4112,8 +4112,8 @@ fn digits_pick_while_the_strip_is_visible() {
         .expect("CommitText variant");
     assert_eq!(
         text_from_variant(&committed).as_deref(),
-        Some(cands[0].as_str()),
-        "the labeled first candidate commits, not the raw keys"
+        Some(format!("{} ", cands[0]).as_str()),
+        "the labeled first candidate commits (plus the pick's space), not the raw keys"
     );
     // The strip is closed: the next word types fresh, one-char quiet.
     let (_, out) = press(&mut handler, 0x78); // 'x'
@@ -4172,8 +4172,8 @@ fn digits_pick_while_the_strip_is_paged() {
         .expect("CommitText variant");
     assert_eq!(
         text_from_variant(&committed).as_deref(),
-        Some(cands[5].as_str()),
-        "label 1 on page 1 commits the list's sixth entry (global index 5)"
+        Some(format!("{} ", cands[5]).as_str()),
+        "label 1 on page 1 commits the list's sixth entry (global index 5), plus the pick's space"
     );
 }
 

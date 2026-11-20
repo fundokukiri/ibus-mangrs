@@ -5168,7 +5168,7 @@ fn suggest_accept_commits_the_candidate_and_closes() {
         vec![
             Action::HidePreedit,
             Action::HideCandidates,
-            Action::Commit(picked.clone()),
+            Action::Commit(format!("{} ", picked.clone())),
         ]
     );
     assert!(!e.suggest_open);
@@ -5221,7 +5221,7 @@ fn suggest_accept_capitalizes_a_sentence_start_candidate() {
         vec![
             Action::HidePreedit,
             Action::HideCandidates,
-            Action::Commit(capitalized(&picked)),
+            Action::Commit(format!("{} ", capitalized(&picked))),
         ]
     );
     // The context word follows the commit as it landed: the capitalized form.
@@ -5255,7 +5255,7 @@ fn suggest_accept_keeps_the_dictionary_form_without_auto_capitalize() {
         vec![
             Action::HidePreedit,
             Action::HideCandidates,
-            Action::Commit(picked.clone()),
+            Action::Commit(format!("{} ", picked.clone())),
         ]
     );
     assert_eq!(e.last_committed_word.as_deref(), Some(picked.as_str()));
@@ -5285,7 +5285,7 @@ fn suggest_accept_stays_lowercase_mid_sentence() {
         vec![
             Action::HidePreedit,
             Action::HideCandidates,
-            Action::Commit(picked.clone()),
+            Action::Commit(format!("{} ", picked.clone())),
         ]
     );
     assert_eq!(e.last_committed_word.as_deref(), Some(picked.as_str()));
@@ -5440,7 +5440,7 @@ fn suggest_accept_rewrites_the_held_word_in_surrounding() {
         vec![
             Action::HideCandidates,
             Action::DeleteBefore(2),
-            Action::Commit(picked),
+            Action::Commit(format!("{} ", picked)),
         ],
         "{actions:?}"
     );
@@ -5461,7 +5461,7 @@ fn suggest_accept_uses_forwarded_backspaces_in_forward_mode() {
         vec![
             Action::HideCandidates,
             Action::ForwardBackspaces(2),
-            Action::Commit(picked),
+            Action::Commit(format!("{} ", picked)),
         ],
         "{actions:?}"
     );
@@ -5485,7 +5485,7 @@ fn suggest_accept_rewrites_through_injection_in_flow() {
             Action::CommitNow("th".into()),
             Action::InjectBackspaces(2),
             Action::PostDelay(10),
-            Action::Commit(picked),
+            Action::Commit(format!("{} ", picked)),
         ],
         "{actions:?}"
     );

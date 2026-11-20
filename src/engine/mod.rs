@@ -1864,7 +1864,7 @@ impl Engine {
         } else {
             candidate.word
         };
-        let text = encode(self.charset, &word);
+        let text = format!("{} ", encode(self.charset, &word));
         // The mode the word was served in decides the rewrite: preedit holds
         // nothing on the wire (drop and commit), the inline modes hold the
         // composed text in the application — the pick erases it through the
@@ -1904,10 +1904,14 @@ impl Engine {
             }
         }
         // The context word is the commit as it landed — like `on_finish`
-        // recording the word as Finish carried it, capital included.
+        // recording the word as Finish carried it, capital included. The
+        // space rides the commit (ibus intelligent pinyin's shape: a pick
+        // ends the word and the next one starts fresh), so the context stays
+        // the bare word for the next round's ranking.
         self.last_committed_word = Some(word);
-        // The candidate's last char is now on screen: keep the capitalize
-        // window and `last_char` in step, like every committed word.
+        // The candidate's last char (the space) is now on screen: keep the
+        // capitalize window and `last_char` in step, like every committed
+        // word — a space re-opens the em-dash/double-space windows.
         self.note_committed(&text);
         actions.push(Action::Commit(text));
         actions
