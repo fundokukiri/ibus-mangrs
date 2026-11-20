@@ -3197,7 +3197,7 @@ fn emoji_menu_backspace_returns_to_the_recents() {
 }
 
 #[test]
-fn emoji_menu_arrows_move_the_highlight_across_pages() {
+fn emoji_menu_arrows_wrap_within_the_page() {
     use super::emoji_picker::EmojiPickerState;
     let mut state = EmojiPickerState::with(emoji_rows(), Vec::new());
     assert_eq!(state.cursor, 0, "the first row starts highlighted");
@@ -3209,23 +3209,20 @@ fn emoji_menu_arrows_move_the_highlight_across_pages() {
         Some("🐢".into()),
         "Enter will commit exactly the highlighted row"
     );
-    // Up at the page's top does not underflow.
+    // Up past the page's top wraps to the page's last row, same page.
     state.cursor_up();
     state.cursor_up();
-    state.cursor_up();
-    assert_eq!(state.cursor, 0);
-    // Down from the last row walks into the next page's first row.
-    state.cursor = 9;
-    state.cursor_down();
-    assert_eq!(state.page, 1, "twelve rows, so a second page exists");
-    assert_eq!(state.cursor, 0);
-    assert_eq!(state.pick(0).map(|(_, g)| g), Some("🌙".into()));
-    // Up from that page's top returns to the previous page's last row.
     state.cursor_up();
     assert_eq!(state.page, 0);
     assert_eq!(state.cursor, 9);
     assert_eq!(state.pick(9).map(|(_, g)| g), Some("☕".into()));
+    // Down past the page's end wraps back to the first row — the arrows
+    // never turn a page (< > do).
+    state.cursor_down();
+    assert_eq!(state.page, 0);
+    assert_eq!(state.cursor, 0);
     // Page turns keep the slot but clamp it to a short page.
+    state.cursor = 9;
     state.page_down();
     assert_eq!(state.page, 1);
     assert_eq!(state.cursor, 1, "the last page holds two rows");
