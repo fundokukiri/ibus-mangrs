@@ -5336,14 +5336,30 @@ fn suggest_digit_still_ends_the_word_and_hides() {
 // --- prediction tier (state A) ---
 
 #[test]
-fn compounds_lead_state_a() {
-    // Typing `sinh` completes no syllable (it IS a syllable), so the legacy
-    // strip stays silent — under the predict gate the model's compounds
-    // fill the list, strongest first.
+fn predict_state_a_serves_model_single_words_only() {
+    // The owner trimmed the strip to single words and moved the dictionary
+    // out of the suggestion business: state A serves the model's VN rows
+    // for the prefix, no compounds, no table completions, no corrections.
+    // `si` opens a single-word list (the fixture's `sinh` and its tone
+    // variant); `sinhh` matches no model row and no dictionary correction
+    // joins. A one-char word stays on the state-B path (below two
+    // characters nothing is consulted).
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
-    let keys = suggest_keys(&mut e, "sinh");
-    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on sinh");
-    assert_eq!(items.first().map(String::as_str), Some("sinh viên"));
+    let keys = suggest_keys(&mut e, "si");
+    if let Some(items) = candidates_of(keys.last().unwrap()) {
+        assert!(items.iter().all(|item| !item.contains(' ')), "{items:?}");
+    }
+    for word in ["sinh", "sinhh"] {
+        let keys = suggest_keys(&mut e, word);
+        if let Some(items) = candidates_of(&keys[keys.len() - 1]) {
+            assert!(items.iter().all(|item| !item.contains(' ')), "{items:?}");
+        }
+    }
+    let sinhh = &suggest_keys(&mut e, "sinhh");
+    assert!(
+        candidates_of(&sinhh[sinhh.len() - 1]).is_none(),
+        "no dictionary correction on the predict path"
+    );
 }
 
 #[test]
@@ -5365,14 +5381,18 @@ fn predict_gate_off_keeps_legacy_lists() {
 }
 
 #[test]
-fn compounds_pick_commits_word_and_space() {
-    // A compound pick replaces the in-flight word through the existing
-    // state-A commit machinery — no new transport, and the strip closes.
+fn predict_state_a_leads_model_completions() {
+    // The VN band ranks by the model's unigram counts: `si` completes the
+    // fixture's VN rows (single words only — the model compound band is
+    // gone).
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
-    suggest_keys(&mut e, "sinh");
-    let actions = e.accept_candidate(0);
-    assert_eq!(replay(&actions), "sinh viên ");
-    assert!(!e.suggest_open);
+    let keys = suggest_keys(&mut e, "si");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on si");
+    assert!(
+        !items.is_empty(),
+        "the model's VN rows fill the list on a live prefix"
+    );
+    assert!(items.iter().all(|item| !item.contains(' ')), "{items:?}");
 }
 
 // --- prediction tier (state B) ---
@@ -5478,7 +5498,7 @@ fn state_b_without_context_stays_silent() {
 #[test]
 fn english_completions_on_ascii_prefix() {
     // `hel` is pure ASCII: the EN band joins the list with the model's
-    // EN rows, frequency-first among themselves.
+    // EN rows on that prefix, frequency-first among themselves.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "hel");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on hel");
@@ -5489,8 +5509,8 @@ fn english_completions_on_ascii_prefix() {
         .collect();
     assert_eq!(
         en,
-        [&"hello", &"help", &"hen"],
-        "EN rows frequency-first: {items:?}"
+        [&"hello", &"help"],
+        "EN rows on the typed prefix, frequency-first: {items:?}"
     );
 }
 
@@ -5507,46 +5527,19 @@ fn vietnamese_letters_exclude_english() {
 
 #[test]
 fn emoji_reach_the_strip_tail() {
-    // `meo` folds to the mèo keywords: the VN band leads (mèo completes
-    // the typed prefix), the cat glyphs fill the tail, capped at 3.
+    // `meo` folds to the mèo keywords: the model carries no VN row for the
+    // prefix and the dictionary left the strip, so the glyphs serve alone,
+    // capped at STRIP_EMOJI_CAP.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "meo");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on meo");
-    assert_eq!(items.first().map(String::as_str), Some("mèo"));
-    let glyphs = items
+    assert_eq!(items.first().map(String::as_str), Some("😸"), "{items:?}");
+    let count = items
         .iter()
-        .filter(|w| !w.chars().any(|c| c.is_ascii_alphanumeric()));
-    let count = glyphs.count();
+        .filter(|w| !w.chars().any(|c| c.is_ascii_alphanumeric()))
+        .count();
     assert!(
         count > 0 && count <= crate::emoji::STRIP_EMOJI_CAP,
-        "{items:?}"
-    );
-}
-
-#[test]
-fn band_order_vn_en_emoji() {
-    // Bands are contiguous in VN, EN, emoji order: the VN material (here
-    // the corrections of the raw spelling — completions never match, the
-    // toneless key keeps the ư shape) sits before the first glyph, the
-    // reserved emoji tail holds at most STRIP_EMOJI_CAP glyphs.
-    let mut e = predict_engine(Method::Telex, Mode::Preedit);
-    let keys = suggest_keys(&mut e, "cuoi");
-    let items = candidates_of(keys.last().unwrap())
-        .unwrap_or_else(|| panic!("the strip opens on cuoi: {:?}", keys.last().unwrap()));
-    let first_glyph = items
-        .iter()
-        .position(|w| !w.chars().any(|c| c.is_ascii_alphanumeric()));
-    let pos =
-        first_glyph.unwrap_or_else(|| panic!("cuoi must reach the laughing faces: {items:?}"));
-    assert!(pos > 0, "VN material leads the glyphs: {items:?}");
-    assert!(
-        items[pos..]
-            .iter()
-            .all(|w| !w.chars().any(|c| c.is_ascii_alphanumeric())),
-        "glyphs are the tail: {items:?}"
-    );
-    assert!(
-        items[pos..].len() <= crate::emoji::STRIP_EMOJI_CAP,
         "{items:?}"
     );
 }
@@ -5856,10 +5849,14 @@ fn learning_off_writes_nothing() {
 #[test]
 fn pick_flushes_on_tick_not_on_key() {
     // The pick lands in memory at accept time and on disk at the engine's
-    // tick — the key path never touches the filesystem.
+    // tick — the key path never touches the filesystem. `sin` completes the
+    // fixture's `sinh` row (single words only now — the model compound band
+    // is gone).
     let mut e = learn_engine(Method::Telex, Mode::Preedit);
     let dir = e.learn_dir.clone();
-    suggest_keys(&mut e, "sinh");
+    let keys = suggest_keys(&mut e, "sin");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on sin");
+    let word = items[0].clone();
     e.accept_candidate(0);
     assert!(
         !dir.join(crate::learn::PICKS_FILE).exists(),
@@ -5868,7 +5865,7 @@ fn pick_flushes_on_tick_not_on_key() {
     e.tick();
     let text = std::fs::read_to_string(dir.join(crate::learn::PICKS_FILE))
         .expect("the tick flushed the pick");
-    assert!(text.contains("sinh viên\t1\n"), "{text}");
+    assert!(text.contains(&format!("{word}\t1\n")), "{text}");
 }
 
 #[test]

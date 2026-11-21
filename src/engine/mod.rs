@@ -1840,40 +1840,30 @@ impl Engine {
             && self.strip_possible(self.word_mode.unwrap_or(self.mode))
     }
 
-    /// The prediction tier gate, layered under the strip gate: compounds
-    /// join the state-A list only when the strip itself may open and the
-    /// switch is on (both baked under the experimental gate in
+    /// The prediction tier gate, layered under the strip gate: the model's
+    /// single-word bands serve state A only when the strip itself may open
+    /// and the switch is on (both baked under the experimental gate in
     /// apply_config).
     fn predict_active(&self) -> bool {
         self.suggest_words && self.suggest_predict
     }
 
-    /// The state-A candidate list for the in-flight word, banded:
+    /// The state-A candidate list for the in-flight word. Two paths:
     ///
-    /// * band 0 — the table's completions and, under the predict gate, the
-    ///   model's compounds for the same prefix. Ordering follows the word's
-    ///   state: a COMPLETE syllable leads with its compounds (what continues
-    ///   it outranks the tone-variant siblings behind it — `sinh` shows
-    ///   `sinh viên` before `sính`), a partial prefix leads with its
-    ///   completions (finishing the syllable outranks the compounds of its
-    ///   possible endings).
-    /// * band 1 — English words on a pure-ASCII prefix (`hel` offers
-    ///   `hello`; `hè` excludes EN outright), frequency-first.
-    /// * band 2 — emoji keyword matches, fold-exact, capped at
-    ///   [`crate::emoji::STRIP_EMOJI_CAP`], the tail.
-    /// * the table's corrections (an unknown word's spelling fixes) are the
-    ///   weakest material: they fill the tail — but on a pure-ASCII prefix
-    ///   with EN hits they trail even the emoji band, because VN
-    ///   corrections of an English-looking prefix are noise and must not
-    ///   bury the EN rows (`hel` offers `hello` first, not 25 VN
-    ///   distance-neighbors). The legacy path keeps the table's own
-    ///   `candidates` gating untouched.
+    /// * predict on — the MODEL only, the dictionary having left the
+    ///   suggestion business (its future home is spell-check): band 0 is the
+    ///   model's VN rows for the same toneless prefix (single words,
+    ///   unigram-first, the typed word excluded), band 1 the EN rows on a
+    ///   pure-ASCII prefix (`hel` offers `hello`; `hè` excludes EN
+    ///   outright), band 2 the emoji keyword tail. No corrections: an
+    ///   unknown word's spelling fixes were the dictionary's job.
+    /// * predict off — legacy exactly: the table's own gating (completions
+    ///   first, corrections only behind an unknown word, one 25 cap).
     ///
     /// The learning bonus (the personalization task) stays inside these
     /// bands — it reorders within a band, never across one. One builder for
     /// the strip emit and the pick path, so the two can never drift apart:
-    /// the pick indexes into the list the strip emitted. The real scoring
-    /// fusion lands with the trigram tier.
+    /// the pick indexes into the list the strip emitted.
     fn state_a_candidates(&self, word: &str) -> Vec<String> {
         let cap = crate::suggest::MAX_CANDIDATES;
         if !self.predict_active() {
@@ -1886,46 +1876,29 @@ impl Engine {
                 .map(|candidate| candidate.word)
                 .collect();
         }
-        let completions: Vec<String> = self
-            .suggest_table
-            .completions(word)
-            .into_iter()
-            .map(|candidate| candidate.word)
-            .collect();
-        let compounds: Vec<String> = self
+        // Band 0 — the model's VN rows for the word's toneless prefix,
+        // unigram-first. The prefix match alone filters language: VN
+        // syllables never start an English prefix (`hel` finds none) and
+        // vice versa, so no letter-class gate is needed here.
+        let mut out: Vec<String> = self
             .model
             .as_ref()
-            .map(|model| model.compounds_for_prefix(&crate::suggest::toneless(word)))
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(surface, _strength)| surface)
-            .collect();
-        // Band 0 — completions and compounds per the word's state.
-        let mut out = if !compounds.is_empty() && self.suggest_table.contains(word) {
-            let mut merged = compounds;
-            merged.extend(completions);
-            merged
-        } else {
-            let mut merged = completions;
-            merged.extend(compounds);
-            merged
-        };
+            .map(|model| {
+                let (start, end) = model.prefix_range(word);
+                let mut rows: Vec<(String, u32)> = (start..end)
+                    .map(|row| row as u32)
+                    .filter(|&id| model.flags(id) & crate::predict::FLAG_VN_SYLLABLE != 0)
+                    .map(|id| (model.surface(id).to_string(), model.unigram(id)))
+                    .filter(|(surface, _)| *surface != word)
+                    .collect();
+                rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+                rows.into_iter().map(|(surface, _)| surface).collect()
+            })
+            .unwrap_or_default();
         out.truncate(cap);
+        // Band 1 — EN (unchanged), then the emoji tail; the emoji band
+        // reserves its seat so neither band pushes the glyphs out.
         let en = self.en_candidates(word);
-        let ascii_en = !en.is_empty();
-        let corrections: Vec<String> = if self.suggest_table.contains(word) {
-            Vec::new()
-        } else {
-            self.suggest_table
-                .corrections(word)
-                .into_iter()
-                .map(|candidate| candidate.word)
-                .collect()
-        };
-        // The emoji band reserves its seat first: a flood of corrections
-        // (an unknown word matches dozens) must never push the glyphs out
-        // of the list — `cuoi` keeps its laughing faces behind 22
-        // corrections, not under them.
         let emoji: Vec<String> = crate::emoji::glyphs_for_word(word)
             .into_iter()
             .take(crate::emoji::STRIP_EMOJI_CAP)
@@ -1933,34 +1906,9 @@ impl Engine {
             .collect();
         let emoji_room = emoji.len();
         let room = cap.saturating_sub(out.len() + emoji_room);
-        if ascii_en {
-            // Band 1 — EN leads the remainder, the reserved emoji tail
-            // follows, and the weakest material (VN corrections of an
-            // English-looking prefix) fills whatever is left after them.
-            out.extend(en.into_iter().take(room).map(|(surface, _)| surface));
-            let room = cap.saturating_sub(out.len() + emoji_room);
-            let seen: std::collections::HashSet<String> = out.iter().cloned().collect();
-            out.extend(
-                corrections
-                    .iter()
-                    .filter(|w| !seen.contains(*w))
-                    .take(room)
-                    .cloned(),
-            );
-            out.extend(emoji);
-        } else {
-            // Band 0c — the corrections keep their VN place before the
-            // (empty) EN band, the emoji tail stays reserved.
-            let seen: std::collections::HashSet<String> = out.iter().cloned().collect();
-            out.extend(
-                corrections
-                    .iter()
-                    .filter(|w| !seen.contains(*w))
-                    .take(room)
-                    .cloned(),
-            );
-            out.extend(emoji);
-        }
+        out.extend(en.into_iter().take(room).map(|(surface, _)| surface));
+        let room = cap.saturating_sub(out.len() + emoji_room);
+        out.extend(emoji.into_iter().take(room));
         out
     }
 
