@@ -85,6 +85,11 @@ _HEADER_LEN = 16 + 8 * _SECTION_COUNT
 _FLAG_VN = 1
 _FLAG_EN = 2
 
+# The format addresses vocab rows with 16-bit ids (bigram/trigram keys pack
+# two/three ids into u64, compound members are u16), so the vocabulary caps
+# here. VN syllables number ~8k; the EN word list is the big side.
+_MAX_VOCAB_ROWS = 1 << 16
+
 # The five tone marks only; horn, hook, circumflex and breve shapes stay.
 _TONE_MARKS = {0x0300, 0x0301, 0x0303, 0x0309, 0x0323}
 _VIET_PLAIN = "abcdefghijklmnopqrstuvwxyzăâđêôơư"
@@ -366,10 +371,18 @@ def pack_model(config, counters, vn_allowed, en_allowed, corpus_logs, out_dir, l
     uni_float.update(counters["en"].uni)
     uni_r = _rounded(uni_float)
 
-    tokens = sorted(
-        uni_r,
-        key=lambda t: (toneless(t), t),
-    )
+    # VN rows are the prediction core and stay whole; EN fills the remainder
+    # by rounded frequency — the EN tail is hapax web-crawl noise that no
+    # prediction surface ever needs.
+    vn_rows = sorted((t for t in uni_r if t in vn_allowed),
+                     key=lambda t: (-uni_r[t], t))
+    en_rows = sorted((t for t in uni_r if t not in vn_allowed),
+                     key=lambda t: (-uni_r[t], t))
+    if len(vn_rows) + len(en_rows) > _MAX_VOCAB_ROWS:
+        log(f"vocab cap: {len(vn_rows)} VN + {len(en_rows)} EN candidates -> "
+            f"keep all VN + top {max(0, _MAX_VOCAB_ROWS - len(vn_rows))} EN")
+    tokens = sorted((vn_rows + en_rows)[:_MAX_VOCAB_ROWS],
+                    key=lambda t: (toneless(t), t))
     ids = {t: i for i, t in enumerate(tokens)}
 
     while True:
@@ -726,6 +739,40 @@ def selftest():
     control = int(max(1, round(1.0 * 2)))
     assert total > control, "weight must shift the ranking"
     print("selftest B pass: weight 2.0 outranks weight 1.0 on identical sentences")
+
+    # Test C — 16-bit id ceiling: the format addresses rows with u16 (n-gram
+    # keys, compound members). A 70k-row EN list must truncate to the cap,
+    # VN rows must survive whole, and a strong bigram beyond the cut (the
+    # exact full-corpus crash) must not reach the compound packer.
+    counters_c = {"vi": LanguageCounters(lambda norm: [], lambda norm: []),
+                  "en": LanguageCounters(lambda norm: [], lambda norm: [])}
+    counters_c["vi"].uni["học"] = 10.0
+    counters_c["vi"].uni["sinh"] = 9.0
+    counters_c["vi"].uni["bài"] = 8.0
+    counters_c["vi"].bi[("học", "sinh")] = 6.0
+    counters_c["en"].bi[("w69999", "w69998")] = 6.0
+    for i in range(70_000):
+        counters_c["en"].uni[f"w{i}"] = float(70_000 - i)
+    config_c = {
+        "thresholds": {"bigram_min": 1, "trigram_min": 1, "min_compound": 5,
+                       "top_compounds_per_head": 2},
+        "output": "cap-test.bin",
+        "whitelist": "(selftest inline)",
+        "eval_split": 0.0,
+        "eval_seed": 0,
+        "max_model_mb": 50,
+    }
+    path_c = pack_model(config_c, counters_c, frozenset("học sinh bài".split()),
+                        frozenset(f"w{i}" for i in range(70_000)), [], root, log)
+    ids_c, bigrams_c = parse_model(path_c)
+    assert len(ids_c) == 1 << 16, f"vocab cap = {len(ids_c)}, expected {1 << 16}"
+    assert all(t in ids_c for t in ("học", "sinh", "bài")), "VN rows must survive the cap"
+    assert "w0" in ids_c and "w65532" in ids_c, "EN rows kept by frequency"
+    assert "w65533" not in ids_c and "w69999" not in ids_c, "EN tail must be cut"
+    pair_c = (ids_c["học"] << 16) | ids_c["sinh"]
+    assert bigrams_c.get(pair_c) == 6, "kept bigram must stay intact"
+    assert all(i < 1 << 16 for i in ids_c.values()), "every id must fit u16"
+    print("selftest C pass: vocab caps at 65,536 rows, VN whole, ids fit u16")
     print("selftest OK")
 
 
