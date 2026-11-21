@@ -137,6 +137,40 @@ pub fn fold_ascii(s: &str) -> String {
         .collect()
 }
 
+/// How many emoji glyphs the suggestion strip offers per list — a keyword
+/// like `cười` sits on dozens of rows, and the strip's one row must not
+/// flood with faces.
+pub const STRIP_EMOJI_CAP: usize = 3;
+
+/// The emoji glyphs whose name, an alias or a keyword folds (see
+/// `fold_ascii`) to EXACTLY the typed word's fold — `meo` reaches the cat
+/// through the keyword `mèo`, `cuoi` the laughing faces via `cười`. Only
+/// single-word keys can equal one typed word, so multi-word keywords are
+/// not indexed. The index builds once on first strip use; the query is one
+/// fold plus a hash lookup (the engine's key path).
+pub fn glyphs_for_word(word: &str) -> Vec<&'static str> {
+    static INDEX: OnceLock<HashMap<String, Vec<&'static str>>> = OnceLock::new();
+    let index = INDEX.get_or_init(|| {
+        let mut map: HashMap<String, Vec<&'static str>> = HashMap::new();
+        for row in embedded() {
+            for key in std::iter::once(&row.name)
+                .chain(row.aliases.iter())
+                .chain(row.keywords.iter())
+            {
+                if key.chars().any(|c| c == ' ' || c == '_') {
+                    continue;
+                }
+                let glyphs = map.entry(fold_ascii(key)).or_default();
+                if !glyphs.contains(&row.glyph.as_str()) {
+                    glyphs.push(row.glyph.as_str());
+                }
+            }
+        }
+        map
+    });
+    index.get(&fold_ascii(word)).cloned().unwrap_or_default()
+}
+
 /// The emoji recently picked through the picker, newest first — its first
 /// page. One name per line in `~/.config/ibus-mangrs/emoji_recent.txt`
 /// (names, not glyphs: a later user-table override keeps applying).
@@ -348,5 +382,45 @@ mod tests {
         }
         assert_eq!(list.len(), RECENT_CAP);
         assert_eq!(list[0], "e12");
+    }
+
+    // --- strip keyword lookup ---
+
+    #[test]
+    fn glyphs_for_word_reaches_the_vietnamese_keywords() {
+        // `meo` reaches the cat family through the keyword `mèo`, `cuoi`
+        // the laughing faces via `cười` — the embedded table is static, so
+        // the anchors hold on every machine.
+        let got = glyphs_for_word("meo");
+        assert!(!got.is_empty(), "{got:?}");
+        assert!(got.contains(&"🐱"), "{got:?}");
+        assert!(
+            glyphs_for_word("cuoi")
+                .iter()
+                .any(|g| g.contains('😃') || g.contains('😄') || g.contains('😀')),
+            "the laughing faces answer cuoi"
+        );
+    }
+
+    #[test]
+    fn glyphs_for_word_answers_english_and_names() {
+        assert!(
+            glyphs_for_word("dog").contains(&"🐶"),
+            "{:?}",
+            glyphs_for_word("dog")
+        );
+        assert!(glyphs_for_word("kitty").contains(&"🐱"));
+    }
+
+    #[test]
+    fn glyphs_for_word_stays_silent_without_an_exact_match() {
+        // Substring folds must not leak (the picker searches, the strip
+        // matches exactly): an unknown word reaches nothing, and a
+        // multi-word keyword can never equal one typed word.
+        assert!(glyphs_for_word("qqq").is_empty());
+        assert!(glyphs_for_word("meoma").is_empty());
+        assert!(glyphs_for_word("").is_empty());
+        // `con mèo` is a two-word keyword — not indexed.
+        assert!(glyphs_for_word("conmeo").is_empty());
     }
 }

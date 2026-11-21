@@ -5462,6 +5462,84 @@ fn state_b_without_context_stays_silent() {
     assert!(keys.iter().all(|b| candidates_of(b).is_none()));
 }
 
+// --- prediction tier (bands: EN + emoji) ---
+
+#[test]
+fn english_completions_on_ascii_prefix() {
+    // `hel` is pure ASCII: the EN band joins the list with the model's
+    // EN rows, frequency-first among themselves.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "hel");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on hel");
+    assert!(items.contains(&"hello".to_string()), "{items:?}");
+    let en: Vec<&String> = items
+        .iter()
+        .filter(|w| ["hello", "help", "hen"].contains(&w.as_str()))
+        .collect();
+    assert_eq!(
+        en,
+        [&"hello", &"help", &"hen"],
+        "EN rows frequency-first: {items:?}"
+    );
+}
+
+#[test]
+fn vietnamese_letters_exclude_english() {
+    // A Vietnamese letter or tone mark anywhere excludes EN: `hè` never
+    // offers `hello`.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "hè");
+    if let Some(items) = candidates_of(keys.last().unwrap()) {
+        assert!(!items.contains(&"hello".to_string()), "{items:?}");
+    }
+}
+
+#[test]
+fn emoji_reach_the_strip_tail() {
+    // `meo` folds to the mèo keywords: the VN band leads (mèo completes
+    // the typed prefix), the cat glyphs fill the tail, capped at 3.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "meo");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on meo");
+    assert_eq!(items.first().map(String::as_str), Some("mèo"));
+    let glyphs = items
+        .iter()
+        .filter(|w| !w.chars().any(|c| c.is_ascii_alphanumeric()));
+    let count = glyphs.count();
+    assert!(
+        count > 0 && count <= crate::emoji::STRIP_EMOJI_CAP,
+        "{items:?}"
+    );
+}
+
+#[test]
+fn band_order_vn_en_emoji() {
+    // Bands are contiguous in VN, EN, emoji order: the VN material (here
+    // the corrections of the raw spelling — completions never match, the
+    // toneless key keeps the ư shape) sits before the first glyph, the
+    // reserved emoji tail holds at most STRIP_EMOJI_CAP glyphs.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "cuoi");
+    let items = candidates_of(keys.last().unwrap())
+        .unwrap_or_else(|| panic!("the strip opens on cuoi: {:?}", keys.last().unwrap()));
+    let first_glyph = items
+        .iter()
+        .position(|w| !w.chars().any(|c| c.is_ascii_alphanumeric()));
+    let pos =
+        first_glyph.unwrap_or_else(|| panic!("cuoi must reach the laughing faces: {items:?}"));
+    assert!(pos > 0, "VN material leads the glyphs: {items:?}");
+    assert!(
+        items[pos..]
+            .iter()
+            .all(|w| !w.chars().any(|c| c.is_ascii_alphanumeric())),
+        "glyphs are the tail: {items:?}"
+    );
+    assert!(
+        items[pos..].len() <= crate::emoji::STRIP_EMOJI_CAP,
+        "{items:?}"
+    );
+}
+
 #[test]
 fn suggest_digit_tone_presets_stay_silent() {
     // The presets whose digits are tone keys never run the strip: the
