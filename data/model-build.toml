@@ -4,8 +4,8 @@
 # is embedded verbatim into the model's PROVENANCE section by the builder —
 # the release-attached binary carries its attribution standalone. URLs were
 # verified live (HTTP 200) on 21/11/2026. The raw corpora are never
-# committed; the build runs on Google Colab in the owner's hands (spec:
-# "Data build and distribution").
+# committed; the build runs off-repo in the owner's hands on a Kaggle
+# notebook (spec: "Data build and distribution").
 #
 # Wikipedia-derived sources (viwiki dump, eng_wikipedia_2016_1M) carry
 # `enabled` switches: the no-Wikipedia model is one flag away. The release
