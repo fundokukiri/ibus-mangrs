@@ -57,6 +57,7 @@ decision — WAITING ON OWNER").
 import argparse
 import bz2
 import hashlib
+import pickle
 import re
 import sys
 import tomllib
@@ -266,6 +267,29 @@ class LanguageCounters:
         return tokens
 
 
+def _corpus_fingerprint(config):
+    """Stale-checkpoint guard: any counting-relevant config change recounts."""
+    entries = [e for e in config["corpora"] if e.get("enabled", True)]
+    keys = [
+        (
+            e["name"],
+            float(e.get("weight", 1.0)),
+            e.get("max_sentences"),
+            bool(e.get("filter_noise", False)),
+            int(e.get("min_sentence_tokens", 1)),
+            float(e.get("max_noise_ratio", 1.0)),
+        )
+        for e in entries
+    ]
+    keys.append(("en_words", config["en_words"]["file"]))
+    return hashlib.sha256(repr(keys).encode()).hexdigest()
+
+
+# Bump when counting semantics change in a way a saved counters blob cannot
+# represent; a version/fingerprint mismatch recounts from scratch.
+_CKPT_VERSION = 1
+
+
 def build(config, directory, out_dir, log):
     """Count, prune, pack; write <out_dir>/<output> + held-out files."""
     split_pct = round(float(config.get("eval_split", 0.0)) * 10000)
@@ -290,67 +314,103 @@ def build(config, directory, out_dir, log):
     (out_dir / "held-out").mkdir(parents=True, exist_ok=True)
     corpus_logs = []
 
-    # English vocabulary rows also come from the word list itself.
-    en = counters["en"]
-    for token, freq in read_words_file(directory / en_entry["file"]):
-        token = unicodedata.normalize("NFC", token).lower()
-        if token in en_allowed:
-            en.uni[token] += freq * float(en_entry.get("weight", 1.0))
+    # Counting is the hour-long stage: checkpoint it so a pack-time crash
+    # never repeats the sweep. A stale, mismatched or unreadable blob counts
+    # from scratch — the corpus sweep itself only ever re-runs wholesale.
+    ckpt = out_dir / "counters-checkpoint.pkl"
+    loaded = False
+    if ckpt.exists():
+        try:
+            blob = pickle.loads(ckpt.read_bytes())
+            if blob["version"] == _CKPT_VERSION \
+                    and blob["fingerprint"] == _corpus_fingerprint(config):
+                for lang, (uni, bi, tri) in blob["counters"].items():
+                    counters[lang].uni, counters[lang].bi, counters[lang].tri = uni, bi, tri
+                corpus_logs = blob["corpus_logs"]
+                loaded = True
+                log(f"checkpoint: counters loaded ({ckpt.stat().st_size / 1e6:.0f} MB) "
+                    f"— corpus sweep skipped")
+        except Exception as exc:
+            log(f"checkpoint unreadable ({exc}) — counting from scratch")
 
-    for entry in config["corpora"]:
-        if not entry.get("enabled", True):
-            log(f"skip (disabled): {entry['name']}")
-            continue
-        lang = entry["language"]
-        counter = counters[lang]
-        weight = float(entry.get("weight", 1.0))
-        cap = entry.get("max_sentences")
-        noise_cap = float(entry.get("max_noise_ratio", 1.0))
-        min_tokens = int(entry.get("min_sentence_tokens", 1))
-        held_out_path = out_dir / "held-out" / f"{entry['name']}.txt"
-        stats = {"raw": 0, "dup": 0, "held_out": 0, "counted": 0, "over_cap": 0, "noisy": 0}
-        held_out_lines = []
-        for raw in read_corpus_sentences(entry, directory):
-            norm = normalize(raw)
-            if not norm:
+    if not loaded:
+        # English vocabulary rows also come from the word list itself.
+        en = counters["en"]
+        for token, freq in read_words_file(directory / en_entry["file"]):
+            token = unicodedata.normalize("NFC", token).lower()
+            if token in en_allowed:
+                en.uni[token] += freq * float(en_entry.get("weight", 1.0))
+
+        for entry in config["corpora"]:
+            if not entry.get("enabled", True):
+                log(f"skip (disabled): {entry['name']}")
                 continue
-            stats["raw"] += 1
-            if dedup:
-                h = _hash_int(lang, norm, seed)
-                if h in counter.seen:
-                    stats["dup"] += 1
+            lang = entry["language"]
+            counter = counters[lang]
+            weight = float(entry.get("weight", 1.0))
+            cap = entry.get("max_sentences")
+            noise_cap = float(entry.get("max_noise_ratio", 1.0))
+            min_tokens = int(entry.get("min_sentence_tokens", 1))
+            held_out_path = out_dir / "held-out" / f"{entry['name']}.txt"
+            stats = {"raw": 0, "dup": 0, "held_out": 0, "counted": 0, "over_cap": 0, "noisy": 0}
+            held_out_lines = []
+            for raw in read_corpus_sentences(entry, directory):
+                norm = normalize(raw)
+                if not norm:
                     continue
-                counter.seen.add(h)
-            if split_pct and _hash_int("heldout", norm, seed) % 10000 < split_pct:
-                stats["held_out"] += 1
-                held_out_lines.append(norm)
-                continue
-            if cap is not None and stats["counted"] >= int(cap):
-                stats["over_cap"] += 1
-                continue
-            if entry.get("filter_noise"):
-                raws = counter.raw_runs(norm)
-                kept = counter.tokenizer(norm)
-                if raws and 1.0 - len(kept) / len(raws) > noise_cap:
-                    stats["noisy"] += 1
+                stats["raw"] += 1
+                if stats["raw"] % 200_000 == 0:
+                    log(f"  {entry['name']}: {stats['raw']} raw / {stats['counted']} counted "
+                        f"/ {stats['noisy']} noisy")
+                if dedup:
+                    h = _hash_int(lang, norm, seed)
+                    if h in counter.seen:
+                        stats["dup"] += 1
+                        continue
+                    counter.seen.add(h)
+                if split_pct and _hash_int("heldout", norm, seed) % 10000 < split_pct:
+                    stats["held_out"] += 1
+                    held_out_lines.append(norm)
                     continue
-                if len(kept) < min_tokens:
-                    stats["noisy"] += 1
+                if cap is not None and stats["counted"] >= int(cap):
+                    stats["over_cap"] += 1
                     continue
-            counter.add_sentence(norm, weight)
-            stats["counted"] += 1
-        if held_out_lines:
-            held_out_path.write_text("\n".join(held_out_lines) + "\n", encoding="utf-8")
-        log(
-            f"{entry['name']}: raw={stats['raw']} dedup={stats['dup']} "
-            f"held_out={stats['held_out']} noisy={stats['noisy']} "
-            f"over_cap={stats['over_cap']} counted={stats['counted']} (weight={weight})"
-        )
-        corpus_logs.append((entry, dict(stats)))
+                if entry.get("filter_noise"):
+                    raws = counter.raw_runs(norm)
+                    kept = counter.tokenizer(norm)
+                    if raws and 1.0 - len(kept) / len(raws) > noise_cap:
+                        stats["noisy"] += 1
+                        continue
+                    if len(kept) < min_tokens:
+                        stats["noisy"] += 1
+                        continue
+                counter.add_sentence(norm, weight)
+                stats["counted"] += 1
+            if held_out_lines:
+                held_out_path.write_text("\n".join(held_out_lines) + "\n", encoding="utf-8")
+            log(
+                f"{entry['name']}: raw={stats['raw']} dedup={stats['dup']} "
+                f"held_out={stats['held_out']} noisy={stats['noisy']} "
+                f"over_cap={stats['over_cap']} counted={stats['counted']} (weight={weight})"
+            )
+            corpus_logs.append((entry, dict(stats)))
+
+        payload = {
+            "version": _CKPT_VERSION,
+            "fingerprint": _corpus_fingerprint(config),
+            "counters": {lang: (c.uni, c.bi, c.tri) for lang, c in counters.items()},
+            "corpus_logs": corpus_logs,
+        }
+        log("checkpoint: saving counters (may take a minute)...")
+        tmp = ckpt.with_suffix(".tmp")
+        tmp.write_bytes(pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
+        tmp.replace(ckpt)
+        log(f"checkpoint: saved ({ckpt.stat().st_size / 1e6:.0f} MB)")
 
     # English sentence tokens that never made the words list still counted:
     # they are valid EN rows only when the words list knows them, so drop
     # unknown-token counts from the EN unigram before vocab assembly.
+    en = counters["en"]
     for token in list(en.uni):
         if token not in en_allowed:
             del en.uni[token]
