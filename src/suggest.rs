@@ -356,7 +356,7 @@ pub(crate) fn builtin_rows_with(
     model: Option<&crate::predict::PredictModel>,
 ) -> Vec<(String, u32)> {
     match model {
-        Some(model) => (0..model.row_count() as u16)
+        Some(model) => (0..model.row_count() as u32)
             .filter(|id| model.flags(*id) & crate::predict::FLAG_VN_SYLLABLE != 0)
             .map(|id| (model.surface(id).to_string(), model.unigram(id)))
             .collect(),

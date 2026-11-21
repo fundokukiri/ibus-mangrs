@@ -7,7 +7,10 @@
 //! its own CLDR keyword table and has no section here. The file layout is
 //! pinned by the spec `docs/superpowers/specs/2026-11-21-word-prediction-design.md`
 //! and built by `scripts/build-predict-model.py`; the committed
-//! `data/model-sample.bin` is the test fixture. Lookups are binary searches
+//! `data/model-sample.bin` (v1) and `data/model-sample-v2.bin` (v2) are the
+//! test fixtures. Two formats share the magic: the header version picks the
+//! row-id field width — 16 bits in v1 (65,536-row ceiling), 21 bits in v2
+//! (~2.1M-row ceiling, compound members u32). Lookups are binary searches
 //! over page-cached bytes — nothing is copied into RAM at startup.
 //!
 //! Every integer is little-endian. `open` validates the header and returns
@@ -27,7 +30,11 @@ use std::path::{Path, PathBuf};
 use memmap2::Mmap;
 
 const MAGIC: &[u8; 8] = b"MRSPRED1";
-const VERSION: u32 = 1;
+// The header version discriminates the layout, not just the revision: v1
+// packs row ids in 16-bit fields, v2 in 21-bit fields with u32 compound
+// members. Both readers live here — installed files of either format work.
+const VERSION_V1: u32 = 1;
+const VERSION_V2: u32 = 2;
 const SECTION_COUNT: usize = 10;
 const HEADER_LEN: usize = 16 + 8 * SECTION_COUNT;
 
@@ -49,6 +56,7 @@ pub const FLAG_EN_WORD: u8 = 2;
 
 pub struct PredictModel {
     map: Mmap,
+    version: u32,
     row_count: u32,
     offsets: [u64; SECTION_COUNT],
 }
@@ -66,22 +74,32 @@ fn u64_le(b: &[u8]) -> Option<u64> {
 }
 
 /// The model file search order: an env override for dev and tests, then the
-/// user config dir, then the system install path. `None` when no file exists
+/// user config dir, then the system install path — the v2 name first, so an
+/// installed v2 file wins over a leftover v1. `None` when no file exists
 /// — callers log that and the strip falls back to the legacy embedded table.
 pub fn located_path() -> Option<PathBuf> {
+    const NAMES: [&str; 2] = ["mangrs-predict-v2.bin", "mangrs-predict-v1.bin"];
     if let Ok(path) = std::env::var("MANGRS_MODEL_PATH") {
         let path = PathBuf::from(path);
         if path.is_file() {
             return Some(path);
         }
     }
-    if let Some(path) = dirs::config_dir().map(|d| d.join("ibus-mangrs/mangrs-predict-v1.bin")) {
+    if let Some(dir) = dirs::config_dir() {
+        for name in NAMES {
+            let path = dir.join("ibus-mangrs").join(name);
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+    }
+    for name in NAMES {
+        let path = PathBuf::from("/usr/share/ibus-mangrs/model").join(name);
         if path.is_file() {
             return Some(path);
         }
     }
-    let path = PathBuf::from("/usr/share/ibus-mangrs/model/mangrs-predict-v1.bin");
-    path.is_file().then_some(path)
+    None
 }
 
 /// Maps and validates a model file. `None` on any malformed input: the
@@ -102,7 +120,8 @@ pub fn open(path: &Path) -> Option<PredictModel> {
     if map.get(0..8) != Some(&MAGIC[..]) {
         return None;
     }
-    if u32_le(map.get(8..12)?) != Some(VERSION) {
+    let version = u32_le(map.get(8..12)?)?;
+    if version != VERSION_V1 && version != VERSION_V2 {
         return None;
     }
     if u32_le(map.get(12..16)?) != Some(SECTION_COUNT as u32) {
@@ -124,6 +143,7 @@ pub fn open(path: &Path) -> Option<PredictModel> {
     let row_count = u32_le(map.get(vocab_start..vocab_start + 4)?)?;
     Some(PredictModel {
         map,
+        version,
         row_count,
         offsets,
     })
@@ -135,31 +155,54 @@ impl PredictModel {
         self.row_count as usize
     }
 
+    /// Row-id field width in bits: v1 addresses rows with 16-bit fields, v2
+    /// with 21-bit fields (the trigram packs three of them into one u64).
+    fn id_shift(&self) -> u32 {
+        if self.version == VERSION_V2 {
+            21
+        } else {
+            16
+        }
+    }
+
+    fn id_mask(&self) -> u64 {
+        (1u64 << self.id_shift()) - 1
+    }
+
+    /// COMPOUNDS member width in bytes: u16 in v1, u32 in v2.
+    fn member_width(&self) -> usize {
+        if self.version == VERSION_V2 {
+            4
+        } else {
+            2
+        }
+    }
+
     /// Row flags: [`FLAG_VN_SYLLABLE`], [`FLAG_EN_WORD`].
-    pub fn flags(&self, id: u16) -> u8 {
+    pub fn flags(&self, id: u32) -> u8 {
         self.row(id).map_or(0, |(flags, _, _)| flags)
     }
 
     /// The row's NFC lowercase surface form.
-    pub fn surface(&self, id: u16) -> &str {
+    pub fn surface(&self, id: u32) -> &str {
         self.row(id).map_or("", |(_, _, surface)| surface)
     }
 
     /// The row's toneless NFC lowercase search key.
-    pub fn key(&self, id: u16) -> &str {
+    pub fn key(&self, id: u32) -> &str {
         self.row(id).map_or("", |(_, key, _)| key)
     }
 
     /// Exact surface lookup (case-folded through the toneless key).
-    pub fn id_of(&self, surface: &str) -> Option<u16> {
+    pub fn id_of(&self, surface: &str) -> Option<u32> {
         let surface = surface.to_lowercase();
         let key = crate::suggest::toneless(&surface);
         let found = self.partition_by_key_surface(|mk, ms| {
             (mk, ms).cmp(&(key.as_str(), surface.as_str())) == std::cmp::Ordering::Less
         });
-        self.row(found as u16)
+        self.row(found as u32)
             .is_some_and(|(_, mk, ms)| mk == key && ms == surface)
-            .then_some(found as u16)
+            .then_some(found as u32)
     }
 
     /// The vocabulary row range whose keys start with `key_prefix`.
@@ -169,7 +212,7 @@ impl PredictModel {
         let n = self.row_count as usize;
         let mut end = start;
         while end < n {
-            match self.row(end as u16) {
+            match self.row(end as u32) {
                 Some((_, mk, _)) if mk.starts_with(prefix.as_str()) => end += 1,
                 _ => break,
             }
@@ -184,7 +227,7 @@ impl PredictModel {
         let mut hi = self.row_count as usize;
         while lo < hi {
             let mid = (lo + hi) / 2;
-            match self.row(mid as u16) {
+            match self.row(mid as u32) {
                 Some((_, mk, ms)) if before(mk, ms) => lo = mid + 1,
                 // A decode failure mid-file would break the sort invariant;
                 // treat it as the end of the searchable range.
@@ -195,13 +238,13 @@ impl PredictModel {
     }
 
     /// The row's unigram count.
-    pub fn unigram(&self, id: u16) -> u32 {
+    pub fn unigram(&self, id: u32) -> u32 {
         self.u32_at(self.offsets[SEC_UNIGRAM] as usize + (id as usize) * 4)
     }
 
     /// The `[start, end)` entry range a context owns in a fixed-width
     /// (12-byte) n-gram section, via its `row_count + 1` entry index.
-    fn ngram_entry_range(&self, index_section: usize, context: u16) -> (usize, usize) {
+    fn ngram_entry_range(&self, index_section: usize, context: u32) -> (usize, usize) {
         let base = self.offsets[index_section] as usize;
         let start = self.u32_at(base + (context as usize) * 4) as usize;
         let end = self.u32_at(base + ((context as usize) + 1) * 4) as usize;
@@ -209,34 +252,37 @@ impl PredictModel {
     }
 
     /// Adjacent-pair count of `(prev, next)`, 0 when absent.
-    pub fn bigram(&self, prev: u16, next: u16) -> u32 {
-        let key = ((prev as u64) << 16) | next as u64;
+    pub fn bigram(&self, prev: u32, next: u32) -> u32 {
+        let key = ((prev as u64) << self.id_shift()) | next as u64;
         self.find_ngram(SEC_BIGRAM, SEC_BIGRAM_INDEX, prev, key)
     }
 
     /// `(next, count)` pairs after `prev`, in next-id order (the packed-key
     /// sort order inside the range).
-    pub fn bigram_iter(&self, prev: u16) -> impl Iterator<Item = (u16, u32)> + '_ {
+    pub fn bigram_iter(&self, prev: u32) -> impl Iterator<Item = (u32, u32)> + '_ {
         let (start, end) = self.ngram_entry_range(SEC_BIGRAM_INDEX, prev);
         let entries = self.offsets[SEC_BIGRAM] as usize + 4;
+        let mask = self.id_mask();
         (start..end).map(move |i| {
             let key = self.u64_at(entries + i * 12);
             let count = self.u32_at(entries + i * 12 + 8);
-            ((key & 0xFFFF) as u16, count)
+            ((key & mask) as u32, count)
         })
     }
 
     /// Triple count of `(w1, w2, w3)`, 0 when absent.
-    pub fn trigram(&self, w1: u16, w2: u16, w3: u16) -> u32 {
-        let key = ((w1 as u64) << 32) | ((w2 as u64) << 16) | w3 as u64;
+    pub fn trigram(&self, w1: u32, w2: u32, w3: u32) -> u32 {
+        let shift = self.id_shift();
+        let key = ((w1 as u64) << (2 * shift)) | ((w2 as u64) << shift) | w3 as u64;
         self.find_ngram(SEC_TRIGRAM, SEC_TRIGRAM_INDEX, w1, key)
     }
 
     /// `(w3, count)` pairs after the `(w1, w2)` context, in w3-id order.
-    pub fn trigram_iter(&self, w1: u16, w2: u16) -> impl Iterator<Item = (u16, u32)> + '_ {
+    pub fn trigram_iter(&self, w1: u32, w2: u32) -> impl Iterator<Item = (u32, u32)> + '_ {
         let (start, end) = self.ngram_entry_range(SEC_TRIGRAM_INDEX, w1);
         let entries = self.offsets[SEC_TRIGRAM] as usize + 4;
-        let base = ((w1 as u64) << 32) | ((w2 as u64) << 16);
+        let shift = self.id_shift();
+        let base = ((w1 as u64) << (2 * shift)) | ((w2 as u64) << shift);
         let mut lo = start;
         let mut hi = end;
         while lo < hi {
@@ -254,13 +300,13 @@ impl PredictModel {
                     self.u32_at(entries + i * 12 + 8),
                 )
             })
-            .take_while(move |(key, _)| key & !0xFFFF == base)
-            .map(|(key, count)| ((key & 0xFFFF) as u16, count))
+            .take_while(move |(key, _)| key >> shift == base >> shift)
+            .map(move |(key, count)| ((key & ((1u64 << shift) - 1)) as u32, count))
     }
 
     /// Count at the exact packed `key` inside a context's fixed-width
     /// n-gram range, 0 when absent.
-    fn find_ngram(&self, section: usize, index_section: usize, context: u16, key: u64) -> u32 {
+    fn find_ngram(&self, section: usize, index_section: usize, context: u32, key: u64) -> u32 {
         let (start, end) = self.ngram_entry_range(index_section, context);
         let entries = self.offsets[section] as usize + 4;
         let mut lo = start;
@@ -282,7 +328,7 @@ impl PredictModel {
 
     /// The `[start, end)` byte range a head syllable owns in the variable-
     /// length COMPOUNDS section, via its byte-offset index.
-    fn compound_byte_range(&self, head: u16) -> (usize, usize) {
+    fn compound_byte_range(&self, head: u32) -> (usize, usize) {
         let base = self.offsets[SEC_COMPOUNDS_INDEX] as usize;
         let start = self.u32_at(base + (head as usize) * 4) as usize;
         let end = self.u32_at(base + ((head as usize) + 1) * 4) as usize;
@@ -295,9 +341,10 @@ impl PredictModel {
     /// is the minimum adjacent bigram count along the sequence.
     pub fn compounds_for_prefix(&self, key_prefix: &str) -> Vec<(String, u32)> {
         let (start, end) = self.prefix_range(key_prefix);
+        let width = self.member_width();
         let mut out = Vec::new();
         for row in start..end {
-            let id = row as u16;
+            let id = row as u32;
             if self.flags(id) & FLAG_VN_SYLLABLE == 0 {
                 continue;
             }
@@ -305,7 +352,7 @@ impl PredictModel {
             let mut off = gs;
             while off < ge {
                 let len = self.u8_at(off) as usize;
-                let ids_end = off + 1 + len * 2;
+                let ids_end = off + 1 + len * width;
                 if ids_end + 4 > ge || len == 0 {
                     break;
                 }
@@ -314,7 +361,12 @@ impl PredictModel {
                     if k > 0 {
                         surface.push(' ');
                     }
-                    surface.push_str(self.surface(self.u16_at(off + 1 + k * 2)));
+                    let member = if width == 4 {
+                        self.u32_at(off + 1 + k * width)
+                    } else {
+                        u32::from(self.u16_at(off + 1 + k * width))
+                    };
+                    surface.push_str(self.surface(member));
                 }
                 out.push((surface, self.u32_at(ids_end)));
                 off = ids_end + 4;
@@ -335,7 +387,7 @@ impl PredictModel {
             .unwrap_or("")
     }
 
-    fn row(&self, id: u16) -> Option<(u8, &str, &str)> {
+    fn row(&self, id: u32) -> Option<(u8, &str, &str)> {
         let vi = self.offsets[SEC_VOCAB_INDEX] as usize;
         // VOCAB_INDEX has row_count + 1 u32 offsets relative to the first
         // row; a corrupted index yields an offset outside the map and the
@@ -386,6 +438,17 @@ mod tests {
         // Test-only expect: the committed fixture's absence is the failure.
         open(&sample_path())
             .expect("data/model-sample.bin missing — run scripts/build-predict-model.py --sample")
+    }
+
+    fn sample_v2_path() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("data/model-sample-v2.bin")
+    }
+
+    fn sample_v2() -> PredictModel {
+        // Test-only expect: the committed fixture's absence is the failure.
+        open(&sample_v2_path()).expect(
+            "data/model-sample-v2.bin missing — run scripts/build-predict-model.py --sample --format v2",
+        )
     }
 
     #[test]
@@ -522,12 +585,12 @@ mod tests {
         let m = sample();
         let (start, end) = m.prefix_range("si");
         assert!(start < end, "the si range is non-empty");
-        let surfaces: Vec<&str> = (start..end).map(|row| m.surface(row as u16)).collect();
+        let surfaces: Vec<&str> = (start..end).map(|row| m.surface(row as u32)).collect();
         assert!(surfaces.contains(&"sinh"), "sinh sits in the si range");
         assert!(
             surfaces
                 .iter()
-                .all(|s| m.key(m.id_of(s).unwrap_or(u16::MAX)).starts_with("si")),
+                .all(|s| m.key(m.id_of(s).unwrap_or(u32::MAX)).starts_with("si")),
             "every row in the range keys on si"
         );
         let (tstart, tend) = m.prefix_range("tr");
@@ -546,5 +609,47 @@ mod tests {
         let blob = m.provenance();
         assert!(blob.contains("license"), "the blob carries license text");
         assert!(blob.contains("weight"), "the blob carries corpus weights");
+    }
+
+    #[test]
+    fn v2_sample_parses_with_wide_ids() {
+        let m = sample_v2();
+        assert!(m.row_count() > 0, "the v2 fixture carries rows");
+        let sinh = m.id_of("sinh").expect("sinh row");
+        let vien = m.id_of("viên").expect("viên row");
+        let hoc = m.id_of("học").expect("học row");
+        assert!(m.bigram(sinh, vien) > 0, "v2 21-bit bigram keys unpack");
+        assert!(
+            m.bigram_iter(sinh).any(|(id, c)| id == vien && c > 0),
+            "v2 iter unpacks the 21-bit next field"
+        );
+        assert!(
+            m.trigram(sinh, vien, hoc) > 0,
+            "v2 21-bit trigram keys unpack"
+        );
+        assert!(
+            m.trigram_iter(sinh, vien).any(|(id, _)| id == hoc),
+            "v2 trigram_iter walks the 21-bit fields"
+        );
+        assert_eq!(
+            m.compounds_for_prefix("sinh")
+                .first()
+                .map(|(word, _)| word.as_str()),
+            Some("sinh viên"),
+            "v2 u32 compound members unpack"
+        );
+    }
+
+    #[test]
+    fn open_rejects_an_unknown_version() {
+        let m = sample_v2();
+        let mut bytes = m.map.to_vec();
+        bytes[8..12].copy_from_slice(&3u32.to_le_bytes());
+        let mut path = std::env::temp_dir();
+        path.push(format!("mangrs-v3-{}.bin", std::process::id()));
+        std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("temp write: {e}"));
+        let got = open(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(got.is_none(), "an unknown header version must not parse");
     }
 }

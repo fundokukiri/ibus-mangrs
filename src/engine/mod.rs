@@ -1926,8 +1926,7 @@ impl Engine {
             return Vec::new();
         };
         let (start, end) = model.prefix_range(&crate::suggest::toneless(word));
-        let mut rows: Vec<(String, u32)> = (start..end)
-            .map(|row| row as u16)
+        let mut rows: Vec<(String, u32)> = (start as u32..end as u32)
             .filter(|id| model.flags(*id) & crate::predict::FLAG_EN_WORD != 0)
             .map(|id| (model.surface(id).to_string(), model.unigram(id)))
             .filter(|(surface, _)| surface != word)
@@ -2009,7 +2008,7 @@ impl Engine {
         let Some(id) = model.id_of(context) else {
             return Vec::new();
         };
-        let mut entries: Vec<(u16, u32)> = model.bigram_iter(id).collect();
+        let mut entries: Vec<(u32, u32)> = model.bigram_iter(id).collect();
         entries.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
         entries
             .into_iter()
