@@ -123,20 +123,20 @@ def _hash_int(tag, text, seed):
     return int.from_bytes(digest, "big")
 
 
+# The run patterns are built from the exact letter inventories once: the
+# compiled-regex form of the original per-character walk yields the same
+# tokens in the same order (the sample model rebuilds byte-identical) and
+# is an order of magnitude faster over the ~150M-token corpus sweep — the
+# sweep is regex-bound, not GPU-bound.
+_VN_RUN_RE = re.compile("[" + re.escape("".join(sorted(_VIET_LETTERS))) + "]+")
+_EN_RUN_RE = re.compile("[" + re.escape("".join(sorted(_ASCII_LETTERS))) + "]+")
+
+
 def _letter_runs(text, letters):
     """Maximal letter runs; every non-letter character ends the run."""
-    runs = []
-    run = []
-    for ch in text:
-        if ch in letters:
-            run.append(ch)
-            continue
-        if run:
-            runs.append("".join(run))
-            run.clear()
-    if run:
-        runs.append("".join(run))
-    return runs
+    if letters is _VIET_LETTERS:
+        return _VN_RUN_RE.findall(text)
+    return _EN_RUN_RE.findall(text)
 
 
 def vn_tokens(norm, allowed):
