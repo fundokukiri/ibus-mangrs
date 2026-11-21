@@ -81,6 +81,14 @@ impl UserPicks {
         self.picks.get(surface).copied()
     }
 
+    /// The recorded (context, word) pair count — the state-B lift reads it.
+    pub fn pair_count(&self, prev: &str, next: &str) -> u32 {
+        self.pairs
+            .get(&(prev.to_string(), next.to_string()))
+            .copied()
+            .unwrap_or(0)
+    }
+
     /// Write the dirty state out. Skips files whose content is already
     /// exactly what would be written (an mtime bump would churn the reload
     /// loop), and never writes when nothing changed since the last flush.

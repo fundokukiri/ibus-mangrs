@@ -5390,11 +5390,22 @@ fn state_b_predicts_next_syllable() {
 #[test]
 fn state_b_english_context_predicts_english() {
     // The unified id space: an EN context finds its EN followers in the
-    // same bigram table — no VN syllable leaks into the list.
+    // same bigram table, and the unigram backoff tier fills the list
+    // behind them (0.4 * count / total) with no VN syllable leaking into
+    // the head — the fixture's own rows first, global frequent fillers after.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "hello ");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens after the space");
-    assert_eq!(items, &["world".to_string(), "there".to_string()]);
+    assert_eq!(&items[..2], &["world".to_string(), "there".to_string()]);
+    assert_eq!(
+        &items[2..5],
+        &["hello".to_string(), "want".to_string(), "help".to_string()],
+        "the unigram tier fills by global frequency (hello is the top row)"
+    );
+    assert!(
+        items[..5].iter().all(|w| w.is_ascii()),
+        "no VN syllable leaks into the EN head"
+    );
 }
 
 #[test]
@@ -5815,7 +5826,14 @@ fn learn_engine(method: Method, mode: Mode) -> Engine {
 }
 
 fn learn_tmp(tag: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("mangrs-learn-test-{tag}-{}", std::process::id()));
+    // A fresh dir per call: the tests run on parallel threads and a shared
+    // directory would let one test's wipe/delete race another's asserts.
+    static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "mangrs-learn-test-{tag}-{}-{n}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("temp learn dir");
     dir
@@ -5923,4 +5941,32 @@ fn password_purpose_gates_strip_and_learning() {
         candidates_of(&reopen).is_some(),
         "a normal field re-opens the strip on the in-flight word"
     );
+}
+
+// --- fused state-B scoring (trigram + stupid backoff, task 6) ---
+
+#[test]
+fn prev_committed_word_shifts() {
+    // Two typed words land: the register holds the pair (before, last) the
+    // trigram tier keys on.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "sinh viên ");
+    assert_eq!(e.last_committed_word.as_deref(), Some("viên"));
+    assert_eq!(e.prev_committed_word.as_deref(), Some("sinh"));
+}
+
+#[test]
+fn pick_lifts_a_state_b_candidate() {
+    // Ten picks of (hello, there) triple there's context score — it
+    // overtakes the stronger world inside the same list.
+    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "hello ");
+    for _ in 0..10 {
+        e.picks
+            .as_mut()
+            .expect("learning is on")
+            .record_pick("there", Some("hello"));
+    }
+    let items = e.state_b_candidates(None, "hello");
+    assert_eq!(items.first().map(String::as_str), Some("there"));
 }

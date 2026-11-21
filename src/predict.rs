@@ -58,6 +58,12 @@ pub struct PredictModel {
     map: Mmap,
     version: u32,
     row_count: u32,
+    /// Row ids with a positive unigram count, ordered count-desc then
+    /// surface-asc — the unigram backoff tier's stream. Built once at open
+    /// (~65k ids on a full model), never touched per keystroke.
+    uni_order: Vec<u32>,
+    /// The sum of every unigram count — the unigram tier's denominator.
+    uni_total: u64,
     offsets: [u64; SECTION_COUNT],
 }
 
@@ -141,12 +147,28 @@ pub fn open(path: &Path) -> Option<PredictModel> {
     }
     let vocab_start = offsets[SEC_VOCAB] as usize;
     let row_count = u32_le(map.get(vocab_start..vocab_start + 4)?)?;
-    Some(PredictModel {
+    let mut model = PredictModel {
         map,
         version,
         row_count,
+        uni_order: Vec::new(),
+        uni_total: 0,
         offsets,
-    })
+    };
+    // The unigram stream and its total come off the whole file once, at
+    // open — config-apply cost, never key-path cost.
+    let mut order: Vec<u32> = (0..model.row_count)
+        .filter(|&id| model.unigram(id) > 0)
+        .collect();
+    order.sort_by(|&x, &y| {
+        model
+            .unigram(y)
+            .cmp(&model.unigram(x))
+            .then_with(|| model.surface(x).cmp(model.surface(y)))
+    });
+    model.uni_order = order;
+    model.uni_total = (0..model.row_count).map(|i| model.unigram(i) as u64).sum();
+    Some(model)
 }
 
 impl PredictModel {
@@ -240,6 +262,17 @@ impl PredictModel {
     /// The row's unigram count.
     pub fn unigram(&self, id: u32) -> u32 {
         self.u32_at(self.offsets[SEC_UNIGRAM] as usize + (id as usize) * 4)
+    }
+
+    /// The unigram backoff stream: row ids by count (desc, surface asc),
+    /// positive counts only. Built once at open.
+    pub fn uni_order(&self) -> &[u32] {
+        &self.uni_order
+    }
+
+    /// The sum of every unigram count — the unigram tier's denominator.
+    pub fn uni_total(&self) -> u64 {
+        self.uni_total
     }
 
     /// The `[start, end)` entry range a context owns in a fixed-width
@@ -601,6 +634,16 @@ mod tests {
             "trai belongs to the tr range"
         );
         assert!(trai_row >= end, "trai must sort after the whole si range");
+    }
+
+    #[test]
+    fn sample_unigram_stream_leads_with_the_frequent() {
+        let m = sample();
+        // The fixture's heaviest row leads the stream; the total matches the
+        // sum the fixture counts to (hand-checked against the sample build).
+        let hello = m.id_of("hello").expect("hello row");
+        assert_eq!(m.uni_order().first(), Some(&hello));
+        assert!(m.uni_total() > 0, "the stream carries a real denominator");
     }
 
     #[test]

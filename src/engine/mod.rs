@@ -44,6 +44,7 @@ mod digit_debug;
 mod digit_probe2;
 #[cfg(test)]
 mod keys_workload_probe;
+mod scoring;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -424,6 +425,10 @@ pub struct Engine {
     /// the context the strip's next round keys on (phase 2). Cleared with
     /// the rest of the word state on focus loss / reset.
     last_committed_word: Option<String>,
+    /// The word before `last_committed_word` — the pair (this, last) is the
+    /// trigram context the state-B scorer keys on. Shifts with every new
+    /// context word, clears alongside it.
+    prev_committed_word: Option<String>,
     /// The `suggest_words` switch, mirrored like the other settings.
     suggest_words: bool,
     /// The `suggest_predict` switch, baked under the experimental gate like
@@ -603,6 +608,7 @@ impl Engine {
             suggest_open: false,
             suggest_display: SuggestDisplayConfig::Floating,
             last_committed_word: None,
+            prev_committed_word: None,
             suggest_words: false,
             suggest_predict: false,
             suggest_learn: false,
@@ -1764,6 +1770,7 @@ impl Engine {
         self.emoji_word = false;
         self.raw_word_start = 0;
         self.idle_committed = None;
+        self.prev_committed_word = None;
         self.last_committed_word = None;
         // The strip rides the in-flight word; the word is gone here, and a
         // strip left open would offer candidates for text that no longer
@@ -2039,7 +2046,10 @@ impl Engine {
         let word = self.wrapper.output();
         let state_b = word.chars().count() < 2;
         let items = if state_b {
-            self.state_b_candidates(self.last_committed_word.as_deref().unwrap_or(""))
+            self.state_b_candidates(
+                self.prev_committed_word.as_deref(),
+                self.last_committed_word.as_deref().unwrap_or(""),
+            )
         } else {
             self.state_a_candidates(&word)
         };
@@ -2066,39 +2076,87 @@ impl Engine {
         }]
     }
 
-    /// The state-B next-word list for `context`: the model's bigram rows
-    /// after the context token, strongest count first (within one context
-    /// the count order IS the probability order), surfaces only, capped.
-    /// Empty when the predict gate is off, there is no model, the context
-    /// is not a model token, or nothing follows it — the strip then goes
-    /// quiet. The full backoff scorer and the trigram terms land with the
-    /// tuning task.
-    fn state_b_candidates(&self, context: &str) -> Vec<String> {
+    /// The state-B next-word list for the pair `(prev, last)` — the fused
+    /// stupid-backoff ranking of [`scoring::fused_state_b`]: the pair's
+    /// trigram rows lead (or the last word's bigram rows when no pair is
+    /// known), the last word's bigram rows back off at 0.4, and the model's
+    /// unigram stream fills at 0.16. Surfaces only, capped. Empty when the
+    /// predict gate is off, there is no model, the last word is not a model
+    /// token, or nothing follows it — the strip then goes quiet.
+    fn state_b_candidates(&self, prev: Option<&str>, last: &str) -> Vec<String> {
         if !self.predict_active() {
             return Vec::new();
         }
         let Some(model) = self.model.as_ref() else {
             return Vec::new();
         };
-        let Some(id) = model.id_of(context) else {
+        let Some(id2) = model.id_of(last) else {
             return Vec::new();
         };
-        // The learning bonus rides the bigram count: the picked-word
-        // frequency plus the (context, picked) pair count for this very
-        // context — a few picks visibly lift a word inside the list.
+        let bigram_rows: Vec<(u32, u32)> = model.bigram_iter(id2).collect();
+        let bigram_total: u32 = bigram_rows.iter().map(|(_, c)| c).sum();
+        // The pair's trigram rows take the context seat when they exist;
+        // otherwise the bigram rows are the context tier and no backoff
+        // tier exists (the evaluator's one-token shape).
+        let pair = prev
+            .and_then(|w| model.id_of(w))
+            .map(|id1| model.trigram_iter(id1, id2).collect::<Vec<(u32, u32)>>());
+        let uni_factor = if pair.as_ref().is_some_and(|rows| !rows.is_empty()) {
+            scoring::BACKOFF2
+        } else {
+            scoring::BACKOFF
+        };
+        let (ctx, backoff) = match &pair {
+            Some(rows) if !rows.is_empty() => {
+                let total: u32 = rows.iter().map(|(_, c)| c).sum();
+                (
+                    scoring::Tier {
+                        rows,
+                        total: total as f64,
+                        factor: 1.0,
+                    },
+                    scoring::Tier {
+                        rows: &bigram_rows,
+                        total: bigram_total as f64,
+                        factor: scoring::BACKOFF,
+                    },
+                )
+            }
+            _ => (
+                scoring::Tier {
+                    rows: &bigram_rows,
+                    total: bigram_total as f64,
+                    factor: 1.0,
+                },
+                scoring::Tier {
+                    rows: &[],
+                    total: 1.0,
+                    factor: 0.0,
+                },
+            ),
+        };
         let picks = self.picks.as_ref();
-        let mut scored: Vec<(u32, f64)> = model
-            .bigram_iter(id)
-            .map(|(next, count)| {
-                let bonus = picks.map_or(0.0, |p| p.bonus(model.surface(next), Some(context)));
-                (next, count as f64 + bonus)
+        let lift = |id: u32| -> f64 {
+            picks.map_or(1.0, |p| {
+                1.0 + scoring::LIFT_PAIR * p.pair_count(last, model.surface(id)) as f64
+                    + scoring::LIFT_FREQ * f64::from(p.picks_count(model.surface(id)).unwrap_or(0))
             })
-            .collect();
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scored
-            .into_iter()
-            .take(crate::suggest::MAX_CANDIDATES)
-            .map(|(next, _)| model.surface(next).to_string())
+        };
+        let ids = scoring::fused_state_b(
+            ctx,
+            backoff,
+            scoring::UniStream {
+                order: model.uni_order(),
+                count: |id| model.unigram(id),
+                total: model.uni_total() as f64,
+                factor: uni_factor,
+            },
+            |x, y| model.surface(x).cmp(model.surface(y)),
+            lift,
+            crate::suggest::MAX_CANDIDATES,
+        );
+        ids.into_iter()
+            .map(|id| model.surface(id).to_string())
             .collect()
     }
 
@@ -2186,6 +2244,7 @@ impl Engine {
         // space rides the commit (ibus intelligent pinyin's shape: a pick
         // ends the word and the next one starts fresh), so the context stays
         // the bare word for the next round's ranking.
+        self.prev_committed_word = self.last_committed_word.take();
         self.last_committed_word = Some(word);
         // The candidate's last char (the space) is now on screen: keep the
         // capitalize window and `last_char` in step, like every committed
@@ -2204,7 +2263,11 @@ impl Engine {
         let Some(context) = self.last_committed_word.clone() else {
             return Vec::new();
         };
-        let Some(candidate) = self.state_b_candidates(&context).into_iter().nth(index) else {
+        let Some(candidate) = self
+            .state_b_candidates(self.prev_committed_word.as_deref(), &context)
+            .into_iter()
+            .nth(index)
+        else {
             return Vec::new();
         };
         // The pair (context, picked) is exactly what the state-B bonus reads.
@@ -2216,8 +2279,12 @@ impl Engine {
         // windows like every committed word.
         self.note_committed(&text);
         let mut actions = vec![Action::Commit(text)];
+        self.prev_committed_word = self.last_committed_word.take();
         self.last_committed_word = Some(candidate);
-        let items = self.state_b_candidates(self.last_committed_word.as_deref().unwrap_or(""));
+        let items = self.state_b_candidates(
+            self.prev_committed_word.as_deref(),
+            self.last_committed_word.as_deref().unwrap_or(""),
+        );
         if items.is_empty() {
             self.suggest_open = false;
             actions.push(Action::HideCandidates);

@@ -1072,6 +1072,7 @@ impl Engine {
         // (the context follows the typed word). The uinput and OFF word ends
         // never reach this path — the strip does not run on those modes.
         if !word.is_empty() {
+            self.prev_committed_word = self.last_committed_word.take();
             self.last_committed_word = Some(word.clone());
         }
         let inline = mode != Mode::Preedit;
