@@ -86,10 +86,18 @@ _HEADER_LEN = 16 + 8 * _SECTION_COUNT
 _FLAG_VN = 1
 _FLAG_EN = 2
 
-# The format addresses vocab rows with 16-bit ids (bigram/trigram keys pack
-# two/three ids into u64, compound members are u16), so the vocabulary caps
-# here. VN syllables number ~8k; the EN word list is the big side.
-_MAX_VOCAB_ROWS = 1 << 16
+# Row-id field width per format. v1 packs ids in 16-bit fields (bigram key
+# prev<<16|next, trigram w1<<32|w2<<16|w3, compound members u16) so its
+# vocabulary caps at 65,536 rows; v2 widens every id field to 21 bits (the
+# trigram's 3x21 = 63 still fits u64) and compound members to u32, lifting
+# the cap to ~2.1M rows. The magic stays MRSPRED1 — the header version
+# discriminates the layout, and the reader accepts both.
+_FMT_V1 = {"version": 1, "id_bits": 16, "member_width": 2}
+_FMT_V2 = {"version": 2, "id_bits": 21, "member_width": 4}
+
+
+def _fmt_spec(fmt):
+    return _FMT_V2 if fmt == "v2" else _FMT_V1
 
 # The five tone marks only; horn, hook, circumflex and breve shapes stay.
 _TONE_MARKS = {0x0300, 0x0301, 0x0303, 0x0309, 0x0323}
@@ -315,9 +323,11 @@ def build(config, directory, out_dir, log):
     corpus_logs = []
 
     # Counting is the hour-long stage: checkpoint it so a pack-time crash
-    # never repeats the sweep. A stale, mismatched or unreadable blob counts
-    # from scratch — the corpus sweep itself only ever re-runs wholesale.
-    ckpt = out_dir / "counters-checkpoint.pkl"
+    # never repeats the sweep. The blob lives in the corpus workspace, keyed
+    # by fingerprint — builds that share the corpus set (a different output
+    # name or packing format) reuse one sweep. A stale, mismatched or
+    # unreadable blob counts from scratch.
+    ckpt = directory / f"counters-{_corpus_fingerprint(config)[:8]}.pkl"
     loaded = False
     if ckpt.exists():
         try:
@@ -434,16 +444,20 @@ def pack_model(config, counters, vn_allowed, en_allowed, corpus_logs, out_dir, l
     # VN rows are the prediction core and stay whole; EN fills the remainder
     # by rounded frequency — the EN tail is hapax web-crawl noise that no
     # prediction surface ever needs.
+    fmt = config.get("format", "v1")
+    spec = _fmt_spec(fmt)
+    vocab_cap = 1 << spec["id_bits"]
     vn_rows = sorted((t for t in uni_r if t in vn_allowed),
                      key=lambda t: (-uni_r[t], t))
     en_rows = sorted((t for t in uni_r if t not in vn_allowed),
                      key=lambda t: (-uni_r[t], t))
-    if len(vn_rows) + len(en_rows) > _MAX_VOCAB_ROWS:
+    if len(vn_rows) + len(en_rows) > vocab_cap:
         log(f"vocab cap: {len(vn_rows)} VN + {len(en_rows)} EN candidates -> "
-            f"keep all VN + top {max(0, _MAX_VOCAB_ROWS - len(vn_rows))} EN")
-    tokens = sorted((vn_rows + en_rows)[:_MAX_VOCAB_ROWS],
+            f"keep all VN + top {max(0, vocab_cap - len(vn_rows))} EN")
+    tokens = sorted((vn_rows + en_rows)[:vocab_cap],
                     key=lambda t: (toneless(t), t))
     ids = {t: i for i, t in enumerate(tokens)}
+    assert max(ids.values(), default=0) < vocab_cap, "id overflow into the reserved bits"
 
     while True:
         bi_r = _rounded_filtered(
@@ -452,7 +466,7 @@ def pack_model(config, counters, vn_allowed, en_allowed, corpus_logs, out_dir, l
         tri_r = _rounded_filtered(
             Counter(counters["vi"].tri) + Counter(counters["en"].tri), th["trigram_min"]
         )
-        sections = _pack_all(tokens, ids, uni_r, bi_r, tri_r, min_compound, top_compounds, config, corpus_logs, vn_allowed, en_allowed, th)
+        sections = _pack_all(tokens, ids, uni_r, bi_r, tri_r, min_compound, top_compounds, config, corpus_logs, vn_allowed, en_allowed, th, spec)
         total = sum(len(s) for s in sections)
         if total <= max_mb * 1000 * 1000 or th["trigram_min"] > 5000:
             break
@@ -471,7 +485,7 @@ def pack_model(config, counters, vn_allowed, en_allowed, corpus_logs, out_dir, l
 
     header = bytearray()
     header += _MAGIC
-    header += _VERSION.to_bytes(4, "little")
+    header += spec["version"].to_bytes(4, "little")
     header += _SECTION_COUNT.to_bytes(4, "little")
     offset = _HEADER_LEN
     offsets = []
@@ -506,8 +520,9 @@ def _rounded_filtered(counter, threshold):
     return out
 
 
-def _pack_all(tokens, ids, uni_r, bi_r, tri_r, min_compound, top_compounds, config, corpus_logs, vn_allowed, en_allowed, th):
+def _pack_all(tokens, ids, uni_r, bi_r, tri_r, min_compound, top_compounds, config, corpus_logs, vn_allowed, en_allowed, th, spec):
     """Pack the ten sections in order; returns a list of bytes objects."""
+    shift = spec["id_bits"]
     # VOCAB rows sorted by (toneless key, surface) — tokens already sorted.
     vocab = bytearray()
     vocab += len(tokens).to_bytes(4, "little")
@@ -533,14 +548,14 @@ def _pack_all(tokens, ids, uni_r, bi_r, tri_r, min_compound, top_compounds, conf
     unigram = b"".join(uni_r.get(t, 0).to_bytes(4, "little") for t in tokens)
 
     bi_entries = sorted(
-        ((ids[a] << 16) | ids[b], c) for (a, b), c in bi_r.items() if a in ids and b in ids
+        ((ids[a] << shift) | ids[b], c) for (a, b), c in bi_r.items() if a in ids and b in ids
     )
     bigram = bytearray(len(bi_entries).to_bytes(4, "little"))
     for key, count in bi_entries:
         bigram += key.to_bytes(8, "little") + count.to_bytes(4, "little")
     bi_starts = [0] * (len(tokens) + 1)
     for i, (key, _c) in enumerate(bi_entries):
-        bi_starts[(key >> 16) + 1] = i + 1
+        bi_starts[(key >> shift) + 1] = i + 1
     # Fill forward: a context with no entries repeats the previous start.
     fill = 0
     for i in range(len(bi_starts)):
@@ -549,7 +564,7 @@ def _pack_all(tokens, ids, uni_r, bi_r, tri_r, min_compound, top_compounds, conf
     bigram_index = b"".join(s.to_bytes(4, "little") for s in bi_starts)
 
     tri_entries = sorted(
-        ((ids[a] << 32) | (ids[b] << 16) | ids[c], c3)
+        ((ids[a] << (2 * shift)) | (ids[b] << shift) | ids[c], c3)
         for (a, b, c), c3 in tri_r.items()
         if a in ids and b in ids and c in ids
     )
@@ -558,7 +573,7 @@ def _pack_all(tokens, ids, uni_r, bi_r, tri_r, min_compound, top_compounds, conf
         trigram += key.to_bytes(8, "little") + count.to_bytes(4, "little")
     tri_starts = [0] * (len(tokens) + 1)
     for i, (key, _c) in enumerate(tri_entries):
-        tri_starts[(key >> 32) + 1] = i + 1
+        tri_starts[(key >> (2 * shift)) + 1] = i + 1
     fill = 0
     for i in range(len(tri_starts)):
         fill = max(fill, tri_starts[i])
@@ -591,7 +606,7 @@ def _pack_all(tokens, ids, uni_r, bi_r, tri_r, min_compound, top_compounds, conf
         for seq in grouped.get(head, ()):
             compound += len(seq[:-1]).to_bytes(1, "little")
             for member in seq[:-1]:
-                compound += int(member).to_bytes(2, "little")
+                compound += int(member).to_bytes(spec["member_width"], "little")
             compound += int(seq[-1]).to_bytes(4, "little")
     comp_offsets.append(len(compound) - 4)
     compounds_index = b"".join(o.to_bytes(4, "little") for o in comp_offsets)
@@ -617,9 +632,11 @@ def _pack_all(tokens, ids, uni_r, bi_r, tri_r, min_compound, top_compounds, conf
 
 
 def _provenance_text(config, corpus_logs, final_thresholds):
+    fmt = config.get("format", "v1")
     lines = [
         "MăngRS prediction model — provenance.",
         f"Built: {date.today().isoformat()} with scripts/build-predict-model.py",
+        f"Format: {fmt} — {21 if fmt == 'v2' else 16}-bit row ids",
         f"Final thresholds: bigram_min={final_thresholds['bigram_min']} "
         f"trigram_min={final_thresholds['trigram_min']} "
         f"min_compound={final_thresholds['min_compound']} "
@@ -718,9 +735,12 @@ _SAMPLE_ALL_VN = frozenset(
 )
 
 
-def run_sample(out_dir):
-    """Rebuild data/model-sample.bin from the inline fixture (deterministic)."""
+def run_sample(out_dir, fmt="v1"):
+    """Rebuild the sample model from the inline fixture (deterministic)."""
     config, counters, vn_allowed, en_allowed, logs = sample_config()
+    config["format"] = fmt
+    if fmt == "v2":
+        config["output"] = "model-sample-v2.bin"
     log = print
     path = pack_model(config, counters, vn_allowed, en_allowed, logs, out_dir, log)
     print(f"sample written: {path}")
@@ -733,7 +753,9 @@ def parse_model(path):
     data = path.read_bytes()
     assert data[:8] == _MAGIC
     version = int.from_bytes(data[8:12], "little")
-    assert version == _VERSION
+    assert version in (1, 2), f"unexpected format version {version}"
+    shift = 21 if version == 2 else 16
+    member_width = 4 if version == 2 else 2
     sections = int.from_bytes(data[12:16], "little")
     assert sections == _SECTION_COUNT
     offsets = [int.from_bytes(data[16 + i * 8:24 + i * 8], "little") for i in range(_SECTION_COUNT)]
@@ -759,7 +781,32 @@ def parse_model(path):
         key = int.from_bytes(data[base:base + 8], "little")
         count = int.from_bytes(data[base + 8:base + 12], "little")
         bigrams[key] = count
-    return ids, bigrams
+    comp_off = offsets[_SEC_COMPOUNDS]
+    comp_count = int.from_bytes(data[comp_off:comp_off + 4], "little")
+    ci_off = offsets[_SEC_COMPOUNDS_INDEX]
+    compounds = {}
+    total = 0
+    for head in range(row_count):
+        start = int.from_bytes(data[ci_off + head * 4:ci_off + (head + 1) * 4], "little")
+        end = int.from_bytes(data[ci_off + (head + 1) * 4:ci_off + (head + 2) * 4], "little")
+        pos, stop = comp_off + 4 + start, comp_off + 4 + end
+        seqs = []
+        while pos < stop:
+            n = data[pos]
+            seq = tuple(
+                int.from_bytes(data[pos + 1 + j * member_width:pos + 1 + (j + 1) * member_width],
+                               "little")
+                for j in range(n)
+            )
+            strength = int.from_bytes(
+                data[pos + 1 + n * member_width:pos + 5 + n * member_width], "little")
+            pos += 1 + n * member_width + 4
+            seqs.append((seq, strength))
+            total += 1
+        if seqs:
+            compounds[head] = seqs
+    assert total == comp_count, f"compound entries {total} != header count {comp_count}"
+    return ids, bigrams, compounds
 
 
 def selftest():
@@ -824,7 +871,7 @@ def selftest():
     }
     path_c = pack_model(config_c, counters_c, frozenset("học sinh bài".split()),
                         frozenset(f"w{i}" for i in range(70_000)), [], root, log)
-    ids_c, bigrams_c = parse_model(path_c)
+    ids_c, bigrams_c, compounds_c = parse_model(path_c)
     assert len(ids_c) == 1 << 16, f"vocab cap = {len(ids_c)}, expected {1 << 16}"
     assert all(t in ids_c for t in ("học", "sinh", "bài")), "VN rows must survive the cap"
     assert "w0" in ids_c and "w65532" in ids_c, "EN rows kept by frequency"
@@ -833,6 +880,40 @@ def selftest():
     assert bigrams_c.get(pair_c) == 6, "kept bigram must stay intact"
     assert all(i < 1 << 16 for i in ids_c.values()), "every id must fit u16"
     print("selftest C pass: vocab caps at 65,536 rows, VN whole, ids fit u16")
+
+    # Test D — format v2 (21-bit ids): the same >65k fixture packs WHOLE —
+    # no vocab cut, ids past the v1 ceiling are legal — and the compound
+    # that crashed v1 packs through the u32 members and reads back intact.
+    counters_d = {"vi": LanguageCounters(lambda norm: [], lambda norm: []),
+                  "en": LanguageCounters(lambda norm: [], lambda norm: [])}
+    counters_d["vi"].uni["học"] = 10.0
+    counters_d["vi"].uni["sinh"] = 9.0
+    counters_d["vi"].uni["bài"] = 8.0
+    counters_d["vi"].bi[("học", "sinh")] = 6.0
+    counters_d["en"].bi[("w69999", "w69998")] = 6.0
+    for i in range(70_000):
+        counters_d["en"].uni[f"w{i}"] = float(70_000 - i)
+    config_d = {
+        "format": "v2",
+        "thresholds": {"bigram_min": 1, "trigram_min": 1, "min_compound": 5,
+                       "top_compounds_per_head": 2},
+        "output": "cap2-test.bin",
+        "whitelist": "(selftest inline)",
+        "eval_split": 0.0,
+        "eval_seed": 0,
+        "max_model_mb": 50,
+    }
+    path_d = pack_model(config_d, counters_d, frozenset("học sinh bài".split()),
+                        frozenset(f"w{i}" for i in range(70_000)), [], root, log)
+    ids_d, bigrams_d, compounds_d = parse_model(path_d)
+    assert len(ids_d) == 70_003, f"v2 keeps the whole vocabulary: {len(ids_d)}"
+    assert ids_d["w69999"] > (1 << 16), "rows past the v1 ceiling must exist in v2"
+    head_d = ids_d["w69999"]
+    assert ((ids_d["w69999"], ids_d["w69998"]), 6) in compounds_d.get(head_d, ()), \
+        "the beyond-16-bit compound packs and reads back"
+    pair_d = (ids_d["w69999"] << 21) | ids_d["w69998"]
+    assert bigrams_d.get(pair_d) == 6, "v2 n-gram keys pack at 21-bit fields"
+    print("selftest D pass: format v2 keeps 70k rows, ids past 16 bits pack and read")
     print("selftest OK")
 
 
@@ -844,16 +925,20 @@ def main(argv=None):
     parser.add_argument("--dir", type=Path, default=Path("."), help="corpus workspace")
     parser.add_argument("--out", type=Path, default=Path("."), help="output directory")
     parser.add_argument("--sample", action="store_true", help="rebuild data/model-sample.bin")
+    parser.add_argument("--format", choices=("v1", "v2"), default="v1",
+                        help="v2 widens row ids to 21 bits (~2.1M-row vocabulary)")
     parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args(argv)
 
     if args.selftest:
         return selftest()
     if args.sample:
-        run_sample(Path(args.out) if str(args.out) != "." else Path("data"))
+        run_sample(Path(args.out) if str(args.out) != "." else Path("data"), args.format)
         return 0
 
     config = tomllib.loads(args.config.read_text(encoding="utf-8"))
+    if args.format != "v1":
+        config["format"] = args.format
     build(config, args.dir, args.out, print)
     return 0
 
