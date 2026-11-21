@@ -38,8 +38,13 @@ min_sentence_tokens = 4
 eval_split = 0.05
 eval_seed = 20261121
 
-# Size budget; the builder auto-raises pruning thresholds to fit.
-max_model_mb = 30
+# Size budget; the builder auto-raises pruning thresholds to fit. The
+# owner dropped the budget on 21/11 ("không muốn trim nữa — lấy file lớn
+# cũng được"): the FIRST pack at the pinned thresholds ships whatever size
+# it reaches (~150MB measured live), so the value below makes the ladder a
+# no-op. The workspace checkpoint keeps any other threshold reachable for
+# a one-pack rebuild without recounting.
+max_model_mb = 100000
 
 # --- Vietnamese sentence corpora (VN-syllable bigram/trigram rows) ---------
 
