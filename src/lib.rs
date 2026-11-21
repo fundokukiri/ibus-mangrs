@@ -22,6 +22,7 @@ pub mod gui;
 pub mod ibus_prop;
 pub mod ibus_text;
 pub mod keymap;
+pub mod learn;
 pub mod macros;
 mod predict;
 pub mod server;

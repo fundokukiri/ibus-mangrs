@@ -314,6 +314,19 @@ fn address_from_dir(dir: &std::path::Path) -> Option<String> {
     newest.map(|(_, addr)| addr)
 }
 
+/// Unpack the purpose out of a ContentType value — GVariant "(uu)" boxed in
+/// a variant. The dbus crate hands us either the demarshalled tuple or an
+/// opaque structure; read the first element either way. A wrong-shaped
+/// value yields None and the gate stays where it was.
+fn content_type_purpose(value: &(dyn dbus::arg::RefArg + 'static)) -> Option<u32> {
+    if let Some((purpose, _hints)) = value.as_any().downcast_ref::<(u32, u32)>() {
+        return Some(*purpose);
+    }
+    let mut iter = value.as_iter()?;
+    let purpose = iter.next()?.as_u64()?;
+    u32::try_from(purpose).ok()
+}
+
 struct EngineHandler {
     engine: SharedEngine,
     /// The selected injection backend: `emit`'s transports route through it,
@@ -398,7 +411,32 @@ impl EngineHandler {
             // (engineproxy.c `_get_has_focus_id_cb`). Answering `true` for
             // FocusId is what makes the daemon send `FocusInId(path, client)`,
             // which is the only way an engine learns which app has focus.
-            ("org.freedesktop.DBus.Properties", "Get") => {
+            ("org.freedesktop.DBus.Properties", m) => {
+                match self.properties_call(msg, m) {
+                    Some(reply) => send(conn, reply),
+                    // An unreadable Properties message still answers — the
+                    // daemon waits on every Properties call.
+                    None => send(conn, msg.method_return()),
+                }
+            }
+            _ => return None,
+        }
+        Some(())
+    }
+
+    /// `org.freedesktop.DBus.Properties` calls on the engine object.
+    /// Returns the reply; `None` on an unreadable message (the caller still
+    /// answers with an empty return — the daemon waits on every call).
+    fn properties_call(&mut self, msg: &Message, member: &str) -> Option<Message> {
+        match member {
+            "Get" => {
+                // `FocusId` and `ActiveSurroundingText` are booleans on the
+                // wire: the daemon calls g_variant_get_boolean() on them
+                // and, on any other type, warns and falls back to the plain
+                // `FocusIn` signal (engineproxy.c `_get_has_focus_id_cb`).
+                // Answering `true` for FocusId is what makes the daemon
+                // send `FocusInId(path, client)`, which is the only way an
+                // engine learns which app has focus.
                 let reply = match msg.read2::<String, String>() {
                     Ok((_, prop)) => match prop.as_str() {
                         "FocusId" => msg
@@ -413,16 +451,35 @@ impl EngineHandler {
                     },
                     Err(_) => msg.method_return(),
                 };
-                send(conn, reply);
+                Some(reply)
             }
-            ("org.freedesktop.DBus.Properties", "GetAll") => {
+            "GetAll" => {
                 let props: dbus::arg::PropMap = Default::default();
-                send(conn, msg.method_return().append1(props));
+                Some(msg.method_return().append1(props))
             }
-            ("org.freedesktop.DBus.Properties", "Set") => send(conn, msg.method_return()),
-            _ => return None,
+            "Set" => {
+                // ibus-daemon delivers the focused field's content type as
+                // the engine's write-only ContentType property, (purpose,
+                // hints) — the only channel a purpose reaches an engine
+                // through (libibus's engine interface has no InputPurpose
+                // member; the interface XML lives inside libibus itself).
+                // PASSWORD/PIN close the strip and the learning files;
+                // every other purpose — TERMINAL included — opens them.
+                if let Ok((interface, prop, value)) =
+                    msg.read3::<String, String, dbus::arg::Variant<Box<dyn dbus::arg::RefArg>>>()
+                {
+                    if prop == "ContentType" && interface == ENGINE_IFACE {
+                        if let Some(purpose) = content_type_purpose(value.0.as_ref()) {
+                            if let Ok(mut engine) = self.engine.lock() {
+                                engine.set_content_purpose(purpose);
+                            }
+                        }
+                    }
+                }
+                Some(msg.method_return())
+            }
+            _ => None,
         }
-        Some(())
     }
 
     /// Handle one `org.freedesktop.IBus.Engine` call: push any signals into

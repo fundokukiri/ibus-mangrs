@@ -519,6 +519,7 @@ fn refresh_round_trips_every_widget() {
         keep_repeats_raw: true,
         suggest_words: true,
         suggest_predict: true,
+        suggest_learn: true,
         suggest_display: crate::config::SuggestDisplayConfig::Inline,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,

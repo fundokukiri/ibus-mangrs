@@ -62,6 +62,12 @@ pub struct Config {
     /// `experimental_features` and `suggest_words`: with this off the strip
     /// is byte-identical to the syllable-only behavior.
     pub suggest_predict: bool,
+    /// Experimental: pick-driven learning on the strip — every accepted
+    /// candidate lands in two 0600 TSV files in the config dir and buys an
+    /// in-band ranking bonus. Layers under `experimental_features` and
+    /// `suggest_words`; a password field learns nothing (the server's
+    /// ContentType gate closes both the strip and the files there).
+    pub suggest_learn: bool,
     /// Experimental: the suggestion strip's display while the strip is up —
     /// `floating` (default) only in the box (the client's field stays clean
     /// until the word commits), `mirror` in both places (the box's input line
@@ -910,6 +916,7 @@ impl Default for Config {
             keep_repeats_raw: false,
             suggest_words: false,
             suggest_predict: false,
+            suggest_learn: false,
             suggest_display: SuggestDisplayConfig::Floating,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
@@ -1796,6 +1803,16 @@ children = ["preedit", "flow"]
         assert!(!c.suggest_predict);
         let c: Config = toml::from_str("suggest_predict = true").unwrap();
         assert!(c.suggest_predict);
+    }
+
+    #[test]
+    fn suggest_learn_defaults_off_and_round_trips() {
+        // Learning only ever records strip picks; with the switch off no
+        // file is touched, whatever the strip does.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.suggest_learn);
+        let c: Config = toml::from_str("suggest_learn = true").unwrap();
+        assert!(c.suggest_learn);
     }
 
     #[test]

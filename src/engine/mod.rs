@@ -430,6 +430,21 @@ pub struct Engine {
     /// `suggest_words` — the prediction tiers join the strip only when both
     /// are on.
     suggest_predict: bool,
+    /// The `suggest_learn` switch, baked under the experimental gate like
+    /// `suggest_words` — picks land in the config dir's TSV files and buy
+    /// an in-band bonus only when this is on.
+    suggest_learn: bool,
+    /// The pick files' home: the config dir, set at every config apply;
+    /// tests point it at a tempdir so behavioral data never touches the
+    /// owner's files.
+    learn_dir: std::path::PathBuf,
+    /// Pick-driven personalization state: `Some` while `suggest_learn` is
+    /// baked on (recording + in-band bonus), `None` writes nothing.
+    picks: Option<crate::learn::UserPicks>,
+    /// The focused field's content purpose is PASSWORD/PIN — the strip
+    /// never opens and nothing is learned there. Set by the server's
+    /// ContentType handler, cleared on focus loss.
+    password_quiet: bool,
     /// The prediction model opened at the last config apply: its compounds
     /// serve the state-A list and its n-grams the state-B surface; `None`
     /// (no model file) keeps the strip legacy-only.
@@ -442,6 +457,12 @@ pub struct Engine {
 
 /// `IBUS_CAP_PREEDIT_TEXT` and `IBUS_CAP_SURROUNDING_TEXT` from ibustypes.h.
 const CAP_PREEDIT_TEXT: u32 = 1 << 0;
+
+/// `GtkInputPurpose`/`IBusInputPurpose` values delivered through the
+/// engine's ContentType property — PASSWORD and PIN close the strip and
+/// the learning files; TERMINAL (10) keeps ordinary typing.
+pub const PURPOSE_PASSWORD: u32 = 8;
+pub const PURPOSE_PIN: u32 = 9;
 const CAP_SURROUNDING_TEXT: u32 = 1 << 5;
 
 /// Safety net for clients that are neither covered by an `AppRule` nor by the
@@ -584,6 +605,10 @@ impl Engine {
             last_committed_word: None,
             suggest_words: false,
             suggest_predict: false,
+            suggest_learn: false,
+            learn_dir: std::path::PathBuf::new(),
+            picks: None,
+            password_quiet: false,
             model: None,
             // The builtin rows stand in until apply_config merges the user
             // dictionary below; on a machine without dictionary.txt this
@@ -738,6 +763,24 @@ impl Engine {
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
         self.suggest_predict = experimental && config.suggest_predict;
+        self.suggest_learn = experimental && config.suggest_learn;
+        self.learn_dir = dirs::config_dir()
+            .map(|d| d.join("ibus-mangrs"))
+            .unwrap_or_default();
+        if self.suggest_learn {
+            // Keep unflushed picks across a config reload; a fresh switch-on
+            // loads the files once.
+            let keep = self.picks.take();
+            self.picks =
+                Some(keep.unwrap_or_else(|| crate::learn::UserPicks::load(&self.learn_dir)));
+        } else {
+            // Off: picks made while the switch was on still count — flush,
+            // then stop recording. Nothing is deleted (the GUI's clear
+            // button owns that).
+            if let Some(mut picks) = self.picks.take() {
+                picks.flush();
+            }
+        }
         // Display-only choice: it shapes nothing while the strip is off, so
         // it rides without the gate bake-in.
         self.suggest_display = config.suggest_display;
@@ -1931,7 +1974,18 @@ impl Engine {
             .map(|id| (model.surface(id).to_string(), model.unigram(id)))
             .filter(|(surface, _)| surface != word)
             .collect();
-        rows.sort_by_key(|(_, freq)| std::cmp::Reverse(*freq));
+        // The learning bonus rides the base frequency inside this band —
+        // both the plain pick count and the (context, word) pair count.
+        let picks = self.picks.as_ref();
+        let context = self.last_committed_word.as_deref();
+        rows.sort_by(|a, b| {
+            let score = |row: &(String, u32)| {
+                row.1 as f64 + picks.map_or(0.0, |p| p.bonus(&row.0, context))
+            };
+            score(b)
+                .partial_cmp(&score(a))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         rows
     }
 
@@ -1941,6 +1995,19 @@ impl Engine {
         self.suggest_display
     }
 
+    /// The focused field's IBus content purpose (the server's ContentType
+    /// handler). Only the two hidden-entry purposes quiet the strip — and
+    /// with it the learning path; typing itself composes exactly the same.
+    pub fn set_content_purpose(&mut self, purpose: u32) {
+        self.password_quiet = purpose == PURPOSE_PASSWORD || purpose == PURPOSE_PIN;
+    }
+
+    /// Whether the focused field is a password/PIN entry (server tests and
+    /// debug logging read this; the engine itself consults the flag inline).
+    pub fn password_quiet(&self) -> bool {
+        self.password_quiet
+    }
+
     /// The strip refresh after a key changed the in-flight word: emit the
     /// word's full candidate list while it has any, hide once the word is
     /// gone or the table offers nothing. Called only where the word really
@@ -1948,6 +2015,14 @@ impl Engine {
     /// leaves the word untouched must not re-emit and reset the server's
     /// page.
     fn suggest_step(&mut self) -> Vec<Action> {
+        // A password field: the strip never opens — and with it the accept
+        // path (learning) is unreachable. Typing itself is untouched.
+        if self.password_quiet {
+            if std::mem::take(&mut self.suggest_open) {
+                return vec![Action::HideCandidates];
+            }
+            return Vec::new();
+        }
         if !self.suggest_active() {
             // The gate turned off while the strip is up (a config reload mid-
             // word): close it here so no stale strip survives to accept picks.
@@ -2008,12 +2083,22 @@ impl Engine {
         let Some(id) = model.id_of(context) else {
             return Vec::new();
         };
-        let mut entries: Vec<(u32, u32)> = model.bigram_iter(id).collect();
-        entries.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
-        entries
+        // The learning bonus rides the bigram count: the picked-word
+        // frequency plus the (context, picked) pair count for this very
+        // context — a few picks visibly lift a word inside the list.
+        let picks = self.picks.as_ref();
+        let mut scored: Vec<(u32, f64)> = model
+            .bigram_iter(id)
+            .map(|(next, count)| {
+                let bonus = picks.map_or(0.0, |p| p.bonus(model.surface(next), Some(context)));
+                (next, count as f64 + bonus)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored
             .into_iter()
             .take(crate::suggest::MAX_CANDIDATES)
-            .map(|(next, _count)| model.surface(next).to_string())
+            .map(|(next, _)| model.surface(next).to_string())
             .collect()
     }
 
@@ -2028,7 +2113,7 @@ impl Engine {
     /// key): commit nothing rather than a stale or wrong word — the caller
     /// forwards the key instead.
     pub fn accept_candidate(&mut self, index: usize) -> Vec<Action> {
-        if !self.suggest_open {
+        if !self.suggest_open || self.password_quiet {
             return Vec::new();
         }
         let word = self.wrapper.output();
@@ -2041,6 +2126,12 @@ impl Engine {
         let Some(candidate) = self.state_a_candidates(&word).into_iter().nth(index) else {
             return Vec::new();
         };
+        // Learning records the PICKED candidate — never the keystrokes —
+        // with the ranking context (the last committed word) as the pair
+        // key. A quiet (password) field never reaches this: the gate above.
+        if let Some(picks) = self.picks.as_mut() {
+            picks.record_pick(&candidate, self.last_committed_word.as_deref());
+        }
         // The candidate replaces the word wholesale: no macro, no
         // auto-restore — exactly what the strip offered. The commit is
         // charset-encoded like every word end. A sentence-start word takes
@@ -2116,6 +2207,10 @@ impl Engine {
         let Some(candidate) = self.state_b_candidates(&context).into_iter().nth(index) else {
             return Vec::new();
         };
+        // The pair (context, picked) is exactly what the state-B bonus reads.
+        if let Some(picks) = self.picks.as_mut() {
+            picks.record_pick(&candidate, Some(&context));
+        }
         let text = format!("{} ", encode(self.charset, &candidate));
         // The pick's trailing space re-opens the em-dash/double-space
         // windows like every committed word.
@@ -2152,6 +2247,10 @@ impl Engine {
     /// first and wipe the very word they are about to commit (ibus-bamboo's
     /// `FocusOut` is a no-op for the same reason).
     pub fn focus_out(&mut self) -> Vec<Action> {
+        // The purpose belongs to the field we just left: without this, one
+        // password field would quiet every later normal field until the
+        // daemon happened to resend a ContentType.
+        self.password_quiet = false;
         debug_log::log("focus-out → drop the pending word, no signals");
         self.drop_pending_word(false)
     }
@@ -2165,6 +2264,13 @@ impl Engine {
     /// word character can re-enter the composition via `idle_committed`.
     pub fn tick(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
+        // Pick files flush on tick — the key path never writes — and
+        // re-read when a file moved underneath us (external edit, the
+        // GUI's clear button).
+        if let Some(picks) = self.picks.as_mut() {
+            picks.flush();
+            picks.reload_if_changed();
+        }
         // Parked commits past their deadline become deliverable here —
         // the main loop woke for exactly this deadline (ms_until_tick).
         for text in self.take_due_commits() {

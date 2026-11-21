@@ -4364,3 +4364,65 @@ fn focus_out_and_reset_teardown_the_strip() {
     assert!(!consumed);
     assert!(!members(&out).iter().any(|m| m == "UpdateLookupTable"));
 }
+
+// --- ContentType (InputPurpose) gate ---
+
+/// A `org.freedesktop.DBus.Properties.Set` call for one engine property,
+/// the wire shape ibus-daemon uses for ContentType: (interface, name, (uu)).
+fn properties_set_msg(prop: &str, purpose: u32, hints: u32) -> Message {
+    use dbus::strings::{BusName, Interface, Member, Path};
+    let mut msg = Message::method_call(
+        &BusName::new(BUS_NAME).unwrap(),
+        &Path::new(ENGINE_PATH).unwrap(),
+        &Interface::new("org.freedesktop.DBus.Properties").unwrap(),
+        &Member::new("Set").unwrap(),
+    );
+    msg.set_serial(1);
+    msg.append3(
+        ENGINE_IFACE.to_string(),
+        prop.to_string(),
+        dbus::arg::Variant(Box::new((purpose, hints))),
+    )
+}
+
+#[test]
+fn content_type_set_gates_password_fields() {
+    // The daemon's ContentType write is the only purpose channel: PASSWORD
+    // and PIN quiet the engine, TERMINAL (10) and FREE_FORM (0) do not, and
+    // a Set of another property leaves the flag alone.
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+    let mut handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        injection: Injection::new(),
+        last_config_check: Instant::now(),
+        last_config_mtime: None,
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
+        focus_ext: None,
+    };
+    handler.properties_call(&properties_set_msg("ContentType", 8u32, 0u32), "Set");
+    assert!(lock_engine(&engine).password_quiet(), "PASSWORD quiets");
+    handler.properties_call(&properties_set_msg("ContentType", 9u32, 0u32), "Set");
+    assert!(lock_engine(&engine).password_quiet(), "PIN quiets too");
+    handler.properties_call(&properties_set_msg("ContentType", 10u32, 0u32), "Set");
+    assert!(
+        !lock_engine(&engine).password_quiet(),
+        "TERMINAL keeps ordinary typing"
+    );
+    handler.properties_call(&properties_set_msg("ContentType", 0u32, 0u32), "Set");
+    assert!(
+        !lock_engine(&engine).password_quiet(),
+        "FREE_FORM opens again"
+    );
+    handler.properties_call(&properties_set_msg("Capabilities", 0u32, 0u32), "Set");
+    assert!(
+        !lock_engine(&engine).password_quiet(),
+        "a Set of another property is inert"
+    );
+}

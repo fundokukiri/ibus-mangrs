@@ -265,6 +265,50 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Từ ghép khi đang gõ, từ kế tiếp sau dấu cách — cần file mô hình dự đoán",
         ),
     );
+    let suggest_learn = switch_row(
+        &t("rows.suggest_learn.title", "Học từ khi chọn gợi ý"),
+        &t(
+            "rows.suggest_learn.subtitle",
+            "Ghi nhớ những từ anh đã chọn trong bảng gợi ý để ưu tiên lần sau — hai tệp nhỏ trong thư mục cấu hình",
+        ),
+    );
+    // The clear button rides an ActionRow's suffix slot: it wipes the two
+    // pick files (per-user behavioral data) behind a destructive confirm.
+    let learn_clear_btn = gtk4::Button::with_label(&t("rows.learn_clear.button", "Xoá"));
+    learn_clear_btn.add_css_class("destructive-action");
+    learn_clear_btn.add_css_class("flat");
+    learn_clear_btn.set_valign(gtk4::Align::Center);
+    let learn_clear_row = adw::ActionRow::builder()
+        .title(t("rows.learn_clear.title", "Xoá dữ liệu đã học"))
+        .subtitle(t(
+            "rows.learn_clear.subtitle",
+            "Xoá hai tệp học-theo-chọn trong thư mục cấu hình. Hỏi trước khi xoá.",
+        ))
+        .build();
+    learn_clear_row.add_suffix(&learn_clear_btn);
+    {
+        let row = learn_clear_row.clone();
+        learn_clear_btn.connect_clicked(move |_| {
+            let dialog = adw::AlertDialog::builder()
+                .heading(t("learn_clear.heading", "Xoá dữ liệu đã học?"))
+                .body(t(
+                    "learn_clear.body",
+                    "Hai tệp học-theo-chọn sẽ bị xoá. Bộ gõ sẽ học lại từ đầu.",
+                ))
+                .build();
+            dialog.add_response("cancel", &t("learn_clear.cancel", "Huỷ"));
+            dialog.set_default_response(Some("cancel"));
+            dialog.set_close_response("cancel");
+            dialog.add_response("delete", &t("learn_clear.delete", "Xoá"));
+            dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+            dialog.connect_response(Some("delete"), |_, _| {
+                if let Some(dir) = dirs::config_dir().map(|d| d.join("ibus-mangrs")) {
+                    crate::learn::clear_dir(&dir);
+                }
+            });
+            dialog.present(row.root().and_downcast::<gtk4::Window>().as_ref());
+        });
+    }
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Backend ưu tiên"),
         &t(
@@ -820,6 +864,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Tầng dự đoán của dải gợi ý: khi đang gõ dở một từ, các từ ghép phổ biến bắt đầu bằng âm tiết đó hiện trong danh sách (gõ 'sinh' thấy 'sinh viên'); chọn một gợi ý sẽ thay cả từ đang gõ và thêm dấu cách. Cần file mô hình dự đoán đã cài (nạp bằng mmap, tra dưới 1ms); không có mô hình thì hàng này im lặng. Chỉ chạy khi 'Gợi ý từ điển' đang bật. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
     );
     tip!(
+        suggest_learn,
+        "tips.suggest_learn",
+        "Học chỉ khi anh CHỌN một gợi ý — không bao giờ ghi phím gõ; mỗi lựa chọn tăng một đơn vị đếm trong hai tệp 'user-picks.dict' và 'user-picks-pairs.dict' (quyền 0600, trong thư mục cấu hình) và dồn lên hàng đợi ghi khi engine nghỉ. Từ đã học được ưu tiên hơn trong đúng nhóm ngôn ngữ của nó, không bao giờ nhảy lên trên tiếng Việt. Ô mật khẩu không học. Nút 'Xoá dữ liệu đã học' bên dưới xoá sạch hai tệp. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
+    );
+    tip!(
         suggest_display,
         "tips.suggest_display",
         "Chọn chỗ hiện phần đang gõ khi dải gợi ý mở: Ô nổi (mặc định) — chỉ trong khung, ô soạn sạch đến khi từ được commit; Cả hai — từ hiện ở cả khung gợi ý và trong ô soạn, gõ tiếp hay xóa đều cập nhật đồng bộ; Trong ô soạn — preedit nằm trong văn bản như các bộ gõ cũ, dải gợi ý hiện bên cạnh, không có dòng chữ trong khung. Chỉ có tác dụng khi 'Gợi ý từ điển' đang bật."
@@ -911,6 +960,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         suggest_words,
         suggest_display,
         suggest_predict,
+        suggest_learn,
+        learn_clear_row,
         preferred_backend,
         time_format,
         date_format,

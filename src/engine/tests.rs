@@ -5791,3 +5791,136 @@ fn suggest_last_committed_word_follows_the_word_end() {
     e.focus_out();
     assert!(e.last_committed_word.is_none());
 }
+
+// --- pick learning (tier 3) ---
+
+/// A strip engine with pick learning on, redirected away from the real
+/// config dir: behavioral data from a test run must never touch the
+/// owner's files.
+fn learn_engine(method: Method, mode: Mode) -> Engine {
+    let mut e = suggest_engine(method, mode, true);
+    e.apply_config(&Config {
+        mode: mode.into(),
+        suggest_words: true,
+        suggest_predict: true,
+        suggest_learn: true,
+        experimental_features: true,
+        ..Config::default()
+    });
+    e.set_method(method);
+    e.model = Some(sample_model());
+    e.learn_dir = learn_tmp("engine");
+    e.picks = Some(crate::learn::UserPicks::load(&e.learn_dir));
+    e
+}
+
+fn learn_tmp(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("mangrs-learn-test-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp learn dir");
+    dir
+}
+
+#[test]
+fn learning_off_writes_nothing() {
+    // The pick path is shared with the legacy strip: with the switch off,
+    // picking a candidate must not create the behavioral files — they
+    // exist only when the owner opted in.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let dir = learn_tmp("off");
+    e.learn_dir = dir.clone();
+    suggest_keys(&mut e, "sinh");
+    e.accept_candidate(0);
+    assert!(!dir.join(crate::learn::PICKS_FILE).exists());
+    assert!(!dir.join(crate::learn::PAIRS_FILE).exists());
+}
+
+#[test]
+fn pick_flushes_on_tick_not_on_key() {
+    // The pick lands in memory at accept time and on disk at the engine's
+    // tick — the key path never touches the filesystem.
+    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let dir = e.learn_dir.clone();
+    suggest_keys(&mut e, "sinh");
+    e.accept_candidate(0);
+    assert!(
+        !dir.join(crate::learn::PICKS_FILE).exists(),
+        "no write on the key path"
+    );
+    e.tick();
+    let text = std::fs::read_to_string(dir.join(crate::learn::PICKS_FILE))
+        .expect("the tick flushed the pick");
+    assert!(text.contains("sinh viên\t1\n"), "{text}");
+}
+
+#[test]
+fn user_bonus_stays_inside_its_band() {
+    // 25 picks of `help` after `world` (both frequency and pair bonus)
+    // lift help over the more frequent hello INSIDE the EN band — and
+    // never over the Vietnamese rows: the sample fixture has no VN row
+    // under `he`, so the band check rides the `h` prefix, whose VN
+    // completions must still lead the boosted EN band.
+    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    e.last_committed_word = Some("world".into());
+    for _ in 0..25 {
+        e.picks
+            .as_mut()
+            .expect("learning is on")
+            .record_pick("help", Some("world"));
+    }
+    let list = e.state_a_candidates("he");
+    let pos_help = list.iter().position(|w| w == "help").expect("help offered");
+    let pos_hello = list
+        .iter()
+        .position(|w| w == "hello")
+        .expect("hello offered");
+    assert!(pos_help < pos_hello, "picks lift help over hello: {list:?}");
+    let list_h = e.state_a_candidates("h");
+    let first_vn = list_h
+        .iter()
+        .position(|w| !w.chars().all(|c| c.is_ascii_alphabetic()))
+        .expect("the h prefix serves VN rows");
+    let first_en = list_h
+        .iter()
+        .position(|w| w.chars().all(|c| c.is_ascii_alphabetic()))
+        .expect("the h prefix serves EN rows too");
+    assert!(
+        first_vn < first_en,
+        "the bonus never crosses the band: {list_h:?}"
+    );
+}
+
+#[test]
+fn password_purpose_gates_strip_and_learning() {
+    // PASSWORD (8) and PIN (9) quiet the strip and the learning files;
+    // typing itself is untouched, and a normal field (0) re-opens the
+    // strip on the in-flight word.
+    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let dir = e.learn_dir.clone();
+    e.set_content_purpose(PURPOSE_PASSWORD);
+    let keys = suggest_keys(&mut e, "sinh");
+    assert!(
+        candidates_of(keys.last().unwrap()).is_none(),
+        "the strip stays quiet in a password field"
+    );
+    // Typing itself is untouched: the in-flight word composes exactly as
+    // before (Preedit holds it — no commit exists mid-word).
+    assert_eq!(e.wrapper.output(), "sinh");
+    e.accept_candidate(0);
+    e.tick();
+    assert!(
+        !dir.join(crate::learn::PICKS_FILE).exists(),
+        "a password field learns nothing"
+    );
+    e.set_content_purpose(PURPOSE_PIN);
+    assert!(
+        candidates_of(&e.suggest_step()).is_none(),
+        "PIN stays quiet too"
+    );
+    e.set_content_purpose(0);
+    let reopen = e.suggest_step();
+    assert!(
+        candidates_of(&reopen).is_some(),
+        "a normal field re-opens the strip on the in-flight word"
+    );
+}

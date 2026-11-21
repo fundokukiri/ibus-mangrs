@@ -214,6 +214,15 @@ subtitle = "Chỉ ô nổi, cả hai chỗ, hay trong ô soạn như các bộ g
 title = "Dự đoán từ (n-gram)"
 subtitle = "Từ ghép khi đang gõ, từ kế tiếp sau dấu cách — cần file mô hình dự đoán"
 
+[rows.suggest_learn]
+title = "Học từ khi chọn gợi ý"
+subtitle = "Ghi nhớ những từ anh đã chọn trong bảng gợi ý để ưu tiên lần sau — hai tệp nhỏ trong thư mục cấu hình"
+
+[rows.learn_clear]
+title = "Xoá dữ liệu đã học"
+subtitle = "Xoá hai tệp học-theo-chọn trong thư mục cấu hình. Hỏi trước khi xoá."
+button = "Xoá"
+
 [rows.preferred_backend]
 title = "Backend ưu tiên"
 subtitle = "Backend tiêm phím được ưu tiên; không dựng được thì tự rơi về tự động"
@@ -619,6 +628,7 @@ keep_repeats_raw = "Dành riêng cho chế độ Flow: giữ một phím ở Flo
 suggest_words = "Từ đang gõ hiện trong ô nổi cạnh con trỏ kèm dải gợi ý bên dưới; ô soạn giữ sạch đến khi từ được commit (mặc định Ô nổi). Bấm 1–5 hoặc click thẳng dòng gợi ý để chọn, lật trang bằng nút ◀▶ trên khung hoặc Ctrl+, / Ctrl+., phím Escape vẫn kết thúc từ như thường, mũi tên giữ nguyên vai trò di chuyển con trỏ. Chạy ở chế độ Preedit và các chế độ có kênh xóa chữ (Surrounding, Forward Backspace, Flow) — một lựa chọn sẽ xóa chữ app đang giữ trước khi commit. Chỉ với preset Telex, Telex 2, Telex W, VIQR — các preset khác dùng số làm phím dấu nên không dùng được. Kiểu hiển thị đổi bằng hàng 'Kiểu hiển thị gợi ý' ngay dưới. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
 suggest_display = "Chọn chỗ hiện phần đang gõ khi dải gợi ý mở: Ô nổi (mặc định) — chỉ trong khung, ô soạn sạch đến khi từ được commit; Cả hai — từ hiện ở cả khung gợi ý và trong ô soạn, gõ tiếp hay xóa đều cập nhật đồng bộ; Trong ô soạn — preedit nằm trong văn bản như các bộ gõ cũ, dải gợi ý hiện bên cạnh, không có dòng chữ trong khung. Chỉ có tác dụng khi 'Gợi ý từ điển' đang bật."
 suggest_predict = "Tầng dự đoán của dải gợi ý: khi đang gõ dở một từ, các từ ghép phổ biến bắt đầu bằng âm tiết đó hiện trong danh sách (gõ \u0027sinh\u0027 thấy \u0027sinh viên\u0027); chọn một gợi ý sẽ thay cả từ đang gõ và thêm dấu cách. Cần file mô hình dự đoán đã cài (nạp bằng mmap, tra dưới 1ms); không có mô hình thì hàng này im lặng. Chỉ chạy khi \u0027Gợi ý từ điển\u0027 đang bật. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
+suggest_learn = "Học chỉ khi anh CHỌN một gợi ý — không bao giờ ghi phím gõ; mỗi lựa chọn tăng một đơn vị đếm trong hai tệp user-picks.dict và user-picks-pairs.dict (quyền 0600, trong thư mục cấu hình) và dồn lên hàng đợi ghi khi engine nghỉ. Từ đã học được ưu tiên hơn trong đúng nhóm ngôn ngữ của nó, không bao giờ nhảy lên trên tiếng Việt. Ô mật khẩu không học. Nút Xoá dữ liệu đã học bên dưới xoá sạch hai tệp. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
 preferred_backend = "Chọn backend tiêm phím được ưu tiên: uinput là bàn phím ảo của nhân, XTest chỉ có trên X11, wlroots cho Hyprland/sway, libei qua GNOME (đã đo thấy rủi ro crash — chỉ để thử nghiệm). Backend chọn được đặt lên đầu danh sách ưu tiên; không dựng được thì bộ gõ tự rơi về thứ tự theo môi trường. Tự động là hành vi mặc định."
 abbrev = "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
 bypass_url = "Liên kết thật (https://, www.) gõ nguyên toàn bộ, kể cả phần ?x=1&#tag;. Không ký tự nào chặn gõ dấu nữa — mọi dấu câu (: = # ? @ . _ /…) đều gõ tiếng Việt bình thường ngay sau nó."
