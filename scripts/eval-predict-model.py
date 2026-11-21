@@ -44,7 +44,10 @@ from pathlib import Path
 from struct import iter_unpack
 
 _MAGIC = b"MRSPRED1"
-_VERSION = 1
+# The magic is shared; the header version picks the layout: 16-bit row-id
+# fields in v1 (65,536-row ceiling), 21-bit fields in v2 (~2.1M rows),
+# compound members u16 vs u32.
+_VERSIONS = (1, 2)
 _SECTIONS = ("VOCAB", "VOCAB_INDEX", "UNIGRAM", "BIGRAM", "BIGRAM_INDEX",
              "TRIGRAM", "TRIGRAM_INDEX", "COMPOUNDS", "COMPOUNDS_INDEX", "PROVENANCE")
 _HEADER_LEN = 16 + 8 * len(_SECTIONS)
@@ -94,8 +97,12 @@ class Model:
         self.byte_len = len(data)
         if data[:8] != _MAGIC:
             raise EvalError("bad magic (not an MRSPRED1 model)")
-        if int.from_bytes(data[8:12], "little") != _VERSION or int.from_bytes(data[12:16], "little") != len(_SECTIONS):
+        version = int.from_bytes(data[8:12], "little")
+        if version not in _VERSIONS or int.from_bytes(data[12:16], "little") != len(_SECTIONS):
             raise EvalError("unsupported version or section count")
+        self.id_bits = 21 if version == 2 else 16
+        self.id_mask = (1 << self.id_bits) - 1
+        self.member_width = 4 if version == 2 else 2
         offs = [int.from_bytes(data[16 + 8 * i:24 + 8 * i], "little") for i in range(len(_SECTIONS))]
         ends = offs[1:] + [len(data)]
         for i, (start, end) in enumerate(zip(offs, ends)):
@@ -178,7 +185,7 @@ class Model:
 
     def _ngram_row(self, chunk):
         """(count-ordered entries, id->count map, row total) for one context."""
-        pairs = [(k & 0xFFFF, c) for k, c in iter_unpack("<QI", chunk)]
+        pairs = [(k & self.id_mask, c) for k, c in iter_unpack("<QI", chunk)]
         return (sorted(pairs, key=lambda p: (-p[1], self.surfaces[p[0]])),
                 dict(pairs), sum(c for _w, c in pairs))
 
@@ -193,9 +200,11 @@ class Model:
     def trigram_row(self, w1, w2):
         cached = self._tri_cache.get((w1, w2))
         if cached is None:
-            lo, hi, floor = self.tri_starts[w1], self.tri_starts[w1 + 1], (w1 << 32) | (w2 << 16)
+            shift = self.id_bits
+            lo, hi = self.tri_starts[w1], self.tri_starts[w1 + 1]
+            floor = (w1 << (2 * shift)) | (w2 << shift)
             lo = self._entry_bound(lo, hi, floor)
-            hi = self._entry_bound(lo, hi, floor + (1 << 16))
+            hi = self._entry_bound(lo, hi, floor + (1 << shift))
             self._tri_cache[(w1, w2)] = cached = self._ngram_row(
                 self._data[self._tri_base + _ENTRY * lo:self._tri_base + _ENTRY * hi])
         return cached
@@ -217,9 +226,11 @@ class Model:
             pos, stop = self._comp_base + self.comp_starts[head], self._comp_base + self.comp_starts[head + 1]
             while pos < stop:
                 n = self._data[pos]
-                ids = [int.from_bytes(self._data[pos + 1 + 2 * j:pos + 3 + 2 * j], "little") for j in range(n)]
-                strength = int.from_bytes(self._data[pos + 1 + 2 * n:pos + 5 + 2 * n], "little")
-                pos += 5 + 2 * n
+                w = self.member_width
+                ids = [int.from_bytes(self._data[pos + 1 + j * w:pos + 1 + (j + 1) * w],
+                                      "little") for j in range(n)]
+                strength = int.from_bytes(self._data[pos + 1 + n * w:pos + 5 + n * w], "little")
+                pos += 1 + n * w + 4
                 if pos > stop or any(i >= self.row_count for i in ids):
                     raise EvalError("compound entry overruns its group or cites an unknown row")
                 out.append((" ".join(self.surfaces[i] for i in ids), strength))
@@ -487,7 +498,25 @@ def selftest(model_path=None):
     ):
         if not ok:
             return _fail(f"selftest: anchor failed: {label}")
-    print("selftest: anchor rankings hold on the sample model")
+        print("selftest: anchor rankings hold on the sample model")
+
+    v2_path = Path(__file__).resolve().parent.parent / "data" / "model-sample-v2.bin"
+    if v2_path.exists():
+        try:
+            v2 = Model.open(v2_path)
+        except EvalError as exc:
+            return _fail(f"selftest: v2 sample does not parse: {exc}")
+        v2_ids = {s: v2.id_of(s) for s in ("sinh", "viên", "học", "hello", "world")}
+        v2_ok = (
+            all(v is not None for v in v2_ids.values())
+            and rank_next_1tok(v2, v2_ids["sinh"], v2_ids["viên"]) == 1
+            and rank_next_2tok(v2, v2_ids["sinh"], v2_ids["viên"], v2_ids["học"]) == 1
+            and rank_next_1tok(v2, v2_ids["hello"], v2_ids["world"]) == 1
+            and rank_compound(v2, "sinh", 2, "sinh viên") == 1
+        )
+        if not v2_ok:
+            return _fail("selftest: anchors failed on the v2 sample (21-bit fields)")
+        print("selftest: anchor rankings hold on the v2 sample too")
 
     heldout = "\n".join(("sinh viên học", "sinh viên học sinh", "học sinh giỏi",
                          "hello world", "hello help me", "chúng ta là sinh viên")) + "\n"
