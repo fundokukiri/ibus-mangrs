@@ -248,6 +248,224 @@ class Model:
         return cached
 
 
+def _discounts(n1, n2):
+    """Modified-KN discount constants from an order's count-of-counts."""
+    if n1 == 0 or n1 + 2 * n2 == 0:
+        return (0.0, 0.0, 0.0)
+    d1 = n1 / (n1 + 2 * n2)
+    d2 = 2 * n2 / (n1 + 2 * n2)
+    return (d1, d2, d2)
+
+
+class Kn:
+    """Modified Kneser-Ney derived from the packed tables alone.
+
+    Discounts per order come from the global count-of-counts; the lowest
+    tier is the continuation distribution P_cont(w) = N1+(.w) / sum, the
+    share of distinct count-1 predecessors of w in the bigram table (every
+    packed entry is a distinct pair, so counting count-1 rows per next word
+    is exact). A context's gamma — the discounted mass leaving the tier —
+    is derived from that context's own rows; an empty context hands the
+    whole mass down (gamma 1), the KN convention.
+    """
+
+    def __init__(self, model):
+        self.model = model
+        cont1 = [0] * model.row_count
+        bi_n = [0, 0]
+        tri_n = [0, 0]
+        total1 = 0
+        mask = model.id_mask
+        for key, c in iter_unpack("<QI", model._data[model._bi_base:
+                                                     model._bi_base + _ENTRY * model.n_bigrams]):
+            if c == 1:
+                bi_n[0] += 1
+                cont1[key & mask] += 1
+                total1 += 1
+            elif c == 2:
+                bi_n[1] += 1
+        for _key, c in iter_unpack("<QI", model._data[model._tri_base:
+                                                      model._tri_base + _ENTRY * model.n_trigrams]):
+            if c == 1:
+                tri_n[0] += 1
+            elif c == 2:
+                tri_n[1] += 1
+        self.d_bi = _discounts(bi_n[0], bi_n[1])
+        self.d_tri = _discounts(tri_n[0], tri_n[1])
+        self.p_cont = [c / total1 for c in cont1] if total1 else [0.0] * model.row_count
+        # The continuation stream: P_cont order with the surface tie-break —
+        # scores only descend, so the streaming early-break stays valid.
+        self.p_cont_order = sorted((i for i in range(model.row_count) if self.p_cont[i]),
+                                   key=lambda i: (-self.p_cont[i], model.surfaces[i]))
+        # Per-lower-context scored tiers, built once and reused: the tier's
+        # kn_1 scores are not count-monotonic, so each walk needs a sorted
+        # list, and sorting per position over ~50M positions is the whole
+        # run's cost. Positive scaling preserves the order, so the tier is
+        # cached unscaled per w2 and multiplied by gamma at walk time.
+        self._tier_cache = {}
+        self._ctx1_cache = {}
+
+    def kn_1_all(self, rows, amap, total):
+        """(gamma, [(score, w) per row]) with ONE gamma pass — kn_1 per row
+        would rescan the rows for gamma on every call, quadratic per context."""
+        gamma = self._gamma(rows, total, self.d_bi)
+        d1, d2, d3 = self.d_bi
+        out = []
+        for w, c in rows:
+            d = d1 if c == 1 else (d2 if c == 2 else d3)
+            out.append((max(c - d, 0.0) / total + gamma * self.p_cont[w], w))
+        return gamma, out
+
+    def ctx1_for(self, prev):
+        """Cached scored+sorted context tier for one prev: (entries, amap, gamma)."""
+        cached = self._ctx1_cache.get(prev)
+        if cached is None:
+            rows, amap, total = self.model.bigram_row(prev)
+            gamma, scored = self.kn_1_all(rows, amap, total)
+            entries = sorted(((-s, self.model.surfaces[w], w) for s, w in scored))
+            self._ctx1_cache[prev] = cached = (entries, amap, gamma)
+        return cached
+
+    def tier_for(self, w2):
+        cached = self._tier_cache.get(w2)
+        if cached is None:
+            rows, amap, total = self.model.bigram_row(w2)
+            gamma, scored = self.kn_1_all(rows, amap, total)
+            tier = sorted(((s, w) for s, w in scored),
+                          key=lambda e: (-e[0], self.model.surfaces[e[1]]))
+            self._tier_cache[w2] = cached = (tier, gamma, total, amap)
+        return cached
+
+    def _gamma(self, rows, total, discounts):
+        if not total:
+            return 1.0  # an unseen context hands its whole mass down
+        n1 = n2 = n3 = 0
+        for _w, c in rows:
+            if c == 1:
+                n1 += 1
+            elif c == 2:
+                n2 += 1
+            else:
+                n3 += 1
+        d1, d2, d3 = discounts
+        return (d1 * n1 + d2 * n2 + d3 * n3) / total
+
+    def kn_1(self, w, rows, amap, total):
+        """P_KN(w | prev) over prev's bigram row."""
+        gamma = self._gamma(rows, total, self.d_bi)
+        c = amap.get(w)
+        if c is None:
+            return gamma * self.p_cont[w]
+        d = self.d_bi[min(c, 3) - 1]
+        return max(c - d, 0.0) / total + gamma * self.p_cont[w]
+
+    def kn_2(self, w, w1, w2):
+        """P_KN(w | w1, w2) = trigram term interpolated with P_KN(w | w2).
+
+        The lower tier rides the per-w2 cache (tier_for): recomputing its
+        gamma and row scan per position over ~50M positions was the run's
+        whole cost."""
+        tri_rows, tri_map, tri_total = self.model.trigram_row(w1, w2)
+        gamma_tri = self._gamma(tri_rows, tri_total, self.d_tri)
+        _tier, gamma_bi, bi_total, bi_map = self.tier_for(w2)
+        c = bi_map.get(w)
+        if c is None:
+            lower = gamma_bi * self.p_cont[w]
+        else:
+            d = self.d_bi[min(c, 3) - 1]
+            lower = max(c - d, 0.0) / bi_total + gamma_bi * self.p_cont[w]
+        c3 = tri_map.get(w)
+        if c3 is None:
+            return gamma_tri * lower
+        d3 = self.d_tri[min(c3, 3) - 1]
+        return max(c3 - d3, 0.0) / tri_total + gamma_tri * lower
+
+
+def _kn_for(model):
+    kn = getattr(model, "_kn", None)
+    if kn is None:
+        model._kn = kn = Kn(model)
+    return kn
+
+
+def _pool_push(pool, entry):
+    insort(pool, entry)
+    if len(pool) > 5:
+        pool.pop()
+
+
+def _rank_kn_shared(model, kn, target, ctx_entries, ctx_map, tier, stream):
+    """Rank of target over the KN tiers — the same pool shape as _rank: the
+    context's own rows seed the top-5, the next tier's rows follow (a context
+    member keeps its context score), and the continuation stream fills the
+    rest. The tier arrives as its per-w2 cached list of unscaled (score, w)
+    with a per-position scale (positive scaling preserves the cached order);
+    the stream scores descend. Each exhausted head drops out of the merge;
+    a head is exhausted once its next entry cannot beat the kept fifth."""
+    pool = ctx_entries[:5]
+    tier_list, tier_scale, tier_map = tier
+    stream_ids, stream_scale = stream
+    i = j = 0
+    nt, ns = len(tier_list), len(stream_ids)
+    while True:
+        nxt1 = None
+        while i < nt:
+            s, w = tier_list[i]
+            eff = tier_scale * s
+            if len(pool) >= 5 and (-eff, model.surfaces[w], w) >= pool[4]:
+                i = nt  # the cached list is sorted: everything later is worse
+                break
+            if w in ctx_map:
+                i += 1  # a context member keeps its context score
+                continue
+            nxt1 = (-eff, model.surfaces[w], w)
+            break
+        nxt2 = None
+        while j < ns:
+            w = stream_ids[j]
+            eff = stream_scale * kn.p_cont[w]
+            if len(pool) >= 5 and (-eff, model.surfaces[w], w) >= pool[4]:
+                j = ns  # the stream only descends: everything later is worse
+                break
+            if w in ctx_map or w in tier_map:
+                j += 1
+                continue
+            nxt2 = (-eff, model.surfaces[w], w)
+            break
+        if nxt1 is None and nxt2 is None:
+            break
+        nxt = nxt1 if nxt2 is None or (nxt1 is not None and nxt1 <= nxt2) else nxt2
+        if nxt is nxt2:
+            j += 1
+        else:
+            i += 1
+        _pool_push(pool, nxt)
+    for rank, entry in enumerate(pool, 1):
+        if entry[2] == target:
+            return rank
+    return None
+
+
+def rank_next_1tok_kn(model, prev, target):
+    """Rank of target as the next word after prev under modified KN."""
+    kn = _kn_for(model)
+    ctx, amap, gamma = kn.ctx1_for(prev)
+    return _rank_kn_shared(model, kn, target, ctx, amap, ((), 1.0, set()),
+                           (kn.p_cont_order, gamma))
+
+
+def rank_next_2tok_kn(model, w1, w2, target):
+    """Rank of target as the next word after the pair under modified KN."""
+    kn = _kn_for(model)
+    tri_rows, tri_map, tri_total = model.trigram_row(w1, w2)
+    gamma_tri = kn._gamma(tri_rows, tri_total, kn.d_tri)
+    ctx = sorted((-kn.kn_2(w, w1, w2), model.surfaces[w], w) for w, _c in tri_rows)
+    tier_list, gamma_bi, _total, bi_map = kn.tier_for(w2)
+    tier = (tier_list, gamma_tri, bi_map)
+    return _rank_kn_shared(model, kn, target, ctx, tri_map, tier,
+                           (kn.p_cont_order, gamma_tri * gamma_bi))
+
+
 def _rank(model, target, a_ordered, a_map, a_total, b_ordered, b_map, b_total, b_factor, u_factor):
     """Rank (1..5) of target under stupid backoff over A + backoff tiers, else None.
 
@@ -358,8 +576,10 @@ def _add_compound(model, accs, ids, i):
 
 def eval_sentences(model, name, lines):
     """Score one held-out file: state B at every position with a 1- and
-    2-token context, state A at every position with a compound continuation."""
-    accs = {k: Acc() for k in ("ctx1", "ctx2_full", "ctx2_bi", "comp2", "comp3")}
+    2-token context (stupid backoff and modified KN side by side), state A
+    at every position with a compound continuation."""
+    accs = {k: Acc() for k in ("ctx1", "ctx2_full", "ctx2_bi", "ctx1_kn", "ctx2_kn",
+                               "comp2", "comp3")}
     sentences = 0
     for raw in lines:
         norm = normalize(raw)
@@ -369,19 +589,25 @@ def eval_sentences(model, name, lines):
         sentences += 1
         for i in range(1, len(ids)):
             accs["ctx1"].add(rank_next_1tok(model, ids[i - 1], ids[i]))
+            accs["ctx1_kn"].add(rank_next_1tok_kn(model, ids[i - 1], ids[i]))
         for i in range(2, len(ids)):
             accs["ctx2_full"].add(rank_next_2tok(model, ids[i - 2], ids[i - 1], ids[i]))
             accs["ctx2_bi"].add(rank_next_2tok(model, ids[i - 2], ids[i - 1], ids[i], use_trigram=False))
+            accs["ctx2_kn"].add(rank_next_2tok_kn(model, ids[i - 2], ids[i - 1], ids[i]))
         for i in range(len(ids) - 1):
             _add_compound(model, accs, ids, i)
     return {"name": name, "sentences": sentences, **accs}
 
 
-def evaluate(model, files):
-    """files: ordered (name, text) pairs. Returns (per-file stats, overall)."""
-    per_file = [eval_sentences(model, name, text.splitlines()) for name, text in files]
+def evaluate(model, files, stride=1):
+    """files: ordered (name, text) pairs. Returns (per-file stats, overall).
+
+    stride subsamples whole lines (every Nth) — positions scale down by N,
+    the per-file rates keep their proportional meaning."""
+    per_file = [eval_sentences(model, name, text.splitlines()[::stride])
+                for name, text in files]
     overall = {"name": "overall", "sentences": sum(st["sentences"] for st in per_file)}
-    for tag in ("ctx1", "ctx2_full", "ctx2_bi", "comp2", "comp3"):
+    for tag in ("ctx1", "ctx2_full", "ctx2_bi", "ctx1_kn", "ctx2_kn", "comp2", "comp3"):
         acc = Acc()
         for st in per_file:
             acc.n += st[tag].n
@@ -406,7 +632,9 @@ def read_held_out(directory):
 
 
 _ACC_TAGS = (("state_b.ctx1.full", "ctx1"), ("state_b.ctx1.bigram_only", "ctx1"),
+             ("state_b.ctx1.kn", "ctx1_kn"),
              ("state_b.ctx2.full", "ctx2_full"), ("state_b.ctx2.bigram_only", "ctx2_bi"),
+             ("state_b.ctx2.kn", "ctx2_kn"),
              ("state_a.prefix2", "comp2"), ("state_a.prefix3", "comp3"))
 
 
@@ -425,6 +653,8 @@ def format_block(title, st):
     return [f"== {title} ==",
             _row("state B  1-token context", st["ctx1"], st["ctx1"]),
             _row("state B  2-token context", st["ctx2_full"], st["ctx2_bi"]),
+            _row("state B  1-token KN", st["ctx1_kn"]),
+            _row("state B  2-token KN", st["ctx2_kn"]),
             _row("state A  prefix 2 chars", st["comp2"]),
             _row("state A  prefix 3 chars", st["comp3"])]
 
@@ -499,6 +729,11 @@ def selftest(model_path=None):
         if not ok:
             return _fail(f"selftest: anchor failed: {label}")
         print("selftest: anchor rankings hold on the sample model")
+    kn_rank = rank_next_2tok_kn(model, ids["sinh"], ids["viên"], ids["học"])
+    kn1_rank = rank_next_1tok_kn(model, ids["sinh"], ids["viên"])
+    if kn_rank is None or kn1_rank is None:
+        return _fail("selftest: KN scoring never reached the anchor target")
+    print(f"selftest: KN ranks (sinh viên -> học)={kn_rank}, (sinh -> viên)={kn1_rank}")
 
     v2_path = Path(__file__).resolve().parent.parent / "data" / "model-sample-v2.bin"
     if v2_path.exists():
@@ -525,7 +760,7 @@ def selftest(model_path=None):
     text1 = report("inline-fixture.txt", *run1, model)
     if text1 != report("inline-fixture.txt", *run2, model):
         return _fail("selftest: two runs produced different reports")
-    for tag in ("ctx1", "ctx2_full", "comp2", "comp3"):
+    for tag in ("ctx1", "ctx2_full", "ctx1_kn", "ctx2_kn", "comp2", "comp3"):
         if run1[1][tag].n == 0:
             return _fail(f"selftest: no positions scored for {tag}")
     print(text1)
@@ -539,6 +774,7 @@ def main(argv=None):
     parser.add_argument("--model", type=Path, help="model binary (default: the committed data/model-sample.bin)")
     parser.add_argument("--held-out-dir", type=Path, help="directory of held-out/<corpus>.txt files")
     parser.add_argument("--selftest", action="store_true", help="run against the sample model with inline fixtures")
+    parser.add_argument("--stride", type=int, default=1, help="score every Nth line (subsampled measurement)")
     args = parser.parse_args(argv)
 
     if args.selftest:
@@ -548,7 +784,7 @@ def main(argv=None):
     model_path = args.model or _default_model()
     try:
         model = Model.open(model_path)
-        per_file, overall = evaluate(model, read_held_out(args.held_out_dir))
+        per_file, overall = evaluate(model, read_held_out(args.held_out_dir), stride=args.stride)
     except EvalError as exc:
         return _fail(str(exc))
     print(report(model_path, per_file, overall, model))
