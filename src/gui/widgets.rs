@@ -103,7 +103,9 @@ where
     }
 }
 
-/// A boxed-list choice row; `selected` indexes into `items`.
+/// A boxed-list choice row; `selected` indexes into `items`. Every combo in
+/// the app goes through here so the popup interaction stays uniform: click
+/// picks, hover only highlights (see `combo_popup_factory`).
 pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::ComboRow {
     let row = adw::ComboRow::new();
     row.set_use_markup(false);
@@ -111,7 +113,127 @@ pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::Com
     row.set_subtitle(subtitle);
     row.set_model(Some(&StringList::new(items)));
     row.set_selected(0);
+    row.set_list_factory(Some(&combo_popup_factory()));
+    // The popup ListView is a template child, built with the row — walkable
+    // and fixable right away.
+    unset_hover_select(row.upcast_ref());
     row
+}
+
+/// The popup ListView must not select whatever row the pointer crosses:
+/// libadwaita's combo template ships it with single-click-activate on, and
+/// GTK reads that flag as "activate on click AND select on hover" — the
+/// selected look (accent row, checkmark) swept along with the mouse instead
+/// of waiting for a press. Off, a press alone picks again: the factory's
+/// click gesture selects the clicked item before firing the activate action
+/// upstream commits from. The inline value view is walked too; its flag was
+/// already off, so this is a no-op there.
+fn unset_hover_select(w: &gtk4::Widget) {
+    if let Some(view) = w.downcast_ref::<gtk4::ListView>() {
+        view.set_single_click_activate(false);
+    }
+    let mut child = w.first_child();
+    while let Some(c) = child {
+        unset_hover_select(&c);
+        child = c.next_sibling();
+    }
+}
+
+/// The popup list factory every combo row ships with: a rebuild of the
+/// upstream default factory's rows — label plus the selected-item checkmark.
+/// The checkmark's opacity follows `item.selected`: the popup model is a
+/// single selection mirroring the row's selection, so it marks exactly the
+/// item the popup will commit. The click gesture is the pick path now that
+/// `unset_hover_select` turned hover-select off: select first (upstream's
+/// row_activated_cb reads the popup selection, not the signal position),
+/// then fire `list.activate-item` — the same action GTK's Enter uses — so
+/// upstream commits and pops the popover down. The item rides a weak ref:
+/// a strong one would cycle (item → controller → closure → item) and leak
+/// every pooled popup item.
+fn combo_popup_factory() -> gtk4::SignalListItemFactory {
+    let factory = gtk4::SignalListItemFactory::new();
+    factory.connect_setup(|_, obj| {
+        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else {
+            return;
+        };
+        let label = gtk4::Label::builder()
+            .xalign(0.0)
+            .ellipsize(gtk4::pango::EllipsizeMode::End)
+            .max_width_chars(20)
+            .width_chars(1)
+            .valign(gtk4::Align::Center)
+            .build();
+        let icon = gtk4::Image::builder()
+            .accessible_role(gtk4::AccessibleRole::Presentation)
+            .icon_name("object-select-symbolic")
+            .build();
+        let item_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        item_box.append(&label);
+        item_box.append(&icon);
+        item.set_child(Some(&item_box));
+        // Setup runs once per item widget: one binding per item, no
+        // unbind bookkeeping. The transform captures nothing — the icon
+        // comes off the binding — because notify handlers must be
+        // Send + Sync and widgets are not.
+        item.bind_property("selected", &icon, "opacity")
+            .sync_create()
+            .transform_to(|_, selected: bool| {
+                Some(gtk4::glib::Value::from(if selected { 1.0f64 } else { 0.0 }))
+            })
+            .build();
+        let weak_item = gtk4::glib::WeakRef::new();
+        weak_item.set(Some(item));
+        let click = gtk4::GestureClick::new();
+        click.set_button(gtk4::gdk::BUTTON_PRIMARY);
+        // A drag that leaves the item cancels the sequence, so released
+        // never fires for it — the pick happens only on an in-item release.
+        // GtkListItem is a plain GObject, not a widget: the widget ops go
+        // through its child box, whose ancestor chain reaches the ListView.
+        click.connect_released(move |_, n_press, _, _| {
+            if n_press != 1 {
+                return;
+            }
+            let Some(item) = weak_item.upgrade() else {
+                return;
+            };
+            let Some(box_) = item.child().and_downcast::<gtk4::Box>() else {
+                return;
+            };
+            let Some(view) = box_
+                .ancestor(gtk4::ListView::static_type())
+                .and_downcast::<gtk4::ListView>()
+            else {
+                return;
+            };
+            let Some(model) = view.model().and_downcast::<gtk4::SingleSelection>() else {
+                return;
+            };
+            let position = item.position();
+            model.select_item(position, false);
+            box_.activate_action("list.activate-item", Some(&position.to_variant()));
+        });
+        item_box.add_controller(click);
+    });
+    factory.connect_bind(|_, obj| {
+        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else {
+            return;
+        };
+        let Some(label) = item
+            .child()
+            .and_downcast::<gtk4::Box>()
+            .and_then(|item_box| item_box.first_child())
+            .and_downcast::<gtk4::Label>()
+        else {
+            return;
+        };
+        let text = item
+            .item()
+            .and_downcast::<gtk4::StringObject>()
+            .map(|s| s.string().to_string())
+            .unwrap_or_default();
+        label.set_text(&text);
+    });
+    factory
 }
 
 /// An info row for a boxed list (title + dim subtitle, no control). Not

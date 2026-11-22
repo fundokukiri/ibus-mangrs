@@ -202,11 +202,9 @@ fn open_add_dialog(ui: &Rc<Ui>, parent: &impl IsA<gtk4::Widget>) {
         .map(|(key, fallback)| t(key.1, fallback))
         .collect();
     let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-    let pick = adw::ComboRow::builder()
-        .title(t("groups.hotkeys.custom.function", "Chức năng"))
-        .use_markup(false)
-        .model(&StringList::new(&refs))
-        .build();
+    // The shared combo builder — the dialog picker must pick on click like
+    // every other combo popup.
+    let pick = combo_row(&t("groups.hotkeys.custom.function", "Chức năng"), "", &refs);
     let list = gtk4::ListBox::new();
     list.add_css_class("boxed-list");
     list.set_selection_mode(gtk4::SelectionMode::None);

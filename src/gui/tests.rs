@@ -66,6 +66,7 @@ fn gtk_widget_scenarios() {
     preferred_backend_combo_saves_loads_and_survives_the_gate();
     combo_value_stays_right_after_a_pick();
     popup_marks_the_selected_item();
+    combo_popups_do_not_select_on_hover();
     format_combos_keep_presets_and_unknowns();
     language_row_round_trips();
     nav_key_row_round_trips();
@@ -178,6 +179,40 @@ fn popup_marks_the_selected_item() {
         .filter(|icon| icon.opacity() == 1.0)
         .count();
     assert_eq!(lit, 1, "exactly the selected item carries a lit checkmark");
+}
+
+/// Combo popups must not select whatever row the pointer merely crosses:
+/// libadwaita's combo template ships its popup ListView with single-click-
+/// activate on, which GTK reads as "activate on click and SELECT on hover" —
+/// the selected look (accent row, checkmark) swept along with the mouse
+/// instead of waiting for a press. The builder turns the flag off below
+/// every combo row; picking happens on click instead (see widgets.rs).
+fn combo_popups_do_not_select_on_hover() {
+    let ui = widgets();
+    let combos = [
+        &ui.method,
+        &ui.mode,
+        &ui.charset,
+        &ui.w2u,
+        &ui.backspace_tone,
+        &ui.nav_key_while_preedit,
+        &ui.bracket,
+        &ui.suggest_display,
+        &ui.preferred_backend,
+        &ui.time_format,
+        &ui.date_format,
+        &ui.language,
+    ];
+    for row in combos {
+        let sweeps_with_hover = descendants::<gtk4::ListView>(row.upcast_ref())
+            .into_iter()
+            .any(|view| view.is_single_click_activate());
+        assert!(
+            !sweeps_with_hover,
+            "{}'s popup must not select rows on hover",
+            row.title()
+        );
+    }
 }
 
 /// While typing in a raw table, a switch turned off (by hand or by a live
@@ -518,7 +553,6 @@ fn refresh_round_trips_every_widget() {
         keep_composed_words: true,
         keep_repeats_raw: true,
         suggest_words: true,
-        suggest_predict: true,
         suggest_learn: true,
         suggest_display: crate::config::SuggestDisplayConfig::Inline,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
