@@ -210,7 +210,11 @@ fn combo_popup_factory() -> gtk4::SignalListItemFactory {
             };
             let position = item.position();
             model.select_item(position, false);
-            box_.activate_action("list.activate-item", Some(&position.to_variant()));
+            // The action lives on the ListView's widget class (gtklistview.c
+            // installs "list.activate-item") and view is its ancestor, so the
+            // Err is unreachable by construction and there is nothing to fall
+            // back to on an input path.
+            let _ = box_.activate_action("list.activate-item", Some(&position.to_variant()));
         });
         item_box.add_controller(click);
     });
