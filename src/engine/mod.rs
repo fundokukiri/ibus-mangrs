@@ -450,8 +450,11 @@ pub struct Engine {
     password_quiet: bool,
     /// The prediction model opened at the last config apply: its compounds
     /// serve the state-A list and its n-grams the state-B surface; `None`
-    /// (no model file) keeps the strip legacy-only.
-    pub(crate) model: Option<crate::predict::PredictModel>,
+    /// (no model file) keeps the strip legacy-only. The Arc shares the
+    /// process-wide cached parse (predict.rs) — tests construct hundreds of
+    /// engines, and config reloads re-apply, so a fresh open per apply would
+    /// rescan and resort the whole vocabulary every time.
+    pub(crate) model: Option<std::sync::Arc<crate::predict::PredictModel>>,
     /// The table the strip serves from: the builtin rows (model-harvested
     /// or embedded) merged with the user dictionary at a weight that
     /// outranks every builtin frequency. Rebuilt on every config apply.
@@ -744,8 +747,8 @@ impl Engine {
         // feeds both the builtin rows and the predict tier; `None` keeps
         // the strip legacy-only. Rebuilt on every config apply, so a new
         // model or dictionary needs no engine restart.
-        let model = crate::predict::located_path().and_then(|path| crate::predict::open(&path));
-        let mut rows = crate::suggest::builtin_rows_with(model.as_ref());
+        let model = crate::predict::locate_shared();
+        let mut rows = crate::suggest::builtin_rows_with(model.as_deref());
         rows.extend(merge_user_entries(
             Dictionary::load()
                 .words()
@@ -1952,7 +1955,7 @@ impl Engine {
         if !word.chars().all(|c| c.is_ascii_alphabetic()) {
             return Vec::new();
         }
-        let Some(model) = self.model.as_ref() else {
+        let Some(model) = self.model.as_deref() else {
             return Vec::new();
         };
         let (start, end) = model.prefix_range(&crate::suggest::toneless(word));
@@ -2074,7 +2077,7 @@ impl Engine {
     /// there is no model, the last word is not a model token, or nothing
     /// follows it — the strip then goes quiet.
     fn state_b_candidates(&self, prev: Option<&str>, last: &str) -> Vec<String> {
-        let Some(model) = self.model.as_ref() else {
+        let Some(model) = self.model.as_deref() else {
             return Vec::new();
         };
         let Some(id2) = model.id_of(last) else {

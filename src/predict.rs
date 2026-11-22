@@ -24,8 +24,11 @@
 // last wiring.
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::SystemTime;
 
 use memmap2::Mmap;
 
@@ -80,11 +83,12 @@ fn u64_le(b: &[u8]) -> Option<u64> {
 }
 
 /// The model file search order: an env override for dev and tests, then the
-/// user config dir, then the system install path — the v2 name first, so an
-/// installed v2 file wins over a leftover v1. `None` when no file exists
-/// — callers log that and the strip falls back to the legacy embedded table.
+/// user config dir, then the system install path — the v1 name first: the
+/// benchmark verdict picked the v1 full model, so a leftover installed v2
+/// must not outrank it. `None` when no file exists — callers log that and
+/// the strip falls back to the legacy embedded table.
 pub fn located_path() -> Option<PathBuf> {
-    const NAMES: [&str; 2] = ["mangrs-predict-v2.bin", "mangrs-predict-v1.bin"];
+    const NAMES: [&str; 2] = ["mangrs-predict-v1.bin", "mangrs-predict-v2.bin"];
     if let Ok(path) = std::env::var("MANGRS_MODEL_PATH") {
         let path = PathBuf::from(path);
         if path.is_file() {
@@ -106,6 +110,54 @@ pub fn located_path() -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// The parsed models shared per process: `apply_config` re-opens on every
+/// config apply — every engine construction in the tests, and every settings
+/// save in production — and each open costs a full-vocabulary scan and sort
+/// (~1.1 s of CPU for a 125 MB file, measured). The first caller of a file
+/// version parses; later callers share its Arc. A replaced file (new stats)
+/// re-parses; a file that goes malformed keeps serving the last good parse
+/// until it changes again — typing must not break because an install raced
+/// a reload. Entries live for the process: at most a couple of model files
+/// exist per machine, and the maps stay page-cached.
+static CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedModel>>> = OnceLock::new();
+
+struct CachedModel {
+    mtime: Option<SystemTime>,
+    len: u64,
+    model: Arc<PredictModel>,
+}
+
+/// The apply path's open: locate, then share the parse across applies.
+pub fn locate_shared() -> Option<Arc<PredictModel>> {
+    let path = located_path()?;
+    cached(&path)
+}
+
+/// The cached open for one located path. Direct `open` stays available for
+/// callers that must own the parse (the tests' injected sample models).
+pub fn cached(path: &Path) -> Option<Arc<PredictModel>> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta.modified().ok();
+    let len = meta.len();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(c) = guard.get(path) {
+        if c.mtime == mtime && c.len == len {
+            return Some(c.model.clone());
+        }
+    }
+    let model = Arc::new(open(path)?);
+    guard.insert(
+        path.to_path_buf(),
+        CachedModel {
+            mtime,
+            len,
+            model: model.clone(),
+        },
+    );
+    Some(model)
 }
 
 /// Maps and validates a model file. `None` on any malformed input: the
@@ -482,6 +534,28 @@ mod tests {
         open(&sample_v2_path()).expect(
             "data/model-sample-v2.bin missing — run scripts/build-predict-model.py --sample --format v2",
         )
+    }
+
+    #[test]
+    fn cached_shares_one_parse_per_file_version() {
+        // The apply path re-opens on every config apply; the cache must hand
+        // back the SAME Arc for an unchanged file (each open of a full model
+        // costs ~1.1 s of CPU otherwise) and a fresh parse per file version.
+        // The two fixtures are separate paths, so parallel engine tests
+        // opening the installed model cannot disturb this slot-by-slot.
+        let first = cached(&sample_path()).expect("the v1 sample parses");
+        let second = cached(&sample_path()).expect("the v1 sample parses again");
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "an unchanged file shares its parse"
+        );
+        let third = cached(&sample_v2_path()).expect("the v2 sample parses");
+        assert!(
+            !Arc::ptr_eq(&first, &third),
+            "a different file version parses separately"
+        );
+        let fourth = cached(&sample_path()).expect("the v1 sample returns");
+        assert!(Arc::ptr_eq(&first, &fourth), "v1 keeps its parse");
     }
 
     #[test]

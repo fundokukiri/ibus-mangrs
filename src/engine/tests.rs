@@ -5059,12 +5059,16 @@ fn candidates_of(actions: &[Action]) -> Option<&Vec<String>> {
 
 /// The committed sample model for the predict tests. Injected straight into
 /// the engine's `model` field: an env override would be process-global and
-/// leak into the concurrent legacy strip tests.
-pub(crate) fn sample_model() -> crate::predict::PredictModel {
+/// leak into the concurrent legacy strip tests. The Arc matches the field's
+/// shared-parse type; the sample bypasses the process-wide cache, so every
+/// call parses its own (2 KB) fixture.
+pub(crate) fn sample_model() -> std::sync::Arc<crate::predict::PredictModel> {
     // Test-only expect: the committed fixture's absence is the failure.
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("data/model-sample.bin");
-    crate::predict::open(&path)
-        .expect("data/model-sample.bin missing — run scripts/build-predict-model.py --sample")
+    std::sync::Arc::new(
+        crate::predict::open(&path)
+            .expect("data/model-sample.bin missing — run scripts/build-predict-model.py --sample"),
+    )
 }
 
 /// Engine with the strip switch on and the committed sample model injected:
