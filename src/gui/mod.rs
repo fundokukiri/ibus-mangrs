@@ -284,13 +284,12 @@ struct Ui {
     macro_valid_words: adw::SwitchRow,
     keep_composed_words: adw::SwitchRow,
     keep_repeats_raw: adw::SwitchRow,
-    /// The suggestion strip switch ("Thử nghiệm"): bound to the master gate
-    /// like the keeps — locked, default-displayed and restored with them.
+    /// The suggestion strip switch ("Thử nghiệm"): the one strip switch —
+    /// the model's compounds, single words and next-word lists serve under
+    /// it. Bound to the master gate like the keeps — locked,
+    /// default-displayed and restored with them; needs the prediction
+    /// model file to do anything.
     suggest_words: adw::SwitchRow,
-    /// The prediction tier switch ("Thử nghiệm"): compounds and next-word
-    /// predictions on the strip, layered under the strip switch and the
-    /// master gate; needs the prediction model file to do anything.
-    suggest_predict: adw::SwitchRow,
     /// The pick-learning switch ("Thử nghiệm"): strip picks land in two
     /// 0600 TSV files in the config dir; a password field learns nothing.
     suggest_learn: adw::SwitchRow,
@@ -661,7 +660,6 @@ impl Ui {
         self.suggest_words.set_active(config.suggest_words);
         self.suggest_display
             .set_selected(suggest_display_index(config.suggest_display));
-        self.suggest_predict.set_active(config.suggest_predict);
         self.suggest_learn.set_active(config.suggest_learn);
         self.preferred_backend
             .set_selected(preferred_backend_index(config.preferred_backend));
@@ -838,7 +836,6 @@ impl Ui {
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
         config.suggest_words = self.suggest_words.is_active();
-        config.suggest_predict = self.suggest_predict.is_active();
         config.suggest_learn = self.suggest_learn.is_active();
         config.suggest_display = match self.suggest_display.selected() {
             1 => SuggestDisplayConfig::Mirror,
@@ -980,13 +977,12 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 13] = [
+        let rows: [&gtk4::Widget; 12] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
             self.suggest_words.upcast_ref(),
             self.suggest_display.upcast_ref(),
-            self.suggest_predict.upcast_ref(),
             self.suggest_learn.upcast_ref(),
             self.learn_clear_row.upcast_ref(),
             self.preferred_backend.upcast_ref(),
@@ -1026,7 +1022,6 @@ impl Ui {
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
         self.suggest_words.set_active(d.suggest_words);
-        self.suggest_predict.set_active(d.suggest_predict);
         self.suggest_learn.set_active(d.suggest_learn);
         self.suggest_display
             .set_selected(suggest_display_index(d.suggest_display));
@@ -1056,7 +1051,6 @@ impl Ui {
         self.keep_composed_words.set_active(c.keep_composed_words);
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
         self.suggest_words.set_active(c.suggest_words);
-        self.suggest_predict.set_active(c.suggest_predict);
         self.suggest_learn.set_active(c.suggest_learn);
         self.suggest_display
             .set_selected(suggest_display_index(c.suggest_display));

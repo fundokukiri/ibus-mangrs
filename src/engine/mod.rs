@@ -46,7 +46,7 @@ mod digit_probe2;
 mod keys_workload_probe;
 mod scoring;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 #[cfg(test)]
 mod x_probe;
 
@@ -429,12 +429,10 @@ pub struct Engine {
     /// trigram context the state-B scorer keys on. Shifts with every new
     /// context word, clears alongside it.
     prev_committed_word: Option<String>,
-    /// The `suggest_words` switch, mirrored like the other settings.
+    /// The `suggest_words` switch, mirrored like the other settings — the
+    /// one strip switch: the model's compounds, single words and next-word
+    /// lists all serve under it, the dictionary being out of the strip.
     suggest_words: bool,
-    /// The `suggest_predict` switch, baked under the experimental gate like
-    /// `suggest_words` — the prediction tiers join the strip only when both
-    /// are on.
-    suggest_predict: bool,
     /// The `suggest_learn` switch, baked under the experimental gate like
     /// `suggest_words` — picks land in the config dir's TSV files and buy
     /// an in-band bonus only when this is on.
@@ -453,7 +451,7 @@ pub struct Engine {
     /// The prediction model opened at the last config apply: its compounds
     /// serve the state-A list and its n-grams the state-B surface; `None`
     /// (no model file) keeps the strip legacy-only.
-    model: Option<crate::predict::PredictModel>,
+    pub(crate) model: Option<crate::predict::PredictModel>,
     /// The table the strip serves from: the builtin rows (model-harvested
     /// or embedded) merged with the user dictionary at a weight that
     /// outranks every builtin frequency. Rebuilt on every config apply.
@@ -610,7 +608,6 @@ impl Engine {
             last_committed_word: None,
             prev_committed_word: None,
             suggest_words: false,
-            suggest_predict: false,
             suggest_learn: false,
             learn_dir: std::path::PathBuf::new(),
             picks: None,
@@ -768,7 +765,6 @@ impl Engine {
         // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
-        self.suggest_predict = experimental && config.suggest_predict;
         self.suggest_learn = experimental && config.suggest_learn;
         self.learn_dir = dirs::config_dir()
             .map(|d| d.join("ibus-mangrs"))
@@ -1840,64 +1836,100 @@ impl Engine {
             && self.strip_possible(self.word_mode.unwrap_or(self.mode))
     }
 
-    /// The prediction tier gate, layered under the strip gate: the model's
-    /// single-word bands serve state A only when the strip itself may open
-    /// and the switch is on (both baked under the experimental gate in
-    /// apply_config).
-    fn predict_active(&self) -> bool {
-        self.suggest_words && self.suggest_predict
+    /// The context bonus for the in-flight word's prefix range: the last
+    /// committed word's bigram rows whose follower sits inside the range,
+    /// keyed by row id. A keyed row outranks the strangers of its band —
+    /// typing `c` right after `xin ` keeps `chào` at the top of the c*
+    /// rows, however frequent the others are. Empty without a model, a
+    /// context word, or a context that is not a model token.
+    fn context_bonus(
+        &self,
+        model: &crate::predict::PredictModel,
+        range: (usize, usize),
+    ) -> std::collections::HashMap<u32, u32> {
+        let Some(last) = self.last_committed_word.as_deref() else {
+            return std::collections::HashMap::new();
+        };
+        let Some(id) = model.id_of(last) else {
+            return std::collections::HashMap::new();
+        };
+        model
+            .bigram_iter(id)
+            .filter(|(follower, _)| {
+                (*follower as usize) >= range.0 && (*follower as usize) < range.1
+            })
+            .collect()
     }
 
-    /// The state-A candidate list for the in-flight word. Two paths:
+    /// The state-A candidate list for the in-flight word — the MODEL only,
+    /// the dictionary having left the suggestion business entirely (its
+    /// future home is spell-check): no table completions, no corrections,
+    /// on any path. Banded:
     ///
-    /// * predict on — the MODEL only, the dictionary having left the
-    ///   suggestion business (its future home is spell-check): band 0 is the
-    ///   model's VN rows for the same toneless prefix (single words,
-    ///   unigram-first, the typed word excluded), band 1 the EN rows on a
-    ///   pure-ASCII prefix (`hel` offers `hello`; `hè` excludes EN
-    ///   outright), band 2 the emoji keyword tail. No corrections: an
-    ///   unknown word's spelling fixes were the dictionary's job.
-    /// * predict off — legacy exactly: the table's own gating (completions
-    ///   first, corrections only behind an unknown word, one 25 cap).
+    /// * band 0 — the model's VN material for the same toneless prefix,
+    ///   ordered by the word's state: a complete syllable leads with its
+    ///   two-word compounds (what continues the word outranks the
+    ///   tone-variant siblings — `sinh` shows `sinh viên` before `sính`),
+    ///   a partial prefix leads with its single-word completions (finishing
+    ///   the syllable outranks the compounds of its possible endings).
+    /// * band 1 — EN rows on a pure-ASCII prefix (`hel` offers `hello`;
+    ///   `hè` excludes EN outright).
+    /// * band 2 — the emoji keyword tail.
     ///
-    /// The learning bonus (the personalization task) stays inside these
-    /// bands — it reorders within a band, never across one. One builder for
-    /// the strip emit and the pick path, so the two can never drift apart:
-    /// the pick indexes into the list the strip emitted.
+    /// Inside a band the context bonus leads ([`Self::context_bonus`]),
+    /// unigram frequency follows. The learning bonus (the personalization
+    /// task) stays inside these bands too — it reorders within a band,
+    /// never across one. One builder for the strip emit and the pick path,
+    /// so the two can never drift apart: the pick indexes into the list
+    /// the strip emitted.
     fn state_a_candidates(&self, word: &str) -> Vec<String> {
         let cap = crate::suggest::MAX_CANDIDATES;
-        if !self.predict_active() {
-            // Legacy exactly: the table's own gating (completions first,
-            // corrections only behind an unknown word, one 25 cap).
-            return self
-                .suggest_table
-                .candidates(word)
-                .into_iter()
-                .map(|candidate| candidate.word)
-                .collect();
-        }
-        // Band 0 — the model's VN rows for the word's toneless prefix,
-        // unigram-first. The prefix match alone filters language: VN
-        // syllables never start an English prefix (`hel` finds none) and
-        // vice versa, so no letter-class gate is needed here.
+        // Band 0 — VN compounds and single words per the word's state. The
+        // prefix match alone filters language: VN syllables never start an
+        // English prefix (`hel` finds none) and vice versa, so no
+        // letter-class gate is needed here.
         let mut out: Vec<String> = self
             .model
             .as_ref()
             .map(|model| {
                 let (start, end) = model.prefix_range(word);
-                let mut rows: Vec<(String, u32)> = (start..end)
+                let bonus = self.context_bonus(model, (start, end));
+                let mut singles: Vec<(u32, String, u32)> = (start..end)
                     .map(|row| row as u32)
                     .filter(|&id| model.flags(id) & crate::predict::FLAG_VN_SYLLABLE != 0)
-                    .map(|id| (model.surface(id).to_string(), model.unigram(id)))
-                    .filter(|(surface, _)| *surface != word)
+                    .map(|id| (id, model.surface(id).to_string(), model.unigram(id)))
+                    .filter(|(_, surface, _)| *surface != word)
                     .collect();
-                rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-                rows.into_iter().map(|(surface, _)| surface).collect()
+                singles.sort_by(|a, b| {
+                    let ca = bonus.get(&a.0).copied().unwrap_or(0);
+                    let cb = bonus.get(&b.0).copied().unwrap_or(0);
+                    cb.cmp(&ca)
+                        .then_with(|| b.2.cmp(&a.2))
+                        .then_with(|| a.1.cmp(&b.1))
+                });
+                let compounds: Vec<String> = model
+                    .compounds_for_prefix(&crate::suggest::toneless(word))
+                    .into_iter()
+                    .map(|(surface, _strength)| surface)
+                    .collect();
+                if model.id_of(word).is_some() {
+                    // Complete syllable: the compounds continue it, the
+                    // single words trail.
+                    let mut merged = compounds;
+                    merged.extend(singles.into_iter().map(|(_, surface, _)| surface));
+                    merged
+                } else {
+                    // Partial prefix: finish the syllable first.
+                    let mut merged: Vec<String> =
+                        singles.into_iter().map(|(_, surface, _)| surface).collect();
+                    merged.extend(compounds);
+                    merged
+                }
             })
             .unwrap_or_default();
         out.truncate(cap);
-        // Band 1 — EN (unchanged), then the emoji tail; the emoji band
-        // reserves its seat so neither band pushes the glyphs out.
+        // Band 1 — EN, then the emoji tail; the emoji band reserves its
+        // seat so neither band pushes the glyphs out.
         let en = self.en_candidates(word);
         let emoji: Vec<String> = crate::emoji::glyphs_for_word(word)
             .into_iter()
@@ -1913,9 +1945,9 @@ impl Engine {
     }
 
     /// The EN band: the model's EN-word rows whose toneless key starts with
-    /// the typed prefix, frequency-first, the typed word itself excluded.
-    /// Empty unless the word is pure ASCII — a Vietnamese letter or tone
-    /// mark anywhere excludes EN (`hè` never offers `hello`).
+    /// the typed prefix, the typed word itself excluded. Empty unless the
+    /// word is pure ASCII — a Vietnamese letter or tone mark anywhere
+    /// excludes EN (`hè` never offers `hello`).
     fn en_candidates(&self, word: &str) -> Vec<(String, u32)> {
         if !word.chars().all(|c| c.is_ascii_alphabetic()) {
             return Vec::new();
@@ -1924,24 +1956,33 @@ impl Engine {
             return Vec::new();
         };
         let (start, end) = model.prefix_range(&crate::suggest::toneless(word));
-        let mut rows: Vec<(String, u32)> = (start as u32..end as u32)
+        let bonus = self.context_bonus(model, (start, end));
+        let mut rows: Vec<(u32, String, u32)> = (start as u32..end as u32)
             .filter(|id| model.flags(*id) & crate::predict::FLAG_EN_WORD != 0)
-            .map(|id| (model.surface(id).to_string(), model.unigram(id)))
-            .filter(|(surface, _)| surface != word)
+            .map(|id| (id, model.surface(id).to_string(), model.unigram(id)))
+            .filter(|(_, surface, _)| surface != word)
             .collect();
-        // The learning bonus rides the base frequency inside this band —
-        // both the plain pick count and the (context, word) pair count.
+        // Context followers lead the band (the pair beats a stranger's
+        // unigram); behind them the learning bonus rides the base
+        // frequency — both the plain pick count and the (context, word)
+        // pair count.
         let picks = self.picks.as_ref();
         let context = self.last_committed_word.as_deref();
         rows.sort_by(|a, b| {
-            let score = |row: &(String, u32)| {
-                row.1 as f64 + picks.map_or(0.0, |p| p.bonus(&row.0, context))
+            let ca = bonus.get(&a.0).copied().unwrap_or(0);
+            let cb = bonus.get(&b.0).copied().unwrap_or(0);
+            let score = |row: &(u32, String, u32)| {
+                row.2 as f64 + picks.map_or(0.0, |p| p.bonus(&row.1, context))
             };
-            score(b)
-                .partial_cmp(&score(a))
-                .unwrap_or(std::cmp::Ordering::Equal)
+            cb.cmp(&ca).then_with(|| {
+                score(b)
+                    .partial_cmp(&score(a))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
-        rows
+        rows.into_iter()
+            .map(|(_, surface, uni)| (surface, uni))
+            .collect()
     }
 
     /// Where the strip's word-in-flight shows — the server reads it in the
@@ -1986,13 +2027,14 @@ impl Engine {
             }
             return Vec::new();
         }
-        // Below two characters the table is never consulted: an empty word
-        // would match every row (degenerate full-table scan), and a 1-char
-        // prefix matches ~1500. Under the predict gate the empty word is
-        // exactly the state-B surface — the last committed word's next-word
-        // predictions hold the strip open; the legacy path stays silent.
+        // The landed-word surface (nothing in flight) is the state-B
+        // next-word list; from the FIRST typed letter on, the list is the
+        // context+prefix fusion of state A. The old below-two-chars silence
+        // was the dictionary's full-table scan guard — the model's bounded
+        // range scan has no such degenerate case, and a frozen context list
+        // that ignores the letter being typed reads as a hung strip.
         let word = self.wrapper.output();
-        let state_b = word.chars().count() < 2;
+        let state_b = word.is_empty();
         let items = if state_b {
             self.state_b_candidates(
                 self.prev_committed_word.as_deref(),
@@ -2028,13 +2070,10 @@ impl Engine {
     /// stupid-backoff ranking of [`scoring::fused_state_b`]: the pair's
     /// trigram rows lead (or the last word's bigram rows when no pair is
     /// known), the last word's bigram rows back off at 0.4, and the model's
-    /// unigram stream fills at 0.16. Surfaces only, capped. Empty when the
-    /// predict gate is off, there is no model, the last word is not a model
-    /// token, or nothing follows it — the strip then goes quiet.
+    /// unigram stream fills at 0.16. Surfaces only, capped. Empty when
+    /// there is no model, the last word is not a model token, or nothing
+    /// follows it — the strip then goes quiet.
     fn state_b_candidates(&self, prev: Option<&str>, last: &str) -> Vec<String> {
-        if !self.predict_active() {
-            return Vec::new();
-        }
         let Some(model) = self.model.as_ref() else {
             return Vec::new();
         };
@@ -2123,7 +2162,7 @@ impl Engine {
             return Vec::new();
         }
         let word = self.wrapper.output();
-        if word.chars().count() < 2 {
+        if word.is_empty() {
             // State B: nothing is in flight — the strip holds the last
             // committed word's next-word list and the pick commits that
             // word wholesale, then chains the next context's list.

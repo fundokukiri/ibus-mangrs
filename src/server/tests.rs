@@ -3553,11 +3553,21 @@ fn strip_handler(suggest_words: bool) -> (SharedEngine, EngineHandler) {
         });
         e.set_method(Method::Telex);
         e.set_capabilities(1);
+        if suggest_words {
+            // The strip opens only with a model now (the dictionary left it):
+            // pin the committed fixture instead of apply_config's auto-load —
+            // that one picks up whatever file the host carries and would
+            // make these shapes machine-dependent.
+            e.model = Some(crate::engine::tests::sample_model());
+        }
     }
     let handler = EngineHandler {
         engine: Arc::clone(&engine),
         injection: Injection::new(),
-        last_config_check: Instant::now(),
+        // The hot-reload check stays past the horizon: the gui sandbox test
+        // swaps XDG_CONFIG_HOME process-wide while running, and a reload
+        // mid-test would swap this engine's switches under its own asserts.
+        last_config_check: Instant::now() + std::time::Duration::from_secs(3600),
         last_config_mtime: None,
         hotkeys: Vec::new(),
         last_fire: Vec::new(),
@@ -3651,15 +3661,10 @@ fn the_floating_input_box_replaces_the_inline_preedit() {
     // preedit signal into the auxiliary text — a clear of the client's
     // inline preedit first (the opening transition), then the
     // word-in-flight in the box's input line beside the table. The client's
-    // field stays clean until the word commits.
+    // field stays clean until the word commits. The FIRST letter opens the
+    // strip now (the 1-char contract).
     let (_engine, mut handler) = strip_handler(true);
-    let (_, out) = press(&mut handler, 0x74); // 't'
-    assert_eq!(
-        members(&out),
-        vec!["UpdatePreeditText"],
-        "a lone first key stays inline: the strip is closed"
-    );
-    let (_, out) = press(&mut handler, 0x68); // 'h'
+    let (_, out) = press(&mut handler, 0x73); // 's'
     assert_eq!(
         members(&out),
         vec![
@@ -3667,7 +3672,7 @@ fn the_floating_input_box_replaces_the_inline_preedit() {
             "UpdateAuxiliaryText",
             "UpdateLookupTable"
         ],
-        "the opening batch clears the inline preedit and shows the box"
+        "the first key opens the strip as the floating input box"
     );
     let cleared = out[0]
         .read1::<Variant<Box<dyn RefArg>>>()
@@ -3682,16 +3687,24 @@ fn the_floating_input_box_replaces_the_inline_preedit() {
         .expect("auxiliary variant");
     assert_eq!(
         text_from_variant(&aux).as_deref(),
-        Some("th"),
+        Some("s"),
         "the word-in-flight lives in the box's input line"
     );
     // The box tracks every word change: the next key updates the aux line
     // without re-clearing (the strip was already up).
-    let (_, out) = press(&mut handler, 0x61); // 'a'
+    let (_, out) = press(&mut handler, 0x69); // 'i'
     assert_eq!(
         members(&out),
         vec!["UpdateAuxiliaryText", "UpdateLookupTable"],
         "no second clear while the strip stays up"
+    );
+    let aux = out[0]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("auxiliary variant");
+    assert_eq!(
+        text_from_variant(&aux).as_deref(),
+        Some("si"),
+        "the box's input line follows the word"
     );
 }
 
@@ -3700,11 +3713,11 @@ fn backspace_tracks_the_box_line_and_the_list() {
     strip_reset_for_test();
     // The box is the word's only display: a Backspace shrinks the box's
     // input line and the list follows the shorter word — the client's
-    // field stays clean the whole time.
+    // field stays clean the whole time. The strip stays open at one letter
+    // now, so the deletion lands on the box line with the list re-served.
     let (_engine, mut handler) = strip_handler(true);
-    let (_, _) = press(&mut handler, 0x74); // 't'
-    let (_, _) = press(&mut handler, 0x68); // 'h'
-    let (_, out) = press(&mut handler, 0x61); // 'a' — the strip is up
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i' — the strip is up
     assert!(
         members(&out).iter().any(|m| m == "UpdateLookupTable"),
         "the strip is up: {:?}",
@@ -3722,7 +3735,7 @@ fn backspace_tracks_the_box_line_and_the_list() {
         .expect("auxiliary variant");
     assert_eq!(
         text_from_variant(&aux).as_deref(),
-        Some("th"),
+        Some("s"),
         "the box's input line follows the word down"
     );
 }
@@ -3742,9 +3755,14 @@ fn the_mirror_display_shows_the_word_in_both_places() {
             experimental_features: true,
             ..Config::default()
         });
+        // apply_config re-loads the model from disk — a None here (no file
+        // installed, or the gui sandbox holding XDG_CONFIG_HOME right now)
+        // would wipe the fixture injection and the strip would live on the
+        // emoji band alone. Pin the fixture back.
+        e.model = Some(crate::engine::tests::sample_model());
     }
-    let (_, _) = press(&mut handler, 0x74); // 't'
-    let (_, out) = press(&mut handler, 0x68); // 'h'
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i'
     assert_eq!(
         members(&out),
         vec![
@@ -3762,30 +3780,34 @@ fn the_mirror_display_shows_the_word_in_both_places() {
         .expect("auxiliary variant");
     assert_eq!(
         text_from_variant(&inline).as_deref(),
-        Some("th"),
+        Some("si"),
         "the inline preedit carries the word"
     );
     assert_eq!(
         text_from_variant(&aux).as_deref(),
-        Some("th"),
+        Some("si"),
         "the box's input line carries the same word"
     );
-    // Backspace below the two-char floor: the strip closes and the word
-    // returns inline — the box never shows a word shorter than the strip's
-    // floor, machine-independently (the old shape expected the aux to keep
-    // tracking below it, which only held while a list still existed).
+    // Backspace down to the single letter: the strip STAYS open there (the
+    // 1-char contract serves the model's rows for one letter too) — both
+    // surfaces keep tracking the shorter word.
     let (consumed, out) = press(&mut handler, keymap::BACKSPACE);
     assert!(consumed, "backspace edits the word inside the box");
     assert_eq!(
         members(&out),
-        vec!["UpdatePreeditText", "HideAuxiliaryText", "HideLookupTable"]
+        vec![
+            "UpdatePreeditText",
+            "UpdateAuxiliaryText",
+            "UpdateLookupTable"
+        ],
+        "both surfaces follow the word down to one letter"
     );
     let inline = out[0]
         .read1::<Variant<Box<dyn RefArg>>>()
         .expect("preedit variant");
     assert_eq!(
         text_from_variant(&inline).as_deref(),
-        Some("t"),
+        Some("s"),
         "the remaining key shows inline"
     );
 }
@@ -3822,8 +3844,8 @@ fn minus_equals_end_the_word_while_the_strip_is_up() {
     // non-label digit (commit, box closes) and no paging signal exists
     // anywhere.
     let (_engine, mut handler) = strip_handler(true);
-    let (_, _) = press(&mut handler, 0x74); // 't'
-    let (_, out) = press(&mut handler, 0x68); // 'h'
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i'
     assert!(
         members(&out).iter().any(|m| m == "UpdateLookupTable"),
         "the strip is up: {:?}",
@@ -3875,8 +3897,8 @@ fn ctrl_comma_and_ctrl_period_page_the_strip() {
     // page forward (clamped), page back — and with the strip closed the
     // combo passes through untouched.
     let (_engine, mut handler) = strip_handler(true);
-    let (_, _) = press(&mut handler, 0x74); // 't'
-    let (_, out) = press(&mut handler, 0x68); // 'h'
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i'
     assert!(members(&out).iter().any(|m| m == "UpdateLookupTable"));
     let (consumed, out) = press_with_state(&mut handler, keymap::PERIOD, keymap::CONTROL_MASK);
     assert!(consumed, "Ctrl+. pages while the strip is up");
@@ -3886,29 +3908,29 @@ fn ctrl_comma_and_ctrl_period_page_the_strip() {
         .expect("table");
     let (_, cursor, ..) = table_parts(&table);
     assert_eq!(cursor, 5, "Ctrl+. turns to page 1");
-    // The real table carries the full 25-candidate cap: the second press
-    // walks to page 2, and two Ctrl+, walk back to page 0.
+    // The fixture list holds six entries (two pages): the second press
+    // CLAMPS at the last page head, and two Ctrl+, walk back to page 0.
     let (consumed, out) = press_with_state(&mut handler, keymap::PERIOD, keymap::CONTROL_MASK);
     assert!(consumed);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
     let (_, cursor, ..) = table_parts(&table);
-    assert_eq!(cursor, 10, "Ctrl+. walks on, page by page");
+    assert_eq!(cursor, 5, "Ctrl+. clamps at the last page head");
     let (consumed, out) = press_with_state(&mut handler, keymap::COMMA, keymap::CONTROL_MASK);
     assert!(consumed);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
     let (_, cursor, ..) = table_parts(&table);
-    assert_eq!(cursor, 5, "Ctrl+, walks back");
+    assert_eq!(cursor, 0, "Ctrl+, walks back");
     let (consumed, out) = press_with_state(&mut handler, keymap::COMMA, keymap::CONTROL_MASK);
     assert!(consumed);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
     let (_, cursor, ..) = table_parts(&table);
-    assert_eq!(cursor, 0, "Ctrl+, returns to page 0");
+    assert_eq!(cursor, 0, "Ctrl+, stays on page 0 at the clamp");
     // Without Ctrl, `.` ends the word like any terminator.
     let (consumed, out) = press(&mut handler, keymap::PERIOD);
     assert!(!consumed, "plain `.` belongs to the app");
@@ -4064,19 +4086,12 @@ fn candidate_clicked_picks_through_the_strip() {
 #[test]
 fn digits_pick_while_the_strip_is_visible() {
     strip_reset_for_test();
-    // The real flow: a suggest-enabled engine opens the strip on the
-    // second char, and digit 1 picks its first candidate. The committed
-    // text is read back off the rendered table, never a literal — the
-    // runtime table merges the user dictionary above every builtin, so the
-    // entry itself is machine-dependent, the label-to-entry mapping is not.
+    // The real flow: a suggest-enabled engine opens the strip on the FIRST
+    // letter, and digit 1 picks its first candidate. The committed text is
+    // read back off the rendered table, never a literal — the model builds
+    // the list, the label-to-entry mapping is the contract.
     let (_engine, mut handler) = strip_handler(true);
-    let (_, out) = press(&mut handler, 0x74); // 't'
-    assert!(
-        !members(&out).iter().any(|m| m == "UpdateLookupTable"),
-        "a lone first key never opens the strip: {:?}",
-        members(&out)
-    );
-    let (_, out) = press(&mut handler, 0x68); // 'h'
+    let (_, out) = press(&mut handler, 0x73); // 's'
     assert_eq!(
         members(&out),
         vec![
@@ -4084,7 +4099,7 @@ fn digits_pick_while_the_strip_is_visible() {
             "UpdateAuxiliaryText",
             "UpdateLookupTable"
         ],
-        "the strip opens as the floating input box"
+        "the first key opens the strip as the floating input box"
     );
     let (table, _) = out[2]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
@@ -4115,8 +4130,9 @@ fn digits_pick_while_the_strip_is_visible() {
         Some(format!("{} ", cands[0]).as_str()),
         "the labeled first candidate commits (plus the pick's space), not the raw keys"
     );
-    // The strip is closed: the next word types fresh, one-char quiet.
-    let (_, out) = press(&mut handler, 0x78); // 'x'
+    // The strip is closed: the next word types fresh — `z` matches no model
+    // row and no emoji keyword, so the strip stays closed.
+    let (_, out) = press(&mut handler, 0x7a); // 'z'
     assert!(
         !members(&out).iter().any(|m| m == "UpdateLookupTable"),
         "{:?}",
@@ -4133,8 +4149,7 @@ fn digits_pick_while_the_strip_is_paged() {
     // never a literal (see the visible pick above): paging shifts the
     // mapping, the label-to-entry contract does not move.
     let (_engine, mut handler) = strip_handler(true);
-    let (_, _) = press(&mut handler, 0x74); // 't'
-    let (_, out) = press(&mut handler, 0x68); // 'h'
+    let (_, out) = press(&mut handler, 0x73); // 's'
     assert_eq!(
         members(&out),
         vec![
@@ -4143,6 +4158,12 @@ fn digits_pick_while_the_strip_is_paged() {
             "UpdateLookupTable"
         ],
         "the strip opens as the floating input box"
+    );
+    let (_, out) = press(&mut handler, 0x69); // 'i'
+    assert_eq!(
+        members(&out),
+        vec!["UpdateAuxiliaryText", "UpdateLookupTable"],
+        "the second letter updates the open strip"
     );
     let mut out = Vec::new();
     handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
@@ -4182,10 +4203,11 @@ fn digits_outside_the_labels_fall_through_while_the_strip_is_visible() {
     strip_reset_for_test();
     // 0 and 6-9 name no strip label: the key falls through unconsumed and
     // ends the word exactly as with the strip closed — the digit enters the
-    // composition and the word's end closes the strip server-side.
+    // composition and the word's end closes the strip server-side (`si` is
+    // no model token, so the landing has no next-word list to chain into).
     let (_engine, mut handler) = strip_handler(true);
-    let (_, _) = press(&mut handler, 0x74); // 't'
-    let (_, out) = press(&mut handler, 0x68); // 'h'
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i'
     assert!(
         members(&out).iter().any(|m| m == "UpdateLookupTable"),
         "the strip is up: {:?}",
@@ -4208,13 +4230,13 @@ fn digits_outside_the_labels_fall_through_while_the_strip_is_visible() {
     // (the digit terminator never commits a candidate — no pick happened).
     assert_eq!(
         committed,
-        Some("th".into()),
+        Some("si".into()),
         "the in-flight word commits as typed, the digit follows"
     );
     // 0 rides the same path: the strip reopens with the next word and the
     // non-label digit falls through again.
-    let (_, _) = press(&mut handler, 0x74); // 't'
-    let (_, out) = press(&mut handler, 0x68); // 'h'
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i'
     assert!(
         members(&out).iter().any(|m| m == "UpdateLookupTable"),
         "the strip reopens: {:?}",
@@ -4295,18 +4317,31 @@ fn strip_keys_type_normally_when_the_strip_is_closed() {
 }
 
 #[test]
-fn word_end_hides_the_strip_server_side() {
+fn word_end_chains_or_hides_server_side() {
     strip_reset_for_test();
     let (_engine, mut handler) = strip_handler(true);
-    let (_, _) = press(&mut handler, 0x74); // 't'
+    // A model-token landing CHAINS: `sinh ` keeps the strip up with the
+    // follower list — the space batch carries a fresh table, no hide.
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, _) = press(&mut handler, 0x69); // 'i'
+    let (_, _) = press(&mut handler, 0x6e); // 'n'
     let (_, out) = press(&mut handler, 0x68); // 'h'
     assert!(
         members(&out).iter().any(|m| m == "UpdateLookupTable"),
         "strip open: {:?}",
         members(&out)
     );
-    // The space ends the word: the engine's HideCandidates closes the
-    // strip server-side with the commit.
+    let (_, out) = press(&mut handler, 0x20); // space
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable")
+            && !members(&out).iter().any(|m| m == "HideLookupTable"),
+        "the landing chains into the next-word list: {:?}",
+        members(&out)
+    );
+    // A non-model landing HIDES: `si ` carries no follower list, so the
+    // engine's HideCandidates closes the strip server-side with the commit.
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, _) = press(&mut handler, 0x69); // 'i'
     let (_, out) = press(&mut handler, 0x20); // space
     assert!(
         members(&out).iter().any(|m| m == "HideLookupTable"),

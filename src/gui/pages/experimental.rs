@@ -48,7 +48,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     typing.add(&ui.keep_repeats_raw);
     typing.add(&ui.suggest_words);
     typing.add(&ui.suggest_display);
-    typing.add(&ui.suggest_predict);
     typing.add(&ui.suggest_learn);
     typing.add(&ui.learn_clear_row);
     typing.add(&ui.extra_url_chars_row);
@@ -70,7 +69,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.keep_repeats_raw);
     decorate_experimental(&ui.suggest_words);
     decorate_experimental(&ui.suggest_display);
-    decorate_experimental(&ui.suggest_predict);
     decorate_experimental(&ui.suggest_learn);
     decorate_experimental(&ui.learn_clear_row);
     decorate_experimental(&ui.extra_url_chars_row);

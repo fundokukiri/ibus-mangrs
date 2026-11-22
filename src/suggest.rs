@@ -240,6 +240,10 @@ impl SuggestTable {
     /// (equal frequencies keep table order), the typed word itself excluded,
     /// capped at [`MAX_CANDIDATES`]. The exclusion compares surface forms,
     /// so a wrong-tone spelling (sỏt) still reaches its toneless neighbors.
+    // The dictionary left the suggestion strip (the model serves it now);
+    // the query set stays as the spell-check foundation, re-wired when
+    // that feature lands.
+    #[allow(dead_code)]
     pub fn completions(&self, word: &str) -> Vec<Candidate> {
         let key = toneless(word);
         let start = self
@@ -273,6 +277,7 @@ impl SuggestTable {
     /// distance-1 shape neighbor (sốt behind sỏt) once a prefix hit fills
     /// completions. The ±2 length pre-filter skips the distance walk for
     /// hopeless lengths.
+    #[allow(dead_code)] // spell-check foundation, see completions
     pub fn corrections(&self, word: &str) -> Vec<Candidate> {
         let key = toneless(word);
         let key_chars: Vec<char> = key.chars().collect();
@@ -305,6 +310,7 @@ impl SuggestTable {
     /// corrections not already listed, filling up to the same
     /// [`MAX_CANDIDATES`] cap. A known word stays quiet: completions only,
     /// even when that is nothing.
+    #[allow(dead_code)] // spell-check foundation, see completions
     pub fn candidates(&self, word: &str) -> Vec<Candidate> {
         let mut list = self.completions(word);
         if self.contains(word) || list.len() == MAX_CANDIDATES {
@@ -336,6 +342,7 @@ impl SuggestTable {
     /// a tone-mangled spelling (sỏt) is not a row even though its toneless
     /// form matches sót, which is what keeps its shape neighbor sốt
     /// correction-eligible.
+    #[allow(dead_code)] // spell-check foundation, see completions
     pub fn contains(&self, word: &str) -> bool {
         let word = word.to_lowercase();
         let key = toneless(&word);

@@ -49,19 +49,15 @@ pub struct Config {
     /// timer. Off by default: today a hold stops at the composed pair
     /// (`o` → `ô`).
     pub keep_repeats_raw: bool,
-    /// Experimental: the suggestion strip — while a word is in flight,
-    /// candidates trail it (completions from a two-character prefix;
-    /// corrections when nothing completes) and a digit key picks one. Off by
+    /// Experimental: the suggestion strip — while a word is in flight, the
+    /// prediction model's two-word compounds and single words trail it,
+    /// next-word predictions follow a landed word, and a digit key picks
+    /// one. The dictionary itself is out of the strip (its future home is
+    /// spell-check). Needs the prediction model file installed; off by
     /// default, and off entirely on digit-tone presets
     /// (`Method::uses_digit_tone_keys`): their digits are tone keys, so the
     /// strip must not claim them.
     pub suggest_words: bool,
-    /// Experimental: the prediction upgrade on the strip — compound
-    /// completions for the word in flight and next-word predictions after a
-    /// space (the n-gram tiers of the word-prediction design). Layers under
-    /// `experimental_features` and `suggest_words`: with this off the strip
-    /// is byte-identical to the syllable-only behavior.
-    pub suggest_predict: bool,
     /// Experimental: pick-driven learning on the strip — every accepted
     /// candidate lands in two 0600 TSV files in the config dir and buys an
     /// in-band ranking bonus. Layers under `experimental_features` and
@@ -915,7 +911,6 @@ impl Default for Config {
             keep_composed_words: false,
             keep_repeats_raw: false,
             suggest_words: false,
-            suggest_predict: false,
             suggest_learn: false,
             suggest_display: SuggestDisplayConfig::Floating,
             preferred_backend: PreferredBackendConfig::Auto,
@@ -1796,13 +1791,14 @@ children = ["preedit", "flow"]
     }
 
     #[test]
-    fn suggest_predict_defaults_off_and_round_trips() {
-        // Layered under suggest_words: with it off the strip is the
-        // syllable-only behavior, whatever this row says.
-        let c: Config = toml::from_str("").unwrap();
-        assert!(!c.suggest_predict);
+    fn retired_predict_key_parses_and_drops() {
+        // The predict switch merged into `suggest_words`: a config still
+        // carrying the retired key parses (serde ignores unknown keys) and
+        // the surviving switch keeps its own value.
         let c: Config = toml::from_str("suggest_predict = true").unwrap();
-        assert!(c.suggest_predict);
+        assert!(!c.suggest_words);
+        let c: Config = toml::from_str("suggest_predict = true\nsuggest_words = true").unwrap();
+        assert!(c.suggest_words);
     }
 
     #[test]

@@ -5060,34 +5060,26 @@ fn candidates_of(actions: &[Action]) -> Option<&Vec<String>> {
 /// The committed sample model for the predict tests. Injected straight into
 /// the engine's `model` field: an env override would be process-global and
 /// leak into the concurrent legacy strip tests.
-fn sample_model() -> crate::predict::PredictModel {
+pub(crate) fn sample_model() -> crate::predict::PredictModel {
     // Test-only expect: the committed fixture's absence is the failure.
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("data/model-sample.bin");
     crate::predict::open(&path)
         .expect("data/model-sample.bin missing — run scripts/build-predict-model.py --sample")
 }
 
-/// Engine with the prediction tier on top of the strip: the same bake-in as
-/// `suggest_engine` plus `suggest_predict` — compounds join the state-A
-/// list from the committed sample model.
+/// Engine with the strip switch on and the committed sample model injected:
+/// the model's compounds, single words and next-word lists serve the strip
+/// (the merged switch — there is no dictionary path left to layer under).
 fn predict_engine(method: Method, mode: Mode) -> Engine {
     let mut e = suggest_engine(method, mode, true);
-    e.apply_config(&Config {
-        mode: mode.into(),
-        suggest_words: true,
-        suggest_predict: true,
-        experimental_features: true,
-        ..Config::default()
-    });
-    e.set_method(method);
     e.model = Some(sample_model());
     e
 }
 
 /// The candidate a pick at `index` commits, off the list the strip emitted.
-/// The runtime table merges the user dictionary above every builtin, so the
-/// entry itself is machine-dependent — every exact-commit assert must ride
-/// the captured list, never a literal.
+/// The list is model-built and deterministic for the fixture, but the pick
+/// must still be checked against what the strip actually carried — never a
+/// literal.
 fn picked_candidate(actions: &[Action], index: usize) -> String {
     let list =
         candidates_of(actions).unwrap_or_else(|| panic!("the strip offered a list: {actions:?}"));
@@ -5108,73 +5100,86 @@ fn capitalized(word: &str) -> String {
 }
 
 #[test]
-fn suggest_strip_opens_on_the_second_char() {
-    // A single character matches ~1500 table rows — the strip never
-    // renders for it (the lone first key stays quiet); from the second
-    // key on the full list rides the word-changing keys, most frequent
-    // word first. The first item asserts the ranking, not the exact row:
-    // user-dictionary words outrank the builtin frequencies by design.
-    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
-    let keys = suggest_keys(&mut e, "th");
-    assert!(strip_actions(&keys[0]).is_empty(), "{:?}", keys[0]);
-    let list =
-        candidates_of(&keys[1]).unwrap_or_else(|| panic!("the strip opens on `th`: {:?}", keys[1]));
+fn suggest_strip_opens_on_the_first_char() {
+    // The strip starts at the first letter: the model's rows for the
+    // 1-char prefix serve right away (the old below-two-chars silence was
+    // the dictionary's full-table scan guard — the model's bounded range
+    // scan has no such degenerate case). No other candidate action rides
+    // the same key.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "si");
+    let first =
+        candidates_of(&keys[0]).unwrap_or_else(|| panic!("the strip opens on `s`: {:?}", keys[0]));
     assert!(
-        list.first().is_some_and(|w| w.starts_with("th")),
+        first.first().is_some_and(|w| w.starts_with("s")),
+        "{first:?}"
+    );
+    assert_eq!(strip_actions(&keys[0]).len(), 1, "{:?}", keys[0]);
+    let list =
+        candidates_of(&keys[1]).unwrap_or_else(|| panic!("the strip rides `si`: {:?}", keys[1]));
+    assert!(
+        list.first().is_some_and(|w| w.starts_with("si")),
         "{list:?}"
     );
-    // No other candidate action rides the same key.
     assert_eq!(strip_actions(&keys[1]).len(), 1, "{:?}", keys[1]);
 }
 
 #[test]
-fn suggest_strip_hides_when_the_word_ends() {
-    // The terminator commits the word and closes the strip; up to that
-    // point the list stayed open (`thôi` itself completes to its plain
-    // toneless sibling `thoi` — tone variants surface by design).
-    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
-    let keys = suggest_keys(&mut e, "thooi ");
+fn state_a_ranks_context_followers_first() {
+    // After a landed context the very first letter of the next word
+    // refreshes the list with the context+prefix fusion: rows that follow
+    // the context lead their band even when a stranger's unigram is
+    // bigger — `hello ` then `w` keeps `world` (the pair's 6 counts) over
+    // the more frequent `want`, `sinh ` then `h` keeps `học` on top. The
+    // 1-char pick commits through the state-A path (the held letter is
+    // the word the strip replaces).
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "hello ");
+    let keys = suggest_keys(&mut e, "w");
+    let items = candidates_of(&keys[0]).expect("the 1-char word refreshes the list");
+    assert_eq!(items.first().map(String::as_str), Some("world"));
+    let actions = e.accept_candidate(0);
     assert!(
-        keys[..5].iter().any(|batch| candidates_of(batch).is_some()),
+        actions.contains(&Action::Commit("world ".to_string())),
+        "{actions:?}"
+    );
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "sinh ");
+    let keys = suggest_keys(&mut e, "h");
+    let items = candidates_of(&keys[0]).expect("the 1-char word refreshes the list");
+    assert_eq!(items.first().map(String::as_str), Some("học"));
+}
+
+#[test]
+fn suggest_strip_chains_when_the_word_lands() {
+    // A word landing (comma terminator here) does not just close the list:
+    // the strip chains straight into the landed word's next-word list —
+    // the space landing is pinned by `state_b_predicts_next_syllable`.
+    // Before the terminator the list stayed open (`sinh` leads with its
+    // model compound — `sinh viên` — per `compounds_lead_state_a`).
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "sinh,");
+    assert!(
+        keys[..4].iter().any(|batch| candidates_of(batch).is_some()),
         "the strip is open before the terminator: {keys:?}"
     );
-    assert!(keys[5].contains(&Action::HideCandidates), "{:?}", keys[5]);
-    assert!(candidates_of(&keys[5]).is_none(), "{:?}", keys[5]);
+    let items = candidates_of(&keys[4]).expect("the strip chains after the comma");
+    assert_eq!(items.first().map(String::as_str), Some("viên"));
 }
 
 #[test]
-fn suggest_strip_hides_when_nothing_completes_the_word() {
-    // `bước` (Telex `buowsc`) is a dictionary entry nothing extends and no
-    // tone sibling shares its skeleton: completing the word empties the
-    // list, and the strip closes while the word is still in flight.
-    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
-    let keys = suggest_keys(&mut e, "buowsc");
+fn suggest_strip_hides_when_nothing_matches_the_word() {
+    // `sinhh` extends `sinh` with a final nothing composes: no model row
+    // carries the longer prefix, and with the dictionary out of the strip
+    // no correction rescues it — the list empties and the strip closes
+    // while the word is still in flight.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "sinhh");
     assert!(
-        keys[..5].iter().any(|batch| candidates_of(batch).is_some()),
+        keys[..4].iter().any(|batch| candidates_of(batch).is_some()),
         "the strip opened mid-word: {keys:?}"
     );
-    assert!(keys[5].contains(&Action::HideCandidates), "{:?}", keys[5]);
-}
-
-#[test]
-fn suggest_offers_tone_shape_fixes_for_a_kept_word() {
-    // `sort` composes to `sỏt` (r is the hỏi key); the strip answers with
-    // the toneless skeleton's neighbors — the one-key repair the
-    // keep-composed-words trade exists for.
-    let mut e = engine(
-        Mode::Preedit,
-        Config {
-            experimental_features: true,
-            keep_composed_words: true,
-            suggest_words: true,
-            ..Config::default()
-        },
-    );
-    let keys = suggest_keys(&mut e, "sort");
-    let list =
-        candidates_of(&keys[3]).unwrap_or_else(|| panic!("the strip answers `sỏt`: {:?}", keys[3]));
-    assert!(list.iter().any(|w| w == "sót"), "{list:?}");
-    assert!(list.iter().any(|w| w == "sốt"), "{list:?}");
+    assert!(keys[4].contains(&Action::HideCandidates), "{:?}", keys[4]);
 }
 
 #[test]
@@ -5183,11 +5188,10 @@ fn suggest_accept_commits_the_candidate_and_closes() {
     // engine's accept path commits the candidate off the emitted list,
     // resets the composition like a word end, and records the context
     // word for the strip's next round. The committed text is the emitted
-    // entry at the picked index — the runtime table merges the user
-    // dictionary above every builtin, so the entry itself stays open (the
-    // ranking note on `suggest_strip_opens_on_the_second_char`).
-    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
-    let keys = suggest_keys(&mut e, "th");
+    // entry at the picked index, checked against that list — never a
+    // literal (see `picked_candidate`).
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "si");
     let picked = picked_candidate(&keys[1], 0);
     let actions = e.accept_candidate(0);
     assert_eq!(
@@ -5208,9 +5212,9 @@ fn suggest_accept_ignores_a_closed_strip_and_an_out_of_range_index() {
     // The server maps page + label to a global index; a race between its
     // strip state and the engine's (the word moved on between the last
     // update and the key) must commit nothing rather than a stale word.
-    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
     assert!(e.accept_candidate(0).is_empty());
-    suggest_keys(&mut e, "th");
+    suggest_keys(&mut e, "si");
     assert!(e.accept_candidate(25).is_empty());
     // State untouched: the strip is still up, the word still composing.
     assert!(e.suggest_open);
@@ -5223,24 +5227,24 @@ fn suggest_accept_capitalizes_a_sentence_start_candidate() {
     // The accepted candidate gets the same auto_capitalize treatment as the
     // word it replaces: the composition path uppercases the first key of a
     // sentence-start word (the capital rides the composition), so the
-    // dictionary candidate committing in its place carries the capital too —
-    // first character only. The commit is checked against the emitted list
-    // entry, not a literal: which word sits at the picked index is
-    // machine-dependent (see `picked_candidate`), the capitalization is not.
-    let mut e = engine(
-        Mode::Preedit,
-        Config {
-            auto_capitalize: true,
-            experimental_features: true,
-            suggest_words: true,
-            ..Config::default()
-        },
-    );
-    // `.` arms the capitalize window; `Th` composes with the fed uppercase
-    // key and the strip answers with the dictionary list for the word. A
-    // mid-list index keeps the index-to-entry mapping under test the way
-    // the original position lookup did.
-    let keys = suggest_keys(&mut e, ".th");
+    // candidate committing in its place carries the capital too — first
+    // character only. The commit is checked against the emitted list
+    // entry, not a literal (see `picked_candidate`); the capitalization is
+    // the invariant under test.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        mode: Mode::Preedit.into(),
+        auto_capitalize: true,
+        suggest_words: true,
+        experimental_features: true,
+        ..Config::default()
+    });
+    e.set_method(Method::Telex);
+    e.model = Some(sample_model());
+    // `.` arms the capitalize window; the strip answers with the model's
+    // list for the word. A mid-list index keeps the index-to-entry mapping
+    // under test the way the original position lookup did.
+    let keys = suggest_keys(&mut e, ".si");
     let picked = picked_candidate(&keys[2], 1);
     let actions = e.accept_candidate(1);
     assert_eq!(
@@ -5260,21 +5264,22 @@ fn suggest_accept_capitalizes_a_sentence_start_candidate() {
 }
 
 #[test]
-fn suggest_accept_keeps_the_dictionary_form_without_auto_capitalize() {
-    // The switch off: even at a sentence start the candidate commits in its
-    // dictionary form verbatim — capitalization is opt-in. The commit is
+fn suggest_accept_keeps_the_model_form_without_auto_capitalize() {
+    // The switch off: even at a sentence start the candidate commits in
+    // its model form verbatim — capitalization is opt-in. The commit is
     // checked against the emitted list entry, not a literal (see
     // `picked_candidate`).
-    let mut e = engine(
-        Mode::Preedit,
-        Config {
-            auto_capitalize: false,
-            experimental_features: true,
-            suggest_words: true,
-            ..Config::default()
-        },
-    );
-    let keys = suggest_keys(&mut e, ".th");
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        mode: Mode::Preedit.into(),
+        auto_capitalize: false,
+        suggest_words: true,
+        experimental_features: true,
+        ..Config::default()
+    });
+    e.set_method(Method::Telex);
+    e.model = Some(sample_model());
+    let keys = suggest_keys(&mut e, ".si");
     let picked = picked_candidate(&keys[2], 0);
     let actions = e.accept_candidate(0);
     assert_eq!(
@@ -5291,20 +5296,21 @@ fn suggest_accept_keeps_the_dictionary_form_without_auto_capitalize() {
 #[test]
 fn suggest_accept_stays_lowercase_mid_sentence() {
     // The capitalize condition is sentence start, not global: with the
-    // switch on, a word typed after a plain space still commits the
-    // dictionary form verbatim. The commit is checked against the emitted
-    // list entry, not a literal (see `picked_candidate`).
-    let mut e = engine(
-        Mode::Preedit,
-        Config {
-            auto_capitalize: true,
-            experimental_features: true,
-            suggest_words: true,
-            ..Config::default()
-        },
-    );
-    suggest_keys(&mut e, "tieng ");
-    let keys = suggest_keys(&mut e, "th");
+    // switch on, a word typed after a plain space still commits the model
+    // form verbatim. The commit is checked against the emitted list entry,
+    // not a literal (see `picked_candidate`).
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        mode: Mode::Preedit.into(),
+        auto_capitalize: true,
+        suggest_words: true,
+        experimental_features: true,
+        ..Config::default()
+    });
+    e.set_method(Method::Telex);
+    e.model = Some(sample_model());
+    suggest_keys(&mut e, "sinh ");
+    let keys = suggest_keys(&mut e, "si");
     let picked = picked_candidate(&keys[1], 0);
     let actions = e.accept_candidate(0);
     assert_eq!(
@@ -5322,10 +5328,10 @@ fn suggest_accept_stays_lowercase_mid_sentence() {
 fn suggest_digit_still_ends_the_word_and_hides() {
     // The engine never intercepts digits (the server owns selection while
     // its strip is up): on a Telex preset a digit is a word terminator, so
-    // `th1` commits the raw keys and closes the strip, and the next digit
+    // `si1` commits the raw keys and closes the strip, and the next digit
     // types as content — no candidate action leaks on either.
-    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
-    let keys = suggest_keys(&mut e, "th1");
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "si1");
     assert!(candidates_of(&keys[1]).is_some(), "{:?}", keys[1]);
     assert!(keys[2].contains(&Action::HideCandidates), "{:?}", keys[2]);
     assert!(candidates_of(&keys[2]).is_none(), "{:?}", keys[2]);
@@ -5336,55 +5342,45 @@ fn suggest_digit_still_ends_the_word_and_hides() {
 // --- prediction tier (state A) ---
 
 #[test]
-fn predict_state_a_serves_model_single_words_only() {
-    // The owner trimmed the strip to single words and moved the dictionary
-    // out of the suggestion business: state A serves the model's VN rows
-    // for the prefix, no compounds, no table completions, no corrections.
-    // `si` opens a single-word list (the fixture's `sinh` and its tone
-    // variant); `sinhh` matches no model row and no dictionary correction
-    // joins. A one-char word stays on the state-B path (below two
-    // characters nothing is consulted).
+fn compounds_lead_state_a() {
+    // `sinh` is a complete syllable: the model's two-word compounds lead
+    // the list — what continues the word outranks the tone-variant
+    // siblings — strongest first.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
-    let keys = suggest_keys(&mut e, "si");
-    if let Some(items) = candidates_of(keys.last().unwrap()) {
-        assert!(items.iter().all(|item| !item.contains(' ')), "{items:?}");
-    }
-    for word in ["sinh", "sinhh"] {
-        let keys = suggest_keys(&mut e, word);
-        if let Some(items) = candidates_of(&keys[keys.len() - 1]) {
-            assert!(items.iter().all(|item| !item.contains(' ')), "{items:?}");
-        }
-    }
-    let sinhh = &suggest_keys(&mut e, "sinhh");
+    let keys = suggest_keys(&mut e, "sinh");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on sinh");
+    assert_eq!(items.first().map(String::as_str), Some("sinh viên"));
+}
+
+#[test]
+fn strip_without_a_model_serves_emoji_only() {
+    // The dictionary left the strip entirely: with the model slot cleared
+    // the word bands are empty — `zz` matches no model row and no emoji
+    // keyword, so nothing opens — and only the emoji keywords still light
+    // the strip up (`meo`). (The slot is cleared directly: apply_config
+    // would auto-load whatever file the machine carries, and an env
+    // override is process-global across parallel tests.)
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    e.model = None;
+    let zz = suggest_keys(&mut e, "zz");
+    assert!(zz.iter().all(|b| candidates_of(b).is_none()), "{zz:?}");
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    e.model = None;
+    let meo = suggest_keys(&mut e, "meo");
+    let items = candidates_of(&meo[meo.len() - 1]).expect("emoji still open the strip");
     assert!(
-        candidates_of(&sinhh[sinhh.len() - 1]).is_none(),
-        "no dictionary correction on the predict path"
+        items
+            .iter()
+            .all(|w| !w.chars().any(|c| c.is_ascii_alphanumeric())),
+        "emoji-only list without a model: {items:?}"
     );
 }
 
 #[test]
-fn predict_gate_off_keeps_legacy_lists() {
-    // The isolation guarantee, state-A edition: with the predict switch off
-    // the strip still serves its legacy sibling lists for `sinh`, but no
-    // compound can appear — compounds are the only space-bearing candidates
-    // the state-A builder can add, so a space in any item means a leak.
-    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
-    let keys = suggest_keys(&mut e, "sinh");
-    for batch in &keys {
-        if let Some(items) = candidates_of(batch) {
-            assert!(
-                items.iter().all(|item| !item.contains(' ')),
-                "no compound leaks on the legacy path: {items:?}"
-            );
-        }
-    }
-}
-
-#[test]
 fn predict_state_a_leads_model_completions() {
-    // The VN band ranks by the model's unigram counts: `si` completes the
-    // fixture's VN rows (single words only — the model compound band is
-    // gone).
+    // A partial prefix finishes the syllable first: the model's single
+    // words lead the list, its compounds (what could continue the
+    // endings) follow, the emoji tail trails.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "si");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on si");
@@ -5392,7 +5388,11 @@ fn predict_state_a_leads_model_completions() {
         !items.is_empty(),
         "the model's VN rows fill the list on a live prefix"
     );
-    assert!(items.iter().all(|item| !item.contains(' ')), "{items:?}");
+    assert!(!items.first().unwrap().contains(' '), "{items:?}");
+    assert!(
+        items.iter().any(|item| item.contains(' ')),
+        "the compounds follow the singles: {items:?}"
+    );
 }
 
 // --- prediction tier (state B) ---
@@ -5464,25 +5464,19 @@ fn state_b_confined_to_strip_modes() {
 }
 
 #[test]
-fn state_b_never_fires_with_predict_off() {
-    // Isolation, state-B edition: the legacy space batch hides the strip
-    // and offers nothing — only the syllable sibling lists from the word
-    // itself were ever emitted.
+fn state_b_without_a_model_stays_silent() {
+    // No model, no next-word list: the space batch hides the strip and
+    // offers nothing — the dictionary that once served this surface is out
+    // of the strip entirely. (The slot is cleared directly — see
+    // `strip_without_a_model_serves_emoji_only`.)
     let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    e.model = None;
     let keys = suggest_keys(&mut e, "sinh ");
     assert!(
         candidates_of(keys.last().unwrap()).is_none(),
-        "the state-B surface stays silent on the legacy path: {:?}",
+        "the state-B surface stays silent without a model: {:?}",
         keys.last().unwrap()
     );
-    for batch in &keys {
-        if let Some(items) = candidates_of(batch) {
-            assert!(
-                items.iter().all(|item| !item.contains(' ')),
-                "no compound leaks on the legacy path: {items:?}"
-            );
-        }
-    }
 }
 
 #[test]
@@ -5732,9 +5726,9 @@ fn suggest_accept_rewrites_through_injection_in_flow() {
 #[test]
 fn suggest_backspace_follows_the_word_in_inline_modes() {
     // The Backspace arms' contract, inline flavor: the list follows the
-    // shorter word while it stays above the floor, and the strip closes
-    // once nothing completes it — the old shape left the strip hanging
-    // over a word that was already gone.
+    // shorter word all the way down to the single letter — from the first
+    // letter on the model serves (the old floor that closed the strip
+    // below two characters was the dictionary's scan guard).
     let mut e = suggest_engine(Method::Telex, Mode::Surrounding, true);
     let keys = suggest_keys_st(&mut e, "tha");
     assert!(
@@ -5749,8 +5743,8 @@ fn suggest_backspace_follows_the_word_in_inline_modes() {
     );
     let actions = e.backspace().expect("the word is still in flight");
     assert!(
-        actions.contains(&Action::HideCandidates),
-        "below the floor the strip closes: {actions:?}"
+        candidates_of(&actions).is_some(),
+        "the list follows the single letter too: {actions:?}"
     );
 
     let mut e = suggest_engine(Method::Telex, Mode::ForwardBackspace, true);
@@ -5763,8 +5757,8 @@ fn suggest_backspace_follows_the_word_in_inline_modes() {
     );
     let actions = e.backspace().expect("the word is still in flight");
     assert!(
-        actions.contains(&Action::HideCandidates),
-        "below the floor the strip closes: {actions:?}"
+        candidates_of(&actions).is_some(),
+        "the list follows the single letter too: {actions:?}"
     );
 
     let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
@@ -5778,8 +5772,8 @@ fn suggest_backspace_follows_the_word_in_inline_modes() {
     );
     let actions = e.backspace().expect("the word is still in flight");
     assert!(
-        actions.contains(&Action::HideCandidates),
-        "below the floor the strip closes: {actions:?}"
+        candidates_of(&actions).is_some(),
+        "the list follows the single letter too: {actions:?}"
     );
 }
 
@@ -5806,7 +5800,6 @@ fn learn_engine(method: Method, mode: Mode) -> Engine {
     e.apply_config(&Config {
         mode: mode.into(),
         suggest_words: true,
-        suggest_predict: true,
         suggest_learn: true,
         experimental_features: true,
         ..Config::default()
