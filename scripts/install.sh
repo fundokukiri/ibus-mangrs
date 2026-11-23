@@ -16,6 +16,17 @@ bin="$here/target/release/ibus-engine-mangrs"
     exit 1
 }
 
+# Merge split model chunks (if any) so the installed model directory has the
+# full files the engine expects. Runs before component install.
+model_dir="$here/data/model"
+manifest="$model_dir/.model_manifest.json"
+if [ -f "$manifest" ]; then
+    python3 "$here/scripts/merge_model.py" --model-dir "$model_dir" || {
+        echo "failed to merge model chunks" >&2
+        exit 1
+    }
+fi
+
 # IBus runs engines as the logged-in user, not as root, so the binary must be
 # world-readable and executable.
 install -Dm755 "$bin" "$LIBDIR/ibus-engine-mangrs"
