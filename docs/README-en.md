@@ -100,9 +100,11 @@ the active session's user through logind, not from group membership. Create
 KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
 ```
 
-Then reload the rules and log out/in once (the ACL is granted when the session becomes active):
+Then load the module, reload the rules and log out/in once (the ACL is granted when the
+session becomes active):
 
 ```sh
+sudo modprobe uinput    # load the module now — many distros do not autoload it; without it /dev/uinput is missing
 sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
 echo uinput | sudo tee /etc/modules-load.d/uinput.conf   # load at every boot
 getfacl -p /dev/uinput            # must list user:<you>:rw-

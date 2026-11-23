@@ -96,9 +96,11 @@ không phải từ nhóm. Tạo `/etc/udev/rules.d/70-uinput.rules` (mẫu có s
 KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
 ```
 
-Sau đó nạp lại rule và đăng nhập lại một lần (ACL chỉ được cấp khi phiên đang hoạt động):
+Sau đó nạp module, nạp lại rule và đăng nhập lại một lần (ACL chỉ được cấp khi phiên đang
+hoạt động):
 
 ```sh
+sudo modprobe uinput    # nạp module ngay — nhiều distro không tự nạp, thiếu nó thì chưa có /dev/uinput
 sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
 echo uinput | sudo tee /etc/modules-load.d/uinput.conf   # tự nạp mỗi lần khởi động
 getfacl -p /dev/uinput            # phải có user:<bạn>:rw-
