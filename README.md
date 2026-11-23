@@ -86,6 +86,29 @@ Script copy engine vào `/usr/lib/ibus-mangrs/`, đăng ký component cho IBus, 
 **gỡ bạn khỏi nhóm `input`** nếu bản cũ đã thêm (hiệu lực từ lần đăng nhập sau). Gỡ:
 `sudo ./scripts/uninstall.sh` (giữ nguyên cấu hình). Trên Arch thì gọn hơn: `makepkg -si`.
 
+### Model dự đoán (gợi ý từ)
+
+Bộ gõ chạy được ngay mà không cần model — thiếu model thì bảng gợi ý chỉ còn emoji theo từ
+khóa. Gợi ý từ tiếng Việt/Anh (switch "Gợi ý từ (n-gram)" ở tab "Thử nghiệm") cần file
+model khoảng **100 MB**, đặt vào một trong hai chỗ:
+
+```
+~/.config/ibus-mangrs/mangrs-predict-v1.bin        # riêng cho bạn, được ưu tiên
+/usr/share/ibus-mangrs/model/mangrs-predict-v1.bin  # dùng chung cho mọi tài khoản
+```
+
+`MANGRS_MODEL_PATH=/đường/dẫn/model.bin` ép engine dùng một file khác (tiện cho việc thử
+nghiệm). Model phát hành dưới dạng nhiều phần 7 MB trong `data/model/` cho vừa giới hạn file của
+GitHub. `sudo ./scripts/install.sh` **không** cài model; bạn tự nối phần rồi đặt file:
+
+```sh
+cat data/model/mangrs-predict-v1.bin.part* > ~/.config/ibus-mangrs/mangrs-predict-v1.bin
+```
+
+(`data/model/merge_chunks.sh` làm đúng việc đó nhưng xoá các phần sau khi nối — chỉ dùng trên
+bản sao, đừng chạy trong checkout git.) File model chỉ được đọc lại khi cấu hình nạp lại, nên
+sau khi đặt file hãy chạy `ibus restart` (hoặc đổi một mục bất kỳ trong cửa sổ cài đặt).
+
 ### Cấp quyền `/dev/uinput` (làm tay)
 
 Bộ gõ nhấn **phím thật** qua `/dev/uinput` cho những app không xoá chữ được qua IBus; thiếu

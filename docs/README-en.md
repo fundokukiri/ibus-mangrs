@@ -90,6 +90,30 @@ installs the udev rule and removes your user from the `input` group if an older 
 (effective at next login). Uninstall: `sudo ./scripts/uninstall.sh` (keeps your config). On
 Arch: `makepkg -si`.
 
+### Prediction model (word suggestions)
+
+The engine runs without the model: without it the suggestion strip only offers emoji by
+keyword. Vietnamese and English word suggestions (the "Gợi ý từ (n-gram)" switch on the
+"Thử nghiệm" tab) need a model file of about **100 MB**, placed in one of two directories:
+
+```
+~/.config/ibus-mangrs/mangrs-predict-v1.bin         # per user, takes precedence
+/usr/share/ibus-mangrs/model/mangrs-predict-v1.bin  # shared by every account
+```
+
+`MANGRS_MODEL_PATH=/path/to/model.bin` forces a different file (handy for experiments). The
+model ships as 7 MB parts under `data/model/` to stay under GitHub's file limit. The
+`sudo ./scripts/install.sh` step above does **not** install it; join the parts and place the
+file yourself:
+
+```sh
+cat data/model/mangrs-predict-v1.bin.part* > ~/.config/ibus-mangrs/mangrs-predict-v1.bin
+```
+
+(`data/model/merge_chunks.sh` does the same but deletes the parts afterwards — use it on a
+copy, not inside a git checkout.) The model is only re-read when the configuration reloads, so
+run `ibus restart` after placing the file (or change any setting in the settings window).
+
 ### /dev/uinput permissions (manual fallback)
 
 The engine presses **real Backspace keys** through `/dev/uinput` for apps that cannot delete
