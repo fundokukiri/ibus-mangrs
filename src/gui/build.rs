@@ -262,13 +262,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
         // Order pinned by preferred_backend_index: auto, uinput, xtest,
         // wlr-virtual-keyboard, libei.
-        &[
-            "Tự động (khuyến nghị)",
-            "uinput — bàn phím ảo của kernel",
-            "XTest — chỉ trên X11",
-            "wlroots — Hyprland, sway...",
-            "libei — GNOME/KDE (dễ crash, chỉ để thử)",
-        ],
+        &["Tự động", "Uinput", "Xtest", "Wlroots", "Libei"],
     );
     // The formats are preset dropdowns like every other combo; a format
     // the old free-text rows saved that matches no preset is appended by
@@ -847,7 +841,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         nav_key_while_preedit,
         "tips.nav_key_while_preedit",
-        "Điều hướng khi còn từ: khi từ vẫn còn gạch chân, phím mũi tên đầu tiên mặc định đưa caret chạy ngay (kiểu ibus-bamboo) — commit vẫn nằm trong cùng lượt trả về, tới trước phím mũi tên. Nếu chữ bị chèn sai chỗ ở một app nào, chọn lại “Chỉ ghi từ, con trỏ đứng yên”: lần nhấn đầu chỉ commit từ, lần hai mới di chuyển."
+        "Điều hướng khi còn từ: khi từ vẫn còn gạch chân, phím mũi tên đầu tiên mặc định đưa caret chạy ngay (kiểu ibus-bamboo) — commit vẫn nằm trong cùng lượt trả về, tới trước phím mũi tên. Nếu chữ bị chèn sai chỗ ở một app nào, chọn lại Nuốt phím đầu: lần nhấn đầu chỉ commit từ, lần hai mới di chuyển."
     );
 
     Rc::new(Ui {

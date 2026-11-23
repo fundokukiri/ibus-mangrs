@@ -139,12 +139,9 @@ const BACKSPACE_TONE_MODES: &[(&str, &str)] = &[
 /// combo index is the mapping contract for `refresh`/`read`. The default
 /// leads, like every combo in the window.
 const NAV_KEY_MODES: &[(&str, &str)] = &[
-    (
-        "Con trỏ chạy ngay (mặc định)",
-        "Caret moves at once (default)",
-    ),
-    ("Chỉ ghi từ, con trỏ đứng yên", "Commit only, caret stays"),
-    ("Ghi từ rồi gửi lại phím", "Commit, then replay the key"),
+    ("Chuyển ngay (mặc định)", "Move at once (default)"),
+    ("Nuốt phím đầu", "Swallow the first press"),
+    ("Phát lại phím", "Replay the key"),
 ];
 
 /// The combo item labels for `pairs` in the window's language.
