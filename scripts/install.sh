@@ -21,7 +21,7 @@ bin="$here/target/release/ibus-engine-mangrs"
 model_dir="$here/data/model"
 manifest="$model_dir/.model_manifest.json"
 if [ -f "$manifest" ]; then
-    python3 "$here/scripts/merge_model.py" --model-dir "$model_dir" || {
+    python3 "$model_dir/merge_model.py" --model-dir "$model_dir" || {
         echo "failed to merge model chunks" >&2
         exit 1
     }
