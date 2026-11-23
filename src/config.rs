@@ -148,8 +148,6 @@ pub struct Config {
     pub emoji_enabled: bool,
     /// Send preedit without the underline attribute (app support permitting).
     pub hide_underline: bool,
-    /// Uinput pacing: gap between injected text/commit steps (ms).
-    pub commit_interval_ms: u64,
     /// Uinput pacing: gap between injected Backspace keys (ms).
     pub backspace_interval_ms: u64,
     /// Uinput pacing: idle time after a rewrite before more typing (ms).
@@ -932,7 +930,6 @@ impl Default for Config {
             emoji_hotkey: String::new(),
             emoji_enabled: false,
             hide_underline: false,
-            commit_interval_ms: 20,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,

@@ -296,7 +296,6 @@ pub struct Engine {
     /// pending (the server reads this per keystroke).
     nav_key_while_preedit: NavKeyWhilePreedit,
     /// Uinput pacing (ms): text/commit step, Backspace gap, post-rewrite idle.
-    commit_interval_ms: u64,
     backspace_interval_ms: u64,
     post_delay_ms: u64,
     /// Custom lost-echo stale window (ms); the built-in default applies
@@ -588,7 +587,6 @@ impl Engine {
             rule_cache: None,
             capitalize_next: false,
             cap_word: false,
-            commit_interval_ms: 20,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             echo_stale_enabled: false,
@@ -793,7 +791,6 @@ impl Engine {
         // it rides without the gate bake-in.
         self.suggest_display = config.suggest_display;
         self.hide_underline = config.hide_underline;
-        self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
         self.echo_stale_enabled = experimental && config.echo_stale_enabled;
@@ -923,10 +920,6 @@ impl Engine {
     }
 
     /// Uinput pacing, from the config (ms between rewrite steps).
-    pub fn commit_interval_ms(&self) -> u64 {
-        self.commit_interval_ms
-    }
-
     pub fn backspace_interval_ms(&self) -> u64 {
         self.backspace_interval_ms
     }

@@ -555,9 +555,6 @@ subtitle = "Keeps the underline for XIM apps: the in-flight text shows in its ow
 title = "uinput pacing (ms)"
 subtitle = "The pauses between the virtual keys. Default: {n}"
 
-[rows.commit_interval]
-title = "Typing pace"
-
 [rows.backspace_interval]
 title = "Backspace pace"
 
@@ -638,7 +635,6 @@ debug_log = "Logs the engine's decisions to ~/.cache/ibus-mangrs/debug.log for b
 debug_log_keys = "Logs one keyval/state line per key press — only needed when debugging the input path (keymaps, modifiers, hotkeys). Off by default so the log stays clean; the log also rotates at 5 MB per file (the previous one is kept as debug.log.old)."
 x11_delete = "How words are deleted on direct X11 apps: delete the word tail like ibus-bamboo, or delete only as reported by the app."
 preedit_xim = "Uses a separate preedit window for XIM apps (Java/JetBrains) that lack IBus preedit support."
-commit_interval = "The per-word send pace in uinput modes — lower it if an app loses text, raise it if it stalls."
 backspace_interval = "The Backspace send pace in uinput modes — lower it if deletion lags, raise it if the app cannot keep up."
 post_delay = "Waits after rewriting a whole word before the next character, for apps with slow key handling."
 export = "Saves the whole configuration, shorthand and dictionary to one JSON file to carry to another machine."

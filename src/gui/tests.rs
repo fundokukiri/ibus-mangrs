@@ -606,7 +606,6 @@ fn refresh_round_trips_every_widget() {
         emoji_hotkey: "Control+Alt+e".into(),
         emoji_enabled: true,
         hide_underline: true,
-        commit_interval_ms: 33,
         backspace_interval_ms: 7,
         post_delay_ms: 12,
         unicode_channel: crate::config::UnicodeChannel::Commit,

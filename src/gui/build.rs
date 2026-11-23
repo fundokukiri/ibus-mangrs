@@ -485,7 +485,6 @@ pub(super) fn widgets() -> Rc<Ui> {
     // One pacing row, three columns: the three uinput timings share the
     // merged-row shape — a caption above each spin, dividers between the
     // columns — and the row subtitle carries the shipped defaults.
-    let commit_interval = spin_button(1.0, 500.0, 1.0);
     let backspace_interval = spin_button(1.0, 100.0, 1.0);
     let post_delay = spin_button(0.0, 500.0, 1.0);
     let pacing_defaults = crate::config::Config::default();
@@ -498,20 +497,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         .replace(
             "{n}",
             &format!(
-                "{} · {} · {}",
-                pacing_defaults.commit_interval_ms,
-                pacing_defaults.backspace_interval_ms,
-                pacing_defaults.post_delay_ms
+                "{} · {}",
+                pacing_defaults.backspace_interval_ms, pacing_defaults.post_delay_ms
             ),
         ),
     );
     let mut first_column = true;
     for (key, fallback, spin) in [
-        (
-            "rows.commit_interval.title",
-            "Nhịp gõ chữ",
-            &commit_interval,
-        ),
         (
             "rows.backspace_interval.title",
             "Nhịp xoá lùi",
@@ -757,11 +749,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Dùng cửa sổ preedit riêng cho app XIM (Java/JetBrains) vốn không hỗ trợ preedit của IBus."
     );
     tip!(
-        commit_interval,
-        "tips.commit_interval",
-        "Nhịp gửi từng chữ ở mode uinput — giảm nếu app bị mất chữ, tăng nếu bị đơ."
-    );
-    tip!(
         backspace_interval,
         "tips.backspace_interval",
         "Nhịp gửi Backspace ở mode uinput — giảm nếu xoá chậm, tăng nếu app xử lý không kịp."
@@ -930,7 +917,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         x11_delete,
         preedit_xim,
         pacing_row,
-        commit_interval,
         backspace_interval,
         post_delay,
         echo_stale_row,

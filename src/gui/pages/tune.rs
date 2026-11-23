@@ -35,7 +35,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
                 }
             });
     }
-    for spin in [&ui.commit_interval, &ui.backspace_interval, &ui.post_delay] {
+    for spin in [&ui.backspace_interval, &ui.post_delay] {
         let s = ui.save_cb.clone();
         spin.connect_value_notify(move |_| {
             if let Some(save) = s.borrow().as_ref() {

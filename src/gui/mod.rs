@@ -384,7 +384,6 @@ struct Ui {
     x11_delete: adw::SwitchRow,
     preedit_xim: adw::SwitchRow,
     pacing_row: adw::ActionRow,
-    commit_interval: gtk4::SpinButton,
     backspace_interval: gtk4::SpinButton,
     post_delay: gtk4::SpinButton,
     echo_stale_row: adw::ActionRow,
@@ -672,8 +671,6 @@ impl Ui {
             .set_sensitive(system_desktop_entry_exists());
         self.x11_delete.set_active(config.x11_delete_without_report);
         self.preedit_xim.set_active(config.preedit_for_xim);
-        self.commit_interval
-            .set_value(config.commit_interval_ms as f64);
         self.backspace_interval
             .set_value(config.backspace_interval_ms as f64);
         self.post_delay.set_value(config.post_delay_ms as f64);
@@ -847,7 +844,6 @@ impl Ui {
         config.emoji_enabled = self.emoji_enabled.is_active();
         config.emoji_hotkey = self.emoji_hotkey_value.borrow().clone();
         config.dictionary_enabled = self.dictionary_enabled.is_active();
-        config.commit_interval_ms = self.commit_interval.value() as u64;
         config.backspace_interval_ms = self.backspace_interval.value() as u64;
         config.post_delay_ms = self.post_delay.value() as u64;
         config.echo_stale_enabled = self.echo_stale_switch.is_active();
