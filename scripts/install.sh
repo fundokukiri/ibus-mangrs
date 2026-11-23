@@ -16,15 +16,20 @@ bin="$here/target/release/ibus-engine-mangrs"
     exit 1
 }
 
-# Merge split model chunks (if any) so the installed model directory has the
-# full files the engine expects. Runs before component install.
+# Prediction model: the engine prefers the user's own copy, so the chunks in
+# data/model/ are joined straight into the invoking user's config dir. Root
+# cannot guess a home when SUDO_USER is unset (su -, a root login).
 model_dir="$here/data/model"
-manifest="$model_dir/.model_manifest.json"
-if [ -f "$manifest" ]; then
-    python3 "$model_dir/merge_model.py" --model-dir "$model_dir" || {
-        echo "failed to merge model chunks" >&2
-        exit 1
-    }
+model_name=mangrs-predict-v1.bin
+model_src="$model_dir/$model_name"
+model_parts=
+model_user_home=
+if [ ! -f "$model_src" ]; then
+    model_src=
+    model_parts=$(ls "$model_dir/$model_name".part* 2>/dev/null || true)
+fi
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+    model_user_home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
 fi
 
 # IBus runs engines as the logged-in user, not as root, so the binary must be
@@ -47,6 +52,35 @@ elif command -v gtk-update-icon-cache >/dev/null; then
     gtk-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
 fi
 update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
+
+# The model is one file shipped as 7 MB parts. Re-running the installer skips
+# the join when the target already holds the same number of bytes.
+if [ -z "$model_src" ] && [ -z "$model_parts" ]; then
+    echo "no prediction model in data/model/; the strip will offer emoji only"
+elif [ -z "$model_user_home" ]; then
+    echo "model found, but no target user (run the installer with sudo); join it by hand:"
+    echo "  cat data/model/$model_name.part* > ~/.config/ibus-mangrs/$model_name"
+else
+    model_bytes=0
+    for part in $model_parts "$model_src"; do
+        [ -n "$part" ] && model_bytes=$((model_bytes + $(stat -c%s "$part")))
+    done
+    model_conf="$model_user_home/.config/ibus-mangrs"
+    model_dst="$model_conf/$model_name"
+    if [ "$(stat -c%s "$model_dst" 2>/dev/null || echo -1)" = "$model_bytes" ]; then
+        echo "prediction model already installed: $model_dst"
+    else
+        install -d -o "$SUDO_USER" "$model_conf"
+        : > "$model_dst.tmp"
+        for part in $model_parts "$model_src"; do
+            [ -n "$part" ] && cat "$part" >> "$model_dst.tmp"
+        done
+        chown "$SUDO_USER" "$model_dst.tmp"
+        chmod 644 "$model_dst.tmp"
+        mv "$model_dst.tmp" "$model_dst"
+        echo "prediction model installed: $model_dst"
+    fi
+fi
 
 # /dev/uinput access for the real-key injector. The active session's user gets
 # the device through logind's uaccess ACL (data/rules/70-uinput.rules), which ends
