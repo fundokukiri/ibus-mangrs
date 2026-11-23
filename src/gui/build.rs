@@ -502,7 +502,10 @@ pub(super) fn widgets() -> Rc<Ui> {
             ),
         ),
     );
-    let mut first_column = true;
+    // Both merged rows share one column width (see below), so their
+    // caption+input clusters start at the same x instead of each row
+    // sizing itself.
+    let mut merged_columns = Vec::new();
     for (key, fallback, spin) in [
         (
             "rows.backspace_interval.title",
@@ -511,12 +514,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
         ("rows.post_delay.title", "Độ trễ sau từ", &post_delay),
     ] {
-        if !first_column {
+        if !merged_columns.is_empty() {
             pacing_row.add_suffix(&pacing_divider());
         }
-        first_column = false;
         let caption_text = t(key, fallback);
-        pacing_row.add_suffix(&pacing_column(&caption_text, spin));
+        let column = pacing_column(&caption_text, spin);
+        pacing_row.add_suffix(&column);
+        merged_columns.push(column);
         let spoken = format!("{} (ms)", caption_text);
         spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
     }
@@ -582,9 +586,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         // slack below the input.
         column.set_valign(gtk4::Align::Center);
         flow_delay_row.add_suffix(&column);
+        merged_columns.push(column);
         // The caption already carries (ms): the spoken label is the caption.
         spin.update_property(&[gtk4::accessible::Property::Label(&caption)]);
     }
+    equalize_columns(&merged_columns);
     // The caption column is the row's tallest child: an exact-fit row pins
     // the caption to the top edge and the input to the bottom. Growing the
     // row past its natural height floats the column vertically centered —

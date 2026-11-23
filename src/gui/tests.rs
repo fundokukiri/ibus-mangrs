@@ -64,6 +64,8 @@ fn gtk_widget_scenarios() {
     mode_visibility_hides_pickers_and_moves_the_active_mode();
     cycle_subtitle_lists_the_five_modes();
     close_test_windows();
+    pacing_columns_are_symmetric();
+    close_test_windows();
     experimental_gate_locks_rows_and_preserves_values();
     preferred_backend_combo_saves_loads_and_survives_the_gate();
     combo_value_stays_right_after_a_pick();
@@ -120,6 +122,63 @@ fn close_test_windows() {
     for _ in 0..3 {
         gtk4::glib::MainContext::default().iteration(false);
     }
+}
+
+/// The merged pacing row is laid out symmetrically: the two caption
+/// columns share one width and the divider between them sits at that
+/// pair's centre. Packed at natural widths ("Nhịp xoá lùi" is much shorter
+/// than "Độ trễ sau từ") the divider drifted and the row read lopsided.
+fn pacing_columns_are_symmetric() {
+    let ui = widgets();
+    let page = crate::gui::pages::tune::build(&ui);
+    let win = gtk4::Window::new();
+    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
+    win.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let column_of = |row: &gtk4::Widget, caption: &str| {
+        let label = descendants::<gtk4::Label>(row)
+            .into_iter()
+            .find(|l| l.text() == caption)
+            .expect("the caption label");
+        label
+            .parent()
+            .and_downcast::<gtk4::Box>()
+            .expect("the caption column")
+    };
+    let pacing = ui.pacing_row.clone().upcast::<gtk4::Widget>();
+    let flow = ui.flow_delay_row.clone().upcast::<gtk4::Widget>();
+    let left = column_of(&pacing, "Nhịp xoá lùi");
+    let right = column_of(&pacing, "Độ trễ sau từ");
+    let bounds = |w: &gtk4::Widget| {
+        w.compute_bounds(ui.pacing_row.upcast_ref::<gtk4::Widget>())
+            .expect("an allocated column")
+    };
+    let (l, r) = (bounds(left.upcast_ref()), bounds(right.upcast_ref()));
+    assert_eq!(
+        l.width(),
+        r.width(),
+        "both caption columns take the same width"
+    );
+    let divider = descendants::<gtk4::Separator>(&pacing)
+        .into_iter()
+        .next()
+        .expect("the divider between the columns");
+    let d = bounds(divider.upcast_ref());
+    let pair_centre = (l.x() + r.x() + r.width()) / 2.0;
+    assert!(
+        (d.x() + d.width() / 2.0 - pair_centre).abs() <= 1.0,
+        "the divider sits at the pair's centre"
+    );
+    // The Flow row shares the width, so its first column starts at the same
+    // x — the two rows read as one grid instead of two clusters.
+    let flow_left = bounds(column_of(&flow, "Dấu từng bước (ms)").upcast_ref::<gtk4::Widget>());
+    assert_eq!(
+        flow_left.x(),
+        l.x(),
+        "both merged rows start their columns at the same x"
+    );
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the

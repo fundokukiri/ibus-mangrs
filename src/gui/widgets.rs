@@ -369,6 +369,22 @@ pub(super) fn pacing_column(caption: &str, spin: &gtk4::SpinButton) -> gtk4::Box
     column
 }
 
+/// Equalize the caption columns of the merged rows. Captions differ in
+/// length ("Nhịp xoá lùi" against "Độ trễ sau từ"), so packed at their
+/// natural widths the divider lands off-centre and each row starts at its
+/// own x. Every column takes the widest caption's width, which centres each
+/// divider and lines the rows up with each other.
+pub(super) fn equalize_columns(columns: &[gtk4::Box]) {
+    let widest = columns
+        .iter()
+        .map(|c| c.measure(gtk4::Orientation::Horizontal, -1).1)
+        .max()
+        .unwrap_or(0);
+    for column in columns {
+        column.set_size_request(widest, -1);
+    }
+}
+
 /// The text half of a merged row: a plain entry sized to the shared value
 /// width (a short character list, `: " ').
 pub(super) fn chars_entry() -> gtk4::Entry {
