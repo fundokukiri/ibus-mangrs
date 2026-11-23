@@ -99,18 +99,19 @@ model khoảng **100 MB**, đặt vào một trong hai chỗ:
 
 `MANGRS_MODEL_PATH=/đường/dẫn/model.bin` ép engine dùng một file khác (tiện cho việc thử
 nghiệm). Model phát hành dưới dạng nhiều phần 7 MB trong `data/model/` cho vừa giới hạn file của
-GitHub. `sudo ./scripts/install.sh` tự nối các phần rồi đặt file vào
-`~/.config/ibus-mangrs/mangrs-predict-v1.bin` của bạn; chạy lại thì bỏ qua bước nối nếu file
-đã đủ kích thước. Cài bằng tay, hoặc cho một tài khoản khác:
+GitHub, và việc nối phần do script có sẵn trong đó lo: `data/model/merge_chunks.sh`.
+`sudo ./scripts/install.sh` gọi script này trên một bản sao tạm rồi đặt file vào
+`~/.config/ibus-mangrs/mangrs-predict-v1.bin` của bạn; chạy lại thì bỏ qua nếu file đã đủ
+kích thước. Nối tay, hoặc cho một tài khoản khác:
 
 ```sh
-cat data/model/mangrs-predict-v1.bin.part* > ~/.config/ibus-mangrs/mangrs-predict-v1.bin
+cp data/model/mangrs-predict-v1.bin.part* /tmp/model/   # script xoá các phần sau khi nối
+data/model/merge_chunks.sh /tmp/model
+cp /tmp/model/mangrs-predict-v1.bin ~/.config/ibus-mangrs/
 ```
 
-(`data/model/merge_chunks.sh` làm việc tương tự nhưng xoá các phần sau khi nối — chỉ dùng trên
-bản sao, đừng chạy trong checkout git.) Gói `makepkg -si` trên Arch không kèm model. File model
-chỉ được đọc lại khi cấu hình nạp lại, nên sau khi đặt file hãy chạy `ibus restart` (hoặc đổi
-một mục bất kỳ trong cửa sổ cài đặt).
+Gói `makepkg -si` trên Arch không kèm model. File model chỉ được đọc lại khi cấu hình nạp lại,
+nên sau khi đặt file hãy chạy `ibus restart` (hoặc đổi một mục bất kỳ trong cửa sổ cài đặt).
 
 ### Cấp quyền `/dev/uinput` (làm tay)
 

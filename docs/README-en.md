@@ -102,19 +102,21 @@ keyword. Vietnamese and English word suggestions (the "Gợi ý từ (n-gram)" s
 ```
 
 `MANGRS_MODEL_PATH=/path/to/model.bin` forces a different file (handy for experiments). The
-model ships as 7 MB parts under `data/model/` to stay under GitHub's file limit.
-`sudo ./scripts/install.sh` joins them and puts the file in your own
-`~/.config/ibus-mangrs/mangrs-predict-v1.bin`; re-running it skips the join when the file
-already has the right size. For another account, or by hand:
+model ships as 7 MB parts under `data/model/` to stay under GitHub's file limit, and the join is
+the script that lives there: `data/model/merge_chunks.sh`. `sudo ./scripts/install.sh` runs it
+on a temp copy and puts the file in your own `~/.config/ibus-mangrs/mangrs-predict-v1.bin`;
+re-running it skips the join when the file already has the right size. For another account, or
+by hand:
 
 ```sh
-cat data/model/mangrs-predict-v1.bin.part* > ~/.config/ibus-mangrs/mangrs-predict-v1.bin
+cp data/model/mangrs-predict-v1.bin.part* /tmp/model/   # the script deletes the parts after joining
+data/model/merge_chunks.sh /tmp/model
+cp /tmp/model/mangrs-predict-v1.bin ~/.config/ibus-mangrs/
 ```
 
-(`data/model/merge_chunks.sh` does the same but deletes the parts afterwards — use it on a
-copy, not inside a git checkout.) The Arch package (`makepkg -si`) ships no model. The model is
-only re-read when the configuration reloads, so run `ibus restart` after placing the file (or
-change any setting in the settings window).
+The Arch package (`makepkg -si`) ships no model. The model is only re-read when the
+configuration reloads, so run `ibus restart` after placing the file (or change any setting in
+the settings window).
 
 ### /dev/uinput permissions (manual fallback)
 

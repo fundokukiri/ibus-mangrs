@@ -53,13 +53,14 @@ elif command -v gtk-update-icon-cache >/dev/null; then
 fi
 update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
 
-# The model is one file shipped as 7 MB parts. Re-running the installer skips
-# the join when the target already holds the same number of bytes.
+# The model ships as 7 MB parts. The join itself lives in data/model/merge_chunks.sh,
+# which deletes its inputs, so it runs on a temp copy and never touches the checkout.
 if [ -z "$model_src" ] && [ -z "$model_parts" ]; then
     echo "no prediction model in data/model/; the strip will offer emoji only"
 elif [ -z "$model_user_home" ]; then
     echo "model found, but no target user (run the installer with sudo); join it by hand:"
-    echo "  cat data/model/$model_name.part* > ~/.config/ibus-mangrs/$model_name"
+    echo "  cp data/model/$model_name.part* /tmp/model/ && data/model/merge_chunks.sh /tmp/model"
+    echo "  cp /tmp/model/$model_name ~/.config/ibus-mangrs/"
 else
     model_bytes=0
     for part in $model_parts "$model_src"; do
@@ -70,14 +71,17 @@ else
     if [ "$(stat -c%s "$model_dst" 2>/dev/null || echo -1)" = "$model_bytes" ]; then
         echo "prediction model already installed: $model_dst"
     else
+        model_file="$model_src"
+        if [ -z "$model_file" ]; then
+            model_tmp=$(mktemp -d)
+            trap 'rm -rf "$model_tmp"' EXIT INT TERM
+            cp "$model_dir/$model_name".part* "$model_tmp"/
+            bash "$model_dir/merge_chunks.sh" "$model_tmp" >/dev/null
+            model_file="$model_tmp/$model_name"
+        fi
         install -d -o "$SUDO_USER" "$model_conf"
-        : > "$model_dst.tmp"
-        for part in $model_parts "$model_src"; do
-            [ -n "$part" ] && cat "$part" >> "$model_dst.tmp"
-        done
-        chown "$SUDO_USER" "$model_dst.tmp"
-        chmod 644 "$model_dst.tmp"
-        mv "$model_dst.tmp" "$model_dst"
+        install -m644 "$model_file" "$model_dst"
+        chown "$SUDO_USER" "$model_dst"
         echo "prediction model installed: $model_dst"
     fi
 fi
