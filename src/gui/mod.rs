@@ -140,11 +140,11 @@ const BACKSPACE_TONE_MODES: &[(&str, &str)] = &[
 /// leads, like every combo in the window.
 const NAV_KEY_MODES: &[(&str, &str)] = &[
     (
-        "Chuyển caret ngay (mặc định)",
-        "Move the caret at once (default)",
+        "Con trỏ chạy ngay (mặc định)",
+        "Caret moves at once (default)",
     ),
-    ("Nuốt phím đầu", "Swallow the first press"),
-    ("Phát lại phím qua tín hiệu", "Replay the key as a signal"),
+    ("Chỉ ghi từ, con trỏ đứng yên", "Commit only, caret stays"),
+    ("Ghi từ rồi gửi lại phím", "Commit, then replay the key"),
 ];
 
 /// The combo item labels for `pairs` in the window's language.
