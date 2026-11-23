@@ -19,7 +19,14 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "backspace deletes via the protocol",
-        cfg: &[("mode", "\"nonpreedit\"")],
+        cfg: &[
+            ("mode", "\"nonpreedit\""),
+            // The case pins the transport, not the tone rule: with the
+            // shipped ToneFirst default (`việt` -> `viêt`) the Backspace is
+            // a whole-word rewrite, so WholeChar makes it the single-character
+            // delete this case asserts.
+            ("backspace_tone", "\"wholechar\""),
+        ],
         macros: &[],
         raw: "",
         dict: "",
