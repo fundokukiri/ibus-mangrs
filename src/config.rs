@@ -58,12 +58,6 @@ pub struct Config {
     /// (`Method::uses_digit_tone_keys`): their digits are tone keys, so the
     /// strip must not claim them.
     pub suggest_words: bool,
-    /// Experimental: pick-driven learning on the strip — every accepted
-    /// candidate lands in two 0600 TSV files in the config dir and buys an
-    /// in-band ranking bonus. Layers under `experimental_features` and
-    /// `suggest_words`; a password field learns nothing (the server's
-    /// ContentType gate closes both the strip and the files there).
-    pub suggest_learn: bool,
     /// Experimental: the suggestion strip's display while the strip is up —
     /// `floating` (default) only in the box (the client's field stays clean
     /// until the word commits), `mirror` in both places (the box's input line
@@ -619,18 +613,16 @@ pub enum BackspaceToneConfig {
 }
 
 /// Where the suggestion strip's word-in-flight shows while the strip is up
-/// (experimental `suggest_words`): only the floating box's input line, both
-/// that and the client's inline preedit kept in sync, or only the classic
-/// inline preedit beside the table. Floating is the shipped default — the
-/// ibus intelligent pinyin shape.
+/// (experimental `suggest_words`): in the box and in the client's inline
+/// preedit kept in sync, or only the classic inline preedit beside the table.
+/// Both places is the shipped default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SuggestDisplayConfig {
-    /// Only the floating box; the client's field stays clean until the word
-    /// commits.
+    /// The word shows in both places, synced per keystroke. Absorbs the old
+    /// `floating` value: a saved config keeps working instead of failing.
     #[default]
-    Floating,
-    /// The word shows in both places, synced per keystroke.
+    #[serde(alias = "floating")]
     Mirror,
     /// Only the classic inline preedit beside the table.
     Inline,
@@ -911,8 +903,7 @@ impl Default for Config {
             keep_composed_words: false,
             keep_repeats_raw: false,
             suggest_words: false,
-            suggest_learn: false,
-            suggest_display: SuggestDisplayConfig::Floating,
+            suggest_display: SuggestDisplayConfig::Mirror,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
@@ -1802,25 +1793,24 @@ children = ["preedit", "flow"]
     }
 
     #[test]
-    fn suggest_learn_defaults_off_and_round_trips() {
-        // Learning only ever records strip picks; with the switch off no
-        // file is touched, whatever the strip does.
-        let c: Config = toml::from_str("").unwrap();
-        assert!(!c.suggest_learn);
+    fn the_retired_learn_switch_is_ignored_not_fatal() {
+        // Learning now follows the word-suggestion switch; an old config
+        // still carrying the key must load instead of erroring out.
         let c: Config = toml::from_str("suggest_learn = true").unwrap();
-        assert!(c.suggest_learn);
+        assert!(!c.suggest_words);
     }
 
     #[test]
-    fn suggest_display_defaults_to_floating_and_round_trips() {
-        // Display-only switch: the floating box is the shipped look, the
-        // mirror and inline-only choices are the alternatives.
+    fn suggest_display_defaults_to_both_places_and_round_trips() {
+        // Two choices now: both places (the shipped look) or inline only.
         let c: Config = toml::from_str("").unwrap();
-        assert_eq!(c.suggest_display, SuggestDisplayConfig::Floating);
-        let c: Config = toml::from_str("suggest_display = \"mirror\"").unwrap();
         assert_eq!(c.suggest_display, SuggestDisplayConfig::Mirror);
         let c: Config = toml::from_str("suggest_display = \"inline\"").unwrap();
         assert_eq!(c.suggest_display, SuggestDisplayConfig::Inline);
+        // A config saved with the retired floating value keeps working as
+        // the both-places choice instead of failing to parse.
+        let c: Config = toml::from_str("suggest_display = \"floating\"").unwrap();
+        assert_eq!(c.suggest_display, SuggestDisplayConfig::Mirror);
     }
 
     #[test]

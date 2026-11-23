@@ -3655,14 +3655,12 @@ fn hide_candidates_hides_and_clears_the_strip() {
 }
 
 #[test]
-fn the_floating_input_box_replaces_the_inline_preedit() {
+fn the_strip_keeps_the_word_in_both_places() {
     strip_reset_for_test();
-    // The strip's only display: the batch that opens the strip converts the
-    // preedit signal into the auxiliary text — a clear of the client's
-    // inline preedit first (the opening transition), then the
-    // word-in-flight in the box's input line beside the table. The client's
-    // field stays clean until the word commits. The FIRST letter opens the
-    // strip now (the 1-char contract).
+    // The shipped display is both places: the batch that opens the strip
+    // sends the word as the client's inline preedit AND as the box's input
+    // line beside the table. The first letter opens the strip (1-char
+    // contract).
     let (_engine, mut handler) = strip_handler(true);
     let (_, out) = press(&mut handler, 0x73); // 's'
     assert_eq!(
@@ -3672,15 +3670,15 @@ fn the_floating_input_box_replaces_the_inline_preedit() {
             "UpdateAuxiliaryText",
             "UpdateLookupTable"
         ],
-        "the first key opens the strip as the floating input box"
+        "the first key opens the strip with the word in both places"
     );
-    let cleared = out[0]
+    let preedit = out[0]
         .read1::<Variant<Box<dyn RefArg>>>()
-        .expect("cleared preedit variant");
+        .expect("preedit variant");
     assert_eq!(
-        text_from_variant(&cleared).as_deref(),
-        Some(""),
-        "the client's field is clean"
+        text_from_variant(&preedit).as_deref(),
+        Some("s"),
+        "the client's field shows the word-in-flight"
     );
     let aux = out[1]
         .read1::<Variant<Box<dyn RefArg>>>()
@@ -3688,17 +3686,20 @@ fn the_floating_input_box_replaces_the_inline_preedit() {
     assert_eq!(
         text_from_variant(&aux).as_deref(),
         Some("s"),
-        "the word-in-flight lives in the box's input line"
+        "the word-in-flight also lives in the box's input line"
     );
-    // The box tracks every word change: the next key updates the aux line
-    // without re-clearing (the strip was already up).
+    // Both surfaces track every word change.
     let (_, out) = press(&mut handler, 0x69); // 'i'
     assert_eq!(
         members(&out),
-        vec!["UpdateAuxiliaryText", "UpdateLookupTable"],
-        "no second clear while the strip stays up"
+        vec![
+            "UpdatePreeditText",
+            "UpdateAuxiliaryText",
+            "UpdateLookupTable"
+        ],
+        "the second letter updates both surfaces"
     );
-    let aux = out[0]
+    let aux = out[1]
         .read1::<Variant<Box<dyn RefArg>>>()
         .expect("auxiliary variant");
     assert_eq!(
@@ -3727,10 +3728,14 @@ fn backspace_tracks_the_box_line_and_the_list() {
     assert!(consumed, "backspace edits the word inside the box");
     assert_eq!(
         members(&out),
-        vec!["UpdateAuxiliaryText", "UpdateLookupTable"],
-        "the box tracks the deletion; the client's field is never touched"
+        vec![
+            "UpdatePreeditText",
+            "UpdateAuxiliaryText",
+            "UpdateLookupTable"
+        ],
+        "both surfaces track the deletion"
     );
-    let aux = out[0]
+    let aux = out[1]
         .read1::<Variant<Box<dyn RefArg>>>()
         .expect("auxiliary variant");
     assert_eq!(
@@ -4157,13 +4162,17 @@ fn digits_pick_while_the_strip_is_paged() {
             "UpdateAuxiliaryText",
             "UpdateLookupTable"
         ],
-        "the strip opens as the floating input box"
+        "the strip opens with the word in both places"
     );
     let (_, out) = press(&mut handler, 0x69); // 'i'
     assert_eq!(
         members(&out),
-        vec!["UpdateAuxiliaryText", "UpdateLookupTable"],
-        "the second letter updates the open strip"
+        vec![
+            "UpdatePreeditText",
+            "UpdateAuxiliaryText",
+            "UpdateLookupTable"
+        ],
+        "the second letter updates both surfaces"
     );
     let mut out = Vec::new();
     handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);

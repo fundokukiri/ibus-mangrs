@@ -206,6 +206,46 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     advanced.add(&ui.debug_log);
     advanced.add(&ui.debug_log_text);
     advanced.add(&ui.debug_log_keys);
+    // Learned picks are behavioral data the user may want gone; the switch
+    // that turns learning on lives with the strip, so the eraser sits here.
+    let learn_clear_row = action_row(
+        &t("rows.learn_clear.title", "Xoá dữ liệu đã học"),
+        &t(
+            "rows.learn_clear.subtitle",
+            "Hai tệp ghi lại những gợi ý anh đã chọn, trong thư mục cấu hình. Hỏi trước khi xoá.",
+        ),
+    );
+    learn_clear_row.set_tooltip_text(Some(&t(
+        "tips.learn_clear",
+        "Chỉ ghi lại những gợi ý anh CHỌN — không bao giờ ghi phím gõ. Mỗi lựa chọn tăng một đơn vị đếm trong hai tệp 'user-picks.dict' và 'user-picks-pairs.dict' (quyền 0600) để ưu tiên từ đó lần sau; từ đã học chỉ được ưu tiên trong đúng nhóm ngôn ngữ của nó, không bao giờ nhảy lên trên tiếng Việt, và ô mật khẩu không học. Xoá xong bộ gõ học lại từ đầu.",
+    )));
+    let learn_clear_btn = action_button(None, &t("rows.learn_clear.button", "Xoá…"));
+    sizes.add_widget(&learn_clear_btn);
+    learn_clear_row.add_suffix(&learn_clear_btn);
+    {
+        let row = learn_clear_row.clone();
+        learn_clear_btn.connect_clicked(move |_| {
+            let dialog = adw::AlertDialog::builder()
+                .heading(t("learn_clear.heading", "Xoá dữ liệu đã học?"))
+                .body(t(
+                    "learn_clear.body",
+                    "Hai tệp học-theo-chọn sẽ bị xoá. Bộ gõ sẽ học lại từ đầu.",
+                ))
+                .build();
+            dialog.add_response("cancel", &t("learn_clear.cancel", "Huỷ"));
+            dialog.set_default_response(Some("cancel"));
+            dialog.set_close_response("cancel");
+            dialog.add_response("delete", &t("learn_clear.delete", "Xoá"));
+            dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+            dialog.connect_response(Some("delete"), |_, _| {
+                if let Some(dir) = dirs::config_dir().map(|d| d.join("ibus-mangrs")) {
+                    crate::learn::clear_dir(&dir);
+                }
+            });
+            dialog.present(row.root().and_downcast::<gtk4::Window>().as_ref());
+        });
+    }
+    advanced.add(&learn_clear_row);
     let reset_row = action_row(
         &t("rows.reset_defaults.title", "Khôi phục mặc định"),
         &t(

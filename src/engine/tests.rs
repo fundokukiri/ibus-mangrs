@@ -5857,7 +5857,6 @@ fn learn_engine(method: Method, mode: Mode) -> Engine {
     e.apply_config(&Config {
         mode: mode.into(),
         suggest_words: true,
-        suggest_learn: true,
         experimental_features: true,
         ..Config::default()
     });

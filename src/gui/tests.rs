@@ -59,21 +59,27 @@ fn gtk_widget_scenarios() {
     macros_editor_follows_the_switch();
     emoji_editor_follows_the_switch();
     toggling_off_releases_the_editor_caret();
+    close_test_windows();
     every_switch_triggers_save();
     mode_visibility_hides_pickers_and_moves_the_active_mode();
     cycle_subtitle_lists_the_five_modes();
+    close_test_windows();
     experimental_gate_locks_rows_and_preserves_values();
     preferred_backend_combo_saves_loads_and_survives_the_gate();
     combo_value_stays_right_after_a_pick();
+    close_test_windows();
     popup_marks_the_selected_item();
+    close_test_windows();
     combo_popups_do_not_select_on_hover();
     format_combos_keep_presets_and_unknowns();
+    close_test_windows();
     language_row_round_trips();
     nav_key_row_round_trips();
     language_switch_rebuilds_the_window();
     language_handler_rebuilds_both_ways();
     save_round_skips_unchanged_files_and_stamps_self_writes();
     poll_reloads_skips_self_writes();
+    close_test_windows();
     // Restore before the sandbox dir could be cleaned under a racing test.
     match original_config_dir {
         Some(dir) => std::env::set_var("XDG_CONFIG_HOME", dir),
@@ -99,6 +105,21 @@ fn labels_follow_the_language() {
     // Restore for other tests; LANG is process-global and the GTK scenario
     // runner asserts Vietnamese text in a parallel thread.
     set_language("vi");
+}
+
+/// Close every mapped toplevel. The scenarios present real windows only to
+/// run map-time checks; left alive, they sit frozen on the desktop for the
+/// rest of the run and the session offers a force-close when the test
+/// process exits.
+fn close_test_windows() {
+    for w in gtk4::Window::list_toplevels() {
+        if let Some(win) = w.downcast_ref::<gtk4::Window>() {
+            win.destroy();
+        }
+    }
+    for _ in 0..3 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -553,7 +574,6 @@ fn refresh_round_trips_every_widget() {
         keep_composed_words: true,
         keep_repeats_raw: true,
         suggest_words: true,
-        suggest_learn: true,
         suggest_display: crate::config::SuggestDisplayConfig::Inline,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
@@ -1440,20 +1460,6 @@ fn language_handler_rebuilds_both_ways() {
     // VI → EN through the real handler.
     language_combo(&win1).set_selected(1);
     pump();
-    #[cfg(test)]
-    eprintln!(
-        "DEBUG win1 after pick: visible={} mapped={} in_toplevels={}",
-        win1.is_visible(),
-        win1.is_mapped(),
-        gtk4::Window::list_toplevels().iter().any(|w| {
-            std::ptr::eq(
-                w.as_ptr().cast::<std::ffi::c_void>(),
-                win1.upcast_ref::<gtk4::Widget>()
-                    .as_ptr()
-                    .cast::<std::ffi::c_void>(),
-            )
-        })
-    );
     let en = app_windows();
     assert_eq!(en.len(), 1, "exactly one window after VI→EN: {en:?}");
     let win2 = en.first().expect("the EN window");
@@ -1468,6 +1474,7 @@ fn language_handler_rebuilds_both_ways() {
     assert_eq!(nav_tip(win3, "other"), "Cài đặt khác", "EN→VI rebuilt");
 
     win3.close();
+    close_test_windows();
     set_language("vi");
 }
 

@@ -433,9 +433,9 @@ pub struct Engine {
     /// one strip switch: the model's compounds, single words and next-word
     /// lists all serve under it, the dictionary being out of the strip.
     suggest_words: bool,
-    /// The `suggest_learn` switch, baked under the experimental gate like
-    /// `suggest_words` — picks land in the config dir's TSV files and buy
-    /// an in-band bonus only when this is on.
+    /// Pick learning, baked with `suggest_words` under the experimental
+    /// gate — picks land in the config dir's TSV files and buy an in-band
+    /// bonus only while that is on.
     suggest_learn: bool,
     /// The pick files' home: the config dir, set at every config apply;
     /// tests point it at a tempdir so behavioral data never touches the
@@ -607,11 +607,11 @@ impl Engine {
             last_key_at: None,
             idle_committed: None,
             suggest_open: false,
-            suggest_display: SuggestDisplayConfig::Floating,
+            suggest_learn: false,
+            suggest_display: SuggestDisplayConfig::Mirror,
             last_committed_word: None,
             prev_committed_word: None,
             suggest_words: false,
-            suggest_learn: false,
             learn_dir: std::path::PathBuf::new(),
             picks: None,
             password_quiet: false,
@@ -768,7 +768,10 @@ impl Engine {
         // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
-        self.suggest_learn = experimental && config.suggest_learn;
+        // Learning has no switch of its own: it rides the suggestion switch,
+        // so an open strip always personalizes and a closed one touches
+        // nothing.
+        self.suggest_learn = self.suggest_words;
         self.learn_dir = dirs::config_dir()
             .map(|d| d.join("ibus-mangrs"))
             .unwrap_or_default();

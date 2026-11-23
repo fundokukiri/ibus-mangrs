@@ -1762,19 +1762,12 @@ fn emit_with(
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
     let mut delete_failed = false;
-    // The strip's display shapes this batch's preedit signal (when the strip
-    // is up — a batch carrying candidates): floating only in the candidate
-    // window's input line (the client's field stays clean — ibus intelligent
-    // pinyin's aux shape), mirror in BOTH places, inline keeps the classic
-    // preedit beside the table. A batch without candidates forwards the
-    // preedit inline again. The box's input line rides `UpdateCandidates`
-    // (the inline modes have no preedit signal to convert), so the display
-    // gates it there instead.
-    let strip_up = actions
-        .iter()
-        .any(|a| matches!(a, Action::UpdateCandidates { .. }));
+    // The strip's display shapes this batch's preedit signal: with the box
+    // up, "both places" keeps the classic preedit beside the table and
+    // "inline only" is exactly that preedit with the table next to it. The
+    // box's input line rides `UpdateCandidates` — the inline display sends
+    // no aux line — so the display gates it there.
     let display = engine.suggest_display();
-    let strip_was = strip_open();
     for action in actions {
         match action {
             Action::Commit(text) => push_commit(
@@ -1887,23 +1880,9 @@ fn emit_with(
                 }
             }
             Action::UpdatePreedit { text, cursor } => {
-                let floating = strip_up && display == SuggestDisplayConfig::Floating;
-                if floating && !strip_was {
-                    // The opening transition: the client still shows the
-                    // inline preedit from before the strip — clear it so the
-                    // word only lives in the floating box.
-                    out.push(
-                        signal("UpdatePreeditText")
-                            .append1(plain_text(""))
-                            .append1(0u32)
-                            .append1(false) // not visible = hide
-                            .append1(0u32),
-                    );
-                }
-                if !floating {
-                    // The strip is closed (plain inline preedit) or the
-                    // mirror/inline displays keep the classic preedit beside
-                    // the table.
+                {
+                    // Both display choices keep the classic preedit beside
+                    // the table; a batch without candidates sends it alone.
                     let len = text.chars().count() as u32;
                     let attrs: &[Attr] = if hide_underline {
                         &[]
@@ -1924,11 +1903,8 @@ fn emit_with(
                     );
                 }
                 // The box's input line is not shaped here: the word rides
-                // `UpdateCandidates` (the inline modes have no preedit signal
-                // to convert) and `strip_show` writes it — except for the
-                // inline display, where the classic preedit is the word's
-                // only surface. While the strip is up in floating the inline
-                // preedit stays cleared — the word lives only in the box.
+                // `UpdateCandidates` (the inline display has no preedit
+                // signal to convert) and `strip_show` writes it.
             }
             Action::HidePreedit => {
                 out.push(
