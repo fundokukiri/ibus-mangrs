@@ -5184,7 +5184,7 @@ fn suggest_strip_chains_when_the_word_lands() {
     // the strip chains straight into the landed word's next-word list —
     // the space landing is pinned by `state_b_predicts_next_syllable`.
     // Before the terminator the list stayed open (`sinh` leads with its
-    // model compound — `sinh viên` — per `compounds_lead_state_a`).
+    // model compound — `sinh viên` — per `page_one_is_three_singles_then_the_compounds`).
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "sinh,");
     assert!(
@@ -5370,14 +5370,43 @@ fn suggest_digit_still_ends_the_word_and_hides() {
 // --- prediction tier (state A) ---
 
 #[test]
-fn compounds_lead_state_a() {
-    // `sinh` is a complete syllable: the model's two-word compounds lead
-    // the list — what continues the word outranks the tone-variant
-    // siblings — strongest first.
+fn page_one_is_three_singles_then_the_compounds() {
+    // Page 1 has the fixed shape the owner asked for, so the digits 1-5
+    // always mean the same thing: three single words, then two compounds.
+    // `h` is the full house — `học`, `họ`, the EN `hello`, then
+    // `học sinh` and `học sinh giỏi` — and the rest of the list keeps
+    // coming for the strip's pages.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "h");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on h");
+    let page: Vec<&str> = items.iter().take(5).map(String::as_str).collect();
+    assert_eq!(
+        page,
+        ["học", "họ", "hello", "học sinh", "học sinh giỏi"],
+        "{items:?}"
+    );
+    assert!(items.len() > 5, "the leftovers still page: {items:?}");
+}
+
+#[test]
+fn page_one_gives_the_last_slot_to_a_keyword_emoji() {
+    // A keyword-matching emoji holds slot 5, and the compounds give up
+    // their second seat to it: `sinh` shows `sinh viên` at slot 4 and the
+    // glyph at slot 5. A thin prefix pads nothing — `si` has one single,
+    // so its page is shorter instead of gap-filled.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "sinh");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on sinh");
-    assert_eq!(items.first().map(String::as_str), Some("sinh viên"));
+    assert_eq!(items[0], "sinh viên", "{items:?}");
+    assert!(
+        !items[1].chars().any(|c| c.is_ascii_alphanumeric()),
+        "the emoji holds slot 5: {items:?}"
+    );
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "si");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on si");
+    assert_eq!(items[0], "sinh", "{items:?}");
+    assert_eq!(items[1], "sinh viên", "{items:?}");
 }
 
 #[test]

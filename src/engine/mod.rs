@@ -1871,84 +1871,88 @@ impl Engine {
     /// The state-A candidate list for the in-flight word — the MODEL only,
     /// the dictionary having left the suggestion business entirely (its
     /// future home is spell-check): no table completions, no corrections,
-    /// on any path. Banded:
+    /// on any path. Page 1 has a fixed shape, so the digits `1`-`5` always
+    /// mean the same thing:
     ///
-    /// * band 0 — the model's VN material for the same toneless prefix,
-    ///   ordered by the word's state: a complete syllable leads with its
-    ///   two-word compounds (what continues the word outranks the
-    ///   tone-variant siblings — `sinh` shows `sinh viên` before `sính`),
-    ///   a partial prefix leads with its single-word completions (finishing
-    ///   the syllable outranks the compounds of its possible endings).
-    /// * band 1 — EN rows on a pure-ASCII prefix (`hel` offers `hello`;
-    ///   `hè` excludes EN outright).
-    /// * band 2 — the emoji keyword tail.
+    /// * slots 1-3 — single words: the model's VN syllables for the toneless
+    ///   prefix (context bonus first, then unigram frequency), then its EN
+    ///   rows on a pure-ASCII prefix (`hel` offers `hello`; `hè` excludes EN
+    ///   outright);
+    /// * slot 4 — the strongest compound, two or three words (`sinh` shows
+    ///   `sinh viên`);
+    /// * slot 5 — a keyword-matching emoji when the word has one, else the
+    ///   second compound.
     ///
-    /// Inside a band the context bonus leads ([`Self::context_bonus`]),
-    /// unigram frequency follows. The learning bonus (the personalization
-    /// task) stays inside these bands too — it reorders within a band,
-    /// never across one. One builder for the strip emit and the pick path,
-    /// so the two can never drift apart: the pick indexes into the list
-    /// the strip emitted.
+    /// Past slot 5 the leftovers follow in the same band order, for the
+    /// strip's pages. The learning bonus (the personalization task) stays
+    /// inside these bands too — it reorders within a band, never across one.
+    /// One builder for the strip emit and the pick path, so the two can
+    /// never drift apart: the pick indexes into the list the strip emitted.
     fn state_a_candidates(&self, word: &str) -> Vec<String> {
         let cap = crate::suggest::MAX_CANDIDATES;
-        // Band 0 — VN compounds and single words per the word's state. The
-        // prefix match alone filters language: VN syllables never start an
-        // English prefix (`hel` finds none) and vice versa, so no
-        // letter-class gate is needed here.
-        let mut out: Vec<String> = self
-            .model
-            .as_ref()
-            .map(|model| {
-                let (start, end) = model.prefix_range(word);
-                let bonus = self.context_bonus(model, (start, end));
-                let mut singles: Vec<(u32, String, u32)> = (start..end)
-                    .map(|row| row as u32)
-                    .filter(|&id| model.flags(id) & crate::predict::FLAG_VN_SYLLABLE != 0)
-                    .map(|id| (id, model.surface(id).to_string(), model.unigram(id)))
-                    .filter(|(_, surface, _)| *surface != word)
-                    .collect();
-                singles.sort_by(|a, b| {
-                    let ca = bonus.get(&a.0).copied().unwrap_or(0);
-                    let cb = bonus.get(&b.0).copied().unwrap_or(0);
-                    cb.cmp(&ca)
-                        .then_with(|| b.2.cmp(&a.2))
-                        .then_with(|| a.1.cmp(&b.1))
-                });
-                let compounds: Vec<String> = model
-                    .compounds_for_prefix(&crate::suggest::toneless(word))
-                    .into_iter()
-                    .map(|(surface, _strength)| surface)
-                    .collect();
-                if model.id_of(word).is_some() {
-                    // Complete syllable: the compounds continue it, the
-                    // single words trail.
-                    let mut merged = compounds;
-                    merged.extend(singles.into_iter().map(|(_, surface, _)| surface));
-                    merged
-                } else {
-                    // Partial prefix: finish the syllable first.
-                    let mut merged: Vec<String> =
-                        singles.into_iter().map(|(_, surface, _)| surface).collect();
-                    merged.extend(compounds);
-                    merged
-                }
-            })
-            .unwrap_or_default();
-        out.truncate(cap);
-        // Band 1 — EN, then the emoji tail; the emoji band reserves its
-        // seat so neither band pushes the glyphs out.
-        let en = self.en_candidates(word);
-        let emoji: Vec<String> = crate::emoji::glyphs_for_word(word)
+        let (mut singles, mut compounds) = self.vn_material(word);
+        singles.extend(
+            self.en_candidates(word)
+                .into_iter()
+                .map(|(surface, _)| surface),
+        );
+        let mut emoji: Vec<String> = crate::emoji::glyphs_for_word(word)
             .into_iter()
             .take(crate::emoji::STRIP_EMOJI_CAP)
             .map(str::to_string)
             .collect();
-        let emoji_room = emoji.len();
-        let room = cap.saturating_sub(out.len() + emoji_room);
-        out.extend(en.into_iter().take(room).map(|(surface, _)| surface));
-        let room = cap.saturating_sub(out.len() + emoji_room);
-        out.extend(emoji.into_iter().take(room));
+        // Page 1: three single words, then the compounds, the keyword emoji
+        // holding the last slot. No padding — a thin prefix shows a short
+        // page instead of an empty slot.
+        let mut out: Vec<String> = Vec::new();
+        let shown = singles.len().min(3);
+        out.extend(singles.drain(..shown));
+        let room = if emoji.is_empty() { 2 } else { 1 };
+        let shown = compounds.len().min(room);
+        out.extend(compounds.drain(..shown));
+        if !emoji.is_empty() {
+            out.push(emoji.remove(0));
+        }
+        out.extend(singles);
+        out.extend(compounds);
+        out.extend(emoji);
+        out.truncate(cap);
         out
+    }
+
+    /// The model's VN material for the in-flight word as `(single words,
+    /// compounds)`, each ranked. The context bonus leads, unigram frequency
+    /// follows, the surface breaks ties. The prefix match alone filters
+    /// language: VN syllables never start an English prefix (`hel` finds
+    /// none) and vice versa.
+    fn vn_material(&self, word: &str) -> (Vec<String>, Vec<String>) {
+        let Some(model) = self.model.as_ref() else {
+            return (Vec::new(), Vec::new());
+        };
+        let (start, end) = model.prefix_range(word);
+        let bonus = self.context_bonus(model, (start, end));
+        let mut singles: Vec<(u32, String, u32)> = (start..end)
+            .map(|row| row as u32)
+            .filter(|&id| model.flags(id) & crate::predict::FLAG_VN_SYLLABLE != 0)
+            .map(|id| (id, model.surface(id).to_string(), model.unigram(id)))
+            .filter(|(_, surface, _)| surface != word)
+            .collect();
+        singles.sort_by(|a, b| {
+            let ca = bonus.get(&a.0).copied().unwrap_or(0);
+            let cb = bonus.get(&b.0).copied().unwrap_or(0);
+            cb.cmp(&ca)
+                .then_with(|| b.2.cmp(&a.2))
+                .then_with(|| a.1.cmp(&b.1))
+        });
+        let compounds = model
+            .compounds_for_prefix(&crate::suggest::toneless(word))
+            .into_iter()
+            .map(|(surface, _strength)| surface)
+            .collect();
+        (
+            singles.into_iter().map(|(_, surface, _)| surface).collect(),
+            compounds,
+        )
     }
 
     /// The EN band: the model's EN-word rows whose toneless key starts with
