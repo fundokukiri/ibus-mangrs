@@ -78,7 +78,7 @@ else
 fi
 ok
 
-step "Removing uinput rule"
+step "Removing uinput rule and module autoload"
 if [ -n "$DEMO" ]; then
     echo "(demo) nothing is removed"
 else
@@ -87,6 +87,12 @@ else
           /etc/udev/rules.d/80-uinput.rules \
           "$PREFIX/lib/udev/rules.d/70-uinput.rules" \
           "$PREFIX/lib/udev/rules.d/80-uinput.rules"
+    # install.sh writes a one-word autoload file; remove it only while it is
+    # still exactly that, another tool may have written its own copy.
+    if [ -f /etc/modules-load.d/uinput.conf ] &&
+        [ "$(cat /etc/modules-load.d/uinput.conf)" = "uinput" ]; then
+        $SUDO rm -f /etc/modules-load.d/uinput.conf
+    fi
     $SUDO udevadm control --reload-rules 2>/dev/null || true
     $SUDO udevadm trigger --name-match=/dev/uinput 2>/dev/null || true
 fi

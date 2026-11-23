@@ -37,7 +37,8 @@ it is).
 
 Downloads the source, builds and installs; missing dependencies are installed too, so only
 `curl` (or `wget`) and `sudo` are needed up front. The `/dev/uinput` udev rule is set up (the
-session's user gets the device through logind, no group membership), build-only packages
+session's user gets the device through logind, no group membership) and the `uinput` module is
+loaded right away and at every boot, build-only packages
 installed by the run are removed afterwards, and re-running installs nothing twice. `--demo`
 previews the whole run without touching anything:
 

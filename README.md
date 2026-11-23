@@ -35,7 +35,8 @@ IBus phải là bộ quản lý input của hệ thống (GNOME mặc định đ
 
 Tải mã nguồn, biên dịch và cài luôn; thiếu gì trình cài tự cài thêm nên máy chỉ cần có `curl`
 (hoặc `wget`) và `sudo`. Quyền `/dev/uinput` được thiết lập qua ACL của phiên đăng nhập (không
-cần nhóm), gói chỉ dùng để biên dịch sẽ được gỡ sau khi xong, chạy lại không cài đúp. Thêm
+cần nhóm); module `uinput` cũng được nạp ngay và tự nạp mỗi lần khởi động; gói chỉ dùng để
+biên dịch sẽ được gỡ sau khi xong, chạy lại không cài đúp. Thêm
 `--demo` để chạy thử toàn bộ các bước mà không đụng gì vào máy:
 
 ```sh

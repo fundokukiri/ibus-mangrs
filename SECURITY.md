@@ -63,6 +63,10 @@ khoá, và sống sót qua lần đăng xuất. Installer hiện gỡ membership
 còn sót; udev đọc mọi file trong `rules.d` nên một bản copy cũ sẽ giữ quyền nhóm sống sót
 ngay cạnh rule mới.
 
+Installer nạp module `uinput` ngay lúc cài và ghi `/etc/modules-load.d/uinput.conf` cho các
+lần khởi động (các distro như Arch không tự nạp module này); uninstaller chỉ gỡ file đó khi
+nội dung vẫn đúng một chữ `uinput`, vì tool khác có thể đã ghi bản của nó.
+
 `/dev/uinput` được mở lười và thử lại mỗi hai giây khi chưa mở được, vì logind có thể cấp ACL
 một lúc sau khi engine khởi động. Nếu nó không bao giờ khả dụng, kiểu gõ commit-as-you-type
 rơi về xoá qua protocol ở app tự báo cáo chữ, còn lại là phím Backspace gửi tiếp qua IBus —
@@ -112,6 +116,7 @@ về nhóm `input` (`debug_log = true`).
 ```sh
 # gỡ ACL của phiên và ngừng dùng thiết bị
 sudo rm /etc/udev/rules.d/70-uinput.rules
+sudo rm /etc/modules-load.d/uinput.conf   # chỉ khi không tool nào khác đang dùng
 sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
 ibus restart
 ```

@@ -64,6 +64,13 @@ if [ -f "$rule_src" ]; then
     install -Dm644 "$rule_src" "$rule_dst"
     udevadm control --reload-rules ||
         echo "warning: udevadm control --reload-rules failed" >&2
+    # Distros like Arch never autoload uinput: without the module /dev/uinput
+    # cannot be opened and the trigger below matches nothing.
+    modprobe uinput 2>/dev/null ||
+        echo "warning: could not load the uinput module" >&2
+    mkdir -p /etc/modules-load.d
+    grep -qx uinput /etc/modules-load.d/uinput.conf 2>/dev/null ||
+        echo uinput > /etc/modules-load.d/uinput.conf
     udevadm trigger --name-match=/dev/uinput ||
         echo "warning: udevadm trigger /dev/uinput failed" >&2
     if [ -n "${SUDO_USER:-}" ]; then
