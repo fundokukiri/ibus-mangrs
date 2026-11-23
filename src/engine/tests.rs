@@ -3239,6 +3239,30 @@ fn surrounding_on_a_capability_less_client_forwards_backspaces() {
 }
 
 #[test]
+fn caps0_uinput_auto_resolves_to_forward() {
+    // A caps-0 context (a real XIM client) under auto, with an injection
+    // backend present: the backend proves nothing about an inline rewrite
+    // the client renders no preedit for, so the walk still terminates on the
+    // forwarded transport — the one that reaches every client by contract.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(0);
+    e.set_uinput_available(true);
+    assert_eq!(e.effective_mode(), Mode::ForwardBackspace);
+    let actions = type_raw(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "the forwarded transport serves the caps-0 client: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+        "no injected rewrite without a preedit-capable client: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
 fn flow_without_backend_serves_forward_backspace_and_logs_once() {
     // Flow without a backend: the walk downgrades to the forwarded
     // transport and logs the fallback once per session — two resolutions,

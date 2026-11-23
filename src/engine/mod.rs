@@ -1488,8 +1488,12 @@ impl Engine {
             return Mode::Surrounding;
         }
         // No usable report yet: injected Backspaces serve when a backend
-        // exists (the deletes_allowed gate decides per keystroke, unchanged).
-        if self.uinput_available {
+        // exists (the deletes_allowed gate decides per keystroke, unchanged)
+        // — but only for a client that carries the word inline at all. A
+        // caps-0 context (XIM, XWayland toolkits) renders no preedit and
+        // reports nothing: the inline rewrite has no proof it lands there,
+        // while the forwarded transport below reaches it by contract.
+        if self.uinput_available && can_preedit {
             return Mode::Surrounding;
         }
         // Terminal: the forwarded transport reaches clients with no report
