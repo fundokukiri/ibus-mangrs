@@ -5,7 +5,7 @@
 set -euo pipefail
 
 MODEL_DIR="${1:-$(dirname "$0")}"
-CHUNK_SIZE="10M"
+CHUNK_SIZE="7M"
 
 echo "Splitting files in $MODEL_DIR into ${CHUNK_SIZE} chunks..."
 
