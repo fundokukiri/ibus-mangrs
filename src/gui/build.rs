@@ -252,7 +252,7 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Cả khung gợi ý lẫn ô soạn, hay chỉ trong ô soạn như các bộ gõ cũ",
         ),
         // Order pinned by suggest_display_index: mirror, inline.
-        &["Cả hai chỗ", "Chỉ trong ô soạn"],
+        &["Cả khung gợi ý và ô soạn", "Chỉ ô soạn"],
     );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Backend ưu tiên"),
@@ -801,12 +801,12 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         suggest_words,
         "tips.suggest_words",
-        "Từ đang gõ hiện trong cả khung gợi ý lẫn ô soạn (mặc định), hoặc chỉ trong ô soạn. Danh sách lấy từ mô hình dự đoán (từ điển đã rời dải gợi ý — sau này nó làm kiểm tra chính tả): gõ chữ cái đầu tiên là gợi ý đã chạy, từ ghép hai tiếng dẫn đầu khi âm tiết hoàn chỉnh ('sinh' thấy 'sinh viên'), từ đơn theo sau; sau khi một từ đổ bằng dấu cách, các từ thường theo sau hiện tiếp ('xin ' thấy 'chào'); gõ tiếp chữ cái sẽ dựng lại danh sách theo cả chữ đó và từ đứng trước. Từ tiếng Anh vào bằng prefix ASCII thuần, emoji vào qua từ khóa. Bấm 1–5 hoặc click thẳng dòng gợi ý để chọn — từ được chèn kèm dấu cách; lật trang bằng nút ◀▶ trên khung hoặc Ctrl+, / Ctrl+., phím Escape vẫn kết thúc từ như thường, mũi tên giữ nguyên vai trò di chuyển con trỏ. Chạy ở chế độ Preedit và các chế độ có kênh xóa chữ (Surrounding, Forward Backspace, Flow) — một lựa chọn sẽ xóa chữ app đang giữ trước khi commit. Chỉ với preset Telex, Telex 2, Telex W, VIQR — các preset khác dùng số làm phím dấu nên không dùng được. Cần file mô hình dự đoán đã cài; không có mô hình thì chỉ từ khóa emoji mở được dải gợi ý. Chỗ hiện từ đang gõ đổi bằng hàng 'Hiện từ đang gõ ở đâu' ngay dưới. Những từ anh chọn được ghi lại để ưu tiên lần sau — nút 'Xoá dữ liệu đã học' nằm ở trang Cài đặt khác, mục Nâng cao. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
+        "Từ đang gõ hiện trong cả khung gợi ý lẫn ô soạn (mặc định), hoặc chỉ ô soạn. Danh sách lấy từ mô hình dự đoán (từ điển đã rời dải gợi ý — sau này nó làm kiểm tra chính tả): gõ chữ cái đầu tiên là gợi ý đã chạy, từ ghép hai tiếng dẫn đầu khi âm tiết hoàn chỉnh ('sinh' thấy 'sinh viên'), từ đơn theo sau; sau khi một từ đổ bằng dấu cách, các từ thường theo sau hiện tiếp ('xin ' thấy 'chào'); gõ tiếp chữ cái sẽ dựng lại danh sách theo cả chữ đó và từ đứng trước. Từ tiếng Anh vào bằng prefix ASCII thuần, emoji vào qua từ khóa. Bấm 1–5 hoặc click thẳng dòng gợi ý để chọn — từ được chèn kèm dấu cách; lật trang bằng nút ◀▶ trên khung hoặc Ctrl+, / Ctrl+., phím Escape vẫn kết thúc từ như thường, mũi tên giữ nguyên vai trò di chuyển con trỏ. Chạy ở chế độ Preedit và các chế độ có kênh xóa chữ (Surrounding, Forward Backspace, Flow) — một lựa chọn sẽ xóa chữ app đang giữ trước khi commit. Chỉ với preset Telex, Telex 2, Telex W, VIQR — các preset khác dùng số làm phím dấu nên không dùng được. Cần file mô hình dự đoán đã cài; không có mô hình thì chỉ từ khóa emoji mở được dải gợi ý. Chỗ hiện từ đang gõ đổi bằng hàng 'Hiện từ đang gõ ở đâu' ngay dưới. Những từ anh chọn được ghi lại để ưu tiên lần sau — nút 'Xoá dữ liệu đã học' nằm ở trang Cài đặt khác, mục Nâng cao. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
     );
     tip!(
         suggest_display,
         "tips.suggest_display",
-        "Chọn chỗ hiện phần đang gõ khi dải gợi ý mở: Cả hai chỗ (mặc định) — từ hiện ở cả khung gợi ý và trong ô soạn, gõ tiếp hay xóa đều cập nhật đồng bộ; Chỉ trong ô soạn — preedit nằm trong văn bản như các bộ gõ cũ, dải gợi ý hiện bên cạnh. Chỉ có tác dụng khi 'Gợi ý từ (n-gram)' đang bật."
+        "Chọn chỗ hiện phần đang gõ khi dải gợi ý mở: Cả khung gợi ý và ô soạn (mặc định) — từ hiện ở cả hai, gõ tiếp hay xóa đều cập nhật đồng bộ; Chỉ ô soạn — preedit nằm trong văn bản như các bộ gõ cũ, dải gợi ý hiện bên cạnh. Chỉ có tác dụng khi 'Gợi ý từ (n-gram)' đang bật."
     );
     tip!(
         preferred_backend,
