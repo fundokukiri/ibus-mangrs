@@ -260,9 +260,6 @@ struct Ui {
     extended_onsets: adw::SwitchRow,
     abbrev: adw::SwitchRow,
     bypass_url: adw::SwitchRow,
-    extra_url_chars_row: adw::ActionRow,
-    extra_url_chars_switch: gtk4::Switch,
-    extra_url_chars_entry: gtk4::Entry,
     w2u: adw::ComboRow,
     backspace_tone: adw::ComboRow,
     /// What the first navigation key does while a preedit commit is
@@ -271,9 +268,6 @@ struct Ui {
     bracket: adw::ComboRow,
     em_dash: adw::SwitchRow,
     auto_capitalize: adw::SwitchRow,
-    auto_capitalize_after_row: adw::ActionRow,
-    auto_capitalize_after_switch: gtk4::Switch,
-    auto_capitalize_after_entry: gtk4::Entry,
     double_space: adw::SwitchRow,
     macro_enabled: adw::SwitchRow,
     capitalize_macro: adw::SwitchRow,
@@ -598,14 +592,6 @@ impl Ui {
         self.extended_onsets.set_active(config.extended_onsets);
         self.abbrev.set_active(config.abbreviations);
         self.bypass_url.set_active(config.bypass_url);
-        self.extra_url_chars_switch
-            .set_active(config.extra_url_chars_enabled);
-        self.extra_url_chars_entry
-            .set_sensitive(config.extra_url_chars_enabled);
-        // The typed characters stay saved even while the switch is off —
-        // they reapply when the switch returns; the off state itself
-        // applies the built-in set only.
-        self.extra_url_chars_entry.set_text(&config.extra_url_chars);
         self.w2u.set_selected(on_off_index(
             &config.w2u,
             W2uConfig::Disabled,
@@ -626,12 +612,6 @@ impl Ui {
             .set_selected(nav_key_selected(&config.nav_key_while_preedit));
         self.em_dash.set_active(config.em_dash);
         self.auto_capitalize.set_active(config.auto_capitalize);
-        self.auto_capitalize_after_switch
-            .set_active(config.auto_capitalize_after_enabled);
-        self.auto_capitalize_after_entry
-            .set_sensitive(config.auto_capitalize_after_enabled);
-        self.auto_capitalize_after_entry
-            .set_text(&config.auto_capitalize_after);
         self.double_space.set_active(config.double_space_period);
         self.macro_enabled.set_active(config.macro_enabled);
         self.capitalize_macro.set_active(config.capitalize_macro);
@@ -781,8 +761,6 @@ impl Ui {
         config.abbreviations = self.abbrev.is_active();
         config.hide_underline = self.hide_underline.is_active();
         config.bypass_url = self.bypass_url.is_active();
-        config.extra_url_chars_enabled = self.extra_url_chars_switch.is_active();
-        config.extra_url_chars = self.extra_url_chars_entry.text().trim().to_string();
         config.w2u = match self.w2u.selected() {
             1 => W2uConfig::NonStart,
             2 => W2uConfig::Everywhere,
@@ -805,8 +783,6 @@ impl Ui {
         };
         config.em_dash = self.em_dash.is_active();
         config.auto_capitalize = self.auto_capitalize.is_active();
-        config.auto_capitalize_after_enabled = self.auto_capitalize_after_switch.is_active();
-        config.auto_capitalize_after = self.auto_capitalize_after_entry.text().trim().to_string();
         config.double_space_period = self.double_space.is_active();
         config.macro_enabled = self.macro_enabled.is_active();
         config.capitalize_macro = self.capitalize_macro.is_active();
@@ -887,10 +863,6 @@ impl Ui {
             })
             .collect();
         if !gate_on {
-            config.extra_url_chars_enabled = saved_experimental.extra_url_chars_enabled;
-            config.extra_url_chars = saved_experimental.extra_url_chars;
-            config.auto_capitalize_after_enabled = saved_experimental.auto_capitalize_after_enabled;
-            config.auto_capitalize_after = saved_experimental.auto_capitalize_after;
             config.macro_expand_valid_words = saved_experimental.macro_expand_valid_words;
             config.echo_stale_enabled = saved_experimental.echo_stale_enabled;
             config.echo_stale_ms = saved_experimental.echo_stale_ms;
@@ -949,14 +921,12 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 9] = [
+        let rows: [&gtk4::Widget; 7] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
             self.suggest_words.upcast_ref(),
             self.preferred_backend.upcast_ref(),
-            self.extra_url_chars_row.upcast_ref(),
-            self.auto_capitalize_after_row.upcast_ref(),
             self.echo_stale_row.upcast_ref(),
             self.idle_commit_row.upcast_ref(),
         ];
@@ -971,10 +941,6 @@ impl Ui {
                 .set_sensitive(gate && self.echo_stale_switch.is_active());
             self.idle_commit_spin
                 .set_sensitive(gate && self.idle_commit_switch.is_active());
-            self.extra_url_chars_entry
-                .set_sensitive(gate && self.extra_url_chars_switch.is_active());
-            self.auto_capitalize_after_entry
-                .set_sensitive(gate && self.auto_capitalize_after_switch.is_active());
         }
     }
 
@@ -992,13 +958,6 @@ impl Ui {
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
         self.suggest_words.set_active(d.suggest_words);
         self.preferred_backend.set_selected(0);
-        self.extra_url_chars_switch
-            .set_active(d.extra_url_chars_enabled);
-        self.extra_url_chars_entry.set_text(&d.extra_url_chars);
-        self.auto_capitalize_after_switch
-            .set_active(d.auto_capitalize_after_enabled);
-        self.auto_capitalize_after_entry
-            .set_text(&d.auto_capitalize_after);
         self.echo_stale_switch.set_active(d.echo_stale_enabled);
         self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
         self.idle_commit_switch.set_active(d.idle_commit_enabled);
@@ -1019,13 +978,6 @@ impl Ui {
         self.suggest_words.set_active(c.suggest_words);
         self.preferred_backend
             .set_selected(preferred_backend_index(c.preferred_backend));
-        self.extra_url_chars_switch
-            .set_active(c.extra_url_chars_enabled);
-        self.extra_url_chars_entry.set_text(&c.extra_url_chars);
-        self.auto_capitalize_after_switch
-            .set_active(c.auto_capitalize_after_enabled);
-        self.auto_capitalize_after_entry
-            .set_text(&c.auto_capitalize_after);
         self.echo_stale_switch.set_active(c.echo_stale_enabled);
         self.echo_stale_spin.set_value(c.echo_stale_ms as f64);
         self.idle_commit_switch.set_active(c.idle_commit_enabled);

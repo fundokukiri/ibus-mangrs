@@ -120,16 +120,6 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
         ),
     );
-    let extra_url_chars_entry = chars_entry();
-    extra_url_chars_entry.set_sensitive(false);
-    let (extra_url_chars_row, extra_url_chars_switch) = switch_value_row(
-        &t("rows.extra_url_chars.title", "Thêm ký tự giữ nguyên dấu"),
-        &t(
-            "rows.extra_url_chars.subtitle",
-            "Ký tự riêng liệt kê ở ô bên phải",
-        ),
-        &extra_url_chars_entry,
-    );
     let w2u = combo_row(
         &t("rows.w2u.title", "W thành ư"),
         &t("rows.w2u.subtitle", "Chọn vị trí áp dụng"),
@@ -169,19 +159,6 @@ pub(super) fn widgets() -> Rc<Ui> {
     let auto_capitalize = switch_row(
         &t("rows.auto_capitalize.title", "Tự viết hoa"),
         &t("rows.auto_capitalize.subtitle", "Sau . ! ? và Enter"),
-    );
-    let auto_capitalize_after_entry = chars_entry();
-    auto_capitalize_after_entry.set_sensitive(false);
-    let (auto_capitalize_after_row, auto_capitalize_after_switch) = switch_value_row(
-        &t(
-            "rows.auto_capitalize_after.title",
-            "Viết hoa sau ký tự thêm",
-        ),
-        &t(
-            "rows.auto_capitalize_after.subtitle",
-            "Ký tự thêm liệt kê ở ô bên phải",
-        ),
-        &auto_capitalize_after_entry,
     );
     let double_space = switch_row(
         &t(
@@ -787,16 +764,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Chọn backend tiêm phím được ưu tiên: uinput là bàn phím ảo của nhân, XTest chỉ có trên X11, wlroots cho Hyprland/sway, libei qua GNOME (đã đo thấy rủi ro crash — chỉ để thử nghiệm). Backend chọn được đặt lên đầu danh sách ưu tiên; không dựng được thì bộ gõ tự rơi về thứ tự theo môi trường. Tự động là hành vi mặc định."
     );
     tip!(
-        extra_url_chars_row,
-        "tips.extra_url_chars",
-        "Tính năng Không dấu sau URL (mặc định áp dụng cho / : @ . _ ~ = # & % ?): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; dấu - bị loại để giữ -- thành gạch dài."
-    );
-    tip!(
-        auto_capitalize_after_row,
-        "tips.auto_capitalize_after",
-        "Tính năng Tự viết hoa (sau . ! ? và Enter): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; không nhận chữ, số, khoảng trắng."
-    );
-    tip!(
         echo_stale_row,
         "tips.echo_stale",
         "Bảo vệ xả commit trên Wayland: chờ các phím Backspace ảo (echo) quay về trước khi đổ chữ đã commit vào app. Số ms bên phải là thời hạn chờ — quá hạn thì xả luôn để chữ không treo. Mặc định 150 ms."
@@ -846,18 +813,12 @@ pub(super) fn widgets() -> Rc<Ui> {
         extended_onsets,
         abbrev,
         bypass_url,
-        extra_url_chars_row,
-        extra_url_chars_switch,
-        extra_url_chars_entry,
         w2u,
         bracket,
         backspace_tone,
         nav_key_while_preedit,
         em_dash,
         auto_capitalize,
-        auto_capitalize_after_row,
-        auto_capitalize_after_switch,
-        auto_capitalize_after_entry,
         double_space,
         macro_enabled,
         capitalize_macro,

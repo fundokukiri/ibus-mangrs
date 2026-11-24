@@ -387,12 +387,6 @@ pub(super) fn equalize_columns(columns: &[gtk4::Box]) {
 
 /// The text half of a merged row: a plain entry sized to the shared value
 /// width (a short character list, `: " ').
-pub(super) fn chars_entry() -> gtk4::Entry {
-    let entry = gtk4::Entry::new();
-    entry.set_size_request(VALUE_WIDTH_PX, -1);
-    entry
-}
-
 pub(super) fn text_view(content: &str) -> TextView {
     let view = TextView::builder()
         .hexpand(true)

@@ -47,8 +47,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     typing.add(&ui.keep_composed_words);
     typing.add(&ui.keep_repeats_raw);
     typing.add(&ui.suggest_words);
-    typing.add(&ui.extra_url_chars_row);
-    typing.add(&ui.auto_capitalize_after_row);
     page.add(&typing);
 
     let tuning = adw::PreferencesGroup::builder()
@@ -65,8 +63,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.keep_composed_words);
     decorate_experimental(&ui.keep_repeats_raw);
     decorate_experimental(&ui.suggest_words);
-    decorate_experimental(&ui.extra_url_chars_row);
-    decorate_experimental(&ui.auto_capitalize_after_row);
     decorate_experimental(&ui.echo_stale_row);
     decorate_experimental(&ui.idle_commit_row);
     decorate_experimental(&ui.preferred_backend);
@@ -77,8 +73,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         ui.keep_composed_words.upcast_ref::<gtk4::Widget>(),
         ui.keep_repeats_raw.upcast_ref::<gtk4::Widget>(),
         ui.suggest_words.upcast_ref::<gtk4::Widget>(),
-        ui.extra_url_chars_switch.upcast_ref::<gtk4::Widget>(),
-        ui.auto_capitalize_after_switch.upcast_ref::<gtk4::Widget>(),
         ui.echo_stale_switch.upcast_ref::<gtk4::Widget>(),
         ui.idle_commit_switch.upcast_ref::<gtk4::Widget>(),
     ] {
@@ -104,14 +98,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // input, the typed value stays saved for when the switch returns.
     for (switch, value) in [
         (
-            &ui.extra_url_chars_switch,
-            ui.extra_url_chars_entry.upcast_ref::<gtk4::Widget>(),
-        ),
-        (
-            &ui.auto_capitalize_after_switch,
-            ui.auto_capitalize_after_entry.upcast_ref::<gtk4::Widget>(),
-        ),
-        (
             &ui.echo_stale_switch,
             ui.echo_stale_spin.upcast_ref::<gtk4::Widget>(),
         ),
@@ -127,10 +113,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             // unlock its twin while the gate is off.
             value.set_sensitive(sw.is_active() && ui.experimental_features.is_active());
         });
-    }
-    for entry in [&ui.extra_url_chars_entry, &ui.auto_capitalize_after_entry] {
-        let ui = Rc::clone(ui);
-        entry.connect_changed(move |_| ui.fire_save());
     }
     for spin in [&ui.echo_stale_spin, &ui.idle_commit_spin] {
         let ui = Rc::clone(ui);

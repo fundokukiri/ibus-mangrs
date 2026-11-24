@@ -635,18 +635,11 @@ fn refresh_round_trips_every_widget() {
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
         bypass_url: false,
-        // The switch off must NOT wipe the stored value: refresh shows it
-        // (locked) and read returns it — the value reapplies when the
-        // switch comes back on. Pinned by the read() round-trip below.
-        extra_url_chars: "`<".into(),
-        extra_url_chars_enabled: false,
         w2u: W2uConfig::NonStart,
         backspace_tone: BackspaceToneConfig::ToneFirst,
         bracket: BracketConfig::Everywhere,
         em_dash: true,
         auto_capitalize: true,
-        auto_capitalize_after: ":".into(),
-        auto_capitalize_after_enabled: true,
         double_space_period: true,
         macro_enabled: false,
         capitalize_macro: false,
@@ -1072,12 +1065,7 @@ fn every_switch_triggers_save() {
     }
     // The merged "Thử nghiệm" rows carry bare GtkSwitch suffixes — same
     // wiring, different widget type.
-    let switches: [&gtk4::Switch; 4] = [
-        &ui.extra_url_chars_switch,
-        &ui.auto_capitalize_after_switch,
-        &ui.echo_stale_switch,
-        &ui.idle_commit_switch,
-    ];
+    let switches: [&gtk4::Switch; 2] = [&ui.echo_stale_switch, &ui.idle_commit_switch];
     for switch in switches {
         let before = saves.get();
         switch.set_active(!switch.is_active());
@@ -1112,8 +1100,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     // Seed the sandbox file: the gate on, distinctive saved values.
     let saved = Config {
         experimental_features: true,
-        extra_url_chars_enabled: true,
-        extra_url_chars: "`".into(),
         echo_stale_enabled: true,
         echo_stale_ms: 250,
         flow_per_key_delay_ms: 200,
@@ -1125,8 +1111,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(ui.macro_valid_words.is_sensitive());
     assert!(ui.suggest_words.is_sensitive());
     // The merged row locks as one unit with the gate.
-    assert!(ui.extra_url_chars_row.is_sensitive());
-    assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
+    assert!(ui.echo_stale_row.is_sensitive());
     assert_eq!(ui.echo_stale_spin.value(), 250.0);
 
     // Off (driven through the file, as the real funnel produces it): rows
@@ -1138,9 +1123,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.refresh(&off, &macros, &dictionary);
     assert!(!ui.macro_valid_words.is_sensitive());
     assert!(!ui.suggest_words.is_sensitive());
-    assert!(!ui.extra_url_chars_row.is_sensitive());
-    assert!(!ui.extra_url_chars_entry.is_sensitive());
-    assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
+    assert!(!ui.echo_stale_row.is_sensitive());
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
 
     // A save with the gate off — the funnel reads the default-displaying
@@ -1148,8 +1131,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.fire_save();
     let closed = Config::load();
     assert!(!closed.experimental_features);
-    assert_eq!(closed.extra_url_chars, "`", "no wipe on save");
-    assert_eq!(closed.echo_stale_ms, 250);
+    assert_eq!(closed.echo_stale_ms, 250, "no wipe on save");
     assert_eq!(closed.flow_per_key_delay_ms, 200);
 
     // Reopen (what the real toggle does: flip the switch, then the
@@ -1158,14 +1140,12 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.experimental_features.set_active(true);
     ui.restore_experimental_saved();
     ui.set_experimental_sensitive(true);
-    assert!(ui.extra_url_chars_row.is_sensitive());
-    assert!(ui.extra_url_chars_entry.is_sensitive());
+    assert!(ui.echo_stale_row.is_sensitive());
     assert_eq!(
-        ui.extra_url_chars_entry.text(),
-        "`",
+        ui.echo_stale_spin.value(),
+        250.0,
         "reopening restores the saved value"
     );
-    assert_eq!(ui.echo_stale_spin.value(), 250.0);
 
     // Close again: locked and defaults on display.
     ui.experimental_features.set_active(false);

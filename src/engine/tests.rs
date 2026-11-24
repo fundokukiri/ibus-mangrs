@@ -1813,48 +1813,6 @@ fn macro_on_valid_word_is_opt_in() {
 }
 
 #[test]
-fn extra_url_char_bypass_is_opt_in() {
-    // Default: a backtick is not URL context — `` `vieejt` `` composes.
-    for mode in [Mode::Preedit, Mode::Surrounding] {
-        let mut e = engine(mode, Config::default());
-        assert_eq!(type_replay(&mut e, "`vieejt` "), "`việt` ", "{mode:?}");
-        // With the character added, the word between the backticks stays raw.
-        let mut e = engine(
-            mode,
-            Config {
-                experimental_features: true,
-                extra_url_chars_enabled: true,
-                extra_url_chars: "`".into(),
-                ..Config::default()
-            },
-        );
-        assert_eq!(type_replay(&mut e, "`vieejt` "), "`vieejt` ", "{mode:?}");
-    }
-}
-
-#[test]
-fn extra_url_chars_never_accept_a_hyphen() {
-    // `-` is filtered out of the start set so `--` keeps becoming an em
-    // dash, even when a hand-edited file smuggles it in.
-    let mut e = engine(
-        Mode::Surrounding,
-        Config {
-            em_dash: true,
-            experimental_features: true,
-            extra_url_chars_enabled: true,
-            extra_url_chars: "-".into(),
-            ..Config::default()
-        },
-    );
-    assert_eq!(type_replay(&mut e, "a-"), "a-", "the hyphen must stay raw");
-    assert_eq!(
-        type_replay(&mut e, "-"),
-        "—",
-        "`--` still becomes an em dash"
-    );
-}
-
-#[test]
 fn experimental_gate_forces_every_feature_off() {
     // Every switch on, master gate closed: the engine must behave exactly
     // like the defaults — the saved switches and values stay in the file
@@ -1863,8 +1821,6 @@ fn experimental_gate_forces_every_feature_off() {
         Mode::Surrounding,
         Config {
             macro_expand_valid_words: true,
-            extra_url_chars_enabled: true,
-            extra_url_chars: "`".into(),
             echo_stale_enabled: true,
             echo_stale_ms: 400,
             ..Config::default()
@@ -1880,24 +1836,17 @@ fn experimental_gate_forces_every_feature_off() {
     );
     assert_eq!(e.echo_stale(), Duration::from_millis(150), "default window");
     assert!(!e.macro_expand_valid_words && !e.idle_commit_enabled);
-    assert!(e.extra_url_chars.is_empty() && e.extra_capitalize_after.is_empty());
     // Gate open: the same switches apply again.
     let mut e = engine(
         Mode::Surrounding,
         Config {
             experimental_features: true,
             macro_expand_valid_words: true,
-            extra_url_chars_enabled: true,
-            extra_url_chars: "`".into(),
             ..Config::default()
         },
     );
     assert!(e.macro_expand_valid_words);
-    assert_eq!(
-        type_replay(&mut e, "`vieejt` "),
-        "`vieejt` ",
-        "bypass applies"
-    );
+    assert_eq!(type_replay(&mut e, "`vieejt` "), "`việt` ", "composition");
 }
 
 #[test]
@@ -2019,33 +1968,6 @@ fn idle_commit_disabled_by_default_and_terminators_reset_reentry() {
         !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
         "a stale report must keep the commit final: {actions:?}"
     );
-}
-
-#[test]
-fn extra_capitalize_triggers_are_opt_in() {
-    // Default: a colon does not start a sentence.
-    for mode in [Mode::Preedit, Mode::Surrounding] {
-        let mut e = engine(
-            mode,
-            Config {
-                auto_capitalize: true,
-                ..Config::default()
-            },
-        );
-        assert_eq!(type_replay(&mut e, "tra: cam "), "tra: cam ", "{mode:?}");
-        // With the colon added, the next word capitalizes.
-        let mut e = engine(
-            mode,
-            Config {
-                auto_capitalize: true,
-                experimental_features: true,
-                auto_capitalize_after_enabled: true,
-                auto_capitalize_after: ":".into(),
-                ..Config::default()
-            },
-        );
-        assert_eq!(type_replay(&mut e, "tra: cam "), "tra: Cam ", "{mode:?}");
-    }
 }
 
 #[test]

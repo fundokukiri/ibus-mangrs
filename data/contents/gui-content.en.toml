@@ -221,14 +221,6 @@ subtitle = "The preferred key-injection backend; when it cannot be built, select
 title = "Shorthand: expands on real words too"
 subtitle = "A shortcut on a real word still expands"
 
-[rows.extra_url_chars]
-title = "Extra no-tone characters"
-subtitle = "Custom characters listed in the right box"
-
-[rows.auto_capitalize_after]
-title = "Capitalize after extra characters"
-subtitle = "Extra characters listed in the right box"
-
 [rows.echo_stale]
 title = "Flush commits on stale echo (ms)"
 subtitle = "Echo wait limit before the text flushes"
@@ -640,8 +632,6 @@ extension_logout = "Log out so the new extension is loaded (GNOME keeps the old 
 reset_defaults = "Overwrites config.toml with the defaults (including the panel menu, per-app rules, shortcuts). Shorthand and the dictionary are untouched."
 experimental_features = "The master switch of the Experimental tab: off locks every row below and typing behaves with the defaults; adjusted values stay saved for when it returns."
 macro_valid_words = "The Shorthand feature: a shortcut colliding with a real Vietnamese word (e.g. \"cam\") does not expand, so normal typing is never blocked. On, shorthand wins — to type the real word, Backspace once and retype that key."
-extra_url_chars = "The No-tone-after-URL feature by default keeps only real URLs (https://, www.) raw. This row adds your OWN characters: a word typed right after one of them stays raw (no tones). Flip the left switch and list the characters in the right box (e.g. ` ' !); '-' is rejected so -- stays an em dash."
-auto_capitalize_after = "The Auto-capitalize feature (after . ! ? and Enter): this row adds custom characters to that set. Flip the left switch and list the characters in the right box (e.g. : ”); no letters, digits or spaces."
 echo_stale = "The commit-flush guard on Wayland: the engine waits for the virtual Backspace keys (echoes) to return before the committed text lands in the app. The right number is the wait limit — past it the text flushes anyway instead of hanging.past it the text flushes anyway instead of hanging. 50–1000 ms, too low risks losing text, too high delays it. Default 150 ms."
 idle_commit = "The commit-on-pause feature: pausing long enough on an underlined word commits it, as if Space was pressed. The right number is the pause threshold.The right number is the pause threshold. 300–2000 ms."
 flow_per_key = "Flow shows the accented letter as you type (ee → ê) instead of holding the raw keys until word end — always on, no switch. Very fast typing merges the steps, the text appears when you pause. The number in the box is the delay before marked text lands in the document — lower shows marks sooner, higher types smoother. 0–500 ms, default 20. A too-low value can reorder text on Wayland."

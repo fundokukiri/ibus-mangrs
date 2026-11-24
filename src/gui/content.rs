@@ -929,10 +929,8 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.extended_onsets);
     on_change!(ui.abbrev);
     on_change!(ui.bypass_url);
-    on_change!(ui.extra_url_chars_switch);
     on_change!(ui.em_dash);
     on_change!(ui.auto_capitalize);
-    on_change!(ui.auto_capitalize_after_switch);
     on_change!(ui.echo_stale_switch);
     on_change!(ui.idle_commit_switch);
     on_change!(ui.experimental_features);

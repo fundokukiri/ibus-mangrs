@@ -75,19 +75,8 @@ pub struct Config {
     /// Keep raw typing inside a real URL (`://` scheme or `www.` — the
     /// whole address until a sentence boundary) — no Vietnamese marks, no
     /// macros. No built-in character starts a bypass: prose punctuation
-    /// never blocks marks; the optional `extra_url_chars` list adds
-    /// per-word triggers.
+    /// never blocks marks.
     pub bypass_url: bool,
-    /// Extra characters that start a bypass word when typed directly before
-    /// it — the only per-word triggers; a real URL (`://`, `www.`) opens
-    /// the span regardless. `-` is rejected (it stays out of the start set
-    /// so `--` can become an em dash), so are letters, digits and
-    /// whitespace.
-    pub extra_url_chars: String,
-    /// Whether `extra_url_chars` applies at all — the switch off means the
-    /// built-in set alone. The string itself stays saved in the file and
-    /// reapplies when the switch returns.
-    pub extra_url_chars_enabled: bool,
     /// When a plain `w` turns into `ư` (`disabled` / `nonstart` / `everywhere`).
     pub w2u: W2uConfig,
     /// When `[` `]` `{` `}` type `ơ` `ư` (`disabled` / `nonstart` / `everywhere`).
@@ -96,14 +85,6 @@ pub struct Config {
     pub em_dash: bool,
     /// Capitalize the first letter after `.`, `!`, `?` and Enter.
     pub auto_capitalize: bool,
-    /// Extra characters that turn the capitalize flag on when typed directly
-    /// before a word, on top of the built-in `. ! ?` + Enter. Letters,
-    /// digits and whitespace are rejected when the string is read.
-    pub auto_capitalize_after: String,
-    /// Whether `auto_capitalize_after` applies at all — the switch off
-    /// means the built-in set alone. The string itself stays saved in the
-    /// file and reapplies when the switch returns.
-    pub auto_capitalize_after_enabled: bool,
     /// Two spaces insert `. ` (experimental).
     pub double_space_period: bool,
     /// Expand macros on word end.
@@ -887,14 +868,10 @@ impl Default for Config {
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
             bypass_url: true,
-            extra_url_chars: String::new(),
-            extra_url_chars_enabled: false,
             w2u: W2uConfig::Disabled,
             bracket: BracketConfig::Disabled,
             em_dash: false,
             auto_capitalize: false,
-            auto_capitalize_after: String::new(),
-            auto_capitalize_after_enabled: false,
             double_space_period: false,
             macro_enabled: true,
             capitalize_macro: true,
@@ -1130,6 +1107,18 @@ fn merge(existing: &str, config: &Config) -> Result<String, toml::ser::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_removed_experimental_keys_still_load() {
+        // Both per-word trigger lists are gone (the switches defaulted to
+        // off): a config.toml still carrying them must load, not fail.
+        let c: Config = toml::from_str(
+            "extra_url_chars = \"`\"\nextra_url_chars_enabled = true\n\
+             auto_capitalize_after = \":\"\nauto_capitalize_after_enabled = true",
+        )
+        .unwrap();
+        assert_eq!(c.bypass_url, Config::default().bypass_url);
+    }
 
     #[test]
     fn the_removed_display_choice_still_loads() {

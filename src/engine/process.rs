@@ -68,22 +68,17 @@ impl Engine {
 
         let mode = self.key_mode();
 
-        // URL bypass, two ways in: a real URL (`://` completed by this `/`,
+        // URL bypass, one way in: a real URL (`://` completed by this `/`,
         // or the word `www` ending at the previous `.`) opens a span that
-        // keeps the whole address raw until a sentence boundary; the user's
-        // own opt-in `extra_url_chars` keeps a word raw for that word only.
-        // No built-in character starts a bypass — punctuation in prose never
-        // blocks marks. The URL evidence comes from the word that just ended
+        // keeps the whole address raw until a sentence boundary. No built-in
+        // character starts a bypass — punctuation in prose never blocks
+        // marks. The URL evidence comes from the word that just ended
         // (`note_url_pending`); `last_char` is its terminator.
         if !self.url_word && !self.wrapper.has_composition() {
             let scheme_arm =
                 c == '/' && self.scheme_pending && matches!(self.last_char, Some(':') | Some('/'));
             let www_arm = self.www_pending && !crate::bamboo_wrapper::is_word_terminator(c);
-            let per_word = !self.extra_url_chars.is_empty()
-                && self
-                    .last_char
-                    .is_some_and(|p| self.extra_url_chars.contains(&p));
-            if self.bypass_url && (scheme_arm || www_arm || per_word) {
+            if self.bypass_url && (scheme_arm || www_arm) {
                 self.url_word = true;
                 self.url_span = scheme_arm || www_arm;
                 self.raw_word_start = self.tail.chars().count();

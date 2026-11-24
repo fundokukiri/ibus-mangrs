@@ -377,13 +377,6 @@ pub struct Engine {
     www_pending: bool,
     /// Keep words raw after URL/email/path characters (`bypass_url`).
     bypass_url: bool,
-    /// The filtered `extra_url_chars` — empty unless the switch is on
-    /// (see `apply_config` for the filter).
-    extra_url_chars: Vec<char>,
-    /// The filtered `auto_capitalize_after` — empty unless the switch is
-    /// on (same filter shape as `extra_url_chars`, without the `-` ban: a
-    /// hyphen trigger is legitimate here).
-    extra_capitalize_after: Vec<char>,
     /// Emoji shortcodes on: a word after `:` composes like any word and a
     /// closing `:` rewrites `:name:` to the emoji (see `emoji_close_rewrite`).
     emoji_enabled: bool,
@@ -494,8 +487,7 @@ const FALLBACK_NO_DELETE_SURROUNDING: &[&str] = &[
 /// terminators belong to the address and keep it raw; any other terminator
 /// (space, Enter, `, ; ! " '` …) ends the span and typing composes again.
 /// Only real URL evidence opens the span — no built-in character starts a
-/// bypass by itself, so punctuation in prose never blocks marks. The
-/// user's own `extra_url_chars` list is the only per-word trigger.
+/// bypass by itself, so punctuation in prose never blocks marks.
 const URL_SPAN_KEEP: &[char] = &[
     '/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?', '-', '+',
 ];
@@ -586,8 +578,6 @@ impl Engine {
             scheme_pending: false,
             www_pending: false,
             bypass_url: true,
-            extra_url_chars: Vec::new(),
-            extra_capitalize_after: Vec::new(),
             emoji_enabled: false,
             emoji_word: false,
             raw_word_start: 0,
@@ -701,23 +691,6 @@ impl Engine {
         self.auto_restore = config.auto_restore;
         self.em_dash = config.em_dash;
         self.auto_capitalize = config.auto_capitalize;
-        self.extra_capitalize_after = if experimental && config.auto_capitalize_after_enabled {
-            // Same filter shape as `extra_url_chars` minus the `-` ban; a
-            // hyphen trigger is legitimate here.
-            let mut chars: Vec<char> = Vec::new();
-            for c in config.auto_capitalize_after.chars() {
-                if c.is_alphanumeric() || c.is_whitespace() || chars.contains(&c) {
-                    continue;
-                }
-                chars.push(c);
-                if chars.len() >= 10 {
-                    break;
-                }
-            }
-            chars
-        } else {
-            Vec::new()
-        };
         self.double_space_period = config.double_space_period;
         self.macro_enabled = config.macro_enabled;
         self.capitalize_macro = config.capitalize_macro;
@@ -824,25 +797,6 @@ impl Engine {
             self.idle_committed = None;
         }
         self.bypass_url = config.bypass_url;
-        self.extra_url_chars = if experimental && config.extra_url_chars_enabled {
-            // Defensive filter: `-` stays out of the start set (the `--`
-            // em dash would break), letters/digits/spaces are not URL
-            // context, and a hand-edited file must not smuggle in a huge
-            // list — the hot path scans this vec linearly.
-            let mut chars: Vec<char> = Vec::new();
-            for c in config.extra_url_chars.chars() {
-                if c == '-' || c.is_alphanumeric() || c.is_whitespace() || chars.contains(&c) {
-                    continue;
-                }
-                chars.push(c);
-                if chars.len() >= 10 {
-                    break;
-                }
-            }
-            chars
-        } else {
-            Vec::new()
-        };
         self.emoji_enabled = config.emoji_enabled;
         self.emoji_word = false;
         self.url_word = false;
@@ -1307,11 +1261,6 @@ impl Engine {
         match c {
             '.' | '!' | '?' | '\n' | '\r' => self.capitalize_next = true,
             ' ' | '\t' => {}
-            _ if !self.extra_capitalize_after.is_empty()
-                && self.extra_capitalize_after.contains(&c) =>
-            {
-                self.capitalize_next = true;
-            }
             _ => self.capitalize_next = false,
         }
     }

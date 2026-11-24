@@ -51,8 +51,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     automatic.add(&ui.auto_capitalize);
     automatic.add(&ui.double_space);
     // double_space graduated: no "Thử nghiệm" badge, not gated by the
-    // experimental master switch. The auto_capitalize_after pair moved to the
-    // dedicated "Thử nghiệm" tab.
+    // experimental master switch.
     page.add(&automatic);
 
     let special = adw::PreferencesGroup::builder()
