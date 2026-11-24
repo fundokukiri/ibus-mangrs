@@ -537,6 +537,37 @@ fn registry_includes_custom_shortcuts() {
     assert_eq!(reg[1].2, HotkeyAction::AppRulePicker);
 }
 
+/// An experimental switch is a shortcut only while the gate is open: with
+/// the gate closed the feature is off anyway, so the key must not consume a
+/// press.
+#[test]
+fn experimental_shortcuts_need_the_gate() {
+    let custom = vec![crate::config::CustomHotkey {
+        spec: "Control+Alt+g".into(),
+        action: "suggest_words".into(),
+    }];
+    let open = Config {
+        experimental_features: true,
+        custom_hotkeys: custom.clone(),
+        ..Config::default()
+    };
+    assert_eq!(
+        hotkey_registry(&open).last().map(|(.., action)| *action),
+        Some(HotkeyAction::QuickToggle("suggest_words"))
+    );
+    let closed = Config {
+        experimental_features: false,
+        custom_hotkeys: custom,
+        ..Config::default()
+    };
+    assert!(
+        !hotkey_registry(&closed)
+            .iter()
+            .any(|(.., action)| *action == HotkeyAction::QuickToggle("suggest_words")),
+        "the gate is closed, the shortcut must not register"
+    );
+}
+
 #[test]
 fn registry_uses_the_newest_file() {
     // Several registry files (display change, a stale one) must not send

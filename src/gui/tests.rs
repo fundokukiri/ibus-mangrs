@@ -65,6 +65,7 @@ fn gtk_widget_scenarios() {
     group_descriptions_become_title_tooltips();
     experimental_badge_sits_beside_the_title();
     experimental_css_parses();
+    hotkey_action_choices_follow_the_experimental_switches();
     experimental_gate_toggle_keeps_the_saved_values();
     popover_list_buttons_read_from_the_left();
     mode_dropdowns_list_every_mode();
@@ -1168,6 +1169,51 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     // with the gate off, read() reports the file's experimental fields, so
     // a leftover saved value would trip their refresh asserts.
     Config::default().save().expect("reset sandbox config");
+}
+
+/// The add-shortcut picker offers an experimental switch only while the
+/// gate is open and that switch is on: the engine ignores the others, so a
+/// shortcut for them would do nothing.
+fn hotkey_action_choices_follow_the_experimental_switches() {
+    let ui = widgets();
+    let actions = |ui: &Ui| -> Vec<&'static str> {
+        pages::hotkeys::action_choices(ui)
+            .into_iter()
+            .map(|(action, _)| action)
+            .collect()
+    };
+    let base = Config::default();
+    let (macros, dictionary) = (Macros::load(), Dictionary::load());
+
+    // Gate closed: the fixed list only.
+    ui.refresh(&base, &macros, &dictionary);
+    let closed = actions(&ui);
+    assert_eq!(closed.len(), crate::config::CUSTOM_HOTKEY_ACTIONS.len());
+    assert!(!closed.contains(&"suggest_words"));
+
+    // Gate open, every experimental switch off: still nothing to offer.
+    let mut gate_only = base.clone();
+    gate_only.experimental_features = true;
+    ui.refresh(&gate_only, &macros, &dictionary);
+    assert_eq!(
+        actions(&ui).len(),
+        crate::config::CUSTOM_HOTKEY_ACTIONS.len()
+    );
+
+    // Two switches on: exactly those two join the list, in table order.
+    let mut two = gate_only.clone();
+    two.suggest_words = true;
+    two.keep_repeats_raw = true;
+    ui.refresh(&two, &macros, &dictionary);
+    let listed = actions(&ui);
+    assert_eq!(listed.len(), crate::config::CUSTOM_HOTKEY_ACTIONS.len() + 2);
+    assert_eq!(
+        &listed[crate::config::CUSTOM_HOTKEY_ACTIONS.len()..],
+        &["suggest_words", "keep_repeats_raw"]
+    );
+    // A switch turned off after a shortcut exists drops back out.
+    ui.suggest_words.set_active(false);
+    assert!(!actions(&ui).contains(&"suggest_words"));
 }
 
 /// Closing the experimental gate keeps every experimental value the user

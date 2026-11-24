@@ -347,9 +347,91 @@ pub fn folder_display_label(label: &str, en: bool) -> &str {
     }
 }
 
+/// Experimental switches a hotkey may flip. Kept out of `QUICK_TOGGLES` on
+/// purpose: the popup menu must not grow with them, and the engine ignores
+/// these keys while the experimental gate is closed.
+pub const EXPERIMENTAL_TOGGLES: &[QuickToggle] = &[
+    QuickToggle {
+        key: "suggest_words",
+        label: ("Gợi ý từ khi gõ", "Suggest while typing"),
+        tooltip: ("Hiện dải gợi ý cạnh con trỏ", "Show the suggestion strip"),
+        get: |c| c.suggest_words,
+        set: |c, on| c.suggest_words = on,
+    },
+    QuickToggle {
+        key: "keep_composed_words",
+        label: ("Giữ từ đã ghép", "Keep composed words"),
+        tooltip: (
+            "Phím mới nối vào từ đã hoàn chỉnh",
+            "New keys append to a finished word",
+        ),
+        get: |c| c.keep_composed_words,
+        set: |c, on| c.keep_composed_words = on,
+    },
+    QuickToggle {
+        key: "keep_repeats_raw",
+        label: ("Giữ phím lặp nguyên bản", "Keep raw key repeats"),
+        tooltip: ("Phím lặp lại như bàn phím thường", "Repeats stay raw"),
+        get: |c| c.keep_repeats_raw,
+        set: |c, on| c.keep_repeats_raw = on,
+    },
+    QuickToggle {
+        key: "macro_expand_valid_words",
+        label: ("Gõ tắt chỉ cho từ hợp lệ", "Shorthand for valid words only"),
+        tooltip: (
+            "Chỉ mở rộng khi từ gõ đúng chính tả",
+            "Expand only when the word is spelled right",
+        ),
+        get: |c| c.macro_expand_valid_words,
+        set: |c, on| c.macro_expand_valid_words = on,
+    },
+    QuickToggle {
+        key: "echo_stale_enabled",
+        label: ("Chờ phím ảo quay về", "Wait for the fake key"),
+        tooltip: (
+            "Chờ phím ảo quay về trước khi gõ tiếp",
+            "Wait for the injected key before typing on",
+        ),
+        get: |c| c.echo_stale_enabled,
+        set: |c, on| c.echo_stale_enabled = on,
+    },
+    QuickToggle {
+        key: "idle_commit_enabled",
+        label: ("Tự chốt từ khi ngừng gõ", "Commit when typing stops"),
+        tooltip: (
+            "Tự chốt từ sau khi ngừng gõ",
+            "Commit the word once typing pauses",
+        ),
+        get: |c| c.idle_commit_enabled,
+        set: |c, on| c.idle_commit_enabled = on,
+    },
+];
+
+#[cfg(test)]
+mod experimental_toggle_tests {
+    use super::*;
+
+    /// The GUI offers these keys and the engine answers them, so the two
+    /// tables must name the same toggles in the same order.
+    #[test]
+    fn the_action_list_and_the_toggle_table_agree() {
+        let keys: Vec<&str> = EXPERIMENTAL_TOGGLES.iter().map(|t| t.key).collect();
+        assert_eq!(keys, crate::config::EXPERIMENTAL_HOTKEY_ACTIONS);
+        // None of them leaks into the panel registry.
+        for key in keys {
+            assert!(quick_toggle(key).is_none(), "{key} joins the popup menu");
+        }
+    }
+}
+
 /// The registered toggle with this menu key, if any.
 pub fn quick_toggle(key: &str) -> Option<&'static QuickToggle> {
     QUICK_TOGGLES.iter().find(|t| t.key == key)
+}
+
+/// The experimental toggle with this action key, if any.
+pub fn experimental_toggle(key: &str) -> Option<&'static QuickToggle> {
+    EXPERIMENTAL_TOGGLES.iter().find(|t| t.key == key)
 }
 
 /// The whole menu for the current settings. Called on `Enable` and on every

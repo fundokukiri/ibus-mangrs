@@ -64,7 +64,15 @@ pub(super) fn hotkey_registry(config: &Config) -> Vec<HotkeyBinding> {
             "macro_editor" => Some(HotkeyAction::OpenSettings("macros")),
             "settings" => Some(HotkeyAction::OpenSettings("general")),
             "about" => Some(HotkeyAction::OpenSettings("about")),
-            other => ibus_prop::quick_toggle(other).map(|t| HotkeyAction::QuickToggle(t.key)),
+            other => {
+                let toggle = ibus_prop::quick_toggle(other).or_else(|| {
+                    // An experimental switch only registers while the gate is
+                    // open: with it closed the feature is off anyway, so the
+                    // shortcut is inert.
+                    ibus_prop::experimental_toggle(other).filter(|_| config.experimental_features)
+                });
+                toggle.map(|t| HotkeyAction::QuickToggle(t.key))
+            }
         }) else {
             continue;
         };
@@ -222,10 +230,16 @@ impl EngineHandler {
     /// Flip one quick toggle from a hotkey: save, apply, panel update —
     /// the same round a panel click does, state read from the config.
     fn quick_toggle_key(&mut self, key: &str, out: &mut Vec<Message>) {
-        let Some(toggle) = ibus_prop::quick_toggle(key) else {
+        let experimental = ibus_prop::experimental_toggle(key);
+        let Some(toggle) = ibus_prop::quick_toggle(key).or(experimental) else {
             return;
         };
         let mut config = Config::load();
+        // The gate may have closed since the key was pressed: the switch stays
+        // saved, the press does nothing.
+        if experimental.is_some() && !config.experimental_features {
+            return;
+        }
         let checked = !(toggle.get)(&config);
         (toggle.set)(&mut config, checked);
         if config.save().is_err() {

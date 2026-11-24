@@ -272,6 +272,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // composition, so the button reads as a warning. Ordinary button shape,
     // like the other actions on this page.
     restart_btn.add_css_class("warning");
+    restart_btn.set_halign(gtk4::Align::Center);
     restart_btn.set_margin_top(6);
     restart_btn.set_margin_bottom(6);
     restart_group.add(&restart_btn);

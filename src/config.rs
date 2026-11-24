@@ -345,6 +345,19 @@ pub const CUSTOM_HOTKEY_ACTIONS: &[&str] = &[
     "settings",
 ];
 
+/// The experimental switches a custom shortcut can flip, by action key.
+/// Separate from the panel registry: these never join the popup menu, the
+/// GUI offers only the ones currently on, and the engine ignores them while
+/// the experimental gate is closed.
+pub const EXPERIMENTAL_HOTKEY_ACTIONS: &[&str] = &[
+    "suggest_words",
+    "keep_composed_words",
+    "keep_repeats_raw",
+    "macro_expand_valid_words",
+    "echo_stale_enabled",
+    "idle_commit_enabled",
+];
+
 /// One rule pattern against one rule target (`app_name` when present, else
 /// the IBus client string, `None` when the client has neither) — the shared
 /// predicate behind `app_rule_mode`.
@@ -834,10 +847,10 @@ fn default_quick_menu() -> Vec<String> {
         .collect()
 }
 
-/// Display modes the panel popup showed before the radio group became
-/// editable — the four main entries, not the technical ones.
+/// Display modes the panel popup shows on a fresh install: every mode, in
+/// the picker and cycle order, so the panel never hides one.
 fn default_menu_modes() -> Vec<String> {
-    ["preedit", "surrounding", "flow", "off"]
+    ["preedit", "surrounding", "flow", "forwardbackspace", "off"]
         .into_iter()
         .map(str::to_string)
         .collect()
@@ -949,7 +962,22 @@ impl Config {
         let Ok(text) = std::fs::read_to_string(&path) else {
             return Self::default();
         };
-        Self::from_toml(&text)
+        let mut config = Self::from_toml(&text);
+        config.upgrade_menu_modes();
+        config
+    }
+
+    /// The panel used to ship four display modes; a file still carrying
+    /// exactly that list (never edited by the user) gains `forwardbackspace`
+    /// so an upgrade shows every mode. Any other list is the user's own and
+    /// stays untouched.
+    fn upgrade_menu_modes(&mut self) {
+        const OLD: [&str; 4] = ["preedit", "surrounding", "flow", "off"];
+        if self.menu_modes.len() == OLD.len()
+            && OLD.iter().zip(&self.menu_modes).all(|(a, b)| a == b)
+        {
+            self.menu_modes = default_menu_modes();
+        }
     }
 
     /// Parse the file. One bad value (a typo in `w2u`, say) must not discard
@@ -1340,13 +1368,14 @@ mode = "forwardselect"
     }
 
     #[test]
-    fn menu_modes_round_trips_and_defaults_to_the_main_four() {
+    fn menu_modes_round_trip_and_default_to_every_mode() {
         assert_eq!(
             Config::default().menu_modes,
             vec![
                 "preedit".to_string(),
                 "surrounding".to_string(),
                 "flow".to_string(),
+                "forwardbackspace".to_string(),
                 "off".to_string(),
             ]
         );
@@ -1356,7 +1385,28 @@ mode = "forwardselect"
             vec!["flow".to_string(), "off".to_string(), "preedit".to_string()]
         );
         let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
-        assert_eq!(c.menu_modes.len(), 4);
+        assert_eq!(c.menu_modes.len(), 5);
+
+        // An upgraded file keeps its old four-mode list only after the load
+        // migration (from_toml is the raw parse; `load` upgrades).
+        let mut old = Config {
+            menu_modes: ["preedit", "surrounding", "flow", "off"]
+                .map(str::to_string)
+                .to_vec(),
+            ..Config::default()
+        };
+        old.upgrade_menu_modes();
+        assert_eq!(old.menu_modes.len(), 5);
+        // A list the user trimmed by hand stays as it is.
+        let mut trimmed = Config {
+            menu_modes: vec!["off".into(), "preedit".into()],
+            ..Config::default()
+        };
+        trimmed.upgrade_menu_modes();
+        assert_eq!(
+            trimmed.menu_modes,
+            vec!["off".to_string(), "preedit".into()]
+        );
     }
 
     #[test]
@@ -1395,7 +1445,7 @@ mode = "forwardselect"
         assert_eq!(c.menu, None);
         assert!(!Config::default().default_menu().is_empty());
         // The synthesized default: full charset/method groups, the display
-        // group from `menu_modes` (so an upgrade shows the same four modes).
+        // group from `menu_modes` (every mode on a fresh install).
         let d = Config::default().default_menu();
         let radios = |g: &str| {
             d.iter().find_map(|n| match n {

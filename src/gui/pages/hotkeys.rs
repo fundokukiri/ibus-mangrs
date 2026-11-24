@@ -198,15 +198,71 @@ fn default_row(
     row
 }
 
+/// The functions the add dialog offers: the fixed table, then the
+/// experimental switches that are on. An experimental switch only counts
+/// while the gate is open and its own row is on — the engine ignores the
+/// others, so a shortcut for them would do nothing.
+pub(crate) fn action_choices(ui: &Ui) -> Vec<(&'static str, String)> {
+    let mut out: Vec<(&'static str, String)> = CUSTOM_ACTION_KEYS
+        .iter()
+        .zip(CUSTOM_ACTION_DEFAULTS)
+        .map(|((action, content), fallback)| (*action, t(content, fallback)))
+        .collect();
+    if !ui.experimental_features.is_active() {
+        return out;
+    }
+    let experimental: [(&'static str, &str, &str, bool); 6] = [
+        (
+            "suggest_words",
+            "rows.suggest_words.title",
+            "Gợi ý từ khi gõ",
+            ui.suggest_words.is_active(),
+        ),
+        (
+            "keep_composed_words",
+            "rows.keep_composed_words.title",
+            "Giữ từ khi gõ thêm phím lạ",
+            ui.keep_composed_words.is_active(),
+        ),
+        (
+            "keep_repeats_raw",
+            "rows.keep_repeats_raw.title",
+            "Giữ phím lặp nguyên bản (Flow)",
+            ui.keep_repeats_raw.is_active(),
+        ),
+        (
+            "macro_expand_valid_words",
+            "rows.macro_valid_words.title",
+            "Gõ tắt thắng từ tiếng Việt",
+            ui.macro_valid_words.is_active(),
+        ),
+        (
+            "echo_stale_enabled",
+            "rows.echo_stale.title",
+            "Chờ phím ảo quay về (ms)",
+            ui.echo_stale_switch.is_active(),
+        ),
+        (
+            "idle_commit_enabled",
+            "rows.idle_commit.title",
+            "Tự chốt từ khi ngừng gõ (ms)",
+            ui.idle_commit_switch.is_active(),
+        ),
+    ];
+    out.extend(
+        experimental
+            .iter()
+            .filter(|(.., on)| *on)
+            .map(|(action, content, fallback, _)| (*action, t(content, fallback))),
+    );
+    out
+}
+
 /// The add dialog: a function picker plus the shared capture behavior.
 /// Committing adds `(spec, action)` to the design vector and saves.
 fn open_add_dialog(ui: &Rc<Ui>, parent: &impl IsA<gtk4::Widget>) {
-    let labels: Vec<String> = CUSTOM_ACTION_KEYS
-        .iter()
-        .zip(CUSTOM_ACTION_DEFAULTS)
-        .map(|(key, fallback)| t(key.1, fallback))
-        .collect();
-    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let choices = action_choices(ui);
+    let refs: Vec<&str> = choices.iter().map(|(_, label)| label.as_str()).collect();
     // The shared combo builder — the dialog picker must pick on click like
     // every other combo popup.
     let pick = combo_row(&t("groups.hotkeys.custom.function", "Chức năng"), "", &refs);
@@ -234,11 +290,10 @@ fn open_add_dialog(ui: &Rc<Ui>, parent: &impl IsA<gtk4::Widget>) {
                 let Some(spec) = result else {
                     return;
                 };
-                let action = CUSTOM_ACTION_KEYS
+                let action = choices
                     .get(pick.selected() as usize)
-                    .map(|(k, _)| *k)
-                    .unwrap_or("mode")
-                    .to_string();
+                    .map(|(key, _)| (*key).to_string())
+                    .unwrap_or_else(|| "mode".to_string());
                 ui.custom.borrow_mut().push((spec, action));
                 ui.fill_custom();
                 ui.fire_save();
