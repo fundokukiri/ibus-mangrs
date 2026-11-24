@@ -862,6 +862,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         });
     }
 
+    descriptions_into_tooltips(&window);
     window.present();
     window
 }

@@ -62,6 +62,7 @@ fn gtk_widget_scenarios() {
     close_test_windows();
     every_switch_triggers_save();
     debug_mode_switch_keeps_the_dialog_choice();
+    group_descriptions_become_title_tooltips();
     mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
     close_test_windows();
@@ -629,6 +630,29 @@ fn debug_mode_switch_keeps_the_dialog_choice() {
     ui.debug_log.set_active(true);
     let back_on = Config::load();
     assert!(back_on.debug_log && back_on.debug_log_text && back_on.debug_log_keys);
+}
+
+/// Group headers stay one line: the description moves into the title's
+/// tooltip instead of sitting under it.
+fn group_descriptions_become_title_tooltips() {
+    let group = adw::PreferencesGroup::builder()
+        .title("Dấu thanh")
+        .description("Kiểu đặt dấu trên nguyên âm")
+        .build();
+    let page = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    page.append(&group);
+    crate::gui::build::descriptions_into_tooltips(&page);
+    assert!(
+        group.description().is_none_or(|d| d.is_empty()),
+        "the line under the title is gone: {:?}",
+        group.description()
+    );
+    let title = crate::gui::build::find_label(group.upcast_ref(), "Dấu thanh")
+        .expect("the title label stays");
+    assert_eq!(
+        title.tooltip_text().as_deref(),
+        Some("Kiểu đặt dấu trên nguyên âm")
+    );
 }
 
 /// B3 regression: the import path pushes a config into every widget through

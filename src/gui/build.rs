@@ -3,6 +3,48 @@
 
 use super::*;
 
+/// Every group description moves into a tooltip on its title: the header
+/// keeps a single line, and the explanation still shows on hover.
+pub(super) fn descriptions_into_tooltips(root: &impl IsA<gtk4::Widget>) {
+    let mut child = root.as_ref().first_child();
+    while let Some(widget) = child {
+        if let Some(group) = widget.downcast_ref::<adw::PreferencesGroup>() {
+            move_description_to_title(group);
+        }
+        descriptions_into_tooltips(&widget);
+        child = widget.next_sibling();
+    }
+}
+
+fn move_description_to_title(group: &adw::PreferencesGroup) {
+    let Some(description) = group.description() else {
+        return;
+    };
+    // The title label is internal to libadwaita: match it by its text. No
+    // match means the text would be lost, so the line stays visible.
+    let Some(title) = find_label(group.upcast_ref(), &group.title()) else {
+        return;
+    };
+    title.set_tooltip_text(Some(&description));
+    group.set_description(None);
+}
+
+pub(super) fn find_label(widget: &gtk4::Widget, text: &str) -> Option<gtk4::Label> {
+    if let Some(label) = widget.downcast_ref::<gtk4::Label>() {
+        if label.text() == text {
+            return Some(label.clone());
+        }
+    }
+    let mut child = widget.first_child();
+    while let Some(widget) = child {
+        if let Some(found) = find_label(&widget, text) {
+            return Some(found);
+        }
+        child = widget.next_sibling();
+    }
+    None
+}
+
 /// The widgets on their own, so a test can drive `refresh`/`read` without a
 /// window; `build` composes them into pages and presents them.
 pub(super) fn widgets() -> Rc<Ui> {
