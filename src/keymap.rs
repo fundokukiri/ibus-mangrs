@@ -28,6 +28,12 @@ const XK_SHIFT_L: u32 = 0xffe1;
 const XK_SHIFT_R: u32 = 0xffe2;
 const XK_CONTROL_L: u32 = 0xffe3;
 const XK_CONTROL_R: u32 = 0xffe4;
+/// The Alt keys themselves: their release is the signal that a pick asked
+/// for with Alt may now send the Backspaces it injects.
+pub fn is_alt_key(keyval: u32) -> bool {
+    matches!(keyval, XK_ALT_L | XK_ALT_R)
+}
+
 const XK_ALT_L: u32 = 0xffe9;
 const XK_ALT_R: u32 = 0xffea;
 const XK_SUPER_L: u32 = 0xffeb;

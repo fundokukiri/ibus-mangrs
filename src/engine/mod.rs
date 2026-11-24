@@ -416,6 +416,9 @@ pub struct Engine {
     /// currently on the client's screen. Gates the hide-on-word-end paths
     /// and makes the accept path a no-op once the strip is gone.
     suggest_open: bool,
+    /// A pick asked for with Alt held, waiting for Alt's release: only then
+    /// may its injected Backspaces go out (see `ask_pick`).
+    pending_pick: Option<usize>,
     /// The character this key carries, for the strip's landed-word gate; and
     /// whether that key was the single space that just ended a word.
     strip_key: Option<char>,
@@ -613,6 +616,7 @@ impl Engine {
             last_key_at: None,
             idle_committed: None,
             suggest_open: false,
+            pending_pick: None,
             strip_key: None,
             strip_landing: false,
             suggest_learn: false,
@@ -1518,6 +1522,27 @@ impl Engine {
                 m
             }
         }
+    }
+
+    /// Whether a pick would erase the held word with real key events — the
+    /// case a held modifier poisons: they reach the application as
+    /// `Alt+Backspace`, which deletes nothing ("xin chao" plus an Alt+1 pick
+    /// left "xin chaochào"). A preedit pick only commits, and a state-B pick
+    /// has no held word to erase, so both may run inline.
+    pub fn pick_needs_modifier_release(&self) -> bool {
+        !self.wrapper.output().is_empty() && self.word_mode.unwrap_or(self.mode) != Mode::Preedit
+    }
+
+    /// A pick asked for with a modifier held waits for that modifier's
+    /// release: the Backspaces it injects arrive at the application with the
+    /// modifier still down, which drops them as `Alt+Backspace`.
+    pub fn ask_pick(&mut self, index: usize) {
+        self.pending_pick = Some(index);
+    }
+
+    /// Take the pick waiting for its modifier's release.
+    pub fn take_pending_pick(&mut self) -> Option<usize> {
+        self.pending_pick.take()
     }
 
     /// Release the word-mode lock (word ended or state reset).

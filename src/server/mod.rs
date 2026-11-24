@@ -987,6 +987,15 @@ fn process_key(
         if keyval == keymap::BACKSPACE {
             engine.note_backspace_released();
         }
+        // alt+digit, the pick waits for the modifier it was asked with to go
+        // up: the Backspaces it injects otherwise arrive at the application
+        // as Alt+Backspace, which deletes nothing ("xin chao" plus an Alt+1
+        // pick left "xin chaochào"). The key itself stays the app's.
+        if keymap::is_alt_key(keyval) {
+            if let Some(index) = engine.take_pending_pick() {
+                strip_pick(engine, injection, burst, index, out);
+            }
+        }
         return false;
     }
     // The engine's flag is pulled mid-session when an injection fails on a
@@ -1058,9 +1067,13 @@ fn process_key(
         if strip_open() && state & keymap::MOD1_MASK != 0 {
             if let Some(digit) = strip_digit(keyval) {
                 let index = strip_page() * STRIP_PAGE_SIZE + digit - 1;
-                if strip_pick(engine, injection, burst, index, out) {
-                    return true;
+                if !engine.pick_needs_modifier_release() {
+                    return strip_pick(engine, injection, burst, index, out);
                 }
+                // Erasing with key events: held for Alt's release (see the
+                // release arm), where they no longer carry the modifier.
+                engine.ask_pick(index);
+                return true;
             }
         }
         // Held like any keystroke: replaying the shortcut after the keys

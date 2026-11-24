@@ -4089,6 +4089,49 @@ fn candidate_clicked_picks_through_the_strip() {
 }
 
 #[test]
+fn a_pick_that_erases_waits_for_alt_to_go_up() {
+    strip_reset_for_test();
+    // The deletes a pick injects reach the application while Alt is still
+    // down, and it drops them as Alt+Backspace: nothing is erased and the
+    // candidate lands on top of the word ("xin chaochào"). The pick waits
+    // for Alt's release, where its keys carry no modifier.
+    let (engine, mut handler) = strip_handler(true);
+    {
+        let mut e = lock_engine(&engine);
+        e.set_mode(Mode::Flow);
+        e.set_uinput_available(true);
+    }
+    let (_, out) = press(&mut handler, 0x74); // 't'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip opens: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press_with_state(&mut handler, 0x31, keymap::MOD1_MASK);
+    assert!(consumed, "the combo is the strip's");
+    assert!(
+        !members(&out).contains(&"HideLookupTable".to_string()),
+        "the strip is still up while Alt is held: {:?}",
+        members(&out)
+    );
+    assert!(
+        !members(&out).contains(&"CommitText".to_string()),
+        "nothing commits while Alt is held: {:?}",
+        members(&out)
+    );
+    let (_, out) = press_with_state(
+        &mut handler,
+        0xffe9, // Alt_L
+        keymap::RELEASE_MASK | keymap::MOD1_MASK,
+    );
+    assert!(
+        members(&out).contains(&"HideLookupTable".to_string()),
+        "Alt's release runs the pick: {:?}",
+        members(&out)
+    );
+}
+
+#[test]
 fn an_echo_keeps_the_modifiers_of_the_key_it_serves() {
     strip_reset_for_test();
     // The deletes an Alt+1 pick injects come back as echoes while the Alt it
