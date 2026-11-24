@@ -6078,6 +6078,30 @@ fn erasing_the_word_closes_the_strip() {
 }
 
 #[test]
+fn a_pick_uses_the_on_screen_word_when_the_wrapper_is_empty() {
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    let keys = suggest_keys(&mut e, "th");
+    assert!(
+        candidates_of(keys.last().unwrap()).is_some(),
+        "the strip opens on the word"
+    );
+    // The per-key batch landed: the word sits on screen while the wrapper
+    // holds nothing. A pick must erase that word, not append behind it
+    // ("xin" plus a pick of "xinh đẹp" gave "xinxinh đẹp").
+    e.wrapper.rebuild("");
+    e.reanchor_tail("th".into());
+    assert!(e.wrapper.output().is_empty() && e.suggest_open);
+    let actions = e.accept_candidate(0);
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(2))),
+        "the on-screen word is erased before the candidate commits: {actions:?}"
+    );
+}
+
+#[test]
 fn a_picked_vietnamese_word_moves_up_inside_its_band() {
     // The lift is relative (5% a pick), so it reorders near-ties the way a
     // real model's rows sit — never outvoting a word the model sees far more

@@ -2138,6 +2138,11 @@ impl Engine {
     /// candidates under an empty input box (`xin ch` erased to nothing listed
     /// `lỗi`, `được`, `phép`).
     fn suggest_step_after_erase(&mut self) -> Vec<Action> {
+        // The landed surface ends with the space it came from: a Backspace
+        // that takes that space back leaves the caret right after the word,
+        // where the next-word list would commit into it ("xin" then a pick
+        // of "xinh đẹp" gave "xinxinh đẹp").
+        self.strip_landing = false;
         if self.wrapper.output().is_empty() {
             if std::mem::take(&mut self.suggest_open) {
                 return vec![Action::HideCandidates];
@@ -2304,7 +2309,14 @@ impl Engine {
         if !self.suggest_open || self.password_quiet {
             return Vec::new();
         }
-        let word = self.wrapper.output();
+        // The strip renders the word the screen holds. A uinput mode's
+        // per-key batch can empty the wrapper while the word still sits on
+        // screen: the tail is that word, and a pick must replace it rather
+        // than append behind it ("xin" plus a pick gave "xinxinh đẹp").
+        let mut word = self.wrapper.output();
+        if word.is_empty() && !self.tail.is_empty() && !self.tail.ends_with(' ') {
+            word = self.tail.clone();
+        }
         if word.is_empty() {
             // State B: nothing is in flight — the strip holds the last
             // committed word's next-word list and the pick commits that
