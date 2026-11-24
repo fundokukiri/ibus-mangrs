@@ -25,9 +25,7 @@ use dbus::ffidisp::{BusType, Connection, NameFlag};
 use dbus::strings::{BusName, Interface, Member, Path as DbusPath};
 use dbus::{Message, MessageType};
 
-use crate::config::{
-    CharsetConfig, Config, MethodConfig, ModeConfig, PreferredBackendConfig, SuggestDisplayConfig,
-};
+use crate::config::{CharsetConfig, Config, MethodConfig, ModeConfig, PreferredBackendConfig};
 use crate::debug_log::{self, brief};
 use crate::engine::{Action, Engine, NavKeyWhilePreedit};
 use crate::ibus_prop::{self, Prop};
@@ -1792,12 +1790,6 @@ fn emit_with(
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
     let mut delete_failed = false;
-    // The strip's display shapes this batch's preedit signal: with the box
-    // up, "both places" keeps the classic preedit beside the table and
-    // "inline only" is exactly that preedit with the table next to it. The
-    // box's input line rides `UpdateCandidates` — the inline display sends
-    // no aux line — so the display gates it there.
-    let display = engine.suggest_display();
     for action in actions {
         match action {
             Action::Commit(text) => push_commit(
@@ -1994,14 +1986,11 @@ fn emit_with(
             }
             Action::Forward | Action::Consumed => {}
             // The strip renders server-side, the picker's lookup-table
-            // precedent: the candidate actions carry the word-in-flight
-            // (the box's input line) and the engine's full list, the server
-            // pages and labels the list (below). The inline display has no
-            // input line — the classic preedit is the word's only surface.
-            Action::UpdateCandidates { word, items } => {
-                let aux = display != SuggestDisplayConfig::Inline;
-                strip_show(aux, word, items, out)
-            }
+            // precedent: the candidate actions carry the word-in-flight and
+            // the engine's full list, the server pages and labels the list
+            // (below). The word's only surface is the classic inline preedit
+            // beside the table, so the box carries no input line.
+            Action::UpdateCandidates { word, items } => strip_show(false, word, items, out),
             Action::HideCandidates => strip_hide(out),
         }
     }

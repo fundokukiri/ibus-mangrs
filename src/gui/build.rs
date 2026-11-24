@@ -245,15 +245,6 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Từ ghép khi đang gõ, từ kế tiếp sau dấu cách — cần file mô hình dự đoán",
         ),
     );
-    let suggest_display = combo_row(
-        &t("rows.suggest_display.title", "Hiện từ đang gõ ở đâu"),
-        &t(
-            "rows.suggest_display.subtitle",
-            "Cả khung gợi ý lẫn ô soạn, hay chỉ trong ô soạn như các bộ gõ cũ",
-        ),
-        // Order pinned by suggest_display_index: mirror, inline.
-        &["Cả khung gợi ý và ô soạn", "Chỉ ô soạn"],
-    );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Backend ưu tiên"),
         &t(
@@ -788,12 +779,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         suggest_words,
         "tips.suggest_words",
-        "Từ đang gõ hiện trong cả khung gợi ý lẫn ô soạn (mặc định), hoặc chỉ ô soạn. Danh sách lấy từ mô hình dự đoán; khi mô hình không biết tiền tố, bảng âm tiết có sẵn sửa từ gõ sai một ký tự ('sinhh' thấy 'sinh'): gõ chữ cái đầu tiên là gợi ý đã chạy; các gợi ý xếp theo độ thông dụng trong mô hình, từ đơn và từ ghép chấm chung một thang ('sinh' thấy 'sinh viên' đứng đầu vì cụm đó phổ biến hơn các từ đơn hiếm), emoji luôn nằm ô 5; sau khi một từ đổ bằng dấu cách, danh sách chỉ còn những từ mô hình đã thấy đứng sau nó ('xin ' rồi gõ 'c' thấy 'cho', 'cảm', 'cấp', 'chào' — không có từ lạ nào xen vào); gõ tiếp chữ cái sẽ dựng lại danh sách theo cả chữ đó và từ đứng trước. Từ tiếng Anh vào bằng prefix ASCII thuần, emoji vào qua từ khóa. phím ` lấy ô đầu (muốn gõ ký tự ` thì nhấn hai lần: lần đầu là chọn, lần sau là ký tự; Shift+` với ~ cũng vậy), Alt+1–5 chọn ô tương ứng, hoặc click thẳng dòng gợi ý — từ được chèn kèm dấu cách; số gõ thường vẫn vào từ như bình thường; lật trang bằng nút ◀▶ trên khung hoặc Ctrl+, / Ctrl+., phím Escape vẫn kết thúc từ như thường, mũi tên giữ nguyên vai trò di chuyển con trỏ. Chạy ở chế độ Preedit và các chế độ có kênh xóa chữ (Surrounding, Forward Backspace, Flow) — một lựa chọn sẽ xóa chữ app đang giữ trước khi commit. Dùng được ở mọi preset — phím chọn là Alt+số và phím ` nên phím số làm dấu của preset không bị giành. Cần file mô hình dự đoán đã cài; không có mô hình thì chỉ từ khóa emoji mở được dải gợi ý. Chỗ hiện từ đang gõ đổi bằng hàng 'Hiện từ đang gõ ở đâu' ngay dưới. Những từ anh chọn được ghi lại để ưu tiên lần sau — nút 'Xoá dữ liệu đã học' nằm ở trang Cài đặt khác, mục Nâng cao. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
-    );
-    tip!(
-        suggest_display,
-        "tips.suggest_display",
-        "Chọn chỗ hiện phần đang gõ khi dải gợi ý mở: Cả khung gợi ý và ô soạn (mặc định) — từ hiện ở cả hai, gõ tiếp hay xóa đều cập nhật đồng bộ; Chỉ ô soạn — preedit nằm trong văn bản như các bộ gõ cũ, dải gợi ý hiện bên cạnh. Chỉ có tác dụng khi 'Gợi ý từ (n-gram)' đang bật."
+        "Từ đang gõ hiện trong ô soạn như các bộ gõ cũ, dải gợi ý nằm bên cạnh. Danh sách lấy từ mô hình dự đoán; khi mô hình không biết tiền tố, bảng âm tiết có sẵn sửa từ gõ sai một ký tự ('sinhh' thấy 'sinh'): gõ chữ cái đầu tiên là gợi ý đã chạy; các gợi ý xếp theo độ thông dụng trong mô hình, từ đơn và từ ghép chấm chung một thang ('sinh' thấy 'sinh viên' đứng đầu vì cụm đó phổ biến hơn các từ đơn hiếm), emoji luôn nằm ô 5; sau khi một từ đổ bằng dấu cách, danh sách chỉ còn những từ mô hình đã thấy đứng sau nó ('xin ' rồi gõ 'c' thấy 'cho', 'cảm', 'cấp', 'chào' — không có từ lạ nào xen vào); gõ tiếp chữ cái sẽ dựng lại danh sách theo cả chữ đó và từ đứng trước. Từ tiếng Anh vào bằng prefix ASCII thuần, emoji vào qua từ khóa. phím ` lấy ô đầu (muốn gõ ký tự ` thì nhấn hai lần: lần đầu là chọn, lần sau là ký tự; Shift+` với ~ cũng vậy), Alt+1–5 chọn ô tương ứng, hoặc click thẳng dòng gợi ý — từ được chèn kèm dấu cách; số gõ thường vẫn vào từ như bình thường; lật trang bằng nút ◀▶ trên khung hoặc Ctrl+, / Ctrl+., phím Escape vẫn kết thúc từ như thường, mũi tên giữ nguyên vai trò di chuyển con trỏ. Chạy ở chế độ Preedit và các chế độ có kênh xóa chữ (Surrounding, Forward Backspace, Flow) — một lựa chọn sẽ xóa chữ app đang giữ trước khi commit. Dùng được ở mọi preset — phím chọn là Alt+số và phím ` nên phím số làm dấu của preset không bị giành. Cần file mô hình dự đoán đã cài; không có mô hình thì chỉ từ khóa emoji mở được dải gợi ý. Những từ anh chọn được ghi lại để ưu tiên lần sau — nút 'Xoá dữ liệu đã học' nằm ở trang Cài đặt khác, mục Nâng cao. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
     );
     tip!(
         preferred_backend,
@@ -880,7 +866,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_composed_words,
         keep_repeats_raw,
         suggest_words,
-        suggest_display,
         preferred_backend,
         time_format,
         date_format,

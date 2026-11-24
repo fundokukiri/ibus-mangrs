@@ -3604,10 +3604,10 @@ fn update_candidates_renders_the_full_list() {
     }]);
     assert_eq!(
         members(&msgs),
-        vec!["UpdateAuxiliaryText", "UpdateLookupTable"],
-        "the box's input line leads, the table follows"
+        vec!["UpdateLookupTable"],
+        "the table is the strip's only surface"
     );
-    let (table, visible) = msgs[1]
+    let (table, visible) = msgs[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table + visible");
     assert!(visible);
@@ -3640,12 +3640,7 @@ fn hide_candidates_hides_and_clears_the_strip() {
     ]);
     assert_eq!(
         members(&msgs),
-        vec![
-            "UpdateAuxiliaryText",
-            "UpdateLookupTable",
-            "HideAuxiliaryText",
-            "HideLookupTable"
-        ]
+        vec!["UpdateLookupTable", "HideAuxiliaryText", "HideLookupTable"]
     );
     // The state cleared with the hide: a second close is silent instead of
     // pushing a stray signal (the engine's close racing the server's own
@@ -3655,22 +3650,17 @@ fn hide_candidates_hides_and_clears_the_strip() {
 }
 
 #[test]
-fn the_strip_keeps_the_word_in_both_places() {
+fn the_strip_keeps_the_word_inline_only() {
     strip_reset_for_test();
-    // The shipped display is both places: the batch that opens the strip
-    // sends the word as the client's inline preedit AND as the box's input
-    // line beside the table. The first letter opens the strip (1-char
-    // contract).
+    // The word's only surface is the client's inline preedit beside the
+    // table — the box carries no input line. The first letter opens the
+    // strip (1-char contract).
     let (_engine, mut handler) = strip_handler(true);
     let (_, out) = press(&mut handler, 0x73); // 's'
     assert_eq!(
         members(&out),
-        vec![
-            "UpdatePreeditText",
-            "UpdateAuxiliaryText",
-            "UpdateLookupTable"
-        ],
-        "the first key opens the strip with the word in both places"
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the first key opens the strip with the word inline"
     );
     let preedit = out[0]
         .read1::<Variant<Box<dyn RefArg>>>()
@@ -3680,42 +3670,37 @@ fn the_strip_keeps_the_word_in_both_places() {
         Some("s"),
         "the client's field shows the word-in-flight"
     );
-    let aux = out[1]
-        .read1::<Variant<Box<dyn RefArg>>>()
-        .expect("auxiliary variant");
     assert_eq!(
-        text_from_variant(&aux).as_deref(),
-        Some("s"),
-        "the word-in-flight also lives in the box's input line"
+        members(&out)
+            .iter()
+            .filter(|m| *m == "UpdateAuxiliaryText")
+            .count(),
+        0,
+        "the box carries no input line any more"
     );
-    // Both surfaces track every word change.
+    // The word and the list track every change.
     let (_, out) = press(&mut handler, 0x69); // 'i'
     assert_eq!(
         members(&out),
-        vec![
-            "UpdatePreeditText",
-            "UpdateAuxiliaryText",
-            "UpdateLookupTable"
-        ],
-        "the second letter updates both surfaces"
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the second letter updates the word and the list"
     );
-    let aux = out[1]
+    let preedit = out[0]
         .read1::<Variant<Box<dyn RefArg>>>()
-        .expect("auxiliary variant");
+        .expect("preedit variant");
     assert_eq!(
-        text_from_variant(&aux).as_deref(),
+        text_from_variant(&preedit).as_deref(),
         Some("si"),
-        "the box's input line follows the word"
+        "the inline preedit follows the word"
     );
 }
 
 #[test]
-fn backspace_tracks_the_box_line_and_the_list() {
+fn backspace_tracks_the_word_and_the_list() {
     strip_reset_for_test();
-    // The box is the word's only display: a Backspace shrinks the box's
-    // input line and the list follows the shorter word — the client's
-    // field stays clean the whole time. The strip stays open at one letter
-    // now, so the deletion lands on the box line with the list re-served.
+    // The inline preedit is the word's display: a Backspace shrinks it and
+    // the list follows the shorter word. The strip stays open at one letter
+    // now, so the deletion re-serves the list.
     let (_engine, mut handler) = strip_handler(true);
     let (_, _) = press(&mut handler, 0x73); // 's'
     let (_, out) = press(&mut handler, 0x69); // 'i' — the strip is up
@@ -3725,95 +3710,19 @@ fn backspace_tracks_the_box_line_and_the_list() {
         members(&out)
     );
     let (consumed, out) = press(&mut handler, keymap::BACKSPACE);
-    assert!(consumed, "backspace edits the word inside the box");
+    assert!(consumed, "backspace edits the word");
     assert_eq!(
         members(&out),
-        vec![
-            "UpdatePreeditText",
-            "UpdateAuxiliaryText",
-            "UpdateLookupTable"
-        ],
-        "both surfaces track the deletion"
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the word and the list follow the deletion"
     );
-    let aux = out[1]
-        .read1::<Variant<Box<dyn RefArg>>>()
-        .expect("auxiliary variant");
-    assert_eq!(
-        text_from_variant(&aux).as_deref(),
-        Some("s"),
-        "the box's input line follows the word down"
-    );
-}
-
-#[test]
-fn the_mirror_display_shows_the_word_in_both_places() {
-    strip_reset_for_test();
-    // The mirror choice: the word-in-flight lives in both places at once —
-    // the client's inline preedit AND the box's input line — one source,
-    // both surfaces, synced per keystroke.
-    let (engine, mut handler) = strip_handler(true);
-    {
-        let mut e = lock_engine(&engine);
-        e.apply_config(&Config {
-            suggest_display: SuggestDisplayConfig::Mirror,
-            suggest_words: true,
-            experimental_features: true,
-            ..Config::default()
-        });
-        // apply_config re-loads the model from disk — a None here (no file
-        // installed, or the gui sandbox holding XDG_CONFIG_HOME right now)
-        // would wipe the fixture injection and the strip would live on the
-        // emoji band alone. Pin the fixture back.
-        e.model = Some(crate::engine::tests::sample_model());
-    }
-    let (_, _) = press(&mut handler, 0x73); // 's'
-    let (_, out) = press(&mut handler, 0x69); // 'i'
-    assert_eq!(
-        members(&out),
-        vec![
-            "UpdatePreeditText",
-            "UpdateAuxiliaryText",
-            "UpdateLookupTable"
-        ],
-        "both surfaces ride the same batch"
-    );
-    let inline = out[0]
-        .read1::<Variant<Box<dyn RefArg>>>()
-        .expect("preedit variant");
-    let aux = out[1]
-        .read1::<Variant<Box<dyn RefArg>>>()
-        .expect("auxiliary variant");
-    assert_eq!(
-        text_from_variant(&inline).as_deref(),
-        Some("si"),
-        "the inline preedit carries the word"
-    );
-    assert_eq!(
-        text_from_variant(&aux).as_deref(),
-        Some("si"),
-        "the box's input line carries the same word"
-    );
-    // Backspace down to the single letter: the strip STAYS open there (the
-    // 1-char contract serves the model's rows for one letter too) — both
-    // surfaces keep tracking the shorter word.
-    let (consumed, out) = press(&mut handler, keymap::BACKSPACE);
-    assert!(consumed, "backspace edits the word inside the box");
-    assert_eq!(
-        members(&out),
-        vec![
-            "UpdatePreeditText",
-            "UpdateAuxiliaryText",
-            "UpdateLookupTable"
-        ],
-        "both surfaces follow the word down to one letter"
-    );
-    let inline = out[0]
+    let preedit = out[0]
         .read1::<Variant<Box<dyn RefArg>>>()
         .expect("preedit variant");
     assert_eq!(
-        text_from_variant(&inline).as_deref(),
+        text_from_variant(&preedit).as_deref(),
         Some("s"),
-        "the remaining key shows inline"
+        "the inline preedit follows the word down"
     );
 }
 
@@ -3826,7 +3735,6 @@ fn the_classic_display_keeps_the_inline_preedit() {
     {
         let mut e = lock_engine(&engine);
         e.apply_config(&Config {
-            suggest_display: SuggestDisplayConfig::Inline,
             suggest_words: true,
             experimental_features: true,
             ..Config::default()
@@ -4014,10 +3922,7 @@ fn panel_pager_methods_page_the_strip() {
             &mut out,
         );
     }
-    assert_eq!(
-        members(&out),
-        vec!["UpdateAuxiliaryText", "UpdateLookupTable"]
-    );
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let mut out = Vec::new();
     handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
@@ -4174,14 +4079,10 @@ fn alt_digits_pick_while_the_strip_is_visible() {
     let (_, out) = press(&mut handler, 0x73); // 's'
     assert_eq!(
         members(&out),
-        vec![
-            "UpdatePreeditText",
-            "UpdateAuxiliaryText",
-            "UpdateLookupTable"
-        ],
-        "the first key opens the strip as the floating input box"
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the first key opens the strip with the word inline"
     );
-    let (table, _) = out[2]
+    let (table, _) = out[1]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
     let (_, _, _, _, _, cands, _) = table_parts(&table);
@@ -4228,7 +4129,7 @@ fn grave_picks_the_first_slot_while_the_strip_is_visible() {
     // picks.
     let (_engine, mut handler) = strip_handler(true);
     let (_, out) = press(&mut handler, 0x73); // 's'
-    let (table, _) = out[2]
+    let (table, _) = out[1]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
     let (_, _, _, _, _, cands, _) = table_parts(&table);
@@ -4307,22 +4208,14 @@ fn alt_digits_pick_while_the_strip_is_paged() {
     let (_, out) = press(&mut handler, 0x73); // 's'
     assert_eq!(
         members(&out),
-        vec![
-            "UpdatePreeditText",
-            "UpdateAuxiliaryText",
-            "UpdateLookupTable"
-        ],
-        "the strip opens with the word in both places"
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the strip opens with the word inline"
     );
     let (_, out) = press(&mut handler, 0x69); // 'i'
     assert_eq!(
         members(&out),
-        vec![
-            "UpdatePreeditText",
-            "UpdateAuxiliaryText",
-            "UpdateLookupTable"
-        ],
-        "the second letter updates both surfaces"
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the second letter updates the word and the list"
     );
     let mut out = Vec::new();
     handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);

@@ -25,7 +25,7 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
-use crate::config::{AppRule, BackspaceToneConfig, Config, SuggestDisplayConfig};
+use crate::config::{AppRule, BackspaceToneConfig, Config};
 use crate::debug_log::{self, brief};
 use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
@@ -426,7 +426,6 @@ pub struct Engine {
     /// The strip's display choice: the word-in-flight shows only in the
     /// floating box (default), in both places (mirror), or only inline
     /// beside the table.
-    suggest_display: SuggestDisplayConfig,
     /// The word the last inline word end or accepted candidate committed —
     /// the context the strip's next round keys on (phase 2). Cleared with
     /// the rest of the word state on focus loss / reset.
@@ -620,7 +619,6 @@ impl Engine {
             strip_key: None,
             strip_landing: false,
             suggest_learn: false,
-            suggest_display: SuggestDisplayConfig::Mirror,
             last_committed_word: None,
             prev_committed_word: None,
             suggest_words: false,
@@ -803,7 +801,6 @@ impl Engine {
         }
         // Display-only choice: it shapes nothing while the strip is off, so
         // it rides without the gate bake-in.
-        self.suggest_display = config.suggest_display;
         self.hide_underline = config.hide_underline;
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
@@ -2114,12 +2111,6 @@ impl Engine {
         rows.into_iter()
             .map(|(_, surface, pair, uni)| (surface, pair, uni))
             .collect()
-    }
-
-    /// Where the strip's word-in-flight shows — the server reads it in the
-    /// emit funnel to shape the preedit/auxiliary signals.
-    pub fn suggest_display(&self) -> SuggestDisplayConfig {
-        self.suggest_display
     }
 
     /// The focused field's IBus content purpose (the server's ContentType

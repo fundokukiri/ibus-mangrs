@@ -47,7 +47,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     typing.add(&ui.keep_composed_words);
     typing.add(&ui.keep_repeats_raw);
     typing.add(&ui.suggest_words);
-    typing.add(&ui.suggest_display);
     typing.add(&ui.extra_url_chars_row);
     typing.add(&ui.auto_capitalize_after_row);
     page.add(&typing);
@@ -66,7 +65,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.keep_composed_words);
     decorate_experimental(&ui.keep_repeats_raw);
     decorate_experimental(&ui.suggest_words);
-    decorate_experimental(&ui.suggest_display);
     decorate_experimental(&ui.extra_url_chars_row);
     decorate_experimental(&ui.auto_capitalize_after_row);
     decorate_experimental(&ui.echo_stale_row);

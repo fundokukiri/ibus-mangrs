@@ -62,7 +62,6 @@ pub struct Config {
     /// until the word commits), `mirror` in both places (the box's input line
     /// and the client's inline preedit, synced per keystroke), `inline` only
     /// the classic preedit beside the table.
-    pub suggest_display: SuggestDisplayConfig,
     /// Experimental: the preferred injection backend — `auto` keeps the
     /// environment matrix; a named backend leads the selection walk and the
     /// matrix falls back when it cannot build. Off (`auto`) is exactly the
@@ -609,22 +608,6 @@ pub enum BackspaceToneConfig {
     UnikeyWalk,
 }
 
-/// Where the suggestion strip's word-in-flight shows while the strip is up
-/// (experimental `suggest_words`): in the box and in the client's inline
-/// preedit kept in sync, or only the classic inline preedit beside the table.
-/// Both places is the shipped default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum SuggestDisplayConfig {
-    /// The word shows in both places, synced per keystroke. Absorbs the old
-    /// `floating` value: a saved config keeps working instead of failing.
-    #[default]
-    #[serde(alias = "floating")]
-    Mirror,
-    /// Only the classic inline preedit beside the table.
-    Inline,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum W2uConfig {
@@ -900,7 +883,6 @@ impl Default for Config {
             keep_composed_words: false,
             keep_repeats_raw: false,
             suggest_words: false,
-            suggest_display: SuggestDisplayConfig::Mirror,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
@@ -1148,6 +1130,14 @@ fn merge(existing: &str, config: &Config) -> Result<String, toml::ser::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_removed_display_choice_still_loads() {
+        // The strip's display picker is gone — the word always shows inline —
+        // so a config.toml still carrying its key must load, not fail.
+        let c: Config = toml::from_str("suggest_display = \"mirror\"").unwrap();
+        assert_eq!(c.suggest_words, Config::default().suggest_words);
+    }
 
     #[test]
     fn defaults_are_preedit_telex() {
@@ -1794,19 +1784,6 @@ children = ["preedit", "flow"]
         // still carrying the key must load instead of erroring out.
         let c: Config = toml::from_str("suggest_learn = true").unwrap();
         assert!(!c.suggest_words);
-    }
-
-    #[test]
-    fn suggest_display_defaults_to_both_places_and_round_trips() {
-        // Two choices now: both places (the shipped look) or inline only.
-        let c: Config = toml::from_str("").unwrap();
-        assert_eq!(c.suggest_display, SuggestDisplayConfig::Mirror);
-        let c: Config = toml::from_str("suggest_display = \"inline\"").unwrap();
-        assert_eq!(c.suggest_display, SuggestDisplayConfig::Inline);
-        // A config saved with the retired floating value keeps working as
-        // the both-places choice instead of failing to parse.
-        let c: Config = toml::from_str("suggest_display = \"floating\"").unwrap();
-        assert_eq!(c.suggest_display, SuggestDisplayConfig::Mirror);
     }
 
     #[test]
