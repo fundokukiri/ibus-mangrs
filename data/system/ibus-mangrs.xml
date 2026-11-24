@@ -9,7 +9,7 @@
     <description>MăngRS - Vietnamese input engine</description>
     <exec>/usr/lib/ibus-mangrs/ibus-engine-mangrs --ibus</exec>
     <icon>ibus-mangrs</icon>
-    <version>1.2.8</version>
+    <version>1.2.7</version>
     <author>fundoku</author>
     <license>GPL-3.0</license>
     <homepage>https://github.com/fundokukiri/ibus-mangrs</homepage>
