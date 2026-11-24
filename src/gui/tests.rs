@@ -513,7 +513,11 @@ fn shortcut_helpers_render_and_capture() {
             .collect();
     assert_eq!(
         caps,
-        vec![("Ctrl".to_string(), true), ("Shift".to_string(), true)]
+        vec![
+            ("Ctrl".to_string(), true),
+            ("+".to_string(), false),
+            ("Shift".to_string(), true)
+        ]
     );
     // An unparseable spec still falls back to the plain text.
     display.render("not-a-combo");

@@ -200,11 +200,17 @@ fn fill_caps(slot: &gtk4::Box, caps: &[&str]) {
     while let Some(child) = slot.first_child() {
         slot.remove(&child);
     }
-    for cap in caps {
+    for (i, cap) in caps.iter().enumerate() {
         let label = gtk4::Label::new(Some(cap));
         label.add_css_class("modifier-keycap");
         label.set_valign(gtk4::Align::Center);
         slot.append(&label);
+        // The same "+" the accelerator keycaps put between keys.
+        if i + 1 < caps.len() {
+            let plus = gtk4::Label::new(Some("+"));
+            plus.set_valign(gtk4::Align::Center);
+            slot.append(&plus);
+        }
     }
 }
 
