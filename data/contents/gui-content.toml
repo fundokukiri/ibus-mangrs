@@ -482,6 +482,9 @@ title = "GNOME Shell extension"
 description = "Cần cho luật theo app trên Wayland."
 
 [other]
+restart_confirm_heading = "Khởi động lại IBus?"
+restart_confirm_body = "Chữ đang gõ dở trong các cửa sổ sẽ mất. Dùng khi IBus bị treo hoặc sau khi cài lại engine."
+
 extension_confirm_heading = "Cài extension MăngRS Focus?"
 extension_confirm_body = "Vài tệp sẽ được ghi vào ~/.local/share/gnome-shell/extensions và extension được bật. Cần cho luật theo app trên Wayland."
 extension_apply = "Cài đặt"
@@ -599,7 +602,7 @@ extended_onsets = "Cho f, j, w làm âm đầu và nhận dấu. Mặc định t
 keep_composed_words = "Từ đã hoàn chỉnh thì phím mới nối vào từ chứ không kéo cả từ về chuỗi phím gốc. Mặc định tắt."
 keep_repeats_raw = "Dành cho Flow: bật để giữ phím lặp lại nguyên bản như bàn phím thường. Mặc định tắt."
 suggest_words = "Hiện từ đang gõ cùng dải gợi ý ngay cạnh con trỏ. Chọn bằng phím `, Alt+1 đến Alt+5 hoặc bấm vào dòng gợi ý. Mặc định tắt."
-suggest_learn = "Chỉ ghi lại gợi ý anh chọn, không ghi phím gõ. Từ đã học chỉ được ưu tiên trong đúng nhóm ngôn ngữ của nó."
+suggest_learn = "Chỉ ghi lại gợi ý đã chọn, không ghi phím gõ. Từ đã học chỉ được ưu tiên trong đúng nhóm ngôn ngữ của nó."
 preferred_backend = "Chọn cách chèn phím được ưu tiên. Để tự động là tốt nhất, chỉ đổi khi cần thử nghiệm."
 abbrev = "Giữ đ trong từ viết tắt, ví dụ ddc, ddk không bị đổi thành đ."
 bypass_url = "Liên kết thật như https:// và www. gõ nguyên cả chuỗi, dấu câu sau đó vẫn gõ tiếng Việt bình thường."
@@ -634,7 +637,7 @@ flow_backspace_restore = "Gõ thêm dấu làm mất dấu, bấm Backspace thì
 nav_key_while_preedit = "Khi còn từ gạch chân, phím mũi tên vẫn chạy ngay như ibus-bamboo. Nếu chữ bị chèn sai chỗ, chọn Nuốt phím đầu để lần nhấn đầu chỉ commit từ."
 hotkey_app_rule = "Mở bảng chọn chế độ gõ ngay tại con trỏ. Gán tổ hợp ở trang Phím tắt."
 show_toasts = "Bong bóng nhỏ khi thêm, xoá, xuất, nhập hoặc cài extension. Tắt để im lặng, lỗi vẫn hiện hộp thoại."
-learn_clear = "Chỉ ghi lại gợi ý anh chọn, không ghi phím gõ. Xoá xong bộ gõ học lại từ đầu."
+learn_clear = "Chỉ ghi lại gợi ý đã chọn, không ghi phím gõ. Xoá xong bộ gõ học lại từ đầu."
 backspace_tone = "Xoá dấu trước: hạ thành ha rồi h. Xoá cả dấu và chữ: hạ thành h, mỗi Backspace xoá đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
 
 [groups.experimental.gate]

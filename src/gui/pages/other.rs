@@ -212,7 +212,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     );
     learn_clear_row.set_tooltip_text(Some(&t(
         "tips.learn_clear",
-        "Chỉ ghi lại gợi ý anh chọn, không ghi phím gõ. Xoá xong bộ gõ học lại từ đầu.",
+        "Chỉ ghi lại gợi ý đã chọn, không ghi phím gõ. Xoá xong bộ gõ học lại từ đầu.",
     )));
     let learn_clear_btn = action_button(None, &t("rows.learn_clear.button", "Xoá…"));
     sizes.add_widget(&learn_clear_btn);
@@ -264,30 +264,48 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // back, which a terminal `ibus restart` does not: without the bridge
     // XIM apps (JetBrains) cannot type until the next logout.
     let restart_group = adw::PreferencesGroup::new();
-    let restart_btn = gtk4::Button::new();
-    {
-        let b = gtk4::Box::new(Orientation::Horizontal, 8);
-        b.append(&gtk4::Image::from_icon_name("system-reboot-symbolic"));
-        b.append(&gtk4::Label::new(Some(&t(
-            "misc.restart_button",
-            "Khởi động lại IBus",
-        ))));
-        restart_btn.set_child(Some(&b));
-    }
-    restart_btn.add_css_class("suggested-action");
-    restart_btn.add_css_class("pill");
-    restart_btn.set_halign(gtk4::Align::Center);
+    let restart_btn = action_button(
+        Some("system-reboot-symbolic"),
+        &t("misc.restart_button", "Khởi động lại IBus"),
+    );
+    // Amber rather than the accent blue: the restart drops every app's open
+    // composition, so the button reads as a warning. Ordinary button shape,
+    // like the other actions on this page.
+    restart_btn.add_css_class("warning");
     restart_btn.set_margin_top(6);
     restart_btn.set_margin_bottom(6);
     restart_group.add(&restart_btn);
     page.add(&restart_group);
 
     restart_btn.connect_clicked(move |btn| {
-        // User-initiated only — the engine never restarts IBus itself.
-        if let Err(e) = restart_ibus() {
-            if let Some(window) = window_of(btn) {
-                alert(&window, &format!("Không khởi động lại được IBus: {e}"));
+        // User-initiated only — the engine never restarts IBus itself — and
+        // confirmed, because unsent composition in open windows is lost.
+        let window = window_of(btn);
+        let dialog = adw::AlertDialog::builder()
+            .heading(t("other.restart_confirm_heading", "Khởi động lại IBus?"))
+            .body(t(
+                "other.restart_confirm_body",
+                "Chữ đang gõ dở trong các cửa sổ sẽ mất. Dùng khi IBus bị treo hoặc sau khi cài lại engine.",
+            ))
+            .build();
+        dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
+        dialog.add_response(
+            "apply",
+            &t("misc.restart_button", "Khởi động lại IBus"),
+        );
+        dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+        dialog.set_default_response(Some("cancel"));
+        dialog.set_close_response("cancel");
+        let btn = btn.clone();
+        dialog.connect_response(Some("apply"), move |_, _| {
+            if let Err(e) = restart_ibus() {
+                if let Some(window) = window_of(&btn) {
+                    alert(&window, &format!("Không khởi động lại được IBus: {e}"));
+                }
             }
+        });
+        if let Some(window) = window {
+            dialog.present(Some(&window));
         }
     });
 

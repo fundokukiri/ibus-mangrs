@@ -480,6 +480,9 @@ title = "GNOME Shell extension"
 description = "Needed for per-app rules on Wayland."
 
 [other]
+restart_confirm_heading = "Restart IBus?"
+restart_confirm_body = "Text you were typing in open windows is lost. Use it when IBus is stuck or after reinstalling the engine."
+
 extension_confirm_heading = "Install the MăngRS Focus extension?"
 extension_confirm_body = "A few files are written into ~/.local/share/gnome-shell/extensions and the extension is enabled. Per-app rules on Wayland need it."
 extension_apply = "Install"
