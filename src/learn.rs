@@ -18,11 +18,13 @@ use std::time::SystemTime;
 pub const PICKS_FILE: &str = "user-picks.dict";
 pub const PAIRS_FILE: &str = "user-picks-pairs.dict";
 
-// Initial bonus weights: ln-scaled so a handful of picks outranks a
-// same-frequency rival but not a far more frequent one. The bench task
-// re-measures these against the real model; nothing user-visible pins them.
-const USER_FREQ_WEIGHT: f64 = 25.0;
-const USER_PAIR_WEIGHT: f64 = 40.0;
+// Per-pick lifts. Multiplicative because the model's own counts live on a
+// scale the bonus cannot be added to: a word at 38 000 unigrams gains
+// nothing visible from an absolute +98, the same pick count changes nothing
+// when the model is retrained to another scale, while a relative lift means
+// the same thing on every model. 10 picks of a pair triple the score.
+pub(crate) const LIFT_PAIR: f64 = 0.25;
+pub(crate) const LIFT_FREQ: f64 = 0.05;
 
 /// The user's pick counts: word frequencies and (context, word) pairs.
 /// All mutating paths stay in memory until `flush` (the engine's tick) —
@@ -64,16 +66,15 @@ impl UserPicks {
         self.dirty = true;
     }
 
-    /// The personalization bonus for `surface` in the context of `context`
-    /// (None for the mid-word state-A surface): both terms of
-    /// `USER_FREQ_WEIGHT * ln(1+f) + USER_PAIR_WEIGHT * ln(1+p)`, inside its
-    /// band — the bonus reorders within a band, never across one.
-    pub fn bonus(&self, surface: &str, context: Option<&str>) -> f64 {
-        let freq = self.picks.get(surface).map_or(0.0, |&c| c as f64);
-        let pair = context
-            .and_then(|prev| self.pairs.get(&(prev.to_string(), surface.to_string())))
-            .map_or(0.0, |&c| c as f64);
-        USER_FREQ_WEIGHT * (1.0 + freq).ln() + USER_PAIR_WEIGHT * (1.0 + pair).ln()
+    /// The personalization multiplier for `surface` in the context of
+    /// `context` (None for the mid-word state-A surface):
+    /// `1 + LIFT_PAIR*p + LIFT_FREQ*f`. It multiplies a candidate's score
+    /// inside its own band, so picks reorder near-ties and never outvote a
+    /// word the model sees several times more often.
+    pub fn lift(&self, surface: &str, context: Option<&str>) -> f64 {
+        let freq = self.picks.get(surface).copied().unwrap_or(0);
+        let pair = context.map_or(0, |prev| self.pair_count(prev, surface));
+        1.0 + LIFT_PAIR * f64::from(pair) + LIFT_FREQ * f64::from(freq)
     }
 
     /// The recorded count of one surface, for tests and debug.
@@ -327,8 +328,10 @@ mod tests {
         std::fs::write(dir.join(PICKS_FILE), "hello\t7\n").unwrap();
         picks.reload_if_changed();
         assert_eq!(picks.picks_count("hello"), Some(7));
-        let expected = USER_FREQ_WEIGHT * 8.0f64.ln();
-        assert!((picks.bonus("hello", None) - expected).abs() < 1e-9);
+        assert!(
+            (picks.lift("hello", None) - 1.35).abs() < 1e-9,
+            "7 picks lift 35%"
+        );
     }
 
     #[test]
@@ -341,6 +344,6 @@ mod tests {
         picks.clear();
         assert!(!dir.join(PICKS_FILE).exists() && !dir.join(PAIRS_FILE).exists());
         assert_eq!(picks.picks_count("hello"), None);
-        assert_eq!(picks.bonus("hello", Some("world")), 0.0);
+        assert_eq!(picks.lift("hello", Some("world")), 1.0);
     }
 }

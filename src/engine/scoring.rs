@@ -11,19 +11,15 @@
 //! backoff score) all mirror `scripts/eval-predict-model.py`.
 //!
 //! The pick-driven lift is multiplicative — `1 + LIFT_PAIR*p + LIFT_FREQ*f`
-//! on a candidate's final score — because the tiers live in probability
-//! space, where an additive count-space bonus would dwarf every term.
+//! on a candidate's final score (see `learn`) — because the tiers live in
+//! probability space, where an additive count-space bonus would dwarf every
+//! term.
 
 // Stupid backoff per tier (design-pinned; the task-5 measurement put the
 // fused scorer +1.53pp top-5 over bigram-only on 24.5M held-out positions).
 pub(crate) const BACKOFF: f64 = 0.4;
 /// Two hops of backoff land on the unigram tier (0.4 * 0.4).
 pub(crate) const BACKOFF2: f64 = BACKOFF * BACKOFF;
-// Per-pick lifts: 10 picks of a pair triple a candidate's context score.
-// Initial values — the bench task re-measures them against the real model.
-pub(crate) const LIFT_PAIR: f64 = 0.25;
-pub(crate) const LIFT_FREQ: f64 = 0.05;
-
 /// One scored tier: the rows (id, count), their sum as the probability
 /// denominator, and the stupid-backoff multiplier (1.0 for the context
 /// tier itself, 0.0 when the tier is absent).

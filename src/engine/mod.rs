@@ -1928,9 +1928,19 @@ impl Engine {
                 .into_iter()
                 .map(|(surface, freq)| (surface, 0, freq)),
         );
+        // The personal picks multiply that commonness: a word the user keeps
+        // picking climbs inside its band, while a far more common one keeps
+        // its lead until the picks add up.
+        let picks = self.picks.as_ref();
+        let context = self.last_committed_word.as_deref();
+        let score = |row: &Rated| f64::from(row.2) * picks.map_or(1.0, |p| p.lift(&row.0, context));
         words.sort_by(|a, b| {
             b.1.cmp(&a.1)
-                .then_with(|| b.2.cmp(&a.2))
+                .then_with(|| {
+                    score(b)
+                        .partial_cmp(&score(a))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .then_with(|| a.0.cmp(&b.0))
         });
         // The EN band keeps following the VN one (see above), ranked the same
@@ -2056,7 +2066,7 @@ impl Engine {
         let picks = self.picks.as_ref();
         let context = self.last_committed_word.as_deref();
         let score = |row: &(u32, String, u32, u32)| {
-            row.3 as f64 + picks.map_or(0.0, |p| p.bonus(&row.1, context))
+            row.3 as f64 * picks.map_or(1.0, |p| p.lift(&row.1, context))
         };
         rows.sort_by(|a, b| {
             b.2.cmp(&a.2)
@@ -2235,12 +2245,8 @@ impl Engine {
             ),
         };
         let picks = self.picks.as_ref();
-        let lift = |id: u32| -> f64 {
-            picks.map_or(1.0, |p| {
-                1.0 + scoring::LIFT_PAIR * p.pair_count(last, model.surface(id)) as f64
-                    + scoring::LIFT_FREQ * f64::from(p.picks_count(model.surface(id)).unwrap_or(0))
-            })
-        };
+        let lift =
+            |id: u32| -> f64 { picks.map_or(1.0, |p| p.lift(model.surface(id), Some(last))) };
         let ids = scoring::fused_state_b(
             ctx,
             backoff,

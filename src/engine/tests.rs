@@ -6076,3 +6076,41 @@ fn erasing_the_word_closes_the_strip() {
         );
     }
 }
+
+#[test]
+fn a_picked_vietnamese_word_moves_up_inside_its_band() {
+    // The lift is relative (5% a pick), so it reorders near-ties the way a
+    // real model's rows sit — never outvoting a word the model sees far more
+    // often. The fixture's only VN pair under `h` is học 24 / họ 2, a ratio
+    // no realistic pick count crosses, so the loop below is long by design:
+    // it proves the wiring reads the picks, and the first assertion pins
+    // that one pick is not a wall-breaker.
+    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let pos = |list: &[String], w: &str| {
+        list.iter()
+            .position(|x| x == w)
+            .unwrap_or_else(|| panic!("{w} offered in {list:?}"))
+    };
+    let before = e.state_a_candidates("h");
+    assert!(pos(&before, "học") < pos(&before, "họ"), "{before:?}");
+    e.picks
+        .as_mut()
+        .expect("learning is on")
+        .record_pick("họ", None);
+    let one = e.state_a_candidates("h");
+    assert!(
+        pos(&one, "học") < pos(&one, "họ"),
+        "one pick must not bury a more common word: {one:?}"
+    );
+    for _ in 1..300 {
+        e.picks
+            .as_mut()
+            .expect("learning is on")
+            .record_pick("họ", None);
+    }
+    let many = e.state_a_candidates("h");
+    assert!(
+        pos(&many, "họ") < pos(&many, "học"),
+        "the picks finally lift họ over học: {many:?}"
+    );
+}
