@@ -345,10 +345,6 @@ struct Ui {
     /// Programmatic page jump: select_row drives the same row_selected
     /// handler the clicks use. `None` headless.
     sidebar_select: RefCell<Option<PageJump>>,
-    /// "Thử luật" input, its verdict row and the verdict's status icon.
-    rule_preview_input: adw::EntryRow,
-    rule_preview: adw::ActionRow,
-    rule_preview_icon: gtk4::Image,
     /// The merged add-rule form ("Thêm luật"): the pill (fill + tooltip),
     /// the frameless name entry whose placeholder mirrors the focused app,
     /// the copy/apply pair shown only while an app is detected, and Thêm.

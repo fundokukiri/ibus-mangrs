@@ -54,7 +54,7 @@ fn gtk_widget_scenarios() {
     row_texts_render_as_plain_text();
     flow_delay_row_shows_captions();
     rules_add_group_merges_the_focus_chip();
-    rule_rows_and_preview_track_the_engine_match();
+    rule_rows_round_trip_through_read();
     macro_page_helpers_count_and_preview();
     macros_editor_follows_the_switch();
     emoji_editor_follows_the_switch();
@@ -549,27 +549,17 @@ fn rules_add_group_merges_the_focus_chip() {
     }
 }
 
-/// The rebuilt rule rows: the empty list renders one dim row, a loaded rule
-/// reads back through `read()` unchanged, and the "Thử luật" verdict row
-/// walks the engine's own matcher — icon and subtitle per state.
-fn rule_rows_and_preview_track_the_engine_match() {
+/// The rebuilt rule rows: the empty list renders one dim row, and a loaded
+/// rule reads back through `read()` unchanged.
+fn rule_rows_round_trip_through_read() {
     let ui = widgets();
     // Empty list: one plain row, not activatable, carrying the notice.
     ui.fill_rules(&[]);
     let empty = ui.rules_box.row_at_index(0).expect("empty-state row");
     assert!(!empty.is_activatable());
     assert!(empty.downcast_ref::<adw::ActionRow>().is_none());
-    ui.rule_preview_input.set_text("");
-    ui.update_rule_preview();
-    assert_eq!(
-        ui.rule_preview.subtitle().as_deref(),
-        Some("Nhập tên app ở trên để xem kết quả")
-    );
-    assert!(ui.rule_preview_icon.icon_name().as_deref() == Some("system-search-symbolic"));
-    assert!(!ui.rule_preview_icon.has_css_class("success"));
 
-    // One rule: the row round-trips through read(), and the verdict row
-    // reports the match with its priority and mode.
+    // One rule: the row round-trips through read().
     ui.fill_rules(&[crate::config::AppRule {
         pattern: "kate".into(),
         mode: ModeConfig::Preedit,
@@ -587,21 +577,6 @@ fn rule_rows_and_preview_track_the_engine_match() {
         .and_downcast::<adw::ActionRow>()
         .expect("rule row");
     assert_eq!(row.title().as_str(), "kate");
-    ui.rule_preview_input.set_text("kate");
-    ui.update_rule_preview();
-    assert_eq!(
-        ui.rule_preview.subtitle().as_deref(),
-        Some("Khớp luật #1: Gạch chân (preedit)")
-    );
-    assert!(ui.rule_preview_icon.has_css_class("success"));
-    // A non-matching name reports no match, without the success tint.
-    ui.rule_preview_input.set_text("zed");
-    ui.update_rule_preview();
-    assert_eq!(
-        ui.rule_preview.subtitle().as_deref(),
-        Some("Không khớp luật nào")
-    );
-    assert!(!ui.rule_preview_icon.has_css_class("success"));
 }
 
 /// B3 regression: the import path pushes a config into every widget through
@@ -802,7 +777,6 @@ fn row_texts_render_as_plain_text() {
         !ui.bypass_url.uses_markup(),
         !ui.method.uses_markup(),
         !ui.echo_stale_row.uses_markup(),
-        !ui.rule_preview.uses_markup(),
     ] {
         assert!(markup_off, "row titles and subtitles must be plain text");
     }

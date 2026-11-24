@@ -301,23 +301,6 @@ pub(super) fn widgets() -> Rc<Ui> {
     if let Some(label) = first_label(&rule_add_mode_pick) {
         label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     }
-    // The input is a native EntryRow; the verdict is the subtitle of a
-    // read-only result row underneath it, with a status icon up front.
-    // EntryRow has no placeholder in this libadwaita, so the examples live
-    // in the tooltip.
-    let rule_preview_input = adw::EntryRow::builder()
-        .title(t("rows.rule_name.title", "Tên app"))
-        .build();
-    rule_preview_input.set_tooltip_text(Some(&t(
-        "rows.rule_preview_input.tooltip",
-        "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp. Ví dụ: Firefox / wayland:Firefox / xim",
-    )));
-    let rule_preview = action_row(&t("rules.result_title", "Kết quả"), "");
-    // The verdict icon swaps between search (nothing typed), ok (match)
-    // and remove (no match); `update_rule_preview` drives it.
-    let rule_preview_icon = gtk4::Image::from_icon_name("system-search-symbolic");
-    rule_preview_icon.add_css_class("dim-label");
-    rule_preview.add_prefix(&rule_preview_icon);
     // The merged add-rule form ("Thêm luật"): the pill entry whose
     // placeholder mirrors the focused app, the copy/apply pair shown only
     // while an app is detected, and the Thêm button. The page lays them
@@ -836,9 +819,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         saved_emoji: RefCell::new(None),
         self_saved_mtime: Cell::new(None),
         sidebar_select: RefCell::new(None),
-        rule_preview_input,
-        rule_preview,
-        rule_preview_icon,
         rule_pill,
         rule_name_entry,
         rule_copy_btn,

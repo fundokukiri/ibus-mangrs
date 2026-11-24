@@ -192,17 +192,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     list_group.add(&ui.rules_box);
     page.add(&list_group);
 
-    let preview_group = adw::PreferencesGroup::builder()
-        .title(t("groups.rules.preview.title", "Thử luật"))
-        .description(t(
-            "groups.rules.preview.description",
-            "Nhập tên app để xem luật nào khớp.",
-        ))
-        .build();
-    preview_group.add(&ui.rule_preview_input);
-    preview_group.add(&ui.rule_preview);
-    page.add(&preview_group);
-
     // Typing or a new hint both move the Thêm button; detection only ever
     // shows as the placeholder, never over typed text.
     {
@@ -280,16 +269,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             );
         });
     }
-    // The preview follows typing live; mode changes and edits re-run it
-    // from their own handlers.
-    {
-        let ui = ui.clone();
-        let input = ui.rule_preview_input.clone();
-        input.connect_changed(move |_| {
-            ui.update_rule_preview();
-        });
-    }
-
     ui.rules_overlay.set_child(Some(&page));
     ui.rules_overlay.clone()
 }

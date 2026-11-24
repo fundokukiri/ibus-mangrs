@@ -346,10 +346,6 @@ title = "Rule list"
 description = "The first rule wins; none = the app reports no name."
 tooltip = "Only apps using the GTK IM module report their own name; Wayland apps appear as gnome-shell, X11/others as none. Install the MăngRS Focus extension (data/extension) to get native Wayland app names."
 
-[groups.rules.preview]
-title = "Test a rule"
-description = "Type an app name to see which rule matches."
-
 [rows.rule_name]
 title = "App name"
 placeholder = "e.g.: firefox, org.gnome.Console"
@@ -377,20 +373,12 @@ up = "Up"
 down = "Down"
 delete = "Delete"
 
-[rows.rule_preview_input]
-placeholder = "Firefox / wayland:Firefox / xim"
-tooltip = "Type an app name and Enter: shows which rule would match and the resulting display mode"
-
 [rules]
 add_button = "Add a rule"
 add_toast = "Added a rule for {app}"
 copy_toast = "Copied {app}"
 deleted_toast = "Rule deleted"
 empty = "No rules yet"
-result_title = "Result"
-preview_empty = "Type an app name above to see the result"
-match_result = "Matches rule #{n}: {mode}"
-no_match = "No rule matches"
 mode_hidden = "(hidden)"
 pseudo_wayland = "gnome-shell (Wayland apps)"
 pseudo_none = "(app reports no name)"

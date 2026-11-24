@@ -347,7 +347,7 @@ pub const CUSTOM_HOTKEY_ACTIONS: &[&str] = &[
 
 /// One rule pattern against one rule target (`app_name` when present, else
 /// the IBus client string, `None` when the client has neither) — the shared
-/// predicate behind `app_rule_mode` and the GUI's rule preview.
+/// predicate behind `app_rule_mode`.
 /// Case-insensitive substring on the part after the transport prefix
 /// (`wayland:Firefox` → `Firefox`); the special pattern `none` matches only
 /// a client with no name at all, the only way to target one.

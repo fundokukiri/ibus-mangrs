@@ -348,10 +348,6 @@ title = "Danh sách luật"
 description = "Luật đầu tiên thắng; none = app không báo tên."
 tooltip = "Chỉ app dùng GTK IM module mới báo tên riêng; app Wayland hiện là gnome-shell, app X11/khác là none. Cài extension MăngRS Focus (data/extension) để nhận tên app Wayland-native."
 
-[groups.rules.preview]
-title = "Thử luật"
-description = "Nhập tên app để xem luật nào khớp."
-
 [rows.rule_name]
 title = "Tên app"
 placeholder = "vd: firefox, org.gnome.Console"
@@ -379,20 +375,12 @@ up = "Lên"
 down = "Xuống"
 delete = "Xóa"
 
-[rows.rule_preview_input]
-placeholder = "Firefox / wayland:Firefox / xim"
-tooltip = "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp và chế độ gõ kết quả"
-
 [rules]
 add_button = "Thêm luật"
 add_toast = "Đã thêm luật cho {app}"
 copy_toast = "Đã sao chép {app}"
 deleted_toast = "Đã xóa luật"
 empty = "Chưa có luật nào"
-result_title = "Kết quả"
-preview_empty = "Nhập tên app ở trên để xem kết quả"
-match_result = "Khớp luật #{n}: {mode}"
-no_match = "Không khớp luật nào"
 mode_hidden = "(đang ẩn)"
 pseudo_wayland = "gnome-shell (app Wayland)"
 pseudo_none = "(app không báo tên)"
