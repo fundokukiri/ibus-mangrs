@@ -905,11 +905,11 @@ fn refresh_round_trips_every_widget() {
         }]
     );
     assert_eq!(
-        ui.macros_from_text(),
+        super::parse_macros(&super::text_of(&ui.macros_text)),
         vec![("gs".to_string(), "giờ sáng".to_string())]
     );
     // A set: the order it hands the text view back in is not the input order.
-    let mut words = ui.read_dictionary();
+    let mut words = super::parse_dictionary(&super::text_of(&ui.dictionary_text));
     words.sort();
     assert_eq!(words, vec!["asl".to_string(), "tr".to_string()]);
 }
@@ -1736,15 +1736,21 @@ fn poll_reloads_skips_self_writes() {
 
 #[test]
 fn a_save_only_rewrites_the_list_that_changed() {
-    // The window writes macros, dictionary and emoji on every save; a knob
-    // change must not rewrite the personal dictionary (~8 ms at 20k words).
-    // `save_changed` is the guard: equal content stays on disk untouched.
-    let last = vec!["học".to_string(), "sinh".to_string()];
-    assert!(!crate::gui::save_changed(Some(&last[..]), &last));
-    let grown = vec!["học".to_string(), "sinh".to_string(), "viên".to_string()];
-    assert!(crate::gui::save_changed(Some(&last[..]), &grown));
-    assert!(
-        crate::gui::save_changed(None, &last),
-        "the first save writes"
+    // The window compares the raw editor text with what it last wrote, so a
+    // knob change never re-parses (let alone rewrites) the personal dictionary
+    // (~7 ms to parse at 20k words).
+    let last = "học\nsinh\n";
+    assert_eq!(parse_dictionary(last).len(), 2);
+    assert_eq!(
+        parse_dictionary("học\n# cũ\n\nsinh\n"),
+        parse_dictionary(last)
+    );
+    assert_ne!(
+        parse_dictionary("học\nsinh\nviên\n"),
+        parse_dictionary(last)
+    );
+    assert_eq!(
+        parse_macros("gs = giờ sáng\n= hỏng\nxx =\n"),
+        vec![("gs".to_string(), "giờ sáng".to_string())]
     );
 }

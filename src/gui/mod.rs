@@ -332,9 +332,12 @@ struct Ui {
     /// emoji.toml. A settings change usually touches one of them; rewriting
     /// the personal dictionary on every knob step costs ~8 ms at 20k words
     /// and is what made the window feel sticky.
-    saved_macros: RefCell<Option<Vec<(String, String)>>>,
-    saved_dictionary: RefCell<Option<Vec<String>>>,
-    saved_emoji: RefCell<Option<Vec<(String, String)>>>,
+    // The raw editor text at the last write: parsing a list only to find it
+    // unchanged cost 7 ms with a 20k-word dictionary on every debounced save,
+    // and a switch or a knob must not pay for the three lists it never touched.
+    saved_macros: RefCell<Option<String>>,
+    saved_dictionary: RefCell<Option<String>>,
+    saved_emoji: RefCell<Option<String>>,
     /// The config.toml mtime this window itself wrote (the last `save_all`):
     /// the live-reload poll skips it — reloading our own save would churn
     /// every row for nothing. External writers still reload.
@@ -852,44 +855,12 @@ impl Ui {
         config
     }
 
-    /// The macros as the raw table shows them: one `khóa=nội dung` line
-    /// per pair; an empty key or value drops the pair (the old text list
-    /// skipped such lines too).
-    fn macros_from_text(&self) -> Vec<(String, String)> {
-        text_of(&self.macros_text)
-            .lines()
-            .filter_map(|line| line.split_once('='))
-            .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
-            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
-            .collect()
-    }
-
-    /// The emoji user table as the raw editor shows it: one `name=glyph`
-    /// line per pair, empty names or glyphs dropped (the macros rule).
-    fn emoji_from_text(&self) -> Vec<(String, String)> {
-        text_of(&self.emoji_text)
-            .lines()
-            .filter_map(|line| line.split_once('='))
-            .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
-            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
-            .collect()
-    }
-
     // --- panel-menu editor (the design vector is the source of truth) ---
 
     /// The design as the user sees it: `read()` clones this, so the
     /// round-trip holds without walking the widgets.
     fn read_menu(&self) -> Vec<MenuNode> {
         self.menu.borrow().clone()
-    }
-
-    fn read_dictionary(&self) -> Vec<String> {
-        text_of(&self.dictionary_text)
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .map(str::to_string)
-            .collect()
     }
 
     /// Lock or unlock every experimental row for the master gate — the tab
@@ -1004,28 +975,28 @@ impl Ui {
 
         // Each list is compared with what was last written: a knob on the
         // typing page must not rewrite the personal dictionary.
-        let macros_text = self.macros_from_text();
-        if save_changed(self.saved_macros.borrow().as_deref(), &macros_text) {
+        let macros_raw = text_of(&self.macros_text);
+        if self.saved_macros.borrow().as_deref() != Some(macros_raw.as_str()) {
             let mut macros = Macros::load();
-            macros.set_entries(macros_text.iter().cloned());
+            macros.set_entries(parse_macros(&macros_raw).into_iter());
             macros.save()?;
-            *self.saved_macros.borrow_mut() = Some(macros_text);
+            *self.saved_macros.borrow_mut() = Some(macros_raw);
         }
 
-        let dictionary = self.read_dictionary();
-        if save_changed(self.saved_dictionary.borrow().as_deref(), &dictionary) {
+        let dictionary_raw = text_of(&self.dictionary_text);
+        if self.saved_dictionary.borrow().as_deref() != Some(dictionary_raw.as_str()) {
             let mut dict = Dictionary::load();
-            dict.set_words(dictionary.iter().cloned());
+            dict.set_words(parse_dictionary(&dictionary_raw).into_iter());
             dict.save()?;
-            *self.saved_dictionary.borrow_mut() = Some(dictionary);
+            *self.saved_dictionary.borrow_mut() = Some(dictionary_raw);
         }
 
-        let emoji_text = self.emoji_from_text();
-        if save_changed(self.saved_emoji.borrow().as_deref(), &emoji_text) {
+        let emoji_raw = text_of(&self.emoji_text);
+        if self.saved_emoji.borrow().as_deref() != Some(emoji_raw.as_str()) {
             let mut emoji = crate::emoji::UserEmoji::load();
-            emoji.set_entries(emoji_text.iter().cloned());
+            emoji.set_entries(parse_macros(&emoji_raw).into_iter());
             emoji.save()?;
-            *self.saved_emoji.borrow_mut() = Some(emoji_text);
+            *self.saved_emoji.borrow_mut() = Some(emoji_raw);
         }
         Ok(())
     }
@@ -1048,8 +1019,25 @@ impl Ui {
 /// Whether the widgets' parsed list differs from what was last written to
 /// its file: a settings change usually touches one list, and rewriting the
 /// personal dictionary on every knob step is what made the window sticky.
-fn save_changed<T: PartialEq>(last: Option<&[T]>, now: &[T]) -> bool {
-    last != Some(now)
+/// The macros as the raw table shows them: one `khóa=nội dung` line per pair;
+/// an empty key or value drops the pair (the old text list skipped such lines
+/// too). The emoji table reads with the same rule.
+fn parse_macros(raw: &str) -> Vec<(String, String)> {
+    raw.lines()
+        .filter_map(|line| line.split_once('='))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+        .collect()
+}
+
+/// The personal dictionary as the raw editor shows it: one word per line,
+/// `#` comments and blank lines dropped.
+fn parse_dictionary(raw: &str) -> Vec<String> {
+    raw.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(str::to_string)
+        .collect()
 }
 
 /// The shipped focus extension, embedded so the install button works on a

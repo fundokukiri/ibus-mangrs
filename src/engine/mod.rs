@@ -451,8 +451,15 @@ pub struct Engine {
     pub(crate) model: Option<std::sync::Arc<crate::predict::PredictModel>>,
     /// The table the strip serves from: the builtin rows (model-harvested
     /// or embedded) merged with the user dictionary at a weight that
-    /// outranks every builtin frequency. Rebuilt on every config apply.
+    /// outranks every builtin frequency. Rebuilt only when its two inputs
+    /// change: with a 20k-word dictionary the rebuild is 19 ms to load it,
+    /// 13 ms to merge and 26 ms to sort the table, and apply_config runs
+    /// from the synchronous key path after every settings change.
     suggest_table: SuggestTable,
+    /// The inputs `suggest_table` was built from, for the reuse check above.
+    suggest_model: Option<std::sync::Arc<crate::predict::PredictModel>>,
+    suggest_dict_time: Option<SystemTime>,
+    suggest_ready: bool,
 }
 
 /// `IBUS_CAP_PREEDIT_TEXT` and `IBUS_CAP_SURROUNDING_TEXT` from ibustypes.h.
@@ -611,10 +618,12 @@ impl Engine {
             picks: None,
             password_quiet: false,
             model: None,
-            // The builtin rows stand in until apply_config merges the user
-            // dictionary below; on a machine without dictionary.txt this
-            // stays the whole table.
-            suggest_table: SuggestTable::from_rows(crate::suggest::cached_builtin_rows(None)),
+            // Empty until the apply_config below fills it: `suggest_ready`
+            // keeps that first build honest even when nothing else changed.
+            suggest_table: SuggestTable::from_rows(Vec::new()),
+            suggest_model: None,
+            suggest_dict_time: None,
+            suggest_ready: false,
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -719,14 +728,25 @@ impl Engine {
         // the strip legacy-only. Rebuilt on every config apply, so a new
         // model or dictionary needs no engine restart.
         let model = crate::predict::locate_shared();
-        let mut rows = crate::suggest::cached_builtin_rows(model.as_ref());
-        rows.extend(merge_user_entries(
-            Dictionary::load()
-                .words()
-                .map(|w| (w.to_string(), 0))
-                .collect(),
-        ));
-        self.suggest_table = SuggestTable::from_rows(rows);
+        let dict_time = file_time(Dictionary::path().as_deref());
+        let same_model = match (self.suggest_model.as_ref(), model.as_ref()) {
+            (Some(have), Some(want)) => std::sync::Arc::ptr_eq(have, want),
+            (None, None) => true,
+            _ => false,
+        };
+        if !self.suggest_ready || !same_model || self.suggest_dict_time != dict_time {
+            let mut rows = crate::suggest::cached_builtin_rows(model.as_ref());
+            rows.extend(merge_user_entries(
+                Dictionary::load()
+                    .words()
+                    .map(|w| (w.to_string(), 0))
+                    .collect(),
+            ));
+            self.suggest_table = SuggestTable::from_rows(rows);
+            self.suggest_model = model.clone();
+            self.suggest_dict_time = dict_time;
+            self.suggest_ready = true;
+        }
         self.model = model;
         self.wrapper.set_abbreviations(config.abbreviations);
         // Experimental master gate: the keep stays off while the gate is
