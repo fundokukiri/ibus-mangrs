@@ -131,6 +131,9 @@ pub const BACKSPACE: u32 = XK_BACKSPACE;
 pub const RETURN: u32 = XK_RETURN;
 pub const ESCAPE: u32 = XK_ESCAPE;
 pub const TAB: u32 = XK_TAB;
+/// The strip's pick key: `` ` `` opens slot 1, `Shift`+`` ` `` (`~`) the same.
+pub const GRAVE: u32 = 0x0060;
+pub const ASCII_TILDE: u32 = 0x007e;
 /// Keysym constants the server's forward paths reference by name.
 pub const LEFT: u32 = XK_LEFT;
 /// The remaining navigation keys, for the nav-key replay's evdev table.

@@ -5153,21 +5153,25 @@ fn suggest_strip_opens_on_the_first_char() {
 }
 
 #[test]
-fn state_a_ranks_by_commonness_and_context_breaks_ties() {
-    // Commonness leads the list and a landed context only breaks ties: after
-    // `hello ` the more frequent `want` stays above the context follower
-    // `world` (the pair's 6 counts), which must still be in the list. The
-    // 1-char pick commits through the state-A path (the held letter is the
-    // word the strip replaces).
+fn state_a_lists_only_what_follows_the_landed_word() {
+    // A landed word narrows the band to what the model actually saw after it:
+    // after `hello ` the list is the `w` words that follow `hello`, not every
+    // `w` word of the vocabulary (`want` is more common on its own but never
+    // follows `hello`, so it is not offered). The 1-char pick commits through
+    // the state-A path (the held letter is the word the strip replaces).
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     suggest_keys(&mut e, "hello ");
     let keys = suggest_keys(&mut e, "w");
     let items = candidates_of(&keys[0]).expect("the 1-char word refreshes the list");
-    assert_eq!(items.first().map(String::as_str), Some("want"), "{items:?}");
-    assert!(items.iter().any(|w| w == "world"), "{items:?}");
+    assert_eq!(
+        items.first().map(String::as_str),
+        Some("world"),
+        "{items:?}"
+    );
+    assert!(!items.iter().any(|w| w == "want"), "{items:?}");
     let actions = e.accept_candidate(0);
     assert!(
-        actions.contains(&Action::Commit("want ".to_string())),
+        actions.contains(&Action::Commit("world ".to_string())),
         "{actions:?}"
     );
     let mut e = predict_engine(Method::Telex, Mode::Preedit);

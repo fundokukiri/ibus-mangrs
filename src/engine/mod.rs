@@ -461,9 +461,9 @@ pub struct Engine {
 }
 
 /// `IBUS_CAP_PREEDIT_TEXT` and `IBUS_CAP_SURROUNDING_TEXT` from ibustypes.h.
-/// A strip candidate with its commonness: the model's unigram count for a
-/// word, the pair count for a compound.
-type Rated = (String, u32);
+/// A strip candidate as `(surface, pair, unigram)`: how often the model saw
+/// it right after the word just committed, then how common it is on its own.
+type Rated = (String, u32, u32);
 
 const CAP_PREEDIT_TEXT: u32 = 1 << 0;
 
@@ -1849,10 +1849,9 @@ impl Engine {
     /// typing `c` right after `xin ` keeps `chào` at the top of the c*
     /// rows, however frequent the others are. Empty without a model, a
     /// context word, or a context that is not a model token.
-    fn context_bonus(
+    fn context_pairs(
         &self,
         model: &crate::predict::PredictModel,
-        range: (usize, usize),
     ) -> std::collections::HashMap<u32, u32> {
         let Some(last) = self.last_committed_word.as_deref() else {
             return std::collections::HashMap::new();
@@ -1860,12 +1859,7 @@ impl Engine {
         let Some(id) = model.id_of(last) else {
             return std::collections::HashMap::new();
         };
-        model
-            .bigram_iter(id)
-            .filter(|(follower, _)| {
-                (*follower as usize) >= range.0 && (*follower as usize) < range.1
-            })
-            .collect()
+        model.bigram_iter(id).collect()
     }
 
     /// The state-A candidate list for the in-flight word — the MODEL only,
@@ -1924,16 +1918,20 @@ impl Engine {
         // band stays ahead of the EN band: mixed by count alone, the short
         // prefixes drown in English (`h` offered he/have/has, no Vietnamese
         // at all in the probe).
-        let mut words: Vec<(u32, String)> = singles
-            .into_iter()
-            .chain(compounds)
-            .chain(corrections)
-            .map(|(surface, score)| (score, surface))
-            .collect();
-        words.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-        // The EN band keeps following the VN one (see above), ranked by its
-        // own counts.
-        words.extend(en.into_iter().map(|(surface, score)| (score, surface)));
+        let mut words: Vec<Rated> = singles.into_iter().chain(compounds).collect();
+        words.extend(
+            corrections
+                .into_iter()
+                .map(|(surface, freq)| (surface, 0, freq)),
+        );
+        words.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| b.2.cmp(&a.2))
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        // The EN band keeps following the VN one (see above), ranked the same
+        // way.
+        words.extend(en);
         // Page 1: the most common words, the keyword emoji holding the last
         // slot. No padding — a thin prefix shows a short page instead of an
         // empty slot.
@@ -1945,7 +1943,7 @@ impl Engine {
         let mut out: Vec<String> = Vec::new();
         let mut rest: Vec<String> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for (_, surface) in words {
+        for (surface, _, _) in words {
             // One listing per surface: the same word reaches the list from
             // two bands or from the compound stream.
             if !seen.insert(surface.clone()) {
@@ -1967,36 +1965,57 @@ impl Engine {
     }
 
     /// The model's VN material for the in-flight word as `(single words,
-    /// compounds)`, each `(surface, commonness)` and ranked by it — the
-    /// model's unigram count for a word, the pair count for a compound, so
-    /// the two share one scale. The context bonus only breaks a tie: a
-    /// known follower may win among equals, never outrank a more common
-    /// word. The prefix match alone filters language: VN syllables never
-    /// start an English prefix (`hel` finds none) and vice versa.
+    /// compounds)`, each `Rated` and ranked: the pair count with the landed
+    /// context first (typing `xin ch` puts `chào` on top, `196` pairs), the
+    /// unigram then deciding the rest — with no context every pair is zero
+    /// and commonness alone ranks the list. The prefix match alone filters
+    /// language: VN syllables never start an English prefix (`hel` finds
+    /// none) and vice versa.
     fn vn_material(&self, word: &str) -> (Vec<Rated>, Vec<Rated>) {
         let Some(model) = self.model.as_ref() else {
             return (Vec::new(), Vec::new());
         };
         let (start, end) = model.prefix_range(word);
-        let bonus = self.context_bonus(model, (start, end));
-        let mut singles: Vec<(u32, String, u32)> = (start..end)
+        let pairs = self.context_pairs(model);
+        let pair_of = |id: u32| pairs.get(&id).copied().unwrap_or(0);
+        let mut singles: Vec<(u32, String, u32, u32)> = (start..end)
             .map(|row| row as u32)
             .filter(|&id| model.flags(id) & crate::predict::FLAG_VN_SYLLABLE != 0)
-            .map(|id| (id, model.surface(id).to_string(), model.unigram(id)))
-            .filter(|(_, surface, _)| surface != word)
+            .map(|id| {
+                (
+                    id,
+                    model.surface(id).to_string(),
+                    pair_of(id),
+                    model.unigram(id),
+                )
+            })
+            .filter(|(_, surface, _, _)| surface != word)
+            // A landed word narrows the band to what the model actually saw
+            // after it: no random neighbour of the typed prefix.
+            .filter(|&(_, _, pair, _)| pairs.is_empty() || pair > 0)
             .collect();
         singles.sort_by(|a, b| {
-            let ca = bonus.get(&a.0).copied().unwrap_or(0);
-            let cb = bonus.get(&b.0).copied().unwrap_or(0);
             b.2.cmp(&a.2)
-                .then_with(|| cb.cmp(&ca))
+                .then_with(|| b.3.cmp(&a.3))
                 .then_with(|| a.1.cmp(&b.1))
         });
-        let compounds = model.compounds_for_prefix(&crate::suggest::toneless(word));
+        let mut compounds: Vec<Rated> = model
+            .compounds_for_prefix(&crate::suggest::toneless(word))
+            .into_iter()
+            .map(|(surface, strength)| {
+                let pair = model.id_of(&surface).map_or(0, pair_of);
+                (surface, pair, strength)
+            })
+            .collect();
+        compounds.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| b.2.cmp(&a.2))
+                .then_with(|| a.0.cmp(&b.0))
+        });
         (
             singles
                 .into_iter()
-                .map(|(_, surface, unigram)| (surface, unigram))
+                .map(|(_, surface, pair, unigram)| (surface, pair, unigram))
                 .collect(),
             compounds,
         )
@@ -2006,7 +2025,7 @@ impl Engine {
     /// the typed prefix, the typed word itself excluded. Empty unless the
     /// word is pure ASCII — a Vietnamese letter or tone mark anywhere
     /// excludes EN (`hè` never offers `hello`).
-    fn en_candidates(&self, word: &str) -> Vec<(String, u32)> {
+    fn en_candidates(&self, word: &str) -> Vec<Rated> {
         if !word.chars().all(|c| c.is_ascii_alphabetic()) {
             return Vec::new();
         }
@@ -2014,32 +2033,38 @@ impl Engine {
             return Vec::new();
         };
         let (start, end) = model.prefix_range(&crate::suggest::toneless(word));
-        let bonus = self.context_bonus(model, (start, end));
-        let mut rows: Vec<(u32, String, u32)> = (start as u32..end as u32)
+        let pairs = self.context_pairs(model);
+        let mut rows: Vec<(u32, String, u32, u32)> = (start as u32..end as u32)
             .filter(|id| model.flags(*id) & crate::predict::FLAG_EN_WORD != 0)
-            .map(|id| (id, model.surface(id).to_string(), model.unigram(id)))
-            .filter(|(_, surface, _)| surface != word)
+            .map(|id| {
+                (
+                    id,
+                    model.surface(id).to_string(),
+                    pairs.get(&id).copied().unwrap_or(0),
+                    model.unigram(id),
+                )
+            })
+            .filter(|(_, surface, _, _)| surface != word)
+            .filter(|&(_, _, pair, _)| pairs.is_empty() || pair > 0)
             .collect();
-        // Commonness leads the band and the context resolves ties — the
-        // same rule the VN band follows. The learning bonus rides the base
-        // frequency (both the plain pick count and the (context, word)
-        // pair count).
+        // The same rule the VN band follows: the context pair leads, the rest
+        // falls back to frequency with the learning bonus riding on it.
         let picks = self.picks.as_ref();
         let context = self.last_committed_word.as_deref();
+        let score = |row: &(u32, String, u32, u32)| {
+            row.3 as f64 + picks.map_or(0.0, |p| p.bonus(&row.1, context))
+        };
         rows.sort_by(|a, b| {
-            let ca = bonus.get(&a.0).copied().unwrap_or(0);
-            let cb = bonus.get(&b.0).copied().unwrap_or(0);
-            let score = |row: &(u32, String, u32)| {
-                row.2 as f64 + picks.map_or(0.0, |p| p.bonus(&row.1, context))
-            };
-            score(b)
-                .partial_cmp(&score(a))
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| cb.cmp(&ca))
+            b.2.cmp(&a.2)
+                .then_with(|| {
+                    score(b)
+                        .partial_cmp(&score(a))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .then_with(|| a.1.cmp(&b.1))
         });
         rows.into_iter()
-            .map(|(_, surface, uni)| (surface, uni))
+            .map(|(_, surface, pair, uni)| (surface, pair, uni))
             .collect()
     }
 

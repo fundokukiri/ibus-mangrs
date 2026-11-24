@@ -2133,11 +2133,11 @@ fn strip_key(
     keyval: u32,
     out: &mut Vec<Message>,
 ) -> bool {
-    if !strip_open() || keyval != keymap::TAB {
+    if !strip_open() || !matches!(keyval, keymap::GRAVE | keymap::ASCII_TILDE) {
         return false;
     }
     // The first slot of the visible page. A page the word moved past, or an
-    // empty slot, returns empty and Tab keeps its app meaning.
+    // empty slot, returns empty and the key keeps its app meaning.
     strip_pick(
         engine,
         injection,

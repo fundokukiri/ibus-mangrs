@@ -4147,19 +4147,19 @@ fn alt_digits_pick_while_the_strip_is_visible() {
 }
 
 #[test]
-fn tab_picks_the_first_slot_while_the_strip_is_visible() {
+fn grave_picks_the_first_slot_while_the_strip_is_visible() {
     strip_reset_for_test();
-    // Tab takes the head of the visible page — the one-key path the digits
-    // cannot give without leaving the home row. The committed text is read
-    // back off the rendered table like the digit picks.
+    // ` takes the head of the visible page — one key, no modifier. The
+    // committed text is read back off the rendered table like the digit
+    // picks.
     let (_engine, mut handler) = strip_handler(true);
     let (_, out) = press(&mut handler, 0x73); // 's'
     let (table, _) = out[2]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
         .expect("table");
     let (_, _, _, _, _, cands, _) = table_parts(&table);
-    let (consumed, out) = press(&mut handler, keymap::TAB);
-    assert!(consumed, "a pick consumes the Tab");
+    let (consumed, out) = press(&mut handler, keymap::GRAVE);
+    assert!(consumed, "a pick consumes the `");
     assert_eq!(
         members(&out),
         vec![
@@ -4175,8 +4175,24 @@ fn tab_picks_the_first_slot_while_the_strip_is_visible() {
     assert_eq!(
         text_from_variant(&committed).as_deref(),
         Some(format!("{} ", cands[0]).as_str()),
-        "Tab commits the page's first candidate plus the pick's space"
+        "` commits the page's first candidate plus the pick's space"
     );
+}
+
+#[test]
+fn grave_types_normally_once_the_strip_is_closed() {
+    strip_reset_for_test();
+    // The pick key is only a pick while the strip is up: pressed again (or
+    // with no list at all) it is an ordinary character, which is how a
+    // literal ` reaches the app — two presses, the first one picking.
+    let (_engine, mut handler) = strip_handler(true);
+    let (consumed, _) = press(&mut handler, keymap::GRAVE);
+    assert!(!consumed, "` falls through when no list is up");
+    let (_, _out) = press(&mut handler, 0x73); // 's'
+    let (consumed, _) = press(&mut handler, keymap::GRAVE);
+    assert!(consumed, "the pick consumes the first `");
+    let (consumed, _) = press(&mut handler, keymap::GRAVE);
+    assert!(!consumed, "the second ` types");
 }
 
 #[test]
