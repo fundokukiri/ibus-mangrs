@@ -6078,6 +6078,73 @@ fn erasing_the_word_closes_the_strip() {
 }
 
 #[test]
+fn erasing_the_landing_space_turns_the_strip_back_into_the_word_list() {
+    // `xin chao ` + Backspace leaves the caret right after the word: the
+    // next-word list loses its space and the strip goes back to the word's
+    // own candidates, so the pick replaces the word instead of appending
+    // into it ("xin chaochào").
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    suggest_keys(&mut e, "xin chao ");
+    let erased = e.backspace().unwrap_or_default();
+    let items = candidates_of(&erased).expect("the word's own list re-opens");
+    assert_eq!(items.first().map(String::as_str), Some("chào"));
+    // Flow's per-key batch lands the word and empties the wrapper while the
+    // word stays on screen: the list must stay the word's own, and the pick
+    // must still replace it.
+    e.wrapper.rebuild("");
+    e.reanchor_tail("chao".into());
+    let listed = e.suggest_step();
+    let items = candidates_of(&listed).expect("the held word keeps its list");
+    assert_eq!(items.first().map(String::as_str), Some("chào"));
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        replay(&actions),
+        "chào ",
+        "the candidate replaces the word: {actions:?}"
+    );
+    assert!(
+        actions.contains(&Action::InjectBackspaces(4)),
+        "the four chars of `chao` go first: {actions:?}"
+    );
+}
+
+#[test]
+fn a_pick_refuses_an_erase_whose_width_does_not_fit_the_word() {
+    // The erase width comes off the tail, which mirrors the screen. A tail
+    // that has drifted away from the word in flight (an application that
+    // edited its own text, a focus switch) must not turn a pick into a
+    // delete into the sentence before the word.
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    suggest_keys(&mut e, "chao");
+    e.wrapper.rebuild("chào");
+    e.reanchor_tail("xinchao".into());
+    assert!(
+        e.accept_candidate(0).is_empty(),
+        "seven held chars for a four-char word: refused"
+    );
+}
+
+#[test]
+fn suggestions_off_leaves_the_erase_path_untouched() {
+    // The shared word decision sits behind the suggestion gate: with the
+    // strip off, the same keys emit no candidate action at all.
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, false);
+    e.set_uinput_available(true);
+    let keys = suggest_keys(&mut e, "xin chao ");
+    let erased = e.backspace().unwrap_or_default();
+    let strip = |actions: &[Action]| {
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdateCandidates { .. } | Action::HideCandidates))
+    };
+    assert!(!keys.iter().any(|a| strip(a)), "no list while off");
+    assert!(!strip(&erased), "no list on the erase: {erased:?}");
+    assert!(e.accept_candidate(0).is_empty(), "and no pick either");
+}
+
+#[test]
 fn a_pick_uses_the_on_screen_word_when_the_wrapper_is_empty() {
     let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
     e.set_uinput_available(true);

@@ -2152,6 +2152,18 @@ impl Engine {
         self.suggest_step()
     }
 
+    /// The word the screen holds: the composition, or — in a uinput mode
+    /// whose per-key batch already landed it — the tail that mirrors that
+    /// word on screen. A tail ending in a space is not a word in flight: the
+    /// caret sits after the landing space, and the landed list owns it.
+    fn current_word(&self) -> String {
+        let word = self.wrapper.output();
+        if word.is_empty() && !self.tail.is_empty() && !self.tail.ends_with(' ') {
+            return self.tail.clone();
+        }
+        word
+    }
+
     fn suggest_step(&mut self) -> Vec<Action> {
         // A password field: the strip never opens — and with it the accept
         // path (learning) is unreachable. Typing itself is untouched.
@@ -2175,7 +2187,7 @@ impl Engine {
         // was the dictionary's full-table scan guard — the model's bounded
         // range scan has no such degenerate case, and a frozen context list
         // that ignores the letter being typed reads as a hung strip.
-        let word = self.wrapper.output();
+        let word = self.current_word();
         let state_b = word.is_empty();
         // The landed-word list is the one a single space opens: after any
         // other mark with nothing in flight (`chao`, `.`, a second space) the
@@ -2309,14 +2321,7 @@ impl Engine {
         if !self.suggest_open || self.password_quiet {
             return Vec::new();
         }
-        // The strip renders the word the screen holds. A uinput mode's
-        // per-key batch can empty the wrapper while the word still sits on
-        // screen: the tail is that word, and a pick must replace it rather
-        // than append behind it ("xin" plus a pick gave "xinxinh đẹp").
-        let mut word = self.wrapper.output();
-        if word.is_empty() && !self.tail.is_empty() && !self.tail.ends_with(' ') {
-            word = self.tail.clone();
-        }
+        let word = self.current_word();
         if word.is_empty() {
             // State B: nothing is in flight — the strip holds the last
             // committed word's next-word list and the pick commits that
@@ -2326,6 +2331,7 @@ impl Engine {
         let Some(candidate) = self.state_a_candidates(&word).into_iter().nth(index) else {
             return Vec::new();
         };
+        let replaced = word.chars().count();
         // Learning records the PICKED candidate — never the keystrokes —
         // with the ranking context (the last committed word) as the pair
         // key. A quiet (password) field never reaches this: the gate above.
@@ -2360,6 +2366,13 @@ impl Engine {
         // last batch may still be parked: land it before the erase so the
         // Backspaces count against the screen they model.
         let held = self.tail.chars().count();
+        // The width comes off the tail, which mirrors the screen: it has to
+        // be exactly the word being replaced. A stale tail (a focus switch,
+        // an application that edited its own text) would otherwise erase
+        // into the sentence before it — refused rather than committed.
+        if inline && held > 0 && held != replaced {
+            return Vec::new();
+        }
         let parked = if mode == Mode::Flow {
             self.per_key_park.take()
         } else {
