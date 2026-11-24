@@ -77,8 +77,10 @@ where
 {
     let badge_text = t("misc.experimental_badge", "Thử nghiệm");
     let badge = gtk4::Label::new(Some(&format!("[{badge_text}]")));
+    // Muted, not amber: next to the title the warning colour competed with
+    // the title itself; the amber stays on the switch below.
     badge.add_css_class("caption");
-    badge.add_css_class("warning");
+    badge.add_css_class("dim-label");
     badge.set_valign(gtk4::Align::Center);
     uniform_title_width(row);
     let (suffixes, switch) = find_suffixes_and_switch(row.upcast_ref());
@@ -108,7 +110,7 @@ where
     ) else {
         return false;
     };
-    let line = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    let line = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     title.unparent();
     line.append(&title);
     line.append(badge);
