@@ -416,6 +416,10 @@ pub struct Engine {
     /// currently on the client's screen. Gates the hide-on-word-end paths
     /// and makes the accept path a no-op once the strip is gone.
     suggest_open: bool,
+    /// The character this key carries, for the strip's landed-word gate; and
+    /// whether that key was the single space that just ended a word.
+    strip_key: Option<char>,
+    strip_landing: bool,
     /// The strip's display choice: the word-in-flight shows only in the
     /// floating box (default), in both places (mirror), or only inline
     /// beside the table.
@@ -609,6 +613,8 @@ impl Engine {
             last_key_at: None,
             idle_committed: None,
             suggest_open: false,
+            strip_key: None,
+            strip_landing: false,
             suggest_learn: false,
             suggest_display: SuggestDisplayConfig::Mirror,
             last_committed_word: None,
@@ -2133,6 +2139,16 @@ impl Engine {
         // that ignores the letter being typed reads as a hung strip.
         let word = self.wrapper.output();
         let state_b = word.is_empty();
+        // The landed-word list is the one a single space opens: after any
+        // other mark with nothing in flight (`chao`, `.`, a second space) the
+        // list would predict the next word of text the punctuation moved on
+        // from, so the strip closes instead.
+        if state_b && !self.strip_landing {
+            if std::mem::take(&mut self.suggest_open) {
+                return vec![Action::HideCandidates];
+            }
+            return Vec::new();
+        }
         let items = if state_b {
             self.state_b_candidates(
                 self.prev_committed_word.as_deref(),

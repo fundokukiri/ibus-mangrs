@@ -5182,20 +5182,30 @@ fn state_a_lists_only_what_follows_the_landed_word() {
 }
 
 #[test]
-fn suggest_strip_chains_when_the_word_lands() {
-    // A word landing (comma terminator here) does not just close the list:
-    // the strip chains straight into the landed word's next-word list —
-    // the space landing is pinned by `state_b_predicts_next_syllable`.
-    // Before the terminator the list stayed open (`sinh` leads with its
-    // model compound — `sinh viên` — per `page_one_is_three_singles_then_the_compounds`).
-    let mut e = predict_engine(Method::Telex, Mode::Preedit);
-    let keys = suggest_keys(&mut e, "sinh,");
-    assert!(
-        keys[..4].iter().any(|batch| candidates_of(batch).is_some()),
-        "the strip is open before the terminator: {keys:?}"
-    );
-    let items = candidates_of(&keys[4]).expect("the strip chains after the comma");
-    assert_eq!(items.first().map(String::as_str), Some("viên"));
+fn a_mark_other_than_a_space_closes_the_strip() {
+    // A word landing keeps the list only when a space ended it — the
+    // landed-word surface is pinned by `state_b_predicts_next_syllable`.
+    // A comma, a full stop or a second space is punctuation the user typed
+    // after the word, and the next-word list would be a guess for text the
+    // mark already moved on from.
+    for (keys, mark) in [("sinh,", ','), ("sinh.", '.'), ("sinh  ", ' ')] {
+        let mut e = predict_engine(Method::Telex, Mode::Preedit);
+        let batches = suggest_keys(&mut e, keys);
+        assert!(
+            batches[..keys.len() - 1]
+                .iter()
+                .any(|batch| candidates_of(batch).is_some()),
+            "the strip is open before the mark: {keys:?} {batches:?}"
+        );
+        assert!(
+            candidates_of(batches.last().unwrap()).is_none(),
+            "no next-word list after the closing {mark:?}: {keys:?} {batches:?}"
+        );
+        assert!(
+            batches.last().unwrap().contains(&Action::HideCandidates),
+            "the strip closes on {mark:?}: {keys:?} {batches:?}"
+        );
+    }
 }
 
 #[test]

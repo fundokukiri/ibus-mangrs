@@ -17,6 +17,9 @@ impl Engine {
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
         self.tail_ends_word = false;
+        // The strip's landed-word list belongs to the space that ended the
+        // word: a later mark (a second space, `.`, `,`) closes it instead.
+        self.strip_key = Some(c);
         // The idle-commit clock: only stamped while the feature is on, so
         // the default path costs nothing.
         if self.idle_commit_enabled {
@@ -658,6 +661,10 @@ impl Engine {
             Outcome::Finish {
                 word, raw, valid, ..
             } => {
+                // The per-key path lands its word here, not through
+                // `on_finish`: the strip's landed-word gate is set the same
+                // way — only a space keeps the next-word list.
+                self.strip_landing = !word.is_empty() && self.strip_key == Some(' ');
                 actions.extend(self.on_finish_uinput(mode, word, raw, valid, c));
                 // The word ended: the strip closes with it, like the common
                 // path's Finish arm.
@@ -1044,6 +1051,7 @@ impl Engine {
         valid_prefix: bool,
         candidate: CandidateEnd,
     ) -> Vec<Action> {
+        self.strip_landing = !word.is_empty() && self.strip_key == Some(' ');
         let mut actions = self.on_finish_inner(mode, word, raw, valid, valid_prefix, candidate);
         // The state-B surface: only when the in-flight word is actually
         // gone. The wrapper releases the word lazily — its output can still
