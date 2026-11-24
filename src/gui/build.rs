@@ -516,13 +516,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
     }
     equalize_columns(&merged_columns);
-    // The caption column is the row's tallest child: an exact-fit row pins
-    // the caption to the top edge and the input to the bottom. Growing the
-    // row past its natural height floats the column vertically centered —
-    // 12px of air above and below, the same balance the "Thử nghiệm" value
-    // controls get from their centered valign.
-    let row_height = flow_delay_row.measure(gtk4::Orientation::Vertical, -1).1;
-    flow_delay_row.set_size_request(-1, row_height + 24);
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
