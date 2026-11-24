@@ -1041,6 +1041,18 @@ fn process_key(
                 _ => {}
             }
         }
+        // Alt+1..5 picks a slot. The bare digits are content again: a digit
+        // typed inside a word reaches the composition, which matters in the
+        // presets that treat digits as tone keys and whenever a number
+        // belongs to the word.
+        if strip_open() && state & keymap::MOD1_MASK != 0 {
+            if let Some(digit) = strip_digit(keyval) {
+                let index = strip_page() * STRIP_PAGE_SIZE + digit - 1;
+                if strip_pick(engine, injection, burst, index, out) {
+                    return true;
+                }
+            }
+        }
         // Held like any keystroke: replaying the shortcut after the keys
         // already held keeps the user's sequence — resetting the engine
         // now would orphan them past the caret move the shortcut makes.
@@ -2095,8 +2107,10 @@ fn strip_digit(keyval: u32) -> Option<usize> {
 }
 
 /// The strip's server-side keys, tried between the burst hold and the
-/// editing-key dispatch: digits `1`-`5` pick — the only keys the strip
-/// owns here. `Ctrl+,`/`Ctrl+.` paging lives in the shortcut branch above
+/// editing-key dispatch: `Tab` picks the first slot — the only key the
+/// strip owns here. `Alt`+digits pick (in the shortcut branch above, where
+/// the modifier is still readable); the bare digits stayed content, so the
+/// strip no longer eats a number typed inside a word. `Ctrl+,`/`Ctrl+.` paging lives in the shortcut branch above
 /// (a combo must be intercepted before the branch's reset commits the
 /// word the box is showing), and the popup's ◀▶ buttons page through
 /// their PageUp/PageDown methods. Returns whether the key was consumed.
@@ -2118,20 +2132,36 @@ fn strip_key(
     keyval: u32,
     out: &mut Vec<Message>,
 ) -> bool {
-    if !strip_open() {
+    if !strip_open() || keyval != keymap::TAB {
         return false;
     }
-    if let Some(digit) = strip_digit(keyval) {
-        let index = strip_page() * STRIP_PAGE_SIZE + digit - 1;
-        let actions = engine.accept_candidate(index);
-        if actions.is_empty() {
-            return false;
-        }
-        let injected = emit(engine, injection, &actions, out);
-        add_injected_batch(engine, burst, injected);
-        return true;
+    // The first slot of the visible page. A page the word moved past, or an
+    // empty slot, returns empty and Tab keeps its app meaning.
+    strip_pick(
+        engine,
+        injection,
+        burst,
+        strip_page() * STRIP_PAGE_SIZE,
+        out,
+    )
+}
+
+/// Commit the strip slot at `index` and emit its actions. False when the
+/// engine refuses the index, so the caller's key falls through untouched.
+fn strip_pick(
+    engine: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    index: usize,
+    out: &mut Vec<Message>,
+) -> bool {
+    let actions = engine.accept_candidate(index);
+    if actions.is_empty() {
+        return false;
     }
-    false
+    let injected = emit(engine, injection, &actions, out);
+    add_injected_batch(engine, burst, injected);
+    true
 }
 
 /// A signal on the static engine path and interface: `new_signal` cannot

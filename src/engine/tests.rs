@@ -5196,18 +5196,32 @@ fn suggest_strip_chains_when_the_word_lands() {
 }
 
 #[test]
-fn suggest_strip_hides_when_nothing_matches_the_word() {
-    // `sinhh` extends `sinh` with a final nothing composes: no model row
-    // carries the longer prefix, and with the dictionary out of the strip
-    // no correction rescues it — the list empties and the strip closes
-    // while the word is still in flight.
+fn a_mistyped_word_offers_its_nearest_corrections() {
+    // `sinhh` extends `sinh` with a letter nothing composes: no model row
+    // carries the prefix, so the embedded syllable table answers with its
+    // distance-1 neighbours — the intended `sinh` among them.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "sinhh");
+    let items = candidates_of(keys.last().unwrap()).expect("the corrections open the strip");
+    assert_eq!(items.first().map(String::as_str), Some("sinh"), "{items:?}");
+}
+
+#[test]
+fn suggest_strip_hides_when_nothing_matches_the_word() {
+    // `sinhvx` outgrows both bands — no model row carries the prefix and no
+    // table word sits one edit away — so the list empties and the strip
+    // closes while the word is still in flight.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "sinhvx");
     assert!(
         keys[..4].iter().any(|batch| candidates_of(batch).is_some()),
         "the strip opened mid-word: {keys:?}"
     );
-    assert!(keys[4].contains(&Action::HideCandidates), "{:?}", keys[4]);
+    assert!(
+        keys.last().unwrap().contains(&Action::HideCandidates),
+        "{:?}",
+        keys.last()
+    );
 }
 
 #[test]
@@ -5410,13 +5424,14 @@ fn page_one_gives_the_last_slot_to_a_keyword_emoji() {
 }
 
 #[test]
-fn strip_without_a_model_serves_emoji_only() {
-    // The dictionary left the strip entirely: with the model slot cleared
-    // the word bands are empty — `zz` matches no model row and no emoji
-    // keyword, so nothing opens — and only the emoji keywords still light
-    // the strip up (`meo`). (The slot is cleared directly: apply_config
-    // would auto-load whatever file the machine carries, and an env
-    // override is process-global across parallel tests.)
+fn strip_without_a_model_serves_the_table_words_and_emoji() {
+    // With the model slot cleared the model bands are empty, but the
+    // embedded syllable table still answers an unknown prefix (`meo` finds
+    // `mèo`, its toneless twin) and the emoji keywords still open the strip;
+    // `zz` is too short for the correction band and matches neither, so
+    // nothing opens. (The slot is cleared directly: apply_config would
+    // auto-load whatever file the machine carries, and an env override is
+    // process-global across parallel tests.)
     let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
     e.model = None;
     let zz = suggest_keys(&mut e, "zz");
@@ -5424,12 +5439,13 @@ fn strip_without_a_model_serves_emoji_only() {
     let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
     e.model = None;
     let meo = suggest_keys(&mut e, "meo");
-    let items = candidates_of(&meo[meo.len() - 1]).expect("emoji still open the strip");
+    let items = candidates_of(&meo[meo.len() - 1]).expect("the table and the emoji open the strip");
+    assert!(items.contains(&"mèo".to_string()), "{items:?}");
     assert!(
         items
             .iter()
-            .all(|w| !w.chars().any(|c| c.is_ascii_alphanumeric())),
-        "emoji-only list without a model: {items:?}"
+            .any(|w| !w.chars().any(|c| c.is_ascii_alphanumeric())),
+        "the emoji still reach the list without a model: {items:?}"
     );
 }
 
@@ -5578,13 +5594,15 @@ fn vietnamese_letters_exclude_english() {
 
 #[test]
 fn emoji_reach_the_strip_tail() {
-    // `meo` folds to the mèo keywords: the model carries no VN row for the
-    // prefix and the dictionary left the strip, so the glyphs serve alone,
-    // capped at STRIP_EMOJI_CAP.
+    // `meo` folds to the mèo keywords: the toneless syllable matches fill
+    // the word slots, the glyphs trail them, capped at STRIP_EMOJI_CAP.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "meo");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on meo");
-    assert_eq!(items.first().map(String::as_str), Some("😸"), "{items:?}");
+    assert!(
+        items.iter().any(|w| w == "mèo" || w == "mẹo"),
+        "the syllable band leads: {items:?}"
+    );
     let count = items
         .iter()
         .filter(|w| !w.chars().any(|c| c.is_ascii_alphanumeric()))

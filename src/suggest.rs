@@ -240,10 +240,8 @@ impl SuggestTable {
     /// (equal frequencies keep table order), the typed word itself excluded,
     /// capped at [`MAX_CANDIDATES`]. The exclusion compares surface forms,
     /// so a wrong-tone spelling (sỏt) still reaches its toneless neighbors.
-    // The dictionary left the suggestion strip (the model serves it now);
-    // the query set stays as the spell-check foundation, re-wired when
-    // that feature lands.
-    #[allow(dead_code)]
+    // The strip's model covers known prefixes; this table's query set is
+    // the fallback for a prefix the model does not know (see `candidates`).
     pub fn completions(&self, word: &str) -> Vec<Candidate> {
         let key = toneless(word);
         let start = self
@@ -277,8 +275,11 @@ impl SuggestTable {
     /// distance-1 shape neighbor (sốt behind sỏt) once a prefix hit fills
     /// completions. The ±2 length pre-filter skips the distance walk for
     /// hopeless lengths.
-    #[allow(dead_code)] // spell-check foundation, see completions
-    pub fn corrections(&self, word: &str) -> Vec<Candidate> {
+    /// Distance-capped toneless neighbours of `word`, ranked by distance
+    /// then frequency. The strip's mistyped-word band asks for `1` (one
+    /// wrong or doubled letter); the table tests keep the distance-2 shape
+    /// neighbours it was built for.
+    pub fn corrections_within(&self, word: &str, max: usize) -> Vec<Candidate> {
         let key = toneless(word);
         let key_chars: Vec<char> = key.chars().collect();
         let mut matched: Vec<(usize, &Row)> = Vec::new();
@@ -286,11 +287,11 @@ impl SuggestTable {
             if row.word == word {
                 continue;
             }
-            if row.key.chars().count().abs_diff(key_chars.len()) > 2 {
+            if row.key.chars().count().abs_diff(key_chars.len()) > max {
                 continue;
             }
-            let distance = damerau_limited(&key_chars, &row.key, 2);
-            if distance <= 2 {
+            let distance = damerau_limited(&key_chars, &row.key, max);
+            if distance <= max {
                 matched.push((distance, row));
             }
         }
@@ -310,13 +311,14 @@ impl SuggestTable {
     /// corrections not already listed, filling up to the same
     /// [`MAX_CANDIDATES`] cap. A known word stays quiet: completions only,
     /// even when that is nothing.
-    #[allow(dead_code)] // spell-check foundation, see completions
-    pub fn candidates(&self, word: &str) -> Vec<Candidate> {
+    /// [`Self::completions`] plus the distance-capped corrections, the typed
+    /// word itself never listed.
+    pub fn candidates_within(&self, word: &str, max: usize) -> Vec<Candidate> {
         let mut list = self.completions(word);
         if self.contains(word) || list.len() == MAX_CANDIDATES {
             return list;
         }
-        for candidate in self.corrections(word) {
+        for candidate in self.corrections_within(word, max) {
             if list.iter().any(|known| known.word == candidate.word) {
                 continue;
             }
@@ -342,7 +344,6 @@ impl SuggestTable {
     /// a tone-mangled spelling (sỏt) is not a row even though its toneless
     /// form matches sót, which is what keeps its shape neighbor sốt
     /// correction-eligible.
-    #[allow(dead_code)] // spell-check foundation, see completions
     pub fn contains(&self, word: &str) -> bool {
         let word = word.to_lowercase();
         let key = toneless(&word);
@@ -661,7 +662,7 @@ mod tests {
         // No toneless form starts with "srot". "sot" (sót) is one edit away,
         // "sao" and "sôt" (sốt) two — distance outranks sao's higher freq.
         assert_eq!(
-            t.corrections("srot"),
+            t.corrections_within("srot", 2),
             vec![
                 Candidate {
                     word: "sót".into(),
@@ -685,7 +686,7 @@ mod tests {
         // so this only passes with transpositions in the distance.
         let t = SuggestTable::from_rows(rows(&[("badc", 5)]));
         assert_eq!(
-            t.corrections("abcd"),
+            t.corrections_within("abcd", 2),
             vec![Candidate {
                 word: "badc".into(),
                 freq: 5
@@ -699,7 +700,7 @@ mod tests {
         // lists its distance-2 neighbors even behind a non-empty completion
         // set. Distance 0 first (sót, sọt share sỏt's "sot" key), then the
         // distance-1 group by frequency — sát leads it, sốt ("sôt") is in.
-        let got = SuggestTable::embedded().corrections("sỏt");
+        let got = SuggestTable::embedded().corrections_within("sỏt", 2);
         assert_eq!(
             got[..3],
             [
@@ -721,7 +722,7 @@ mod tests {
         // The typed word itself is never its own correction.
         let t = SuggestTable::from_rows(rows(&[("sót", 10), ("sốt", 30)]));
         assert_eq!(
-            t.corrections("sót"),
+            t.corrections_within("sót", 2),
             vec![Candidate {
                 word: "sốt".into(),
                 freq: 30
@@ -736,7 +737,7 @@ mod tests {
         // appear exactly once; sốt ("sôt") is the distance-1 shape neighbor.
         let t = SuggestTable::from_rows(rows(&[("sót", 10), ("sốt", 30)]));
         assert_eq!(
-            t.candidates("sỏt"),
+            t.candidates_within("sỏt", 2),
             vec![
                 Candidate {
                     word: "sót".into(),
@@ -751,7 +752,7 @@ mod tests {
         // The same shape on the real table: the spec's sỏt -> sốt example —
         // completions sót/sọt first, then the correction group led by sát,
         // with sốt visible inside the 25.
-        let got = SuggestTable::embedded().candidates("sỏt");
+        let got = SuggestTable::embedded().candidates_within("sỏt", 2);
         assert_eq!(got.len(), 25);
         assert_eq!(
             got[..3],
@@ -779,7 +780,7 @@ mod tests {
         // neighbor "thua" (and "tha" itself) must not appear behind it.
         let t = SuggestTable::from_rows(rows(&[("tha", 50), ("thang", 30), ("thua", 20)]));
         assert_eq!(
-            t.candidates("tha"),
+            t.candidates_within("tha", 2),
             vec![Candidate {
                 word: "thang".into(),
                 freq: 30
@@ -788,7 +789,9 @@ mod tests {
         // nghiêng is known with nothing completing it: the quiet empty list.
         assert!(SuggestTable::embedded().completions("nghiêng").is_empty());
         assert!(SuggestTable::embedded().contains("nghiêng"));
-        assert!(SuggestTable::embedded().candidates("nghiêng").is_empty());
+        assert!(SuggestTable::embedded()
+            .candidates_within("nghiêng", 2)
+            .is_empty());
     }
 
     #[test]
@@ -804,7 +807,7 @@ mod tests {
                 .map(|(i, s)| (format!("abcf{s}"), (i + 1) as u32)),
         );
         let t = SuggestTable::from_rows(list);
-        let got = t.candidates("abcd");
+        let got = t.candidates_within("abcd", 2);
         assert_eq!(got.len(), 25);
         assert_eq!(
             got[0],
@@ -834,7 +837,7 @@ mod tests {
         // "srot" mangles no real syllable, so the fallback fires: six
         // distance-1 rows (the "sot"/"rot"/"trot" toneless forms) first,
         // distance-2 rows behind, capped at 25 of the 153 candidates.
-        let got = SuggestTable::embedded().corrections("srot");
+        let got = SuggestTable::embedded().corrections_within("srot", 2);
         assert_eq!(got.len(), 25);
         assert_eq!(
             got[0],
@@ -870,8 +873,12 @@ mod tests {
     fn corrections_find_nothing_for_unmatchable_words() {
         // No Vietnamese toneless form is within distance 2 of either probe;
         // both walks exercise the early abort.
-        assert!(SuggestTable::embedded().corrections("wjhkr").is_empty());
-        assert!(SuggestTable::embedded().corrections("aaaaaaa").is_empty());
+        assert!(SuggestTable::embedded()
+            .corrections_within("wjhkr", 2)
+            .is_empty());
+        assert!(SuggestTable::embedded()
+            .corrections_within("aaaaaaa", 2)
+            .is_empty());
     }
 
     #[test]
@@ -887,7 +894,7 @@ mod tests {
         let t = SuggestTable::from_rows(list);
         // Every candidate is two edits from "abcd" (d->f plus one insert) and
         // none extends the "abcd" prefix, so the fallback fires.
-        let got = t.corrections("abcd");
+        let got = t.corrections_within("abcd", 2);
         assert_eq!(got.len(), 25);
         assert_eq!(
             got[0],

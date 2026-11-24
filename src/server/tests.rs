@@ -4089,10 +4089,11 @@ fn candidate_clicked_picks_through_the_strip() {
 }
 
 #[test]
-fn digits_pick_while_the_strip_is_visible() {
+fn alt_digits_pick_while_the_strip_is_visible() {
     strip_reset_for_test();
     // The real flow: a suggest-enabled engine opens the strip on the FIRST
-    // letter, and digit 1 picks its first candidate. The committed text is
+    // letter, and Alt+1 picks its first candidate (the bare digits stay
+    // content — see `a_plain_digit_types_while_the_strip_is_visible`). The committed text is
     // read back off the rendered table, never a literal — the model builds
     // the list, the label-to-entry mapping is the contract.
     let (_engine, mut handler) = strip_handler(true);
@@ -4114,10 +4115,10 @@ fn digits_pick_while_the_strip_is_visible() {
         !cands.is_empty(),
         "the first page offered candidates: {cands:?}"
     );
-    // Digit 1 picks: the candidate commits off the emitted list, the box
+    // Alt+1 picks: the candidate commits off the emitted list, the box
     // closes, the composition resets.
-    let (consumed, out) = press(&mut handler, 0x31); // '1'
-    assert!(consumed, "a pick consumes the digit");
+    let (consumed, out) = press_with_state(&mut handler, 0x31, keymap::MOD1_MASK); // Alt+1
+    assert!(consumed, "a pick consumes the combo");
     assert_eq!(
         members(&out),
         vec![
@@ -4146,9 +4147,42 @@ fn digits_pick_while_the_strip_is_visible() {
 }
 
 #[test]
-fn digits_pick_while_the_strip_is_paged() {
+fn tab_picks_the_first_slot_while_the_strip_is_visible() {
     strip_reset_for_test();
-    // Page 1 through the popup's ◀▶ button (its PageDown method): digit 1
+    // Tab takes the head of the visible page — the one-key path the digits
+    // cannot give without leaving the home row. The committed text is read
+    // back off the rendered table like the digit picks.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, out) = press(&mut handler, 0x73); // 's'
+    let (table, _) = out[2]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, _, _, _, _, cands, _) = table_parts(&table);
+    let (consumed, out) = press(&mut handler, keymap::TAB);
+    assert!(consumed, "a pick consumes the Tab");
+    assert_eq!(
+        members(&out),
+        vec![
+            "UpdatePreeditText",
+            "HideAuxiliaryText",
+            "HideLookupTable",
+            "CommitText"
+        ]
+    );
+    let committed = out[3]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("CommitText variant");
+    assert_eq!(
+        text_from_variant(&committed).as_deref(),
+        Some(format!("{} ", cands[0]).as_str()),
+        "Tab commits the page's first candidate plus the pick's space"
+    );
+}
+
+#[test]
+fn alt_digits_pick_while_the_strip_is_paged() {
+    strip_reset_for_test();
+    // Page 1 through the popup's ◀▶ button (its PageDown method): Alt+1
     // picks that page's first slot — the global index 5 the page mapping
     // promises. The committed text is read back off the rendered table,
     // never a literal (see the visible pick above): paging shifts the
@@ -4186,8 +4220,8 @@ fn digits_pick_while_the_strip_is_paged() {
         cands.len() > 5,
         "page 1 holds entries past the first five: {cands:?}"
     );
-    let (consumed, out) = press(&mut handler, 0x31); // '1'
-    assert!(consumed, "a pick on page 1 consumes the digit");
+    let (consumed, out) = press_with_state(&mut handler, 0x31, keymap::MOD1_MASK); // Alt+1
+    assert!(consumed, "a pick on page 1 consumes the combo");
     assert_eq!(
         members(&out),
         vec![
@@ -4208,12 +4242,13 @@ fn digits_pick_while_the_strip_is_paged() {
 }
 
 #[test]
-fn digits_outside_the_labels_fall_through_while_the_strip_is_visible() {
+fn a_plain_digit_types_while_the_strip_is_visible() {
     strip_reset_for_test();
-    // 0 and 6-9 name no strip label: the key falls through unconsumed and
-    // ends the word exactly as with the strip closed — the digit enters the
-    // composition and the word's end closes the strip server-side (`si` is
-    // no model token, so the landing has no next-word list to chain into).
+    // The bare digits are content again, label range included: a digit falls
+    // through unconsumed and ends the word exactly as with the strip closed
+    // — the digit enters the composition and the word's end closes the strip
+    // server-side (`si` is no model token, so the landing has no next-word
+    // list to chain into).
     let (_engine, mut handler) = strip_handler(true);
     let (_, _) = press(&mut handler, 0x73); // 's'
     let (_, out) = press(&mut handler, 0x69); // 'i'
@@ -4222,8 +4257,8 @@ fn digits_outside_the_labels_fall_through_while_the_strip_is_visible() {
         "the strip is up: {:?}",
         members(&out)
     );
-    let (consumed, out) = press(&mut handler, 0x37); // '7'
-    assert!(!consumed, "a non-label digit reaches the composition");
+    let (consumed, out) = press(&mut handler, 0x31); // '1'
+    assert!(!consumed, "a label digit reaches the composition");
     assert!(
         members(&out).iter().any(|m| m == "HideLookupTable"),
         "the digit entered the word, the strip hides: {:?}",
@@ -4252,7 +4287,7 @@ fn digits_outside_the_labels_fall_through_while_the_strip_is_visible() {
         members(&out)
     );
     let (consumed, out) = press(&mut handler, 0x30); // '0'
-    assert!(!consumed, "0 is no label either");
+    assert!(!consumed, "0 types as well");
     assert!(
         members(&out).iter().any(|m| m == "HideLookupTable"),
         "the digit entered the word, the strip hides: {:?}",
@@ -4287,10 +4322,10 @@ fn a_digit_beyond_the_list_falls_through_to_the_engine() {
         vec!["UpdateLookupTable"],
         "paging still works for the seeded strip"
     );
-    // Label 5 on page 1 → global index 9 → the engine refuses → today's
-    // key path (a wordless digit forwards, nothing commits).
-    let (consumed, out) = press(&mut handler, 0x35); // '5'
-    assert!(!consumed, "the refused digit falls through");
+    // Label 5 on page 1 → global index 9 → the engine refuses → the combo
+    // falls through to the shortcut path and nothing commits.
+    let (consumed, out) = press_with_state(&mut handler, 0x35, keymap::MOD1_MASK); // Alt+5
+    assert!(!consumed, "the refused pick falls through");
     assert!(
         members(&out).is_empty(),
         "no pick, no commit, no hide: {:?}",

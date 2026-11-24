@@ -1892,6 +1892,20 @@ impl Engine {
                 .into_iter()
                 .map(|(surface, _)| surface),
         );
+        // A prefix the model knows nothing about is a mistyped word: the
+        // embedded syllable table's distance-2 neighbours ("tieengs" finds
+        // "tiếng") fill the slots the model left empty. The table scan is
+        // the only edit-distance work on the key path, so it runs only
+        // here, after the prefix matched no row at all.
+        if singles.is_empty() && compounds.is_empty() && word.chars().count() >= 3 {
+            singles.extend(
+                crate::suggest::SuggestTable::embedded()
+                    .candidates_within(word, 1)
+                    .into_iter()
+                    .map(|candidate| candidate.word)
+                    .filter(|candidate| candidate != word),
+            );
+        }
         let mut emoji: Vec<String> = crate::emoji::glyphs_for_word(word)
             .into_iter()
             .take(crate::emoji::STRIP_EMOJI_CAP)
