@@ -964,7 +964,9 @@ fn ask_debug_mode(ui: &Rc<Ui>, window: &gtk4::Window) {
         .build();
     dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
     dialog.add_response("apply", &t("other.debug_apply", "Bật gỡ lỗi"));
-    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    // Red, not the accent colour: the dialog turns on logging, and the
+    // click should read as a warning rather than the obvious next step.
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Destructive);
     dialog.set_default_response(Some("apply"));
     dialog.set_close_response("cancel");
     {
