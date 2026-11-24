@@ -126,12 +126,30 @@ pub(super) fn update_property_group(config: &Config, group: &str, out: &mut Vec<
 /// `RegisterProperties` re-register does not refresh the displayed menu,
 /// see the note above). Config changes arrive throttled (the reload gate),
 /// so the bulk never runs per keystroke.
-pub(super) fn update_all_properties(config: &Config, out: &mut Vec<Message>) {
-    for prop in ibus_prop::properties(config) {
-        push_update(&prop, out);
-        for child in &prop.sub {
-            push_update(child, out);
-        }
+pub(super) fn update_all_properties(
+    config: &Config,
+    last: &mut Vec<ibus_prop::Prop>,
+    out: &mut Vec<Message>,
+) {
+    // Every settings write reaches this path, and each signal makes the panel
+    // walk its items: pushing all 38 of them for a knob the menu does not show
+    // is what made the panel feel sticky between keystrokes.
+    let props = ibus_prop::properties(config);
+    for prop in &props {
+        push_changed(prop, last, out);
+    }
+    *last = props;
+}
+
+fn push_changed(prop: &ibus_prop::Prop, last: &[ibus_prop::Prop], out: &mut Vec<Message>) {
+    let before = last.iter().find(|p| p.key == prop.key);
+    if before.is_some_and(|b| b == prop) {
+        return;
+    }
+    push_update(prop, out);
+    let children = before.map_or(&[][..], |b| b.sub.as_slice());
+    for child in &prop.sub {
+        push_changed(child, children, out);
     }
 }
 

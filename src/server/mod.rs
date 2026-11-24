@@ -123,6 +123,7 @@ impl Server {
             bounce_deadline: None,
             stash: None,
             focus_ext: None,
+            props: Vec::new(),
         }));
         handler.borrow_mut().last_config_mtime = Config::path()
             .and_then(|p| std::fs::metadata(&p).ok())
@@ -369,6 +370,9 @@ struct EngineHandler {
     stash: Option<StashedRewrite>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
+    /// The property list pushed to the panel at the last config reload: a
+    /// reload sends only what differs, so a knob no menu shows sends nothing.
+    props: Vec<ibus_prop::Prop>,
 }
 
 impl EngineHandler {

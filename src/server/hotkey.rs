@@ -359,7 +359,7 @@ impl EngineHandler {
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
             emit(&mut engine, &self.injection, &actions, out);
-            update_all_properties(&config, out);
+            update_all_properties(&config, &mut self.props, out);
         }
     }
 }

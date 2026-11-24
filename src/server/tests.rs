@@ -227,6 +227,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        props: Vec::new(),
     };
     let press = |handler: &mut EngineHandler, keyval: u32| {
         let msg = engine_msg("ProcessKeyEvent").append3(keyval, 0u32, 0u32);
@@ -2151,6 +2152,7 @@ fn focus_out_arm_defers_the_reset_for_a_live_burst() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        props: Vec::new(),
     };
     // A live burst, constructed directly: one echo expected, one commit
     // parked behind it, the tail believing "chaò" (the parked "ò" is its
@@ -3348,6 +3350,47 @@ fn emoji_menu_auxiliary_follows_the_language() {
 /// the panel within a second). GNOME applies only per-item UpdateProperty
 /// mid-session; a full RegisterProperties re-register is ignored there.
 #[test]
+fn a_reload_pushes_only_the_properties_a_change_touched() {
+    let updates = |out: &[Message]| {
+        out.iter()
+            .filter(|m| m.member().map(|m| m.to_string()).as_deref() == Some("UpdateProperty"))
+            .count()
+    };
+    let mut last: Vec<ibus_prop::Prop> = Vec::new();
+    let mut first = Vec::new();
+    crate::server::prop::update_all_properties(&Config::default(), &mut last, &mut first);
+    assert!(
+        updates(&first) >= 5,
+        "the first push sends the whole list: {}",
+        updates(&first)
+    );
+
+    // A knob no menu shows must not make the panel walk its items at all.
+    let mut knob = Config::default();
+    knob.backspace_interval_ms += 5;
+    let mut out = Vec::new();
+    crate::server::prop::update_all_properties(&knob, &mut last, &mut out);
+    assert_eq!(
+        updates(&out),
+        0,
+        "a knob change pushed {} items",
+        updates(&out)
+    );
+
+    // One toggle is the item plus its containing folder, not the whole list.
+    let mut toggle = knob.clone();
+    toggle.auto_restore = false;
+    let mut out = Vec::new();
+    crate::server::prop::update_all_properties(&toggle, &mut last, &mut out);
+    assert!(
+        updates(&out) <= 2 && updates(&out) >= 1,
+        "a toggle change pushed {} of {} items",
+        updates(&out),
+        updates(&first)
+    );
+}
+
+#[test]
 fn config_reload_refreshes_the_panel_without_a_key_event() {
     let config_path = Config::path().expect("a config path");
     if !config_path.exists() {
@@ -3376,6 +3419,7 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        props: Vec::new(),
     };
     let mut out = Vec::new();
     handler.maybe_reload_config(&mut out);
@@ -3640,6 +3684,7 @@ fn strip_handler(suggest_words: bool) -> (SharedEngine, EngineHandler) {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        props: Vec::new(),
     };
     (engine, handler)
 }
@@ -4555,6 +4600,7 @@ fn content_type_set_gates_password_fields() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        props: Vec::new(),
     };
     handler.properties_call(&properties_set_msg("ContentType", 8u32, 0u32), "Set");
     assert!(lock_engine(&engine).password_quiet(), "PASSWORD quiets");
