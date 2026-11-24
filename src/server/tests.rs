@@ -4174,8 +4174,8 @@ fn grave_picks_the_first_slot_while_the_strip_is_visible() {
         .expect("CommitText variant");
     assert_eq!(
         text_from_variant(&committed).as_deref(),
-        Some(format!("{} ", cands[0]).as_str()),
-        "` commits the page's first candidate plus the pick's space"
+        Some(cands[0].as_str()),
+        "` commits the page's first candidate with no trailing space"
     );
 }
 

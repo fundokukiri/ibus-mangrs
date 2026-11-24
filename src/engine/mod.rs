@@ -416,6 +416,9 @@ pub struct Engine {
     /// currently on the client's screen. Gates the hide-on-word-end paths
     /// and makes the accept path a no-op once the strip is gone.
     suggest_open: bool,
+    /// Whether the pick in flight lands its trailing space — the normal pick
+    /// does, the `` ` `` key does not (see `accept_candidate_tight`).
+    pick_space: bool,
     /// The strip's display choice: the word-in-flight shows only in the
     /// floating box (default), in both places (mirror), or only inline
     /// beside the table.
@@ -609,6 +612,7 @@ impl Engine {
             last_key_at: None,
             idle_committed: None,
             suggest_open: false,
+            pick_space: true,
             suggest_learn: false,
             suggest_display: SuggestDisplayConfig::Mirror,
             last_committed_word: None,
@@ -2255,6 +2259,27 @@ impl Engine {
     /// the engine's (the word moved on between the last update and the
     /// key): commit nothing rather than a stale or wrong word — the caller
     /// forwards the key instead.
+    /// The pick the `` ` `` key makes: the word lands with no trailing space,
+    /// so the next `` ` `` types the character right after it. The strip
+    /// closes instead of chaining — there is no separator for a next word.
+    pub fn accept_candidate_tight(&mut self, index: usize) -> Vec<Action> {
+        self.pick_space = false;
+        let actions = self.accept_candidate(index);
+        self.pick_space = true;
+        actions
+    }
+
+    /// The picked word as it lands: charset-encoded, with the trailing space
+    /// unless the pick asked for none.
+    fn pick_text(&self, word: &str) -> String {
+        let word = encode(self.charset, word);
+        if self.pick_space {
+            format!("{word} ")
+        } else {
+            word
+        }
+    }
+
     pub fn accept_candidate(&mut self, index: usize) -> Vec<Action> {
         if !self.suggest_open || self.password_quiet {
             return Vec::new();
@@ -2285,7 +2310,7 @@ impl Engine {
         } else {
             candidate
         };
-        let text = format!("{} ", encode(self.charset, &word));
+        let text = self.pick_text(&word);
         // The mode the word was served in decides the rewrite: preedit holds
         // nothing on the wire (drop and commit), the inline modes hold the
         // composed text in the application — the pick erases it through the
@@ -2359,13 +2384,18 @@ impl Engine {
         if let Some(picks) = self.picks.as_mut() {
             picks.record_pick(&candidate, Some(&context));
         }
-        let text = format!("{} ", encode(self.charset, &candidate));
+        let text = self.pick_text(&candidate);
         // The pick's trailing space re-opens the em-dash/double-space
         // windows like every committed word.
         self.note_committed(&text);
         let mut actions = vec![Action::Commit(text)];
         self.prev_committed_word = self.last_committed_word.take();
         self.last_committed_word = Some(candidate);
+        if !self.pick_space {
+            self.suggest_open = false;
+            actions.push(Action::HideCandidates);
+            return actions;
+        }
         let items = self.state_b_candidates(
             self.prev_committed_word.as_deref(),
             self.last_committed_word.as_deref().unwrap_or(""),
