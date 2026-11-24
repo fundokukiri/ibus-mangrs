@@ -1020,6 +1020,16 @@ fn process_key(
             }
         }
     }
+    // An injected Backspace echo arrives with the modifiers of the key it
+    // serves: an Alt+1 pick still holds Alt when its own deletes come back
+    // (state=MASK_MOD1). The shortcut branch below would take it for an
+    // application shortcut, reset the engine mid-rewrite and leave the echo
+    // uncounted, so the pick's parked commit went out ahead of its deletes
+    // ("xin chao" + Alt+1 left "xin chaoc"). Echoes are decided before any
+    // branch that reads modifiers.
+    if keyval == keymap::BACKSPACE && note_burst_echo(engine, burst) {
+        return false;
+    }
     // Ctrl/Alt/Super combinations are application shortcuts.
     if state & keymap::SHORTCUT_MASK != 0 {
         // The strip's `Ctrl+,`/`Ctrl+.` paging owns the combo while it is
@@ -1080,12 +1090,7 @@ fn process_key(
                 out.push(signal("CommitText").append1(plain_text(&text)));
             }
         }
-        // An echo of a Backspace we injected ourselves: pass it to the
-        // application — that key press IS the deletion mechanism. Once the
-        // last echo of a rewrite is forwarded, its deferred commit can go.
-        if note_burst_echo(engine, burst) {
-            return false;
-        }
+        // Echoes are already decided above, before the modifier branches.
         // A real Backspace typed mid-burst: held like any keystroke. The
         // check sits after the echo test on purpose — an echo must never
         // hold, or the burst would never settle.

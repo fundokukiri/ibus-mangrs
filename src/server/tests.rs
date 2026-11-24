@@ -4089,6 +4089,37 @@ fn candidate_clicked_picks_through_the_strip() {
 }
 
 #[test]
+fn an_echo_keeps_the_modifiers_of_the_key_it_serves() {
+    strip_reset_for_test();
+    // The deletes an Alt+1 pick injects come back as echoes while the Alt it
+    // was pressed with is still down, so the echo carries MOD1. Taken for an
+    // application shortcut it reset the engine mid-rewrite and was never
+    // counted, and the pick's parked commit went out ahead of its own
+    // deletes ("xin chao" + Alt+1 left "xin chaoc").
+    let (engine, mut handler) = strip_handler(false);
+    {
+        let mut e = lock_engine(&engine);
+        e.set_uinput_available(true);
+        e.add_injected(1);
+        e.defer_commit(1, "chào ".into());
+    }
+    let (_consumed, out) = press_with_state(&mut handler, keymap::BACKSPACE, keymap::MOD1_MASK);
+    assert!(
+        !lock_engine(&engine).pending_echoes(),
+        "the echo is counted, not taken for an Alt shortcut"
+    );
+    assert!(
+        lock_engine(&engine).has_deferred(),
+        "the parked commit stays parked behind the deletes"
+    );
+    assert!(
+        !members(&out).contains(&"CommitText".to_string()),
+        "the commit never rides the echo's reply: {:?}",
+        members(&out)
+    );
+}
+
+#[test]
 fn alt_digits_pick_while_the_strip_is_visible() {
     strip_reset_for_test();
     // The real flow: a suggest-enabled engine opens the strip on the FIRST
