@@ -208,7 +208,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // that turns learning on lives with the strip, so the eraser sits here.
     let learn_clear_row = action_row(
         &t("rows.learn_clear.title", "Xoá dữ liệu đã học"),
-        &t("rows.learn_clear.subtitle", "Xoá hai tệp ghi lựa chọn"),
+        &t("rows.learn_clear.subtitle", "Bộ gõ học lại từ đầu"),
     );
     learn_clear_row.set_tooltip_text(Some(&t(
         "tips.learn_clear",

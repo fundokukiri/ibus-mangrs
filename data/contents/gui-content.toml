@@ -106,11 +106,11 @@ subtitle = "Unicode và 10 bảng mã cũ"
 
 [rows.hotkey_mode]
 title = "Phím tắt đổi chế độ gõ"
-subtitle = "Ví dụ: Control+Alt+v"
+subtitle = "Đổi chế độ gõ bằng phím"
 
 [rows.hotkey_enabled]
 title = "Phím tắt bật/tắt tiếng Việt"
-subtitle = "Ví dụ: Control+Alt+space"
+subtitle = "Bật tắt tiếng Việt bằng phím"
 
 [rows.hotkey_app_rule]
 title = "Phím tắt chọn luật theo app"
@@ -147,8 +147,8 @@ title = "Đặt dấu tự do"
 subtitle = "Đặt dấu tự do trong từ: hoangf → hoàng"
 
 [rows.auto_correct]
-title = "Khôi phục phím với từ sai"
-subtitle = "Sửa âm tiết gõ sai"
+title = "Trả lại phím khi gõ sai"
+subtitle = "Âm tiết lạ thì trả phím gốc"
 
 [rows.auto_restore]
 title = "Khôi phục từ nước ngoài"
@@ -163,8 +163,8 @@ title = "Âm đầu mở rộng"
 subtitle = "f, j, w làm âm đầu"
 
 [rows.abbrev]
-title = "Giữ các từ được viết tắt"
-subtitle = "Giữ đ trong từ viết tắt"
+title = "Giữ đ trong từ viết tắt"
+subtitle = "ddc, ddk không thành đ"
 
 [rows.bypass_url]
 title = "Không gõ dấu sau URL"
@@ -172,26 +172,26 @@ subtitle = "URL giữ nguyên tới dấu cách"
 
 [rows.w2u]
 title = "W thành ư"
-subtitle = "Chọn vị trí áp dụng"
+subtitle = "w = ư, wa = ưa"
 
 [rows.bracket]
 title = "[ ] thành ơ ư"
-subtitle = "Chọn vị trí áp dụng"
+subtitle = "[ và ] ra ơ, ư theo vị trí"
 
 [rows.em_dash]
 title = "Gạch ngang dài"
 subtitle = "Hai dấu trừ thành gạch dài"
 
 [rows.auto_capitalize]
-title = "Tự viết động hoa"
+title = "Tự viết hoa đầu câu"
 subtitle = "Sau . ! ? và Enter"
 
 [rows.double_space]
-title = "Nhấn “Space” hai lần thành dấu chấm"
-subtitle = "Hai dấu cách thành dấu chấm"
+title = "Hai dấu cách thành dấu chấm"
+subtitle = "Thay cho gõ dấu chấm tay"
 
 [rows.keep_composed_words]
-title = "Giữ từ khi gõ phím lạ"
+title = "Giữ từ khi gõ thêm phím lạ"
 subtitle = "tùng + g → tùngg thay vì tungfg"
 
 [rows.keep_repeats_raw]
@@ -199,8 +199,8 @@ title = "Giữ phím lặp nguyên bản (Flow)"
 subtitle = "giữ o → oooo… thay vì dừng ở ô"
 
 [rows.suggest_words]
-title = "Gợi ý từ (n-gram)"
-subtitle = "Gợi ý từ khi đang gõ"
+title = "Gợi ý từ khi gõ"
+subtitle = "Dải gợi ý cạnh con trỏ"
 
 [rows.suggest_learn]
 title = "Học từ khi chọn gợi ý"
@@ -208,28 +208,28 @@ subtitle = "Ưu tiên từ anh đã chọn"
 
 [rows.learn_clear]
 title = "Xoá dữ liệu đã học"
-subtitle = "Xoá dữ liệu đã học"
+subtitle = "Bộ gõ học lại từ đầu"
 button = "Xoá"
 
 [rows.preferred_backend]
-title = "Backend ưu tiên"
-subtitle = "Backend tiêm phím ưu tiên"
+title = "Cách chèn phím"
+subtitle = "Ưu tiên cách chèn phím"
 
 [rows.macro_valid_words]
-title = "Gõ tắt trên từ hợp lệ"
-subtitle = "Phím tắt trùng từ thật vẫn thành công"
+title = "Gõ tắt thắng từ tiếng Việt"
+subtitle = "Khoá trùng từ thật vẫn mở"
 
 [rows.echo_stale]
-title = "Xả commit khi echo lạc (ms)"
-subtitle = "Thời hạn chờ echo trước khi xả chữ"
+title = "Chờ phím ảo quay về (ms)"
+subtitle = "Quá hạn thì đổ chữ luôn"
 
 [rows.idle_commit]
-title = "Chấp nhận từ khi nghỉ gõ (ms)"
-subtitle = "Nghỉ tay lâu thì từ được chấp nhận"
+title = "Tự chốt từ khi ngừng gõ (ms)"
+subtitle = "Như bấm dấu cách"
 
 [rows.experimental_features]
 title = "Tính năng thử nghiệm"
-subtitle = "Bật để hiện và chạy các tính năng dưới"
+subtitle = "Bật để dùng các tính năng bên dưới"
 
 [groups.tune.advanced]
 title = "Nâng cao"
@@ -252,15 +252,15 @@ open_tooltip = "Mở macros.toml bằng ứng dụng mặc định"
 
 [rows.time_format]
 title = "Định dạng giờ ($TIME)"
-subtitle = ""
+subtitle = "Thay cho $TIME trong gõ tắt"
 
 [rows.date_format]
 title = "Định dạng ngày ($DATE)"
-subtitle = ""
+subtitle = "Thay cho $DATE trong gõ tắt"
 
 [rows.language]
 title = "Ngôn ngữ"
-subtitle = ""
+subtitle = "Ngôn ngữ cửa sổ cài đặt"
 
 [rows.backspace_tone]
 title = "Xóa dấu bằng Backspace"
@@ -271,10 +271,12 @@ title = "Điều hướng khi còn từ"
 subtitle = "Phím mũi tên đầu tiên khi còn từ gõ dở"
 
 [rows.flow_per_key_delay]
-title = "Dấu từng bước (ms)"
+title = "Hiện dấu từng bước (ms)"
+subtitle = "Thấp là dấu hiện sớm"
 
 [rows.flow_backspace_restore_delay]
 title = "Hoàn dấu sau Backspace (ms)"
+subtitle = "Chờ rồi mới sửa màn hình"
 
 [rows.flow_delay]
 subtitle = "Mặc định: {n}"
@@ -528,16 +530,18 @@ title = "Preedit cho app XIM"
 subtitle = "Cửa sổ preedit riêng cho XIM"
 
 [rows.pacing]
-title = "Nhịp uinput (ms)"
+title = "Nhịp gõ phím ảo (ms)"
 subtitle = "Nghỉ giữa các phím: {n}"
 
 [rows.backspace_interval]
 title = "Nhịp xoá lùi"
+subtitle = "Giảm nếu xoá chậm"
 
 [rows.post_delay]
-title = "Độ trễ sau từ"
+title = "Chờ sau khi viết lại từ"
 
 # --- page Giới thiệu --------------------------------------------------------
+subtitle = "Cho app xử lý phím chậm"
 
 [about]
 name = "MăngRS IBus"

@@ -100,8 +100,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.free.subtitle", "Dấu ở đâu trong từ cũng được"),
     );
     let auto_correct = switch_row(
-        &t("rows.auto_correct.title", "Từ sai trả phím gốc"),
-        &t("rows.auto_correct.subtitle", "Sửa âm tiết gõ sai"),
+        &t("rows.auto_correct.title", "Trả lại phím khi gõ sai"),
+        &t("rows.auto_correct.subtitle", "Âm tiết lạ thì trả phím gốc"),
     );
     let auto_restore = switch_row(
         &t("rows.auto_restore.title", "Khôi phục từ nước ngoài"),
@@ -119,8 +119,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.extended_onsets.subtitle", "f, j, w làm âm đầu"),
     );
     let abbrev = switch_row(
-        &t("rows.abbrev.title", "Viết tắt"),
-        &t("rows.abbrev.subtitle", "Giữ đ trong từ viết tắt"),
+        &t("rows.abbrev.title", "Giữ đ trong từ viết tắt"),
+        &t("rows.abbrev.subtitle", "ddc, ddk không thành đ"),
     );
     let bypass_url = switch_row(
         &t("rows.bypass_url.title", "Không dấu sau URL"),
@@ -128,12 +128,12 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     let w2u = combo_row(
         &t("rows.w2u.title", "W thành ư"),
-        &t("rows.w2u.subtitle", "Chọn vị trí áp dụng"),
+        &t("rows.w2u.subtitle", "w = ư, wa = ưa"),
         &labels(ON_OFF_MODES),
     );
     let bracket = combo_row(
         &t("rows.bracket.title", "[ ] thành ơ ư"),
-        &t("rows.bracket.subtitle", "Chọn vị trí áp dụng"),
+        &t("rows.bracket.subtitle", "[ và ] ra ơ, ư theo vị trí"),
         &labels(ON_OFF_MODES),
     );
     let backspace_tone = combo_row(
@@ -157,15 +157,12 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.em_dash.subtitle", "Hai dấu trừ thành gạch dài"),
     );
     let auto_capitalize = switch_row(
-        &t("rows.auto_capitalize.title", "Tự viết hoa"),
+        &t("rows.auto_capitalize.title", "Tự viết hoa đầu câu"),
         &t("rows.auto_capitalize.subtitle", "Sau . ! ? và Enter"),
     );
     let double_space = switch_row(
-        &t(
-            "rows.double_space.title",
-            "Nhấn “Space” hai lần thành dấu chấm",
-        ),
-        &t("rows.double_space.subtitle", "Hai dấu cách thành dấu chấm"),
+        &t("rows.double_space.title", "Hai dấu cách thành dấu chấm"),
+        &t("rows.double_space.subtitle", "Thay cho gõ dấu chấm tay"),
     );
     let macro_enabled = switch_row(
         &t("rows.macro_enabled.title", "Gõ tắt"),
@@ -189,17 +186,17 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let macro_valid_words = switch_row(
-        &t(
-            "rows.macro_valid_words.title",
-            "Gõ tắt: nở cả trên từ hợp lệ",
-        ),
+        &t("rows.macro_valid_words.title", "Gõ tắt thắng từ tiếng Việt"),
         &t(
             "rows.macro_valid_words.subtitle",
-            "Phím tắt trùng từ thật vẫn nở",
+            "Khoá trùng từ thật vẫn mở",
         ),
     );
     let keep_composed_words = switch_row(
-        &t("rows.keep_composed_words.title", "Giữ từ khi gõ phím lạ"),
+        &t(
+            "rows.keep_composed_words.title",
+            "Giữ từ khi gõ thêm phím lạ",
+        ),
         &t(
             "rows.keep_composed_words.subtitle",
             "tùng + g → tùngg thay vì tungfg",
@@ -216,15 +213,12 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let suggest_words = switch_row(
-        &t("rows.suggest_words.title", "Gợi ý từ (n-gram)"),
-        &t("rows.suggest_words.subtitle", "Gợi ý từ khi đang gõ"),
+        &t("rows.suggest_words.title", "Gợi ý từ khi gõ"),
+        &t("rows.suggest_words.subtitle", "Dải gợi ý cạnh con trỏ"),
     );
     let preferred_backend = combo_row(
-        &t("rows.preferred_backend.title", "Backend ưu tiên"),
-        &t(
-            "rows.preferred_backend.subtitle",
-            "Backend tiêm phím ưu tiên",
-        ),
+        &t("rows.preferred_backend.title", "Cách chèn phím"),
+        &t("rows.preferred_backend.subtitle", "Ưu tiên cách chèn phím"),
         // Order pinned by preferred_backend_index: auto, uinput, xtest,
         // wlr-virtual-keyboard, libei.
         &["Tự động", "Uinput", "Xtest", "Wlroots", "Libei"],
@@ -237,18 +231,18 @@ pub(super) fn widgets() -> Rc<Ui> {
     // unless the owner re-adds a subtitle in gui-content.toml.
     let time_format = combo_row(
         &t("rows.time_format.title", "Định dạng giờ ($TIME)"),
-        &t("rows.time_format.subtitle", ""),
+        &t("rows.time_format.subtitle", "Thay cho $TIME trong gõ tắt"),
         TIME_FORMATS,
     );
     let date_format = combo_row(
         &t("rows.date_format.title", "Định dạng ngày ($DATE)"),
-        &t("rows.date_format.subtitle", ""),
+        &t("rows.date_format.subtitle", "Thay cho $DATE trong gõ tắt"),
         DATE_FORMATS,
     );
     // The item labels are proper names (LANGUAGES), never translated.
     let language = combo_row(
         &t("rows.language.title", "Ngôn ngữ"),
-        &t("rows.language.subtitle", ""),
+        &t("rows.language.subtitle", "Ngôn ngữ cửa sổ cài đặt"),
         LANGUAGES,
     );
     let macros_text = text_view("");
@@ -416,7 +410,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     let post_delay = spin_button(0.0, 500.0, 1.0);
     let pacing_defaults = crate::config::Config::default();
     let pacing_row = action_row(
-        &t("rows.pacing.title", "Nhịp uinput (ms)"),
+        &t("rows.pacing.title", "Nhịp gõ phím ảo (ms)"),
         &t("rows.pacing.subtitle", "Nghỉ giữa các phím: {n}").replace(
             "{n}",
             &format!(
@@ -435,7 +429,11 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Nhịp xoá lùi",
             &backspace_interval,
         ),
-        ("rows.post_delay.title", "Độ trễ sau từ", &post_delay),
+        (
+            "rows.post_delay.title",
+            "Chờ sau khi viết lại từ",
+            &post_delay,
+        ),
     ] {
         if !merged_columns.is_empty() {
             pacing_row.add_suffix(&pacing_divider());
@@ -450,21 +448,15 @@ pub(super) fn widgets() -> Rc<Ui> {
     let echo_stale_spin = spin_button(50.0, 1000.0, 10.0);
     echo_stale_spin.set_sensitive(false);
     let (echo_stale_row, echo_stale_switch) = switch_value_row(
-        &t("rows.echo_stale.title", "Xả commit khi echo lạc (ms)"),
-        &t(
-            "rows.echo_stale.subtitle",
-            "Thời hạn chờ echo trước khi xả chữ",
-        ),
+        &t("rows.echo_stale.title", "Chờ phím ảo quay về (ms)"),
+        &t("rows.echo_stale.subtitle", "Quá hạn thì đổ chữ luôn"),
         &echo_stale_spin,
     );
     let idle_commit_spin = spin_button(300.0, 2000.0, 50.0);
     idle_commit_spin.set_sensitive(false);
     let (idle_commit_row, idle_commit_switch) = switch_value_row(
-        &t("rows.idle_commit.title", "Chấp nhận từ khi nghỉ gõ (ms)"),
-        &t(
-            "rows.idle_commit.subtitle",
-            "Nghỉ tay lâu thì từ được chấp nhận",
-        ),
+        &t("rows.idle_commit.title", "Tự chốt từ khi ngừng gõ (ms)"),
+        &t("rows.idle_commit.subtitle", "Như bấm dấu cách"),
         &idle_commit_spin,
     );
     let flow_per_key_spin = spin_button(0.0, 500.0, 5.0);
@@ -488,7 +480,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     let mut first_flow_column = true;
     for (caption, spin) in [
         (
-            t("rows.flow_per_key_delay.title", "Dấu từng bước (ms)"),
+            t("rows.flow_per_key_delay.title", "Hiện dấu từng bước (ms)"),
             &flow_per_key_spin,
         ),
         (
@@ -525,7 +517,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
             "rows.experimental_features.subtitle",
-            "Bật để hiện và chạy các tính năng dưới",
+            "Bật để dùng các tính năng bên dưới",
         ),
     );
 

@@ -104,11 +104,11 @@ subtitle = "Unicode and 10 legacy tables"
 
 [rows.hotkey_mode]
 title = "Display-mode shortcut"
-subtitle = "Example: Control+Alt+v"
+subtitle = "Switches input mode by key"
 
 [rows.hotkey_enabled]
 title = "Vietnamese on/off shortcut"
-subtitle = "Example: Control+Alt+space"
+subtitle = "Turns Vietnamese on or off by key"
 
 [rows.hotkey_app_rule]
 title = "Per-app rule shortcut"
@@ -145,8 +145,8 @@ title = "Free tone placement"
 subtitle = "Tone anywhere: hoangf → hoàng"
 
 [rows.auto_correct]
-title = "Restore invalid words"
-subtitle = "Fixes mistyped syllables"
+title = "Restore keys on a mistyped word"
+subtitle = "Unknown syllables return raw keys"
 
 [rows.auto_restore]
 title = "Restore foreign words"
@@ -161,8 +161,8 @@ title = "Extended onsets"
 subtitle = "f, j, w act as onsets"
 
 [rows.abbrev]
-title = "Keep abbreviated words"
-subtitle = "Keeps đ inside abbreviations"
+title = "Keeps đ in abbreviations"
+subtitle = "ddc, ddk stay đ"
 
 [rows.bypass_url]
 title = "No tones after URLs"
@@ -170,26 +170,26 @@ subtitle = "URLs stay raw up to a space"
 
 [rows.w2u]
 title = "W to ư"
-subtitle = "Choose where it applies"
+subtitle = "w = ư, wa = ưa"
 
 [rows.bracket]
 title = "[ ] to ơ ư"
-subtitle = "Choose where it applies"
+subtitle = "[ and ] give ơ, ư by position"
 
 [rows.em_dash]
 title = "Em dash"
 subtitle = "Two hyphens become an em dash"
 
 [rows.auto_capitalize]
-title = "Auto-capitalize"
+title = "Capitalize sentence start"
 subtitle = "After . ! ? and Enter"
 
 [rows.double_space]
-title = "Double Space becomes a period"
-subtitle = "Two spaces become a period"
+title = "Two spaces become a period"
+subtitle = "Saves typing the period"
 
 [rows.keep_composed_words]
-title = "Keep composed words"
+title = "Keep the word on a stray letter"
 subtitle = "tùng + g → tùngg instead of tungfg"
 
 [rows.keep_repeats_raw]
@@ -197,8 +197,8 @@ title = "Held keys repeat raw (Flow)"
 subtitle = "hold o → oooo… instead of stopping at ô"
 
 [rows.suggest_words]
-title = "Word suggestions (n-gram)"
-subtitle = "Suggests words while typing"
+title = "Word suggestions while typing"
+subtitle = "A suggestion strip by the caret"
 
 [rows.suggest_learn]
 title = "Learn from picked suggestions"
@@ -206,28 +206,28 @@ subtitle = "Favors the words you picked"
 
 [rows.learn_clear]
 title = "Clear learned data"
-subtitle = "Erases the learned data"
+subtitle = "Learning starts over"
 button = "Clear"
 
 [rows.preferred_backend]
-title = "Preferred backend"
-subtitle = "Preferred key-injection backend"
+title = "Key injection"
+subtitle = "Preferred way to inject keys"
 
 [rows.macro_valid_words]
-title = "Shorthand: expands on real words too"
-subtitle = "A shortcut on a real word still expands"
+title = "Shorthand beats real words"
+subtitle = "A shortcut on a real word expands"
 
 [rows.echo_stale]
-title = "Flush commits on stale echo (ms)"
-subtitle = "Echo wait limit before the text flushes"
+title = "Wait for virtual keys (ms)"
+subtitle = "Past the limit the text lands"
 
 [rows.idle_commit]
-title = "Commit the word when typing pauses (ms)"
-subtitle = "A long pause commits the word"
+title = "Commit on pause (ms)"
+subtitle = "As if Space was pressed"
 
 [rows.experimental_features]
 title = "Experimental features"
-subtitle = "On to show and run the rows below"
+subtitle = "On to use the rows below"
 
 [groups.tune.advanced]
 title = "Advanced"
@@ -250,15 +250,15 @@ open_tooltip = "Open macros.toml with the default app"
 
 [rows.time_format]
 title = "Time format ($TIME)"
-subtitle = ""
+subtitle = "Replaces $TIME in shorthand"
 
 [rows.date_format]
 title = "Date format ($DATE)"
-subtitle = ""
+subtitle = "Replaces $DATE in shorthand"
 
 [rows.language]
 title = "Language"
-subtitle = ""
+subtitle = "Settings window language"
 
 [rows.backspace_tone]
 title = "Delete tones with Backspace"
@@ -269,10 +269,12 @@ title = "Navigation while a word is open"
 subtitle = "The first arrow key while a word is open"
 
 [rows.flow_per_key_delay]
-title = "Per-step marks (ms)"
+title = "Show marks per step (ms)"
+subtitle = "Lower shows marks sooner"
 
 [rows.flow_backspace_restore_delay]
 title = "Mark restore after Backspace (ms)"
+subtitle = "Waits before rewriting the screen"
 
 [rows.flow_delay]
 subtitle = "Defaults: {n}"
@@ -525,16 +527,18 @@ title = "Preedit for XIM apps"
 subtitle = "Separate preedit window for XIM"
 
 [rows.pacing]
-title = "uinput pacing (ms)"
+title = "Virtual key pace (ms)"
 subtitle = "Pause between keys: {n}"
 
 [rows.backspace_interval]
 title = "Backspace pace"
+subtitle = "Lower it if deletion lags"
 
 [rows.post_delay]
-title = "Post-word delay"
+title = "Wait after rewriting a word"
 
 # --- page About ---------------------------------------------------------------
+subtitle = "For apps with slow key handling"
 
 [about]
 name = "MăngRS IBus"

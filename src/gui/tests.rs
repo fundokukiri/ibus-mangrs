@@ -132,7 +132,8 @@ fn close_test_windows() {
 /// The merged pacing row is laid out symmetrically: the two caption
 /// columns share one width and the divider between them sits at that
 /// pair's centre. Packed at natural widths ("Nhịp xoá lùi" is much shorter
-/// than "Độ trễ sau từ") the divider drifted and the row read lopsided.
+/// than "Chờ sau khi viết lại từ") the divider drifted and the row read
+/// lopsided.
 fn pacing_columns_are_symmetric() {
     let ui = widgets();
     let page = crate::gui::pages::tune::build(&ui);
@@ -155,7 +156,7 @@ fn pacing_columns_are_symmetric() {
     let pacing = ui.pacing_row.clone().upcast::<gtk4::Widget>();
     let flow = ui.flow_delay_row.clone().upcast::<gtk4::Widget>();
     let left = column_of(&pacing, "Nhịp xoá lùi");
-    let right = column_of(&pacing, "Độ trễ sau từ");
+    let right = column_of(&pacing, "Chờ sau khi viết lại từ");
     let bounds = |w: &gtk4::Widget| {
         w.compute_bounds(ui.pacing_row.upcast_ref::<gtk4::Widget>())
             .expect("an allocated column")
@@ -178,7 +179,8 @@ fn pacing_columns_are_symmetric() {
     );
     // The Flow row shares the width, so its first column starts at the same
     // x — the two rows read as one grid instead of two clusters.
-    let flow_left = bounds(column_of(&flow, "Dấu từng bước (ms)").upcast_ref::<gtk4::Widget>());
+    let flow_left =
+        bounds(column_of(&flow, "Hiện dấu từng bước (ms)").upcast_ref::<gtk4::Widget>());
     assert_eq!(
         flow_left.x(),
         l.x(),

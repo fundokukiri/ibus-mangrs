@@ -397,7 +397,7 @@ pub(super) fn pacing_column(caption: &str, spin: &gtk4::SpinButton) -> gtk4::Box
 }
 
 /// Equalize the caption columns of the merged rows. Captions differ in
-/// length ("Nhịp xoá lùi" against "Độ trễ sau từ"), so packed at their
+/// length ("Nhịp xoá lùi" against "Chờ sau khi viết lại từ"), so packed at their
 /// natural widths the divider lands off-centre and each row starts at its
 /// own x. Every column takes the widest caption's width, which centres each
 /// divider and lines the rows up with each other.

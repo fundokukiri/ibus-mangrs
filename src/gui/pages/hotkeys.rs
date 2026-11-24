@@ -261,7 +261,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     group.add(&default_row(
         ui,
         &t("rows.hotkey_mode.title", "Phím tắt đổi chế độ gõ"),
-        &t("rows.hotkey_mode.subtitle", "Ví dụ: Control+Alt+v"),
+        &t("rows.hotkey_mode.subtitle", "Đổi chế độ gõ bằng phím"),
         None,
         &ui.hotkey_value,
         ui.hotkey_display.clone(),
@@ -269,7 +269,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     group.add(&default_row(
         ui,
         &t("rows.hotkey_enabled.title", "Phím tắt bật/tắt tiếng Việt"),
-        &t("rows.hotkey_enabled.subtitle", "Ví dụ: Control+Alt+space"),
+        &t(
+            "rows.hotkey_enabled.subtitle",
+            "Bật tắt tiếng Việt bằng phím",
+        ),
         None,
         &ui.enabled_hotkey_value,
         ui.enabled_hotkey_display.clone(),
