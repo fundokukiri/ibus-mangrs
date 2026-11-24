@@ -341,6 +341,13 @@ struct Ui {
     /// created in `refresh`, so they fire edits through this instead of a
     /// closure captured at build time. `None` in headless tests.
     save_cb: SharedSave,
+    /// The entries last written to macros.toml, dictionary.txt and
+    /// emoji.toml. A settings change usually touches one of them; rewriting
+    /// the personal dictionary on every knob step costs ~8 ms at 20k words
+    /// and is what made the window feel sticky.
+    saved_macros: RefCell<Option<Vec<(String, String)>>>,
+    saved_dictionary: RefCell<Option<Vec<String>>>,
+    saved_emoji: RefCell<Option<Vec<(String, String)>>>,
     /// The config.toml mtime this window itself wrote (the last `save_all`):
     /// the live-reload poll skips it — reloading our own save would churn
     /// every row for nothing. External writers still reload.
@@ -1087,17 +1094,31 @@ impl Ui {
                 .and_then(|m| m.modified().ok()),
         );
 
-        let mut macros = Macros::load();
-        macros.set_entries(self.macros_from_text().into_iter());
-        macros.save()?;
+        // Each list is compared with what was last written: a knob on the
+        // typing page must not rewrite the personal dictionary.
+        let macros_text = self.macros_from_text();
+        if save_changed(self.saved_macros.borrow().as_deref(), &macros_text) {
+            let mut macros = Macros::load();
+            macros.set_entries(macros_text.iter().cloned());
+            macros.save()?;
+            *self.saved_macros.borrow_mut() = Some(macros_text);
+        }
 
-        let mut dict = Dictionary::load();
-        dict.set_words(self.read_dictionary().into_iter());
-        dict.save()?;
+        let dictionary = self.read_dictionary();
+        if save_changed(self.saved_dictionary.borrow().as_deref(), &dictionary) {
+            let mut dict = Dictionary::load();
+            dict.set_words(dictionary.iter().cloned());
+            dict.save()?;
+            *self.saved_dictionary.borrow_mut() = Some(dictionary);
+        }
 
-        let mut emoji = crate::emoji::UserEmoji::load();
-        emoji.set_entries(self.emoji_from_text().into_iter());
-        emoji.save()?;
+        let emoji_text = self.emoji_from_text();
+        if save_changed(self.saved_emoji.borrow().as_deref(), &emoji_text) {
+            let mut emoji = crate::emoji::UserEmoji::load();
+            emoji.set_entries(emoji_text.iter().cloned());
+            emoji.save()?;
+            *self.saved_emoji.borrow_mut() = Some(emoji_text);
+        }
         Ok(())
     }
 
@@ -1114,6 +1135,13 @@ impl Ui {
         self.refresh(&config, &macros, &dictionary);
         self.suppress_save.set(false);
     }
+}
+
+/// Whether the widgets' parsed list differs from what was last written to
+/// its file: a settings change usually touches one list, and rewriting the
+/// personal dictionary on every knob step is what made the window sticky.
+fn save_changed<T: PartialEq>(last: Option<&[T]>, now: &[T]) -> bool {
+    last != Some(now)
 }
 
 /// The shipped focus extension, embedded so the install button works on a

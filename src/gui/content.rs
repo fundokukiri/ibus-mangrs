@@ -5,6 +5,11 @@
 
 use super::*;
 
+/// One settings save per burst of widget notifications: long enough to
+/// swallow a spin button's steps, short enough that the engine's hot-reload
+/// poll sees the value within its own second.
+const SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(300);
+
 // Per-process rebuild bookkeeping. Each `build()` installs a live-reload
 // poller holding its own `Ui` — the rebuild removes the previous one or it
 // would poll forever behind the closed window. `PENDING_REBUILD` keeps at
@@ -661,21 +666,52 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         list.select_row(Some(wanted_row));
     }
 
-    {
+    // The write the debounced funnel ends in, and the immediate one the
+    // language rebuild needs: it re-reads config.toml as soon as it runs, so
+    // a deferred save would hand it the old language.
+    let write_now: Rc<dyn Fn()> = {
         let window_for_save = window.clone();
+        let ui_for_save = ui.clone();
+        Rc::new(move || match ui_for_save.save_all() {
+            // The change is live: the engine's run-loop hot-reload applies it
+            // and refreshes the panel menu within a second.
+            Ok(()) => {}
+            Err(e) => alert(&window_for_save, &e.to_string()),
+        })
+    };
+    {
+        let write = Rc::clone(&write_now);
+        // One save per burst: a spin button reports every step and a typed
+        // range reports every digit, so saving inline stalled the main loop
+        // on the personal dictionary's rewrite. The engine polls the file,
+        // so the coalesced write loses nothing.
+        let pending = Rc::new(Cell::new(false));
+        // A save still waiting on the debounce must not die with the window:
+        // the last knob turn before a close is the user's.
+        {
+            let write = Rc::clone(&write);
+            let pending = Rc::clone(&pending);
+            window.connect_close_request(move |_| {
+                if pending.replace(false) {
+                    write();
+                }
+                gtk4::glib::Propagation::Proceed
+            });
+        }
         let ui_for_save = ui.clone();
         let save = move || {
             // Programmatic widget updates (external_reload) fire the same
             // handlers; saving then would write back what we just read.
-            if ui_for_save.suppress_save.get() {
+            if ui_for_save.suppress_save.get() || pending.get() {
                 return;
             }
-            match ui_for_save.save_all() {
-                // The change is live: the engine's run-loop hot-reload
-                // applies it and refreshes the panel menu within a second.
-                Ok(()) => {}
-                Err(e) => alert(&window_for_save, &e.to_string()),
-            }
+            pending.set(true);
+            let write_later = Rc::clone(&write);
+            let pending_later = Rc::clone(&pending);
+            gtk4::glib::timeout_add_local_once(SAVE_DEBOUNCE, move || {
+                pending_later.set(false);
+                write_later();
+            });
         };
         // The rule rows are created by `refresh`, so they save through this
         // handle instead of a closure captured at build time.
@@ -737,13 +773,14 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         // refreshes run with the funnel suppressed — a rebuild here would
         // tear the window down mid-refresh.
         {
-            let s = save.clone();
+            let write_now = Rc::clone(&write_now);
             let app_for_lang = app.clone();
             let page_for_lang = current_page.clone();
             let built_en = crate::gui::text::is_english();
             ui.language.connect_selected_notify(move |row| {
                 if (row.selected() == 1) != built_en {
-                    s();
+                    // Immediate: the idle below reads the file.
+                    write_now();
                     let window = row.root().and_downcast::<gtk4::Window>();
                     let page = page_for_lang.borrow().clone();
                     let app = app_for_lang.clone();

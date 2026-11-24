@@ -1617,3 +1617,18 @@ fn poll_reloads_skips_self_writes() {
         "no stamp (a failed save) must reload"
     );
 }
+
+#[test]
+fn a_save_only_rewrites_the_list_that_changed() {
+    // The window writes macros, dictionary and emoji on every save; a knob
+    // change must not rewrite the personal dictionary (~8 ms at 20k words).
+    // `save_changed` is the guard: equal content stays on disk untouched.
+    let last = vec!["học".to_string(), "sinh".to_string()];
+    assert!(!crate::gui::save_changed(Some(&last[..]), &last));
+    let grown = vec!["học".to_string(), "sinh".to_string(), "viên".to_string()];
+    assert!(crate::gui::save_changed(Some(&last[..]), &grown));
+    assert!(
+        crate::gui::save_changed(None, &last),
+        "the first save writes"
+    );
+}
