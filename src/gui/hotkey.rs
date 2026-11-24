@@ -152,6 +152,8 @@ pub(super) fn same_combo(a: &str, b: &str) -> bool {
 pub(super) struct ShortcutDisplay {
     stack: gtk4::Stack,
     keys: gtk4::ShortcutLabel,
+    /// The right-aligned box holding `keys`; this is the stack page.
+    keys_slot: gtk4::Box,
     raw: gtk4::Label,
     title: String,
 }
@@ -167,16 +169,23 @@ impl ShortcutDisplay {
         // keycaps then end on the same line instead of each hugging its own
         // text width.
         raw.set_xalign(1.0);
+        // The slot is one fixed width, so the keycaps hug its right edge too:
+        // a bare ShortcutLabel fills the slot and lays its keys out from the
+        // left, which put an assigned shortcut far left of "Chưa gán".
+        let keys_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        keys_box.set_halign(gtk4::Align::End);
+        keys_box.append(&keys);
         let stack = gtk4::Stack::new();
         stack.set_size_request(200, -1);
         stack.set_halign(gtk4::Align::End);
         // No transitions: the two states swap, they do not animate.
         stack.set_transition_type(gtk4::StackTransitionType::None);
         stack.add_named(&raw, Some("raw"));
-        stack.add_named(&keys, Some("keys"));
+        stack.add_named(&keys_box, Some("keys"));
         let this = Self {
             stack,
             keys,
+            keys_slot: keys_box,
             raw,
             title: title.to_string(),
         };
@@ -198,7 +207,7 @@ impl ShortcutDisplay {
             match accelerator_label(value) {
                 Some(acc) => {
                     self.keys.set_accelerator(&acc);
-                    self.stack.set_visible_child(&self.keys);
+                    self.stack.set_visible_child(&self.keys_slot);
                 }
                 None => {
                     self.raw.set_text(value);

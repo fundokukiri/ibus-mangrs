@@ -498,12 +498,11 @@ fn shortcut_helpers_render_and_capture() {
         .clone();
     assert_eq!(label.text(), "Chưa gán");
     display.render("Control+Alt+v");
-    let keys = stack
-        .visible_child()
-        .unwrap()
-        .downcast_ref::<gtk4::ShortcutLabel>()
-        .unwrap()
-        .clone();
+    // The keycaps sit in their own right-aligned box inside the fixed slot.
+    let keys = descendants::<gtk4::ShortcutLabel>(stack.visible_child().unwrap().upcast_ref())
+        .into_iter()
+        .next()
+        .expect("a shortcut label");
     assert_eq!(keys.accelerator().as_deref(), Some("<Control><Alt>v"));
     display.render("Shift+Control");
     let label = stack
