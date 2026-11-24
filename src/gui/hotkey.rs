@@ -394,7 +394,7 @@ pub(super) fn open_capture_dialog(
             if crate::server::parse_hotkey(&spec).is_none() {
                 note.set_text(&t(
                     "misc.capture_bad_key",
-                    "Phím này không dùng được — thử phím khác",
+                    "Phím này không dùng được, thử phím khác",
                 ));
                 note.set_visible(true);
                 return Propagation::Stop;

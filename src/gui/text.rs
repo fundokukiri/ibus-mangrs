@@ -107,6 +107,23 @@ mod tests {
         }
     }
 
+    /// Tooltips read as plain sentences: no em dash and no drawn-out
+    /// explanation, since the owner reads them as machine text.
+    #[test]
+    fn every_tooltip_stays_plain_and_short() {
+        for (content, limit) in [(CONTENT, 240), (CONTENT_EN, 300)] {
+            let parsed: toml::Table = toml::from_str(content).expect("content parses");
+            let tips = parsed["tips"].as_table().expect("a tips table");
+            for (key, val) in tips {
+                let text = val.as_str().expect("a string");
+                assert!(!text.contains('—'), "{key}: em dash in {text}");
+                assert!(!text.contains(" - "), "{key}: dash in {text}");
+                let len = text.chars().count();
+                assert!(len <= limit, "{key}: {len} chars in {text}");
+            }
+        }
+    }
+
     #[test]
     fn t_respects_the_language_and_falls_back_to_vi() {
         let _g = LANG_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());

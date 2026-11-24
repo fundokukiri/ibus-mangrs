@@ -1192,7 +1192,7 @@ pub(super) fn install_focus_extension() -> Result<String, String> {
         _ => {
             let _ = writeln!(
                 note,
-                "Chưa bật được từ đây — mở ứng dụng Extensions và bật, hoặc chạy: gnome-extensions enable mangrs-focus@fundokukiri"
+                "Chưa bật được từ đây. Mở ứng dụng Extensions và bật, hoặc chạy: gnome-extensions enable mangrs-focus@fundokukiri"
             );
         }
     }

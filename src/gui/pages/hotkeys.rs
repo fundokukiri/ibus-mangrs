@@ -283,7 +283,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         ),
         Some((
             "tips.hotkey_app_rule",
-            "Chọn chế độ gõ ngay tại con trỏ: mũi tên di chuyển, Enter chọn. Gán tổ hợp ở trang Phím tắt.",
+            "Mở bảng chọn chế độ gõ ngay tại con trỏ. Gán tổ hợp ở trang Phím tắt.",
         )),
         &ui.app_rule_hotkey_value,
         ui.app_rule_hotkey_display.clone(),

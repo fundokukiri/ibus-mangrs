@@ -958,7 +958,7 @@ fn ask_debug_mode(ui: &Rc<Ui>, window: &gtk4::Window) {
         .heading(t("other.debug_heading", "Bật chế độ gỡ lỗi?"))
         .body(t(
             "other.debug_body",
-            "Engine sẽ ghi quyết định của nó vào ~/.cache/ibus-mangrs/debug.log. Chọn thêm nếu cần chẩn đoán sâu — hai mục này ghi cả nội dung riêng tư, đừng đính kèm log lên issue khi chưa xem lại.",
+            "Engine ghi quyết định vào ~/.cache/ibus-mangrs/debug.log. Hai mục tuỳ chọn ghi cả nội dung riêng tư, xem lại log trước khi đính kèm vào issue.",
         ))
         .extra_child(&extra)
         .build();

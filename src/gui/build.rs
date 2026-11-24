@@ -284,7 +284,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     }
     dictionary_enabled.set_tooltip_text(Some(&t(
         "tips.dictionary_enabled",
-        "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc.",
+        "Từ trong từ điển cá nhân không bị trả về chuỗi phím gốc.",
     )));
     let dictionary_text = text_view("");
     // Fixed height so the list cannot stretch (or collapse) the page; the
@@ -375,10 +375,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     let show_toasts = switch_row(
         &t("rows.show_toasts.title", "Thông báo nhanh"),
-        &t(
-            "rows.show_toasts.subtitle",
-            "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại",
-        ),
+        &t("rows.show_toasts.subtitle", "Bong bóng báo thao tác"),
     );
     let desktop_icon_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
@@ -403,10 +400,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     ));
     let x11_delete = switch_row(
         &t("rows.x11_delete.title", "Xoá đuôi từ ở app X11"),
-        &t(
-            "rows.x11_delete.subtitle",
-            "App X11 trực tiếp xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
-        ),
+        &t("rows.x11_delete.subtitle", "Cách xoá từ ở app X11"),
     );
     let preedit_xim = switch_row(
         &t("rows.preedit_xim.title", "Preedit cho app XIM"),
@@ -556,200 +550,200 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         enabled,
         "tips.enabled",
-        "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
+        "Bật hoặc tắt cả bộ gõ. Khi tắt, phím đi thẳng vào app như chưa cài."
     );
     tip!(
         method,
         "tips.method",
-        "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
+        "Kiểu gõ quyết định cách ra chữ có dấu, ví dụ Telex gõ ss ra á, VNI gõ a1 ra á."
     );
     tip!(
         mode,
         "tips.mode",
-        "Gạch chân (preedit): chữ gạch chân inline, commit khi hết từ — cần client hỗ trợ preedit, không hỗ trợ thì tự chuyển Surrounding. Surrounding text: mỗi phím commit ngay, đuôi từ được sửa lại qua xóa-văn-bản — cần client báo surrounding-text; client không báo thì đuôi từ được xóa bằng phím chèn (backend) hoặc phím chuyển tiếp thay thế. Flow: phím raw được chuyển thẳng, dấu hiện ngay từng bước, hết từ commit — cần backend chèn phím (uinput/Wayland), không có thì tự chạy như Forward Backspace. Forward Backspace: mỗi phím commit ngay, sửa đuôi bằng phím Backspace chuyển tiếp qua IBus — không bao giờ tự chuyển mode, chạy được ở mọi client kể cả terminal/XIM. OFF: tắt xử lý tiếng Việt, macro vẫn chạy."
+        "Cách đưa chữ vào app. Gạch chân hiện chữ ngay trong app, cần app hỗ trợ. Surrounding sửa đuôi từ dựa vào báo cáo của chính app. Flow chèn từng phím, cần backend chèn phím. Forward Backspace chạy được ở mọi app. OFF tắt tiếng Việt."
     );
     tip!(
         charset,
         "tips.charset",
-        "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
+        "Bảng mã chữ. Unicode dùng cho mọi việc thường ngày, VNI và TCVN3 chỉ để đọc file cũ."
     );
     tip!(
         modern,
         "tips.modern",
-        "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."
+        "Đặt dấu theo chuẩn mới của Bộ GD-ĐT: hòa thay vì hoà."
     );
     tip!(
         free,
         "tips.free",
-        "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên âm gần nhất."
+        "Cho dấu đứng tự do trong từ, không buộc phải nằm ở nguyên âm gần nhất."
     );
     tip!(
         auto_correct,
         "tips.auto_correct",
-        "Âm tiết không có trong từ điển tiếng Việt sẽ trả về đúng chuỗi phím đã bấm."
+        "Âm tiết không có trong từ điển sẽ trả về đúng chuỗi phím đã bấm."
     );
     tip!(
         auto_restore,
         "tips.auto_restore",
-        "Từ nước ngoài (english, hello) gõ xong tự trả về chuỗi phím gốc thay vì giữ nguyên."
+        "Từ nước ngoài như english, hello tự trả về chuỗi phím gốc khi gõ xong."
     );
     tip!(
         extended_finals,
         "tips.extended_finals",
-        "Cho phép g, k, h, nk đứng thay cho âm cuối ng, c, nh nên dấu thanh đúng dù gõ trước hay sau âm cuối (nhuwgx → nhữg). Từ tiếng Anh có thể đổi (book → bôk); mặc định tắt."
+        "Cho g, k, h, nk thay cho ng, c, nh để dấu thanh đúng dù gõ trước hay sau âm cuối. Mặc định tắt."
     );
     tip!(
         extended_onsets,
         "tips.extended_onsets",
-        "Cho phép f, j, w đứng làm âm đầu và nhận dấu thanh (fos → fó). Mặc định tắt: không từ tiếng Việt nào bắt đầu bằng các chữ này, tắt giúp từ tiếng Anh (fire, water) không bị ghi dấu oan."
+        "Cho f, j, w làm âm đầu và nhận dấu. Mặc định tắt để từ tiếng Anh không bị ghi dấu oan."
     );
     tip!(
         abbrev,
         "tips.abbrev",
-        "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
+        "Giữ đ trong từ viết tắt, ví dụ ddc, ddk không bị đổi thành đ."
     );
     tip!(
         bypass_url,
         "tips.bypass_url",
-        "Từ ngay sau URL/email/path không được thêm dấu, tránh làm hỏng liên kết khi soạn chat."
+        "Liên kết thật như https:// và www. gõ nguyên cả chuỗi, dấu câu sau đó vẫn gõ tiếng Việt bình thường."
     );
     tip!(
         w2u,
         "tips.w2u",
-        "Gõ w nhận ư: w = ư, wa = ưa... tiện cho bàn phím không có sẵn ư."
+        "Gõ w ra ư: w thành ư, wa thành ưa. Tiện cho bàn phím không có ư."
     );
     tip!(
         bracket,
         "tips.bracket",
-        "Gõ [ và ] nhận ơ và ư theo vị trí trong từ."
+        "Gõ [ và ] ra ơ và ư tuỳ vị trí trong từ."
     );
-    tip!(show_toasts, "tips.show_toasts", "Bong bóng báo thao tác");
+    tip!(show_toasts, "tips.show_toasts", "Bong bóng nhỏ khi thêm, xoá, xuất, nhập hoặc cài extension. Tắt để im lặng, lỗi vẫn hiện hộp thoại.");
     tip!(
         backspace_tone,
         "tips.backspace_tone",
-        "Xóa dấu trước (mặc định): hạ thành ha, rồi h. Xóa cả dấu và chữ: hạ thành h, việt thành việc rồi vi — mỗi Backspace xóa đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
+        "Xoá dấu trước: hạ thành ha rồi h. Xoá cả dấu và chữ: hạ thành h, mỗi Backspace xoá đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
     );
     tip!(
         em_dash,
         "tips.em_dash",
-        "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
+        "Hai gạch ngang liền nhau thành một gạch dài."
     );
     tip!(
         auto_capitalize,
         "tips.auto_capitalize",
-        "Tự viết hoa chữ cái đầu câu sau dấu chấm, !, ? hoặc Enter."
+        "Tự viết hoa chữ đầu câu sau dấu chấm, dấu chấm than, dấu hỏi hoặc Enter."
     );
     tip!(
         double_space,
         "tips.double_space",
-        "Nhấn hai dấu cách liên tiếp thành dấu chấm + khoảng cách (thử nghiệm)."
+        "Nhấn hai dấu cách liền nhau thành dấu chấm và khoảng cách."
     );
     tip!(
         macro_enabled,
         "tips.macro_enabled",
-        "Bật bảng gõ tắt: chuỗi khóa được mở rộng thành nội dung khi gõ xong từ."
+        "Bật gõ tắt: gõ xong khoá thì nội dung tắt được thay vào."
     );
     tip!(
         capitalize_macro,
         "tips.capitalize_macro",
-        "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo."
+        "Khoá viết hoa thì nội dung cũng viết hoa theo."
     );
     tip!(
         macro_in_off_mode,
         "tips.macro_in_off_mode",
-        "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
+        "Gõ tắt vẫn chạy khi tiếng Việt đang tắt."
     );
     tip!(
         emoji_enabled,
         "tips.emoji_enabled",
-        "Gõ :smile: thành emoji. Từ dán ngay sau dấu hai chấm không được thêm dấu khi tính năng này bật (như quy tắc bỏ qua URL); tắt đi nếu bạn thường viết kiểu :từ_viết."
+        "Gõ :smile: ra emoji. Tên không khớp thì giữ nguyên chữ đã gõ."
     );
     tip!(
         hide_underline,
         "tips.hide_underline",
-        "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
+        "Ẩn gạch chân ở những app vẽ gạch chân bị lỗi, ví dụ vài game và terminal."
     );
     tip!(
         debug_log,
         "tips.debug_log",
-        "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
+        "Engine ghi quyết định vào ~/.cache/ibus-mangrs/debug.log. Khi bật sẽ hỏi có ghi nội dung đang gõ và từng phím hay không. Log tự cắt mỗi 5 MB."
     );
     tip!(
         x11_delete,
         "tips.x11_delete",
-        "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."
+        "Cách xoá từ ở app X11: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."
     );
     tip!(
         preedit_xim,
         "tips.preedit_xim",
-        "Dùng cửa sổ preedit riêng cho app XIM (Java/JetBrains) vốn không hỗ trợ preedit của IBus."
+        "Dùng cửa sổ gạch chân riêng cho app XIM như Java và JetBrains, vốn không nhận gạch chân của IBus."
     );
     tip!(
         backspace_interval,
         "tips.backspace_interval",
-        "Nhịp gửi Backspace ở mode uinput — giảm nếu xoá chậm, tăng nếu app xử lý không kịp."
+        "Nhịp gửi Backspace. Giảm nếu xoá chậm, tăng nếu app xử lý không kịp."
     );
     tip!(
         post_delay,
         "tips.post_delay",
-        "Chờ sau khi viết lại cả từ trước khi gõ chữ tiếp, dành cho app xử lý phím chậm."
+        "Chờ một chút sau khi viết lại cả từ, dành cho app xử lý phím chậm."
     );
     // Every "Thử nghiệm" row: the tooltip names the feature it belongs to.
     tip!(
         experimental_features,
         "tips.experimental_features",
-        "Công tắc chính của tab Thử nghiệm: tắt thì mọi hàng dưới bị khóa và bộ gõ chạy theo mặc định; giá trị đã chỉnh vẫn được lưu để dùng lại khi bật lại."
+        "Công tắc chính của tab Thử nghiệm. Tắt thì mọi hàng bên dưới bị khoá và bộ gõ chạy theo mặc định, giá trị đã chỉnh vẫn được lưu."
     );
     tip!(
         macro_valid_words,
         "tips.macro_valid_words",
-        "Tính năng Gõ tắt: phím tắt trùng một từ tiếng Việt thật (vd “cam”) không nở để không cản gõ từ thường. Bật thì gõ tắt vẫn thắng — muốn gõ từ thật, Backspace một phím rồi gõ lại phím đó."
+        "Khoá gõ tắt trùng một từ tiếng Việt thật, ví dụ cam, thì không mở rộng để không cản gõ. Bật thì gõ tắt thắng; muốn gõ từ thật, bấm Backspace một lần rồi gõ lại."
     );
     tip!(
         keep_composed_words,
         "tips.keep_composed_words",
-        "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Mặc định tắt."
+        "Từ đã hoàn chỉnh thì phím mới nối vào từ chứ không kéo cả từ về chuỗi phím gốc. Mặc định tắt."
     );
     tip!(
         keep_repeats_raw,
         "tips.keep_repeats_raw",
-        "Dành riêng cho chế độ Flow: giữ một phím ở Flow chỉ lặp được một lần rồi dừng ở ô (oo → ô rồi đứng im), bật thì phím giữ chảy nguyên bản oooo… như bàn phím thường. Các chế độ gõ khác không gặp lỗi này nên không cần bật. Đổi giá khi bật: hai phím giống nhau gõ cách nhau quá ~0,4 giây sẽ ở lại nguyên bản (tooi thay vì tôi). Mặc định tắt."
+        "Dành cho Flow: bật để giữ phím lặp lại nguyên bản như bàn phím thường. Mặc định tắt."
     );
     tip!(
         suggest_words,
         "tips.suggest_words",
-        "Từ đang gõ hiện trong ô soạn như các bộ gõ cũ, dải gợi ý nằm bên cạnh. Danh sách lấy từ mô hình dự đoán; khi mô hình không biết tiền tố, bảng âm tiết có sẵn sửa từ gõ sai một ký tự ('sinhh' thấy 'sinh'): gõ chữ cái đầu tiên là gợi ý đã chạy; các gợi ý xếp theo độ thông dụng trong mô hình, từ đơn và từ ghép chấm chung một thang ('sinh' thấy 'sinh viên' đứng đầu vì cụm đó phổ biến hơn các từ đơn hiếm), emoji luôn nằm ô 5; sau khi một từ đổ bằng dấu cách, danh sách chỉ còn những từ mô hình đã thấy đứng sau nó ('xin ' rồi gõ 'c' thấy 'cho', 'cảm', 'cấp', 'chào' — không có từ lạ nào xen vào); gõ tiếp chữ cái sẽ dựng lại danh sách theo cả chữ đó và từ đứng trước. Từ tiếng Anh vào bằng prefix ASCII thuần, emoji vào qua từ khóa. phím ` lấy ô đầu (muốn gõ ký tự ` thì nhấn hai lần: lần đầu là chọn, lần sau là ký tự; Shift+` với ~ cũng vậy), Alt+1–5 chọn ô tương ứng, hoặc click thẳng dòng gợi ý — từ được chèn kèm dấu cách; số gõ thường vẫn vào từ như bình thường; lật trang bằng nút ◀▶ trên khung hoặc Ctrl+, / Ctrl+., phím Escape vẫn kết thúc từ như thường, mũi tên giữ nguyên vai trò di chuyển con trỏ. Chạy ở chế độ Preedit và các chế độ có kênh xóa chữ (Surrounding, Forward Backspace, Flow) — một lựa chọn sẽ xóa chữ app đang giữ trước khi commit. Dùng được ở mọi preset — phím chọn là Alt+số và phím ` nên phím số làm dấu của preset không bị giành. Cần file mô hình dự đoán đã cài; không có mô hình thì chỉ từ khóa emoji mở được dải gợi ý. Những từ anh chọn được ghi lại để ưu tiên lần sau — nút 'Xoá dữ liệu đã học' nằm ở trang Cài đặt nâng cao, mục Nâng cao. Mặc định tắt, thuộc nhóm tính năng thử nghiệm."
+        "Hiện từ đang gõ cùng dải gợi ý ngay cạnh con trỏ. Chọn bằng phím `, Alt+1 đến Alt+5 hoặc bấm vào dòng gợi ý. Mặc định tắt."
     );
     tip!(
         preferred_backend,
         "tips.preferred_backend",
-        "Chọn backend tiêm phím được ưu tiên: uinput là bàn phím ảo của nhân, XTest chỉ có trên X11, wlroots cho Hyprland/sway, libei qua GNOME (đã đo thấy rủi ro crash — chỉ để thử nghiệm). Backend chọn được đặt lên đầu danh sách ưu tiên; không dựng được thì bộ gõ tự rơi về thứ tự theo môi trường. Tự động là hành vi mặc định."
+        "Chọn cách chèn phím được ưu tiên. Để tự động là tốt nhất, chỉ đổi khi cần thử nghiệm."
     );
     tip!(
         echo_stale_row,
         "tips.echo_stale",
-        "Bảo vệ xả commit trên Wayland: chờ các phím Backspace ảo (echo) quay về trước khi đổ chữ đã commit vào app. Số ms bên phải là thời hạn chờ — quá hạn thì xả luôn để chữ không treo. Mặc định 150 ms."
+        "Chờ các phím Backspace ảo quay về trước khi đổ chữ đã commit, để không mất chữ trên Wayland. Số ms là thời hạn chờ, mặc định 150."
     );
     tip!(
         idle_commit_row,
         "tips.idle_commit",
-        "Tính năng Chấp nhận từ khi nghỉ gõ: dừng tay quá lâu trên một từ đang gạch chân thì từ đó được commit luôn, như bấm dấu cách. Số ms bên phải là ngưỡng nghỉ tay."
+        "Dừng tay quá lâu trên một từ còn gạch chân thì từ đó tự commit như bấm dấu cách. Số ms là ngưỡng nghỉ tay."
     );
     // The two Flow tips sit on their spins now: one row carries both knobs.
     tip!(
         flow_per_key_spin,
         "tips.flow_per_key",
-        "Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — luôn bật, không có công tắc. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms trong ô là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland."
+        "Flow hiện chữ có dấu ngay khi gõ. Số ms là độ trễ đổ chữ vào app, thấp thì dấu hiện sớm hơn."
     );
     tip!(
         flow_backspace_restore_spin,
         "tips.flow_backspace_restore",
-        "Hoàn dấu sau Backspace, chuẩn ở Flow: gõ chào rồi gõ thêm f (dấu bị gỡ, màn hình thành chaof), bấm Backspace thì dấu quay lại (chào) — theo đúng cài đặt “Xóa dấu bằng Backspace”: Unikey và Xóa dấu trước trả lại dấu, Cả ký tự thì xoá một ký tự. Số ms trong ô là thời gian chờ sau Backspace rồi mới sửa màn hình (0–1000, mặc định 150)."
+        "Gõ thêm dấu làm mất dấu, bấm Backspace thì dấu quay lại. Số ms là thời gian chờ trước khi sửa màn hình, mặc định 150."
     );
     tip!(
         nav_key_while_preedit,
         "tips.nav_key_while_preedit",
-        "Điều hướng khi còn từ: khi từ vẫn còn gạch chân, phím mũi tên đầu tiên mặc định đưa caret chạy ngay (kiểu ibus-bamboo) — commit vẫn nằm trong cùng lượt trả về, tới trước phím mũi tên. Nếu chữ bị chèn sai chỗ ở một app nào, chọn lại Nuốt phím đầu: lần nhấn đầu chỉ commit từ, lần hai mới di chuyển."
+        "Khi còn từ gạch chân, phím mũi tên vẫn chạy ngay như ibus-bamboo. Nếu chữ bị chèn sai chỗ, chọn Nuốt phím đầu để lần nhấn đầu chỉ commit từ."
     );
 
     Rc::new(Ui {

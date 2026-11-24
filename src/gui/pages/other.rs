@@ -87,7 +87,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         .build();
     ui.desktop_icon.set_tooltip_text(Some(&t(
         "tips.desktop_icon",
-        "Ẩn hay hiện dòng \u{201c}MăngRS Cấu hình\u{201d} trong lưới ứng dụng của GNOME (cần vài giây để GNOME nhận thay đổi).",
+        "Ẩn hay hiện dòng MăngRS Cấu hình trong lưới ứng dụng GNOME. Cần vài giây để GNOME nhận.",
     )));
     interface.add(&ui.desktop_icon);
     interface.add(&ui.show_toasts);
@@ -123,7 +123,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     });
     extension_row.set_tooltip_text(Some(&t(
         "tips.focus_extension",
-        "Extension báo cho engine tên cửa sổ đang focus, để luật theo app chạy được với app Wayland thuần (Chrome, Firefox…).",
+        "Extension báo tên cửa sổ đang focus cho engine, để luật theo app chạy được với app Wayland như Chrome, Firefox.",
     )));
     let extension_btn = action_button(
         None,
@@ -142,7 +142,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let logout_btn = action_button(None, &t("misc.logout_button", "Đăng xuất"));
     logout_btn.set_tooltip_text(Some(&t(
         "tips.extension_logout",
-        "Đăng xuất để extension mới được tải (GNOME giữ module cũ trong bộ nhớ).",
+        "Đăng xuất rồi đăng nhập lại để GNOME tải extension mới.",
     )));
     logout_btn.set_visible(false);
     sizes.add_widget(&logout_btn);
@@ -171,7 +171,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     );
     export_row.set_tooltip_text(Some(&t(
         "tips.export",
-        "Lưu toàn bộ cấu hình, gõ tắt và từ điển ra một file JSON để mang sang máy khác.",
+        "Lưu cấu hình, gõ tắt và từ điển ra một file JSON để mang sang máy khác.",
     )));
     let export_btn = action_button(
         Some("document-save-symbolic"),
@@ -186,7 +186,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     );
     import_row.set_tooltip_text(Some(&t(
         "tips.import",
-        "Đọc lại file JSON đã xuất: ghi đè cấu hình, gõ tắt và từ điển hiện tại.",
+        "Đọc file JSON đã xuất và ghi đè cấu hình, gõ tắt, từ điển hiện tại.",
     )));
     let import_btn = action_button(
         Some("document-revert-symbolic"),
@@ -212,7 +212,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     );
     learn_clear_row.set_tooltip_text(Some(&t(
         "tips.learn_clear",
-        "Chỉ ghi lại những gợi ý anh CHỌN — không bao giờ ghi phím gõ. Mỗi lựa chọn tăng một đơn vị đếm trong hai tệp 'user-picks.dict' và 'user-picks-pairs.dict' (quyền 0600) để ưu tiên từ đó lần sau; từ đã học chỉ được ưu tiên trong đúng nhóm ngôn ngữ của nó, không bao giờ nhảy lên trên tiếng Việt, và ô mật khẩu không học. Xoá xong bộ gõ học lại từ đầu.",
+        "Chỉ ghi lại gợi ý anh chọn, không ghi phím gõ. Xoá xong bộ gõ học lại từ đầu.",
     )));
     let learn_clear_btn = action_button(None, &t("rows.learn_clear.button", "Xoá…"));
     sizes.add_widget(&learn_clear_btn);
@@ -247,7 +247,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     );
     reset_row.set_tooltip_text(Some(&t(
         "tips.reset_defaults",
-        "Ghi đè config.toml bằng giá trị mặc định (kể cả menu panel, luật theo app, phím tắt). Gõ tắt và từ điển không bị đụng đến.",
+        "Ghi đè config.toml bằng giá trị mặc định, kể cả menu panel, luật theo app và phím tắt. Gõ tắt và từ điển vẫn giữ.",
     )));
     // Label only and no red: the reference keeps the reset quiet, the
     // destructive confirmation dialog carries the warning.
@@ -418,7 +418,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 .heading(t("other.extension_confirm_heading", "Cài extension MăngRS Focus?"))
                 .body(t(
                     "other.extension_confirm_body",
-                    "Extension được cài qua gnome-extensions (kênh chính thức của GNOME) và được bật — cần cho luật theo app trên Wayland. Lần cài đầu sẽ hiện nút Đăng xuất.",
+                    "Extension được cài qua gnome-extensions, kênh chính thức của GNOME, và được bật. Cần cho luật theo app trên Wayland. Lần cài đầu sẽ hiện nút Đăng xuất.",
                 ))
                 .build();
             dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
