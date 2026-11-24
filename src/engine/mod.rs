@@ -1592,7 +1592,7 @@ impl Engine {
             // The Backspace changed the screen word: the strip follows it
             // down (list for the shorter word, hide once it is gone) — the
             // same contract as the other modes' Backspace arms.
-            actions.extend(self.suggest_step());
+            actions.extend(self.suggest_step_after_erase());
             return Some(actions);
         }
         let Some(edit) = self.wrapper.backspace() else {
@@ -1625,7 +1625,7 @@ impl Engine {
                 // The Backspace changed the in-flight word: the strip
                 // follows it down (list for the shorter word, or hide once
                 // nothing completes it).
-                actions.extend(self.suggest_step());
+                actions.extend(self.suggest_step_after_erase());
                 Some(actions)
             }
             // Off is gated above. Keeps the match exhaustive.
@@ -1644,7 +1644,7 @@ impl Engine {
                     // The word the strip is showing changed (or is gone): the
                     // step closes it when the gate no longer allows a pick.
                     let mut actions = vec![Action::Forward];
-                    actions.extend(self.suggest_step());
+                    actions.extend(self.suggest_step_after_erase());
                     return Some(actions);
                 }
                 let mut actions = if self.charset == Charset::Unicode {
@@ -1678,7 +1678,7 @@ impl Engine {
                 // The Backspace changed the in-flight word: the strip follows
                 // it down (list for the shorter word, or hide once nothing
                 // completes it) — the preedit arm's contract, inline flavor.
-                actions.extend(self.suggest_step());
+                actions.extend(self.suggest_step_after_erase());
                 Some(actions)
             }
         }
@@ -2093,6 +2093,21 @@ impl Engine {
     /// changed (the Edit/Finish arms, the Backspace path) — a key that
     /// leaves the word untouched must not re-emit and reset the server's
     /// page.
+    /// The strip after a Backspace: it follows the shorter word down and
+    /// closes once the box holds nothing. The landed-word list (state B) is
+    /// the landing surface — reached after an erase it would offer next-word
+    /// candidates under an empty input box (`xin ch` erased to nothing listed
+    /// `lỗi`, `được`, `phép`).
+    fn suggest_step_after_erase(&mut self) -> Vec<Action> {
+        if self.wrapper.output().is_empty() {
+            if std::mem::take(&mut self.suggest_open) {
+                return vec![Action::HideCandidates];
+            }
+            return Vec::new();
+        }
+        self.suggest_step()
+    }
+
     fn suggest_step(&mut self) -> Vec<Action> {
         // A password field: the strip never opens — and with it the accept
         // path (learning) is unreachable. Typing itself is untouched.

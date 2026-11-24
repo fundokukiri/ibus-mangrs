@@ -6030,3 +6030,31 @@ fn pick_lifts_a_state_b_candidate() {
     let items = e.state_b_candidates(None, "hello");
     assert_eq!(items.first().map(String::as_str), Some("there"));
 }
+
+#[test]
+fn erasing_the_word_closes_the_strip() {
+    // Erasing back to an empty input box must close the strip: without this
+    // the erase fell through to the landed-word surface and offered the
+    // next-word list for a word that is no longer being typed (`xin ` then
+    // `ch` then two Backspaces listed `lỗi`, `được`, `phép` under an empty
+    // box).
+    for mode in [Mode::Preedit, Mode::Surrounding, Mode::ForwardBackspace] {
+        let mut e = predict_engine(Method::Telex, mode);
+        suggest_keys(&mut e, "hello ");
+        suggest_keys(&mut e, "wo");
+        let actions = e.backspace().expect("the word is still in flight");
+        assert!(
+            candidates_of(&actions).is_some(),
+            "the list follows the single letter: {mode:?} {actions:?}"
+        );
+        let actions = e.backspace().expect("the word is still in flight");
+        assert!(
+            candidates_of(&actions).is_none(),
+            "nothing left to suggest: {mode:?} {actions:?}"
+        );
+        assert!(
+            actions.contains(&Action::HideCandidates),
+            "the strip closes with the word: {mode:?} {actions:?}"
+        );
+    }
+}
