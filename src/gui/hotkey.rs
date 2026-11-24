@@ -163,7 +163,13 @@ impl ShortcutDisplay {
         let raw = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
         raw.add_css_class("dim-label");
         raw.set_valign(gtk4::Align::Center);
+        // Right-aligned and one fixed width for every row: "Chưa gán" and the
+        // keycaps then end on the same line instead of each hugging its own
+        // text width.
+        raw.set_xalign(1.0);
         let stack = gtk4::Stack::new();
+        stack.set_size_request(200, -1);
+        stack.set_halign(gtk4::Align::End);
         // No transitions: the two states swap, they do not animate.
         stack.set_transition_type(gtk4::StackTransitionType::None);
         stack.add_named(&raw, Some("raw"));
