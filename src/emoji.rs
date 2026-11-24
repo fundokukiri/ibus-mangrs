@@ -211,6 +211,12 @@ pub fn glyphs_for_word(word: &str) -> Vec<&'static str> {
                 if key.chars().any(|c| c == ' ' || c == '_') {
                     continue;
                 }
+                // A number keyword is a search tag, not something these digits
+                // mean: without this a bare `1` answered with a clock face.
+                // Keycaps keep theirs because the glyph carries the digit.
+                if key.chars().all(|c| c.is_ascii_digit()) && !row.glyph.starts_with(key.as_str()) {
+                    continue;
+                }
                 let glyphs = map.entry(fold_ascii(key)).or_default();
                 if !glyphs.contains(&row.glyph.as_str()) {
                     glyphs.push(row.glyph.as_str());
@@ -476,6 +482,24 @@ mod tests {
                 .any(|g| g.contains('😃') || g.contains('😄') || g.contains('😀')),
             "the laughing faces answer cuoi"
         );
+    }
+
+    #[test]
+    fn glyphs_for_word_answers_digits_only_with_the_digits_themselves() {
+        for digit in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {
+            let got = glyphs_for_word(digit);
+            assert!(
+                got.iter().all(|g| g.starts_with(digit)),
+                "{digit} reached {got:?}"
+            );
+            assert_eq!(got.len(), 1, "{digit} reached {got:?}");
+        }
+        // Emoji whose keyword is a number stay out of the strip: `143` is not
+        // the way to type a heart, and `12` is not a clock.
+        assert!(glyphs_for_word("143").is_empty());
+        assert!(glyphs_for_word("100").is_empty());
+        assert!(glyphs_for_word("12").is_empty());
+        assert!(glyphs_for_word("24").is_empty());
     }
 
     #[test]
