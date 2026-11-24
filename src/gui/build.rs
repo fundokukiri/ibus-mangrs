@@ -223,22 +223,32 @@ pub(super) fn widgets() -> Rc<Ui> {
         // wlr-virtual-keyboard, libei.
         &["Tự động", "Uinput", "Xtest", "Wlroots", "Libei"],
     );
-    // The formats are preset dropdowns like every other combo; a format
-    // the old free-text rows saved that matches no preset is appended by
+    // One row for both formats: two plain dropdowns with a dot between
+    // them, and the live example of each on the subtitle. A format the old
+    // free-text rows saved that matches no preset is appended by
     // `select_format` instead of being rewritten.
-    // No subtitle: the row's live hint is the example — a static "Ví dụ"
-    // line would duplicate it. The empty default keeps the row one-line
-    // unless the owner re-adds a subtitle in gui-content.toml.
-    let time_format = combo_row(
-        &t("rows.time_format.title", "Định dạng giờ ($TIME)"),
-        &t("rows.time_format.subtitle", "Thay cho $TIME trong gõ tắt"),
-        TIME_FORMATS,
-    );
-    let date_format = combo_row(
-        &t("rows.date_format.title", "Định dạng ngày ($DATE)"),
-        &t("rows.date_format.subtitle", "Thay cho $DATE trong gõ tắt"),
-        DATE_FORMATS,
-    );
+    let time_format = gtk4::DropDown::from_strings(TIME_FORMATS);
+    let date_format = gtk4::DropDown::from_strings(DATE_FORMATS);
+    let formats_row = action_row(&t("rows.formats.title", "Định dạng giờ & ngày"), "");
+    let dot = gtk4::Label::new(Some("·"));
+    dot.add_css_class("dim-label");
+    for widget in [
+        time_format.upcast_ref::<gtk4::Widget>(),
+        dot.upcast_ref(),
+        date_format.upcast_ref(),
+    ] {
+        widget.set_valign(gtk4::Align::Center);
+        formats_row.add_suffix(widget);
+    }
+    for dd in [&time_format, &date_format] {
+        let row = formats_row.clone();
+        let time = time_format.clone();
+        let date = date_format.clone();
+        dd.connect_selected_notify(move |_| {
+            row.set_subtitle(&pages::macros::formats_line(&time, &date));
+        });
+    }
+    formats_row.set_subtitle(&pages::macros::formats_line(&time_format, &date_format));
     // The item labels are proper names (LANGUAGES), never translated.
     let language = combo_row(
         &t("rows.language.title", "Ngôn ngữ"),
@@ -775,6 +785,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         preferred_backend,
         time_format,
         date_format,
+        formats_row,
         language,
         macros_text,
         emoji_enabled,

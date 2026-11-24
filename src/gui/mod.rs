@@ -276,8 +276,10 @@ struct Ui {
     /// model file to do anything.
     suggest_words: adw::SwitchRow,
     preferred_backend: adw::ComboRow,
-    time_format: adw::ComboRow,
-    date_format: adw::ComboRow,
+    time_format: gtk4::DropDown,
+    date_format: gtk4::DropDown,
+    /// The merged row the two format dropdowns live in.
+    formats_row: adw::ActionRow,
     /// The interface language; picking it rebuilds the window (content.rs).
     language: adw::ComboRow,
     /// Emoji shortcodes ("Emoji" tab): the on/off switch, the picker
@@ -474,7 +476,7 @@ fn on_off_index<T: PartialEq>(value: &T, disabled: T, nonstart: T) -> u32 {
 /// Select `value` in a format combo: the matching preset's index, or — for
 /// a format stored by the old free-text rows — a temporary extra item
 /// appended to the end, so no stored format is rewritten on save.
-fn select_format(row: &adw::ComboRow, presets: &[&str], value: &str) {
+fn select_format(row: &gtk4::DropDown, presets: &[&str], value: &str) {
     let list = StringList::new(presets);
     let index = match presets.iter().position(|p| *p == value) {
         Some(i) => i as u32,
@@ -487,9 +489,9 @@ fn select_format(row: &adw::ComboRow, presets: &[&str], value: &str) {
     row.set_selected(index);
 }
 
-/// The pattern the combo currently shows: presets and appended values read
+/// The pattern the dropdown currently shows: presets and appended values read
 /// back the same way, the model being the single source of truth.
-pub(crate) fn format_selected(row: &adw::ComboRow) -> String {
+pub(crate) fn format_selected(row: &gtk4::DropDown) -> String {
     row.selected_item()
         .and_downcast::<gtk4::StringObject>()
         .map(|o| o.string().into())

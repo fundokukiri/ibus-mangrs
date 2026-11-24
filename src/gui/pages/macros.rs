@@ -6,7 +6,6 @@
 //! focus-leave through the shared funnel.
 
 use super::*;
-use crate::gui::pages::typing::widen_value;
 
 /// The current time/date as the engine formats it — chrono's strftime, the
 /// very call inside `Macros::expand`. A pattern chrono rejects (Item::Error)
@@ -19,16 +18,15 @@ pub(crate) fn preview(pattern: &str) -> Option<String> {
     Some(chrono::Local::now().format(pattern).to_string())
 }
 
-/// A live preview of the selected pattern, in the row's subtitle — the
-/// spot the static "Ví dụ" line used to hold, under the title.
-/// use_subtitle stays on so the row height does not jump; an empty or
-/// invalid pattern leaves the subtitle blank.
-fn add_preview(row: &adw::ComboRow) {
-    row.set_use_subtitle(true);
-    row.connect_selected_notify(move |row| {
-        row.set_subtitle(&preview(&format_selected(row)).unwrap_or_default());
-    });
-    row.set_subtitle(&preview(&format_selected(row)).unwrap_or_default());
+/// The merged row's subtitle: both patterns rendered the way the engine
+/// formats them, joined by the same dot the row's widgets carry. An
+/// unusable pattern contributes nothing instead of a wrong example.
+pub(crate) fn formats_line(time: &gtk4::DropDown, date: &gtk4::DropDown) -> String {
+    [time, date]
+        .iter()
+        .filter_map(|dd| preview(&crate::gui::format_selected(dd)))
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
@@ -45,16 +43,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     settings.add(&ui.capitalize_macro);
     settings.add(&ui.macro_in_off_mode);
     // macro_valid_words moved to the dedicated "Thử nghiệm" tab.
-    // The format suffixes show the formatted result live — the engine's
-    // own strftime call, so an unusable pattern previews as blank.
-    add_preview(&ui.time_format);
-    add_preview(&ui.date_format);
-    // The selected pattern renders at the row's end — the same widening
-    // the typing page combos get, and a long custom format stays whole.
-    widen_value(&ui.time_format);
-    widen_value(&ui.date_format);
-    settings.add(&ui.time_format);
-    settings.add(&ui.date_format);
+    // One merged row: both formats and their live examples together.
+    settings.add(&ui.formats_row);
     page.add(&settings);
 
     // The raw table, dictionary-style: one `khóa=nội dung` line per pair,

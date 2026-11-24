@@ -248,13 +248,8 @@ error_many = "{k} lines are missing an =, starting at line {n}"
 open_button = "Open file"
 open_tooltip = "Open macros.toml with the default app"
 
-[rows.time_format]
-title = "Time format ($TIME)"
-subtitle = "Replaces $TIME in shorthand"
-
-[rows.date_format]
-title = "Date format ($DATE)"
-subtitle = "Replaces $DATE in shorthand"
+[rows.formats]
+title = "Time & date format"
 
 [rows.language]
 title = "Language"

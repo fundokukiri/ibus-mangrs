@@ -288,8 +288,6 @@ fn combo_popups_do_not_select_on_hover() {
         &ui.nav_key_while_preedit,
         &ui.bracket,
         &ui.preferred_backend,
-        &ui.time_format,
-        &ui.date_format,
         &ui.language,
     ];
     for row in combos {
@@ -1383,10 +1381,10 @@ fn preferred_backend_combo_saves_loads_and_survives_the_gate() {
     Config::default().save().expect("reset sandbox config");
 }
 
-/// The $TIME/$DATE combos: a preset selects its preset index, a format the
-/// old free-text rows saved comes back verbatim as its own appended item
-/// (never rewritten to a preset), and re-refreshing does not stack
-/// duplicates.
+/// The merged $TIME/$DATE row: a preset selects its preset index, a format
+/// the old free-text rows saved comes back verbatim as its own appended
+/// item (never rewritten to a preset), re-refreshing does not stack
+/// duplicates, and the subtitle shows both formats rendered live.
 fn format_combos_keep_presets_and_unknowns() {
     let ui = widgets();
     let macros = Macros::load();
@@ -1399,12 +1397,11 @@ fn format_combos_keep_presets_and_unknowns() {
     };
     ui.refresh(&config, &macros, &dictionary);
     assert_eq!(ui.time_format.selected(), 1, "preset selects its index");
+    assert_eq!(ui.date_format.selected(), 2);
     assert_eq!(ui.read().time_format, TIME_FORMATS[1]);
     assert_eq!(ui.read().date_format, DATE_FORMATS[2]);
 
-    // The widened value view carries the pattern to the row's end, like
-    // the typing page combos — widen_value runs in the page build, so the
-    // page must exist first.
+    // One row holds both dropdowns and one live line: time then date.
     let page = crate::gui::pages::macros::build(&ui);
     let win = gtk4::Window::new();
     win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
@@ -1412,27 +1409,17 @@ fn format_combos_keep_presets_and_unknowns() {
     for _ in 0..10 {
         gtk4::glib::MainContext::default().iteration(false);
     }
-    assert!(
-        combo_value_view(&ui.time_format).is_some_and(|v| v.hexpands()),
-        "the time pattern renders at the row end"
-    );
-    assert!(
-        combo_value_view(&ui.date_format).is_some_and(|v| v.hexpands()),
-        "the date pattern renders at the row end"
-    );
-    // The hint lives in the subtitle — the old "Ví dụ" spot under the
-    // title — not in the suffixes (that parked it mid-row).
-    assert!(
-        ui.time_format.uses_subtitle(),
-        "the subtitle space stays reserved"
-    );
-    assert!(
-        ui.time_format.subtitle().is_some_and(|s| !s.is_empty()),
-        "the subtitle carries the live preview"
-    );
-    assert!(
-        ui.date_format.subtitle().is_some_and(|s| !s.is_empty()),
-        "the date subtitle carries the live preview"
+    let subtitle = ui.formats_row.subtitle().unwrap_or_default();
+    let parts: Vec<&str> = subtitle.split(" · ").collect();
+    assert_eq!(parts.len(), 2, "both formats render: {subtitle}");
+    // Read the shape, not the clock: the exact time can tick over between
+    // the refresh and this line.
+    assert!(parts.iter().all(|part| !part.is_empty()), "{subtitle}");
+    assert!(parts[0].contains(':'), "the time sits first: {subtitle}");
+    assert_eq!(
+        parts[1].split('.').count(),
+        3,
+        "the date follows in the picked %d.%m.%Y shape: {subtitle}"
     );
 
     let mut unknown = config.clone();

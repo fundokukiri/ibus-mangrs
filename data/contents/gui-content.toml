@@ -250,13 +250,8 @@ error_many = "{k} dòng thiếu dấu =, bắt đầu từ dòng {n}"
 open_button = "Mở tệp"
 open_tooltip = "Mở macros.toml bằng ứng dụng mặc định"
 
-[rows.time_format]
-title = "Định dạng giờ ($TIME)"
-subtitle = "Thay cho $TIME trong gõ tắt"
-
-[rows.date_format]
-title = "Định dạng ngày ($DATE)"
-subtitle = "Thay cho $DATE trong gõ tắt"
+[rows.formats]
+title = "Định dạng giờ & ngày"
 
 [rows.language]
 title = "Ngôn ngữ"
