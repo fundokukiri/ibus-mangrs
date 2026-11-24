@@ -5503,21 +5503,20 @@ fn state_b_english_context_predicts_english() {
 }
 
 #[test]
-fn state_b_pick_inserts_word_and_space() {
+fn state_b_pick_commits_the_word_and_closes_the_strip() {
     // The state-B pick commits the candidate wholesale (nothing is held —
-    // no delete transport) and chains the new context's list in place.
+    // no delete transport) and ends the strip: no next-word list under the
+    // word the user just chose.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     suggest_keys(&mut e, "sinh ");
     let actions = e.accept_candidate(0);
     assert_eq!(replay(&actions), "viên ");
-    let chained = actions
-        .iter()
-        .find_map(|a| match a {
-            Action::UpdateCandidates { items, .. } => Some(items),
-            _ => None,
-        })
-        .expect("the strip chains into the next context");
-    assert_eq!(chained.first().map(String::as_str), Some("học"));
+    assert_eq!(strip_actions(&actions), vec![&Action::HideCandidates]);
+    assert!(!e.suggest_open);
+    // The next letter asks for a new list, and it still follows the pick.
+    let next = suggest_keys(&mut e, "h");
+    let items = candidates_of(&next[0]).expect("the next word opens its own list");
+    assert!(items.iter().any(|w| w.starts_with('h')), "{items:?}");
 }
 
 #[test]

@@ -4180,6 +4180,32 @@ fn grave_picks_the_first_slot_while_the_strip_is_visible() {
 }
 
 #[test]
+fn a_pick_after_a_landed_word_leaves_the_strip_closed() {
+    strip_reset_for_test();
+    // Picking the word the strip offered for a landed word used to chain
+    // straight into that word's own next-word list; the pick now ends the
+    // strip and only the next typed letter asks for a new list.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, _) = press(&mut handler, 0x69); // 'i'
+    let (_, _) = press(&mut handler, 0x6e); // 'n'
+    let (_, _) = press(&mut handler, 0x68); // 'h'
+    let (_, out) = press(&mut handler, 0x20); // space: 'sinh' lands, next-word list
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the landed word opens the next-word list: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press_with_state(&mut handler, 0x31, keymap::MOD1_MASK); // Alt+1
+    assert!(consumed, "a pick consumes the combo");
+    assert!(
+        !members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "no next-word list under the picked word: {:?}",
+        members(&out)
+    );
+}
+
+#[test]
 fn grave_types_normally_once_the_strip_is_closed() {
     strip_reset_for_test();
     // The pick key is only a pick while the strip is up: pressed again (or

@@ -2263,7 +2263,7 @@ impl Engine {
         if word.is_empty() {
             // State B: nothing is in flight — the strip holds the last
             // committed word's next-word list and the pick commits that
-            // word wholesale, then chains the next context's list.
+            // word wholesale, then closes the strip.
             return self.accept_state_b(index);
         }
         let Some(candidate) = self.state_a_candidates(&word).into_iter().nth(index) else {
@@ -2341,9 +2341,8 @@ impl Engine {
 
     /// The state-B pick: nothing is in flight, so the candidate commits
     /// wholesale — a plain commit, no delete transport exists or is needed —
-    /// and becomes the next context word; the strip chains into the new
-    /// context's predictions in place, hiding when the model offers nothing
-    /// further.
+    /// and becomes the next context word. The strip closes: a pick ends the
+    /// session, and a next-word list would appear only after the user types.
     fn accept_state_b(&mut self, index: usize) -> Vec<Action> {
         let Some(context) = self.last_committed_word.clone() else {
             return Vec::new();
@@ -2366,17 +2365,11 @@ impl Engine {
         let mut actions = vec![Action::Commit(text)];
         self.prev_committed_word = self.last_committed_word.take();
         self.last_committed_word = Some(candidate);
-        let items = self.state_b_candidates(
-            self.prev_committed_word.as_deref(),
-            self.last_committed_word.as_deref().unwrap_or(""),
-        );
-        if items.is_empty() {
-            self.suggest_open = false;
-            actions.push(Action::HideCandidates);
-        } else {
-            let word = self.last_committed_word.clone().unwrap_or_default();
-            actions.push(Action::UpdateCandidates { word, items });
-        }
+        // The pick ends the strip: the list after a pick is the next word's
+        // guess, and the owner wants it gone until the next letter asks for
+        // one (it used to chain in place).
+        self.suggest_open = false;
+        actions.push(Action::HideCandidates);
         actions
     }
 
