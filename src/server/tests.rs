@@ -3181,6 +3181,47 @@ fn emoji_menu_search_folds_diacritics() {
 }
 
 #[test]
+fn emoji_menu_ranks_the_closest_match_first() {
+    use super::emoji_picker::EmojiPickerState;
+    // The keyword-only row leads the table; the name match must still come
+    // first, the way `meo` should lead with the cat faces.
+    let rows = vec![
+        crate::emoji::SearchRow {
+            name: "distorted_face".into(),
+            glyph: "🫪".into(),
+            blob: crate::emoji::fold_ascii("distorted_face meo"),
+        },
+        crate::emoji::SearchRow {
+            name: "meowing_cat".into(),
+            glyph: "🐱".into(),
+            blob: crate::emoji::fold_ascii("meowing_cat"),
+        },
+    ];
+    let mut state = EmojiPickerState::with(rows, Vec::new());
+    for c in "meo".chars() {
+        state.query.push(c);
+    }
+    assert_eq!(
+        state.page_labels(),
+        vec!["🐱 meowing cat".to_string(), "🫪 distorted face".to_string()]
+    );
+}
+
+#[test]
+fn emoji_menu_auxiliary_counts_pages_and_names_an_empty_search() {
+    use super::emoji_picker::EmojiPickerState;
+    let mut state = EmojiPickerState::with(emoji_rows(), Vec::new());
+    state.query.push('a');
+    let aux = state.auxiliary();
+    assert!(aux.contains("trang 1/2"), "{aux}");
+    assert!(aux.contains("11 kết quả"), "{aux}");
+    state.query.push('z');
+    let aux = state.auxiliary();
+    assert!(aux.contains("Không khớp \"az\""), "{aux}");
+    assert!(aux.contains("Backspace"), "{aux}");
+}
+
+#[test]
 fn emoji_menu_pages_and_picks() {
     use super::emoji_picker::EmojiPickerState;
     let mut state = EmojiPickerState::with(emoji_rows(), Vec::new());
@@ -3299,7 +3340,7 @@ fn emoji_menu_auxiliary_follows_the_language() {
     }
     assert!(en.auxiliary().contains("results"), "{}", en.auxiliary());
     let vi = EmojiPickerState::with(emoji_rows(), Vec::new());
-    assert!(vi.auxiliary().contains("gõ chữ"), "{}", vi.auxiliary());
+    assert!(vi.auxiliary().contains("gõ để tìm"), "{}", vi.auxiliary());
 }
 
 /// The panel refreshes when the config file changes, on the engine's own

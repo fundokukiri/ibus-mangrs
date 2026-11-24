@@ -115,10 +115,15 @@ impl EmojiPickerState {
                 .collect();
         }
         let q = crate::emoji::fold_ascii(&self.query);
-        self.entries
+        let mut hits: Vec<(u8, &(String, String, String))> = self
+            .entries
             .iter()
-            .filter(|(_, _, blob)| blob.contains(&q))
-            .map(|(n, g, _)| (n.clone(), g.clone()))
+            .filter_map(|entry| crate::emoji::match_rank(&entry.2, &q).map(|rank| (rank, entry)))
+            .collect();
+        // Stable: equally ranked rows keep the table order.
+        hits.sort_by_key(|(rank, _)| *rank);
+        hits.into_iter()
+            .map(|(_, (n, g, _))| (n.clone(), g.clone()))
             .collect()
     }
 
@@ -127,7 +132,7 @@ impl EmojiPickerState {
     pub(super) fn page_labels(&self) -> Vec<String> {
         self.page_results()
             .into_iter()
-            .map(|(name, glyph)| format!("{glyph} {name}"))
+            .map(|(name, glyph)| format!("{glyph} {}", crate::emoji::display_name(&name)))
             .collect()
     }
 
@@ -140,27 +145,56 @@ impl EmojiPickerState {
             .collect()
     }
 
-    /// The auxiliary line under the popup: the query state and the keys, in
-    /// the engine language.
+    /// The auxiliary line under the popup: the search state and the keys,
+    /// in the engine language. Short on purpose — GNOME draws it as one
+    /// small line at the caret.
     pub(super) fn auxiliary(&self) -> String {
+        let vi = !self.en;
         if self.query.is_empty() {
-            if self.en {
-                "Emoji — type to search, ↑↓ pick, ←→ pages, Enter/1-9 choose, Esc closes"
-                    .to_string()
+            let lead = if self.recents.is_empty() {
+                "Emoji"
+            } else if vi {
+                "Emoji · gần đây"
             } else {
-                "Emoji — gõ chữ để tìm, ↑↓ chọn, ←→ lật trang, Enter/1-9 chọn, Esc đóng".to_string()
-            }
-        } else if self.en {
+                "Emoji · recent"
+            };
+            let hint = if vi {
+                "gõ để tìm · ↑↓ Enter · Esc"
+            } else {
+                "type to search · ↑↓ Enter · Esc"
+            };
+            return format!("{lead} · {hint}");
+        }
+        let total = self.results().len();
+        if total == 0 {
+            return if vi {
+                format!(
+                    "Không khớp \"{}\" · Backspace để sửa · Esc đóng",
+                    self.query
+                )
+            } else {
+                format!(
+                    "No match for \"{}\" · Backspace to edit · Esc closes",
+                    self.query
+                )
+            };
+        }
+        let pages = total.div_ceil(EMOJI_PAGE_SIZE as usize);
+        if vi {
             format!(
-                "Search \"{}\" — {} results, ↑↓ pick, ←→ pages, Enter chooses, Esc closes",
+                "Tìm \"{}\" · trang {}/{} · {} kết quả · ↑↓ Enter · Esc",
                 self.query,
-                self.results().len()
+                self.page + 1,
+                pages,
+                total
             )
         } else {
             format!(
-                "Tìm \"{}\" — {} kết quả, ↑↓ chọn, ←→ lật trang, Enter chọn, Esc đóng",
+                "Search \"{}\" · page {}/{} · {} results · ↑↓ Enter · Esc",
                 self.query,
-                self.results().len()
+                self.page + 1,
+                pages,
+                total
             )
         }
     }

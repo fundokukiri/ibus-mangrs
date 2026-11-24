@@ -146,8 +146,18 @@ impl EngineHandler {
         let table =
             ibus_prop::lookup_table_variant(PICKER_PAGE_SIZE, state.cursor as u32, &entries);
         out.push(signal("UpdateLookupTable").append2(table, true));
+        // One short line: the app, the mode in force, and the keys the menu
+        // answers to (nothing else advertises them).
+        let hint = if config.language == "en" {
+            "↑↓ then Enter"
+        } else {
+            "↑↓ rồi Enter"
+        };
         out.push(signal("UpdateAuxiliaryText").append2(
-            crate::ibus_text::plain_text(&format!("{} — {}", state.target, current_label)),
+            crate::ibus_text::plain_text(&format!(
+                "{} · {} · {}",
+                state.target, current_label, hint
+            )),
             true,
         ));
     }

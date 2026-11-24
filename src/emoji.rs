@@ -107,6 +107,57 @@ pub fn search_rows(user: &BTreeMap<String, String>) -> Vec<SearchRow> {
         .collect()
 }
 
+/// The label the picker shows for a row: the shortcode reads as words
+/// (`grinning_face_with_big_eyes` → "grinning face with big eyes") and long
+/// ones are cut so the popup stays narrow — the glyph already tells the
+/// rows apart.
+pub fn display_name(name: &str) -> String {
+    const MAX: usize = 26;
+    let words = name.replace('_', " ");
+    if words.chars().count() <= MAX {
+        return words;
+    }
+    // Cut whole words only: a name chopped mid-word reads like a glitch.
+    let mut cut = String::new();
+    for word in words.split(' ') {
+        let grown = cut.chars().count() + usize::from(!cut.is_empty()) + word.chars().count();
+        if grown > MAX {
+            break;
+        }
+        if !cut.is_empty() {
+            cut.push(' ');
+        }
+        cut.push_str(word);
+    }
+    if cut.is_empty() {
+        cut = words.chars().take(MAX).collect();
+    }
+    cut.push('…');
+    cut
+}
+
+/// How well one row matches the folded query: 0 when the name itself starts
+/// with it, 1 for a keyword that IS the query, 2 for a keyword that starts
+/// with it, 3 for a match in the middle, `None` when the row does not match
+/// at all. Ranking by this keeps the obvious pick on top — `meo` leads with
+/// the cat faces instead of "méo mặt", and `cuoi` with the plain "cười".
+pub fn match_rank(blob: &str, query: &str) -> Option<u8> {
+    let mut tokens = blob.split(' ');
+    if tokens.next().unwrap_or("").starts_with(query) {
+        return Some(0);
+    }
+    let mut rank = None;
+    for token in tokens {
+        if token == query {
+            return Some(1);
+        }
+        if rank.is_none() && token.starts_with(query) {
+            rank = Some(2);
+        }
+    }
+    rank.or_else(|| blob.contains(query).then_some(3))
+}
+
 /// Fold Vietnamese diacritics to their ASCII base, lowercase, and drop
 /// spaces and underscores. The picker's search runs without word
 /// boundaries — bare letter keys — so `cuoi` finds "cười", `nuocmy` finds
@@ -287,6 +338,31 @@ impl UserEmoji {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_names_read_as_words_and_stay_short() {
+        assert_eq!(display_name("grinning_face"), "grinning face");
+        assert_eq!(display_name("fire"), "fire");
+        let long = display_name("face_with_open_eyes_and_hand_over_mouth");
+        assert_eq!(long, "face with open eyes and…");
+        // A single word past the limit still comes back (chopped) rather
+        // than empty.
+        assert_eq!(display_name(&"a".repeat(40)).chars().count(), 27);
+    }
+
+    #[test]
+    fn match_rank_prefers_the_name_then_a_keyword() {
+        let blob = "grinningface cuoitoet face happy";
+        assert_eq!(match_rank(blob, "grin"), Some(0));
+        assert_eq!(match_rank(blob, "face"), Some(1));
+        assert_eq!(match_rank(blob, "cuoi"), Some(2));
+        assert_eq!(match_rank(blob, "toet"), Some(3));
+        assert_eq!(
+            match_rank("cuoitoe t face".to_string().as_str(), "face"),
+            Some(1)
+        );
+        assert_eq!(match_rank(blob, "zzz"), None);
+    }
 
     fn user(entries: &[(&str, &str)]) -> UserEmoji {
         UserEmoji {
