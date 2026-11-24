@@ -114,26 +114,17 @@ fn cycle_next_wraps_around_the_list() {
 }
 
 #[test]
-fn visible_cycle_skips_hidden_modes_and_wraps() {
-    use super::hotkey::next_visible_mode;
-    let visible = vec![
-        ModeConfig::Preedit,
-        ModeConfig::Surrounding,
-        ModeConfig::Off,
-    ];
+fn mode_cycle_follows_the_five_in_order_and_wraps() {
+    use super::hotkey::next_mode;
+    let list = crate::config::ModeConfig::ALL;
     assert_eq!(
-        next_visible_mode(&visible, ModeConfig::Preedit),
+        next_mode(&list, ModeConfig::Preedit),
         ModeConfig::Surrounding
     );
     assert_eq!(
-        next_visible_mode(&visible, ModeConfig::Off),
+        next_mode(&list, ModeConfig::Off),
         ModeConfig::Preedit,
         "wraps to the first"
-    );
-    assert_eq!(
-        next_visible_mode(&visible, ModeConfig::Flow),
-        ModeConfig::Preedit,
-        "a mode outside the visible list lands on the first visible entry"
     );
 }
 
@@ -3032,9 +3023,9 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
 #[test]
 fn picker_keys_map_onto_entries() {
     use super::picker::{picker_entries, PickerKey, PickerState};
-    let visible = Config::default().visible_modes();
-    let len = picker_entries(&visible, ModeConfig::Preedit, false).len();
-    assert_eq!(len, visible.len(), "only the visible modes, nothing else");
+    let all = crate::config::ModeConfig::ALL;
+    let len = picker_entries(&all, ModeConfig::Preedit, false).len();
+    assert_eq!(len, all.len(), "every display mode, nothing else");
     let state = PickerState::new("e2epick".into(), 1);
     // Digits 1..9 pick entries 1..9, 0 picks the last; Enter picks the
     // highlighted entry; Up/Down move the highlight.
@@ -3052,15 +3043,14 @@ fn picker_keys_map_onto_entries() {
     assert_eq!(state.on_key(0x76), PickerKey::Ignore);
     // The current mode's entry carries the dot marker (Preedit is first in
     // the default visible order).
-    let entries = picker_entries(&visible, ModeConfig::Preedit, false);
+    let entries = picker_entries(&all, ModeConfig::Preedit, false);
     assert!(
         entries[0].starts_with("● "),
-        "preedit is first in the default visible order: {}",
+        "preedit is first in the mode order: {}",
         entries[0]
     );
     assert!(!entries[1].starts_with("● "));
-    // A shortened visible list renders exactly its entries; a hidden mode
-    // never appears in the picker.
+    // A shorter list renders exactly its entries and marks the current one.
     let short = vec![ModeConfig::Preedit, ModeConfig::Off];
     let entries = picker_entries(&short, ModeConfig::Off, true);
     assert_eq!(entries, vec!["Underline (preedit)", "● OFF"]);
@@ -3069,7 +3059,7 @@ fn picker_keys_map_onto_entries() {
 #[test]
 fn picker_cursor_moves_with_wrap() {
     // The same arithmetic the Move arm runs: wrapping over the visible list.
-    let len = Config::default().visible_modes().len() as i32;
+    let len = crate::config::ModeConfig::ALL.len() as i32;
     let mut cursor = 2usize;
     for delta in [1, -1, -1] {
         cursor = (cursor as i32 + delta).rem_euclid(len) as usize;

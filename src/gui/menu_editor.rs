@@ -681,19 +681,7 @@ impl Ui {
                     "display" => crate::ibus_prop::MODES,
                     _ => &[],
                 };
-                let visible = if group == "display" {
-                    crate::config::Config::load().visible_modes()
-                } else {
-                    Vec::new()
-                };
                 for (key, vi, en_label) in entries {
-                    // The panel design may keep a hidden mode, but it is not
-                    // offerable while hidden — the renderer filters it out.
-                    if group == "display"
-                        && !ModeConfig::from_key(key).is_some_and(|m| visible.contains(&m))
-                    {
-                        continue;
-                    }
                     out.push((
                         format!("entry:{key}"),
                         if en { *en_label } else { *vi }.to_string(),

@@ -300,9 +300,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     custom_group.add(&ui.custom_box);
     page.add(&custom_group);
 
-    // The mode-cycle order, data not decoration: derived from the same
-    // visible list the engine cycles, so hiding a mode updates this text.
-    let visible_modes = crate::config::Config::load().visible_modes();
+    // The mode-cycle order, data not decoration: the same list the engine
+    // cycles.
+    let visible_modes = ModeConfig::ALL;
     let order_group = adw::PreferencesGroup::new();
     let expander = adw::ExpanderRow::builder()
         .title(t("groups.hotkeys.cycle.title", "Thứ tự khi đổi chế độ"))

@@ -411,18 +411,10 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                     // existed (or a hand edit) shows what the group showed
                     // before the tree: every entry, or the menu_modes
                     // selection for display.
-                    // The display group only offers modes the user still
-                    // shows; a design or `menu_modes` entry naming a hidden
-                    // mode is skipped by `radio_items` below.
-                    let visible_modes = config.visible_modes();
-                    let display_entries: Vec<(&str, &str, &str)> = MODES
-                        .iter()
-                        .copied()
-                        .filter(|(key, ..)| {
-                            ModeConfig::from_key(key)
-                                .is_some_and(|mode| visible_modes.contains(&mode))
-                        })
-                        .collect();
+                    // Every display mode is always offered; a `menu_modes`
+                    // entry naming an unknown mode is skipped by
+                    // `radio_items` below.
+                    let display_entries: Vec<(&str, &str, &str)> = MODES.to_vec();
                     let (group_key, label, entries, active): (
                         &str,
                         &str,
@@ -725,11 +717,11 @@ mod tests {
     }
 
     #[test]
-    fn display_group_hides_modes_outside_the_visible_list() {
+    fn display_group_offers_every_mode() {
+        // No visibility filter anymore: the display group shows all five
+        // modes whatever the saved design names.
         let config = Config {
-            visible_modes: Some(vec!["preedit".into(), "off".into()]),
-            // The default menu selection names surrounding/flow too; both
-            // must vanish while hidden.
+            menu_modes: vec!["preedit".into(), "off".into()],
             ..Config::default()
         };
         let props = properties(&config);
@@ -745,30 +737,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["display:preedit", "display:off"]
         );
-        // Unhiding re-admits the entry without touching the saved design.
+        // A design naming a mode key this build does not know still renders
+        // nothing rather than an empty group.
         let config = Config {
-            visible_modes: Some(vec![
-                "preedit".into(),
-                "surrounding".into(),
-                "flow".into(),
-                "off".into(),
-            ]),
-            ..Config::default()
-        };
-        let props = properties(&config);
-        let display = props.iter().find(|p| p.key == KEY_DISPLAY).unwrap();
-        assert_eq!(display.sub.len(), 4);
-
-        // A design that lists only hidden modes renders no empty submenu
-        // (the explicit subset hides Flow, a shipped mode).
-        let config = Config {
-            visible_modes: Some(vec!["preedit".into(), "off".into()]),
-            menu_modes: vec!["flow".into()],
+            menu_modes: vec!["nonsense".into()],
             ..Config::default()
         };
         assert!(
             !properties(&config).iter().any(|p| p.key == KEY_DISPLAY),
-            "an all-hidden display group is skipped"
+            "an empty display group is skipped"
         );
     }
 
@@ -960,9 +937,9 @@ mod tests {
         // the GUI dropdown, the cycle hotkey and the rule picker walk the
         // same five.
         let config = Config {
-            menu_modes: crate::config::DEFAULT_VISIBLE_MODES
+            menu_modes: crate::config::ModeConfig::ALL
                 .iter()
-                .map(|k| k.to_string())
+                .map(|m| m.key().to_string())
                 .collect(),
             ..Config::default()
         };

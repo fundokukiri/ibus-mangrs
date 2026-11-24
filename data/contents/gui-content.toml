@@ -100,10 +100,6 @@ subtitle = "Cách gõ dấu tiếng Việt"
 title = "Chế độ gõ"
 subtitle = "Cách đưa chữ vào ứng dụng"
 
-[rows.mode_visibility]
-title = "Chế độ gõ hiển thị"
-subtitle = "{n}/5 chế độ đang hiện"
-
 [rows.charset]
 title = "Bảng mã"
 subtitle = "Unicode và 10 bảng mã cũ"
@@ -595,7 +591,6 @@ hotkey_settings = "Mở Cài đặt"
 enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
 method = "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
 mode = "Gạch chân (preedit): chữ gạch chân inline, commit khi hết từ — cần client hỗ trợ preedit, không hỗ trợ thì tự chuyển Surrounding. Surrounding text: mỗi phím commit ngay, đuôi từ được sửa lại qua xóa-văn-bản — cần client báo surrounding-text; client không báo thì đuôi từ được xóa bằng phím chèn (backend) hoặc phím chuyển tiếp thay thế. Flow: phím raw được chuyển thẳng, dấu hiện ngay từng bước, hết từ commit — cần backend chèn phím (uinput/Wayland), không có thì tự chạy như Forward Backspace. Forward Backspace: mỗi phím commit ngay, sửa đuôi bằng phím Backspace chuyển tiếp qua IBus — không bao giờ tự chuyển mode, chạy được ở mọi client kể cả terminal/XIM. OFF: tắt xử lý tiếng Việt, macro vẫn chạy."
-mode_visibility = "Bỏ chọn một chế độ để ẩn nó khỏi menu, phím tắt, luật theo app và bộ chọn chế độ. Chế độ đang dùng sẽ chuyển sang mục còn hiện đầu tiên."
 charset = "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
 hide_underline = "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
 modern = "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."

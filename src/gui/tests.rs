@@ -61,7 +61,7 @@ fn gtk_widget_scenarios() {
     toggling_off_releases_the_editor_caret();
     close_test_windows();
     every_switch_triggers_save();
-    mode_visibility_hides_pickers_and_moves_the_active_mode();
+    mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
     close_test_windows();
     pacing_columns_are_symmetric();
@@ -686,15 +686,6 @@ fn refresh_round_trips_every_widget() {
         // Passes through read() untouched (see baseline above).
         quick_menu: baseline.quick_menu,
         menu_modes: baseline.menu_modes,
-        // The scenario lists every mode explicitly; refresh/read must
-        // preserve that order.
-        visible_modes: Some(vec![
-            "preedit".into(),
-            "surrounding".into(),
-            "flow".into(),
-            "forwardbackspace".into(),
-            "off".into(),
-        ]),
         // The editor always produces a design, and refresh normalizes an
         // absent/empty one to the shipped shape; here a small tree that
         // must survive the store round-trip unchanged.
@@ -878,116 +869,20 @@ fn flow_delay_row_shows_captions() {
     );
 }
 
-/// The visibility switches drive one shared list: hiding a mode removes it
-/// from the main combo and the rule pickers, the active hidden mode moves to
-/// the first visible entry, and the last visible mode cannot be turned off.
-fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
+/// Every mode dropdown renders the five modes in `ModeConfig::ALL` order —
+/// the same list the panel submenu, the rule pickers and the cycle walk.
+fn mode_dropdowns_list_every_mode() {
     let ui = widgets();
     let config = Config::default();
     let macros = Macros::load();
     let dictionary = Dictionary::load();
     ui.refresh(&config, &macros, &dictionary);
-    // The dropdown model is the shipped five, in the shipped order — the
-    // same list the panel submenu, the rule pickers and the cycle walk.
-    assert_eq!(
-        *ui.mode_choices.borrow(),
-        vec![
-            ModeConfig::Preedit,
-            ModeConfig::Surrounding,
-            ModeConfig::Flow,
-            ModeConfig::ForwardBackspace,
-            ModeConfig::Off,
-        ]
-    );
-    assert_eq!(
-        ui.mode_choices.borrow().len(),
-        crate::config::DEFAULT_VISIBLE_MODES.len()
-    );
-    // The switch presentation follows the default list exactly.
-    for (idx, (mode, ..)) in MODE_LABELS.iter().enumerate() {
-        assert_eq!(
-            ui.mode_visible_switches[idx].is_active(),
-            ui.mode_choices.borrow().contains(mode),
-            "switch state for {mode:?}"
-        );
-    }
-
-    let saved = Rc::new(RefCell::new(Config::default()));
-    {
-        let ui_for_save = ui.clone();
-        let saved = saved.clone();
-        wire_mode_visibility(
-            &ui,
-            Rc::new(move || *saved.borrow_mut() = ui_for_save.read()),
-        );
-    }
-
-    // Turn on a mode hidden by an explicit subset (no variant ships hidden
-    // anymore, so the subset manufactures the hidden mode): it joins the
-    // end of the list.
-    let subset = Config {
-        visible_modes: Some(vec![
-            "preedit".into(),
-            "surrounding".into(),
-            "flow".into(),
-            "off".into(),
-        ]),
-        ..Config::default()
-    };
-    ui.refresh(&subset, &macros, &dictionary);
-    assert!(!ui
-        .mode_choices
-        .borrow()
-        .contains(&ModeConfig::ForwardBackspace));
-    let index_of = |mode: ModeConfig| {
-        MODE_LABELS
-            .iter()
-            .position(|(m, ..)| *m == mode)
-            .expect("mode in table")
-    };
-    ui.mode_visible_switches[index_of(ModeConfig::ForwardBackspace)].set_active(true);
-    assert!(ui
-        .mode_choices
-        .borrow()
-        .contains(&ModeConfig::ForwardBackspace));
-    assert_eq!(
-        ui.mode_choices.borrow().last(),
-        Some(&ModeConfig::ForwardBackspace),
-        "a newly enabled mode is appended"
-    );
-
-    // Hide the active mode: Preedit is first in the default list, so the
-    // selection moves to Surrounding and both the file and the combo follow.
-    ui.mode_visible_switches[index_of(ModeConfig::Preedit)].set_active(false);
-    assert!(!ui.mode_choices.borrow().contains(&ModeConfig::Preedit));
-    assert_eq!(saved.borrow().mode, ModeConfig::Surrounding);
-    let visible = saved.borrow().visible_modes.clone().unwrap();
-    assert!(
-        visible.contains(&"forwardbackspace".to_string()),
-        "new mode saved"
-    );
-    assert!(
-        !visible.contains(&"preedit".to_string()),
-        "hidden mode dropped"
-    );
+    assert_eq!(*ui.mode_choices.borrow(), ModeConfig::ALL.to_vec());
+    assert_eq!(ui.mode_choices.borrow().len(), 5);
     assert_eq!(
         mode_at(&ui.mode_choices.borrow()[..], ui.mode.selected()),
-        ModeConfig::Surrounding,
-        "the combo follows the coerced mode"
-    );
-
-    // Turn everything off but one; the last switch must refuse to turn off.
-    for switch in ui.mode_visible_switches.clone() {
-        if ui.mode_choices.borrow().len() > 1 {
-            switch.set_active(false);
-        }
-    }
-    assert_eq!(ui.mode_choices.borrow().len(), 1);
-    let last = ui.mode_choices.borrow()[0];
-    ui.mode_visible_switches[index_of(last)].set_active(false);
-    assert!(
-        ui.mode_visible_switches[index_of(last)].is_active(),
-        "the last visible mode must stay on"
+        config.mode,
+        "the combo shows the configured mode"
     );
 }
 

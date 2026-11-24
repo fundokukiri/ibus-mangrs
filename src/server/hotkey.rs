@@ -259,12 +259,11 @@ impl EngineHandler {
         update_property_group(&config, ibus_prop::KEY_ENABLED, out);
     }
 
-    /// Cycle the visible display modes in dropdown order: save, apply,
-    /// per-item panel update. Hidden modes are skipped; a hidden current
-    /// mode lands on the first visible entry.
+    /// Cycle the display modes in dropdown order: save, apply, per-item
+    /// panel update.
     fn cycle_mode(&mut self, out: &mut Vec<Message>) {
         let mut config = Config::load();
-        config.mode = next_visible_mode(&config.visible_modes(), config.mode);
+        config.mode = next_mode(&ModeConfig::ALL, config.mode);
         if config.save().is_err() {
             return; // consumed anyway; do not type with a hotkey press
         }
@@ -432,12 +431,11 @@ pub(super) fn cycle_next<'a>(
     Some(list[(i + 1) % list.len()].0)
 }
 
-/// The next mode in the visible list, wrapping around. A current mode that
-/// is hidden lands on the first visible entry.
-pub(super) fn next_visible_mode(visible: &[ModeConfig], current: ModeConfig) -> ModeConfig {
-    match visible.iter().position(|mode| *mode == current) {
-        Some(i) => visible[(i + 1) % visible.len()],
-        None => visible.first().copied().unwrap_or(current),
+/// The next mode in the list, wrapping around.
+pub(super) fn next_mode(list: &[ModeConfig], current: ModeConfig) -> ModeConfig {
+    match list.iter().position(|mode| *mode == current) {
+        Some(i) => list[(i + 1) % list.len()],
+        None => list.first().copied().unwrap_or(current),
     }
 }
 

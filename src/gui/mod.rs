@@ -234,15 +234,9 @@ struct Ui {
     enabled: adw::SwitchRow,
     method: adw::ComboRow,
     mode: adw::ComboRow,
-    /// The ordered visible modes every picker currently renders. Updated by
-    /// refresh and by the visibility switches; `read` maps dropdown
-    /// positions through it.
+    /// The modes every picker renders, in `ModeConfig::ALL` order; `read`
+    /// maps dropdown positions through it.
     mode_choices: Rc<RefCell<Vec<ModeConfig>>>,
-    /// "Chế độ gõ hiển thị": one switch per mode, inside an expander.
-    mode_visibility: adw::ExpanderRow,
-    mode_visible_switches: Vec<adw::SwitchRow>,
-    /// Guards the programmatic switch updates in refresh/external reload.
-    mode_visibility_loading: Rc<RefCell<bool>>,
     charset: adw::ComboRow,
     /// Built-in shortcut rows: the value is the stored spec, the display
     /// renders it as keycaps (see `ShortcutDisplay`).
@@ -522,15 +516,6 @@ impl Ui {
             .set_selected(mode_index(&choices, add_selected));
     }
 
-    /// The expander's "n/5 đang hiện" line.
-    pub(super) fn update_mode_visibility_subtitle(&self) {
-        let n = self.mode_choices.borrow().len();
-        self.mode_visibility.set_subtitle(
-            &t("rows.mode_visibility.subtitle", "{n}/5 chế độ đang hiện")
-                .replace("{n}", &n.to_string()),
-        );
-    }
-
     /// Push a config (plus the two text lists) into every widget. This is the
     /// only config → widget mapping: the initial build and the import both go
     /// through it, so an import cannot leave a stale widget that the next
@@ -562,21 +547,10 @@ impl Ui {
         // Same for the visible-mode list: read() always pins an explicit
         // list and the engine coerces a hidden current mode to the first
         // visible entry, so the copy being displayed must match both.
-        let choices = config.visible_modes();
-        if !choices.contains(&config.mode) {
-            config.mode = choices[0];
-        }
-        config.visible_modes = Some(choices.iter().map(|m| m.key().to_string()).collect());
-        *self.mode_choices.borrow_mut() = choices.clone();
+        *self.mode_choices.borrow_mut() = ModeConfig::ALL.to_vec();
         self.enabled.set_active(config.enabled);
         self.method.set_selected(method_index(config.method));
         self.rebuild_mode_choices(Some(config.mode));
-        *self.mode_visibility_loading.borrow_mut() = true;
-        for (switch, (mode, ..)) in self.mode_visible_switches.iter().zip(MODE_LABELS) {
-            switch.set_active(choices.contains(mode));
-        }
-        *self.mode_visibility_loading.borrow_mut() = false;
-        self.update_mode_visibility_subtitle();
         self.charset.set_selected(charset_index(config.charset));
         *self.hotkey_value.borrow_mut() = config.cycle_mode_hotkey.clone();
         self.hotkey_display.render(&config.cycle_mode_hotkey);
@@ -822,33 +796,6 @@ impl Ui {
         // The designed menu tree; never empty (the editor refuses to remove
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());
-        // The visible-mode order: the list currently rendered, filtered to
-        // the switches now on, then any newly enabled mode in table order.
-        let active: Vec<ModeConfig> = MODE_LABELS
-            .iter()
-            .zip(&self.mode_visible_switches)
-            .filter(|(_, switch)| switch.is_active())
-            .map(|((mode, ..), _)| *mode)
-            .collect();
-        let mut ordered: Vec<ModeConfig> = self
-            .mode_choices
-            .borrow()
-            .iter()
-            .copied()
-            .filter(|mode| active.contains(mode))
-            .collect();
-        for mode in &active {
-            if !ordered.contains(mode) {
-                ordered.push(*mode);
-            }
-        }
-        if ordered.is_empty() {
-            ordered = crate::config::DEFAULT_VISIBLE_MODES
-                .iter()
-                .filter_map(|key| ModeConfig::from_key(key))
-                .collect();
-        }
-        config.visible_modes = Some(ordered.iter().map(|mode| mode.key().to_string()).collect());
         // Read here, not in `save_all`: `refresh` asserts that `read` returns
         // everything it just pushed into the widgets, and the rule rows are
         // among those widgets.

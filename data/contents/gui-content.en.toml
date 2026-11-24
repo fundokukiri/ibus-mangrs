@@ -98,10 +98,6 @@ subtitle = "How Vietnamese tone marks are typed"
 title = "Display mode"
 subtitle = "How typed text reaches the app"
 
-[rows.mode_visibility]
-title = "Displayed modes"
-subtitle = "{n}/5 modes shown"
-
 [rows.charset]
 title = "Character set"
 subtitle = "Unicode and 10 legacy tables"
@@ -592,7 +588,6 @@ hotkey_settings = "Open Settings"
 enabled = "Toggles the whole input method. When off, every key goes straight into the app as if MăngRS were not installed."
 method = "The typing method decides how accented text is built from the keys: Telex (ss → á), VNI (a1 → á) or VIQR."
 mode = "Underline (preedit): inline underlined text, committed at word end — needs client preedit support; without it the engine falls back to Surrounding. Surrounding text: every key commits at once, the word tail is repaired via text deletion — needs the client to report surrounding text; clients that never report get the tail erased through the injected or forwarded delete transport instead. Flow: raw keys pass straight through, marks appear per step, the word commits at word end — needs an injection backend (uinput/Wayland); without one it runs like Forward Backspace. Forward Backspace: every key commits at once, the tail is repaired with Backspace keys forwarded over IBus — never switches modes on its own, works with every client including terminals/XIM. OFF: Vietnamese processing off, macros still run."
-mode_visibility = "Turn a mode off to hide it from the menu, hotkey cycle, per-app rules and mode pickers. The active mode moves to the first still-visible entry."
 charset = "The character table: Unicode for every normal use; the VNI/TCVN3 tables are only needed when reading old text files."
 hide_underline = "Hides the preedit underline for apps that draw it broken (some games, terminals)."
 modern = "The Ministry of Education's new tone standard: hòa instead of hoà, thuế instead of thuể."

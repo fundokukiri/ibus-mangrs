@@ -21,29 +21,12 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.method.subtitle", "Cách gõ dấu tiếng Việt"),
         &labels(METHODS),
     );
-    // The visible-mode list is the single source for every mode picker in
-    // the window: the main combo, the add-rule picker and the rule rows.
-    let mode_choices = Config::load().visible_modes();
+    let mode_choices = ModeConfig::ALL.to_vec();
     let mode = combo_row(
         &t("rows.mode.title", "Chế độ gõ"),
         &t("rows.mode.subtitle", "Cách đưa chữ vào ứng dụng"),
         &mode_labels(&mode_choices),
     );
-    // "Chế độ gõ hiển thị": an expander holding one switch per mode. The
-    // expander keeps five rows out of the page's main flow.
-    let mode_visibility = adw::ExpanderRow::new();
-    mode_visibility.set_use_markup(false);
-    mode_visibility.set_title(&t("rows.mode_visibility.title", "Chế độ gõ hiển thị"));
-    mode_visibility.set_tooltip_text(Some(&t(
-        "tips.mode_visibility",
-        "Bỏ chọn một chế độ để ẩn nó khỏi menu, phím tắt, luật theo app và bộ chọn chế độ. Chế độ đang dùng sẽ chuyển sang mục còn hiện đầu tiên.",
-    )));
-    let mut mode_visible_switches = Vec::new();
-    for (mode, ..) in MODE_LABELS {
-        let switch = switch_row(mode_label(*mode), "");
-        mode_visibility.add_row(&switch);
-        mode_visible_switches.push(switch);
-    }
     let charset = combo_row(
         &t("rows.charset.title", "Bảng mã"),
         &t("rows.charset.subtitle", "Unicode và 10 bảng mã cũ"),
@@ -795,9 +778,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         method,
         mode,
         mode_choices: Rc::new(RefCell::new(mode_choices)),
-        mode_visibility,
-        mode_visible_switches,
-        mode_visibility_loading: Rc::new(RefCell::new(false)),
         charset,
         hotkey_display,
         hotkey_value,

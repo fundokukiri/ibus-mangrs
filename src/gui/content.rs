@@ -717,7 +717,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         // handle instead of a closure captured at build time.
         *ui.save_cb.borrow_mut() = Some(Rc::new(save.clone()));
         wire_switch_saves(&ui, Rc::new(save.clone()));
-        wire_mode_visibility(&ui, Rc::new(save.clone()));
         {
             let s = save.clone();
             ui.method.connect_selected_notify(move |_| s());
@@ -864,47 +863,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
 
     window.present();
     window
-}
-
-/// The visible-mode switches: each one adds/removes its mode from the shared
-/// choice list, rebuilds the mode dropdowns and rule rows, then saves. The
-/// last visible mode cannot be turned off — the engine needs at least one
-/// selectable entry.
-pub(super) fn wire_mode_visibility(ui: &Rc<Ui>, save: Rc<dyn Fn()>) {
-    for (idx, switch) in ui.mode_visible_switches.iter().enumerate() {
-        let mode = MODE_LABELS[idx].0;
-        let ui = ui.clone();
-        let save = Rc::clone(&save);
-        switch.connect_active_notify(move |switch| {
-            if *ui.mode_visibility_loading.borrow() {
-                return;
-            }
-            let on = switch.is_active();
-            let mut choices = ui.mode_choices.borrow().clone();
-            if on {
-                if !choices.contains(&mode) {
-                    choices.push(mode);
-                }
-            } else if choices.len() <= 1 {
-                // Refuse the last one: revert the switch without saving.
-                *ui.mode_visibility_loading.borrow_mut() = true;
-                switch.set_active(true);
-                *ui.mode_visibility_loading.borrow_mut() = false;
-                return;
-            } else {
-                choices.retain(|m| *m != mode);
-            }
-            let selected = mode_at(&ui.mode_choices.borrow()[..], ui.mode.selected());
-            *ui.mode_choices.borrow_mut() = choices;
-            ui.rebuild_mode_choices(Some(selected));
-            ui.update_mode_visibility_subtitle();
-            // Rule rows carry a per-row list: rebuild them with the new one,
-            // keeping every stored mode (a hidden one keeps its extra entry).
-            let rules = ui.rules_from_rows();
-            ui.fill_rules(&rules);
-            save();
-        });
-    }
 }
 
 /// Wire every boolean row the window owns to the save funnel — one
