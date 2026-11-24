@@ -29,6 +29,7 @@ use crate::config::{AppRule, BackspaceToneConfig, Config};
 use crate::debug_log::{self, brief};
 use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
+use crate::suggest::{merge_user_entries, SuggestTable};
 
 mod helpers;
 mod process;
@@ -43,8 +44,9 @@ mod digit_debug;
 mod digit_probe2;
 #[cfg(test)]
 mod keys_workload_probe;
+mod scoring;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 #[cfg(test)]
 mod x_probe;
 
@@ -153,15 +155,22 @@ pub enum Action {
     /// their echoes accounted when the batch armed; a normal Commit here
     /// would defer behind that stale count and land ~150 ms late.
     CommitNow(String),
+    /// Show the suggestion strip with these candidate words — the full
+    /// ≤25-item list for the in-flight word. The server renders it as an
+    /// IBus lookup table (the app-rule picker's precedent) and pages it with
+    /// its pager controls; the selection digits are intercepted while it is
+    /// up. The word rides along for the box's input line: the inline modes
+    /// have no preedit signal to convert, so the action is the only source
+    /// of the word-in-flight there.
+    UpdateCandidates { word: String, items: Vec<String> },
+    /// Close the suggestion strip: the word ended, the table has nothing
+    /// for the word, or the composition was dropped.
+    HideCandidates,
 }
 
 pub struct Engine {
     wrapper: BambooWrapper,
     mode: Mode,
-    /// Modes the user may select, in GUI/cycle order. Mode resolution never
-    /// takes a hidden mode from the config or an app rule; capability
-    /// fallbacks inside `effective_mode` are exempt so typing never breaks.
-    visible_modes: Vec<Mode>,
     /// The focused application's name from sources beyond the IBus client
     /// string (the focus extension for Wayland apps, the X active window for
     /// X11) — used ONLY for rule matching. Transport decisions keep using
@@ -283,7 +292,6 @@ pub struct Engine {
     /// pending (the server reads this per keystroke).
     nav_key_while_preedit: NavKeyWhilePreedit,
     /// Uinput pacing (ms): text/commit step, Backspace gap, post-rewrite idle.
-    commit_interval_ms: u64,
     backspace_interval_ms: u64,
     post_delay_ms: u64,
     /// Custom lost-echo stale window (ms); the built-in default applies
@@ -365,13 +373,6 @@ pub struct Engine {
     www_pending: bool,
     /// Keep words raw after URL/email/path characters (`bypass_url`).
     bypass_url: bool,
-    /// The filtered `extra_url_chars` — empty unless the switch is on
-    /// (see `apply_config` for the filter).
-    extra_url_chars: Vec<char>,
-    /// The filtered `auto_capitalize_after` — empty unless the switch is
-    /// on (same filter shape as `extra_url_chars`, without the `-` ban: a
-    /// hyphen trigger is legitimate here).
-    extra_capitalize_after: Vec<char>,
     /// Emoji shortcodes on: a word after `:` composes like any word and a
     /// closing `:` rewrites `:name:` to the emoji (see `emoji_close_rewrite`).
     emoji_enabled: bool,
@@ -400,10 +401,72 @@ pub struct Engine {
     /// into two string compares. The key covers `app_name`/`client` changes
     /// by itself; `apply_config` clears it because the rules changed.
     rule_cache: Option<(Option<String>, Option<String>, Option<Mode>)>,
+    /// Suggestion strip (experimental `suggest_words`): a candidate list is
+    /// currently on the client's screen. Gates the hide-on-word-end paths
+    /// and makes the accept path a no-op once the strip is gone.
+    suggest_open: bool,
+    /// A pick asked for with Alt held, waiting for Alt's release: only then
+    /// may its injected Backspaces go out (see `ask_pick`).
+    pending_pick: Option<usize>,
+    /// The character this key carries, for the strip's landed-word gate; and
+    /// whether that key was the single space that just ended a word.
+    strip_key: Option<char>,
+    strip_landing: bool,
+    /// The strip's display choice: the word-in-flight shows only in the
+    /// floating box (default), in both places (mirror), or only inline
+    /// beside the table.
+    /// The word the last inline word end or accepted candidate committed —
+    /// the context the strip's next round keys on (phase 2). Cleared with
+    /// the rest of the word state on focus loss / reset.
+    last_committed_word: Option<String>,
+    /// The word before `last_committed_word` — the pair (this, last) is the
+    /// trigram context the state-B scorer keys on. Shifts with every new
+    /// context word, clears alongside it.
+    prev_committed_word: Option<String>,
+    /// The `suggest_words` switch, mirrored like the other settings — the
+    /// one strip switch: the model's compounds, single words and next-word
+    /// lists all serve under it, the dictionary being out of the strip.
+    suggest_words: bool,
+    /// Pick learning, baked with `suggest_words` under the experimental
+    /// gate — picks land in the config dir's TSV files and buy an in-band
+    /// bonus only while that is on.
+    suggest_learn: bool,
+    /// The pick files' home: the config dir, set at every config apply;
+    /// tests point it at a tempdir so behavioral data never touches the
+    /// owner's files.
+    learn_dir: std::path::PathBuf,
+    /// Pick-driven personalization state: `Some` while `suggest_learn` is
+    /// baked on (recording + in-band bonus), `None` writes nothing.
+    picks: Option<crate::learn::UserPicks>,
+    /// The focused field's content purpose is PASSWORD/PIN — the strip
+    /// never opens and nothing is learned there. Set by the server's
+    /// ContentType handler, cleared on focus loss.
+    password_quiet: bool,
+    /// The prediction model opened at the last config apply: its compounds
+    /// serve the state-A list and its n-grams the state-B surface; `None`
+    /// (no model file) keeps the strip legacy-only. The Arc shares the
+    /// process-wide cached parse (predict.rs) — tests construct hundreds of
+    /// engines, and config reloads re-apply, so a fresh open per apply would
+    /// rescan and resort the whole vocabulary every time.
+    pub(crate) model: Option<std::sync::Arc<crate::predict::PredictModel>>,
+    /// The table the strip serves from: the builtin rows (model-harvested
+    /// or embedded) merged with the user dictionary at a weight that
+    /// outranks every builtin frequency. Rebuilt on every config apply.
+    suggest_table: SuggestTable,
 }
 
 /// `IBUS_CAP_PREEDIT_TEXT` and `IBUS_CAP_SURROUNDING_TEXT` from ibustypes.h.
+/// A strip candidate as `(surface, pair, unigram)`: how often the model saw
+/// it right after the word just committed, then how common it is on its own.
+type Rated = (String, u32, u32);
+
 const CAP_PREEDIT_TEXT: u32 = 1 << 0;
+
+/// `GtkInputPurpose`/`IBusInputPurpose` values delivered through the
+/// engine's ContentType property — PASSWORD and PIN close the strip and
+/// the learning files; TERMINAL (10) keeps ordinary typing.
+pub const PURPOSE_PASSWORD: u32 = 8;
+pub const PURPOSE_PIN: u32 = 9;
 const CAP_SURROUNDING_TEXT: u32 = 1 << 5;
 
 /// Safety net for clients that are neither covered by an `AppRule` nor by the
@@ -420,8 +483,7 @@ const FALLBACK_NO_DELETE_SURROUNDING: &[&str] = &[
 /// terminators belong to the address and keep it raw; any other terminator
 /// (space, Enter, `, ; ! " '` …) ends the span and typing composes again.
 /// Only real URL evidence opens the span — no built-in character starts a
-/// bypass by itself, so punctuation in prose never blocks marks. The
-/// user's own `extra_url_chars` list is the only per-word trigger.
+/// bypass by itself, so punctuation in prose never blocks marks.
 const URL_SPAN_KEEP: &[char] = &[
     '/', ':', '@', '.', '_', '~', '=', '#', '&', '%', '?', '-', '+',
 ];
@@ -464,7 +526,6 @@ impl Engine {
         let mut engine = Self {
             wrapper: BambooWrapper::new(method, bamboo_core::Config::default()),
             mode,
-            visible_modes: Vec::new(),
             caps: 0,
             preedit_visible: false,
             client: None,
@@ -512,8 +573,6 @@ impl Engine {
             scheme_pending: false,
             www_pending: false,
             bypass_url: true,
-            extra_url_chars: Vec::new(),
-            extra_capitalize_after: Vec::new(),
             emoji_enabled: false,
             emoji_word: false,
             raw_word_start: 0,
@@ -523,7 +582,6 @@ impl Engine {
             rule_cache: None,
             capitalize_next: false,
             cap_word: false,
-            commit_interval_ms: 20,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             echo_stale_enabled: false,
@@ -541,6 +599,22 @@ impl Engine {
             backspace_tone: BackspaceToneConfig::ToneFirst,
             last_key_at: None,
             idle_committed: None,
+            suggest_open: false,
+            pending_pick: None,
+            strip_key: None,
+            strip_landing: false,
+            suggest_learn: false,
+            last_committed_word: None,
+            prev_committed_word: None,
+            suggest_words: false,
+            learn_dir: std::path::PathBuf::new(),
+            picks: None,
+            password_quiet: false,
+            model: None,
+            // The builtin rows stand in until apply_config merges the user
+            // dictionary below; on a machine without dictionary.txt this
+            // stays the whole table.
+            suggest_table: SuggestTable::from_rows(crate::suggest::builtin_rows_with(None)),
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -584,16 +658,12 @@ impl Engine {
             self.tail.clear();
             self.repair_delete = None;
             self.release_word_mode();
+            // The in-flight word is gone: a strip left open would offer
+            // candidates for text that just committed.
+            actions.extend(self.suggest_step());
         }
         let (method, requested) = config.engine_settings();
-        // A mode hidden in the GUI cannot stay selected: move to the first
-        // mode the user still offers. Rules follow the same list (below).
-        self.visible_modes = config.visible_modes().into_iter().map(Mode::from).collect();
-        let mode = if self.visible_modes.contains(&requested) {
-            requested
-        } else {
-            self.visible_modes.first().copied().unwrap_or(Mode::Preedit)
-        };
+        let mode = requested;
         let mut rebuilt = self.wrapper.set_config(config.bamboo_config());
         rebuilt |= self.wrapper.set_method(method);
         if rebuilt {
@@ -609,23 +679,6 @@ impl Engine {
         self.auto_restore = config.auto_restore;
         self.em_dash = config.em_dash;
         self.auto_capitalize = config.auto_capitalize;
-        self.extra_capitalize_after = if experimental && config.auto_capitalize_after_enabled {
-            // Same filter shape as `extra_url_chars` minus the `-` ban; a
-            // hyphen trigger is legitimate here.
-            let mut chars: Vec<char> = Vec::new();
-            for c in config.auto_capitalize_after.chars() {
-                if c.is_alphanumeric() || c.is_whitespace() || chars.contains(&c) {
-                    continue;
-                }
-                chars.push(c);
-                if chars.len() >= 10 {
-                    break;
-                }
-            }
-            chars
-        } else {
-            Vec::new()
-        };
         self.double_space_period = config.double_space_period;
         self.macro_enabled = config.macro_enabled;
         self.capitalize_macro = config.capitalize_macro;
@@ -656,6 +709,25 @@ impl Engine {
             self.dictionary = None;
             self.dictionary_mtime = None;
         };
+        // The strip's table merges the user dictionary at a weight that
+        // outranks every builtin frequency — independent of
+        // `dictionary_enabled` (owner decision: the strip learns from the
+        // same file even when the auto-restore whitelist is off). The
+        // model opens once per config apply — a fresh open here is the
+        // model's reload path (the file changes only at install) — and
+        // feeds both the builtin rows and the predict tier; `None` keeps
+        // the strip legacy-only. Rebuilt on every config apply, so a new
+        // model or dictionary needs no engine restart.
+        let model = crate::predict::locate_shared();
+        let mut rows = crate::suggest::builtin_rows_with(model.as_deref());
+        rows.extend(merge_user_entries(
+            Dictionary::load()
+                .words()
+                .map(|w| (w.to_string(), 0))
+                .collect(),
+        ));
+        self.suggest_table = SuggestTable::from_rows(rows);
+        self.model = model;
         self.wrapper.set_abbreviations(config.abbreviations);
         // Experimental master gate: the keep stays off while the gate is
         // closed, whatever the row says (same bake-in as the other
@@ -664,8 +736,33 @@ impl Engine {
             .set_keep_composed_words(experimental && config.keep_composed_words);
         self.wrapper
             .set_keep_repeats_raw(experimental && config.keep_repeats_raw);
+        // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
+        // closed means the strip stays off, whatever the saved switch says.
+        self.suggest_words = experimental && config.suggest_words;
+        // Learning has no switch of its own: it rides the suggestion switch,
+        // so an open strip always personalizes and a closed one touches
+        // nothing.
+        self.suggest_learn = self.suggest_words;
+        self.learn_dir = dirs::config_dir()
+            .map(|d| d.join("ibus-mangrs"))
+            .unwrap_or_default();
+        if self.suggest_learn {
+            // Keep unflushed picks across a config reload; a fresh switch-on
+            // loads the files once.
+            let keep = self.picks.take();
+            self.picks =
+                Some(keep.unwrap_or_else(|| crate::learn::UserPicks::load(&self.learn_dir)));
+        } else {
+            // Off: picks made while the switch was on still count — flush,
+            // then stop recording. Nothing is deleted (the GUI's clear
+            // button owns that).
+            if let Some(mut picks) = self.picks.take() {
+                picks.flush();
+            }
+        }
+        // Display-only choice: it shapes nothing while the strip is off, so
+        // it rides without the gate bake-in.
         self.hide_underline = config.hide_underline;
-        self.commit_interval_ms = config.commit_interval_ms;
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
         self.echo_stale_enabled = experimental && config.echo_stale_enabled;
@@ -688,25 +785,6 @@ impl Engine {
             self.idle_committed = None;
         }
         self.bypass_url = config.bypass_url;
-        self.extra_url_chars = if experimental && config.extra_url_chars_enabled {
-            // Defensive filter: `-` stays out of the start set (the `--`
-            // em dash would break), letters/digits/spaces are not URL
-            // context, and a hand-edited file must not smuggle in a huge
-            // list — the hot path scans this vec linearly.
-            let mut chars: Vec<char> = Vec::new();
-            for c in config.extra_url_chars.chars() {
-                if c == '-' || c.is_alphanumeric() || c.is_whitespace() || chars.contains(&c) {
-                    continue;
-                }
-                chars.push(c);
-                if chars.len() >= 10 {
-                    break;
-                }
-            }
-            chars
-        } else {
-            Vec::new()
-        };
         self.emoji_enabled = config.emoji_enabled;
         self.emoji_word = false;
         self.url_word = false;
@@ -721,6 +799,12 @@ impl Engine {
         }
         self.set_mode(mode);
         self.set_charset(config.charset.into());
+        // A reload can close the strip's gate (switch off, a mode without a
+        // pick transport): a strip left open would accept selections the gate
+        // no longer allows.
+        if !self.suggest_active() && std::mem::take(&mut self.suggest_open) {
+            actions.push(Action::HideCandidates);
+        }
         actions
     }
 
@@ -789,10 +873,6 @@ impl Engine {
     }
 
     /// Uinput pacing, from the config (ms between rewrite steps).
-    pub fn commit_interval_ms(&self) -> u64 {
-        self.commit_interval_ms
-    }
-
     pub fn backspace_interval_ms(&self) -> u64 {
         self.backspace_interval_ms
     }
@@ -1169,11 +1249,6 @@ impl Engine {
         match c {
             '.' | '!' | '?' | '\n' | '\r' => self.capitalize_next = true,
             ' ' | '\t' => {}
-            _ if !self.extra_capitalize_after.is_empty()
-                && self.extra_capitalize_after.contains(&c) =>
-            {
-                self.capitalize_next = true;
-            }
             _ => self.capitalize_next = false,
         }
     }
@@ -1221,9 +1296,7 @@ impl Engine {
             }
         }
         let effective = self.app_name.as_deref().or(self.client.as_deref());
-        let resolved = crate::config::app_rule_mode(&self.app_rules, effective)
-            .map(Mode::from)
-            .filter(|mode| self.visible_modes.contains(mode));
+        let resolved = crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from);
         self.rule_cache = Some((self.app_name.clone(), self.client.clone(), resolved));
         resolved
     }
@@ -1357,8 +1430,12 @@ impl Engine {
             return Mode::Surrounding;
         }
         // No usable report yet: injected Backspaces serve when a backend
-        // exists (the deletes_allowed gate decides per keystroke, unchanged).
-        if self.uinput_available {
+        // exists (the deletes_allowed gate decides per keystroke, unchanged)
+        // — but only for a client that carries the word inline at all. A
+        // caps-0 context (XIM, XWayland toolkits) renders no preedit and
+        // reports nothing: the inline rewrite has no proof it lands there,
+        // while the forwarded transport below reaches it by contract.
+        if self.uinput_available && can_preedit {
             return Mode::Surrounding;
         }
         // Terminal: the forwarded transport reaches clients with no report
@@ -1377,6 +1454,27 @@ impl Engine {
                 m
             }
         }
+    }
+
+    /// Whether a pick would erase the held word with real key events — the
+    /// case a held modifier poisons: they reach the application as
+    /// `Alt+Backspace`, which deletes nothing ("xin chao" plus an Alt+1 pick
+    /// left "xin chaochào"). A preedit pick only commits, and a state-B pick
+    /// has no held word to erase, so both may run inline.
+    pub fn pick_needs_modifier_release(&self) -> bool {
+        !self.wrapper.output().is_empty() && self.word_mode.unwrap_or(self.mode) != Mode::Preedit
+    }
+
+    /// A pick asked for with a modifier held waits for that modifier's
+    /// release: the Backspaces it injects arrive at the application with the
+    /// modifier still down, which drops them as `Alt+Backspace`.
+    pub fn ask_pick(&mut self, index: usize) {
+        self.pending_pick = Some(index);
+    }
+
+    /// Take the pick waiting for its modifier's release.
+    pub fn take_pending_pick(&mut self) -> Option<usize> {
+        self.pending_pick.take()
     }
 
     /// Release the word-mode lock (word ended or state reset).
@@ -1453,7 +1551,21 @@ impl Engine {
         // never drops — and bamboo follows so the composition stays
         // tracked (unikey convention: Backspace undoes the last raw key).
         if mode == Mode::Flow {
-            return Some(self.backspace_per_key());
+            let mut actions = self.backspace_per_key();
+            // The erased word is still on screen and still served per key, so
+            // the word-mode lock has to hold: the word end released it, and
+            // everything downstream reads it — the pick's erase transport and
+            // its Alt deferral. Left unlocked, a pick fell back to the
+            // configured mode and, on a Preedit config with a Flow rule,
+            // committed without erasing ("xin chaochào").
+            if !self.current_word().is_empty() {
+                self.word_mode = Some(Mode::Flow);
+            }
+            // The Backspace changed the screen word: the strip follows it
+            // down (list for the shorter word, hide once it is gone) — the
+            // same contract as the other modes' Backspace arms.
+            actions.extend(self.suggest_step_after_erase());
+            return Some(actions);
         }
         let Some(edit) = self.wrapper.backspace() else {
             // Nothing composed: the application deletes one of its own
@@ -1475,13 +1587,18 @@ impl Engine {
         match mode {
             Mode::Preedit => {
                 let text = self.preedit_text();
-                if text.is_empty() {
+                let mut actions = if text.is_empty() {
                     self.preedit_visible = false;
-                    Some(vec![Action::HidePreedit])
+                    vec![Action::HidePreedit]
                 } else {
                     let cursor = text.chars().count() as u32;
-                    Some(vec![Action::UpdatePreedit { text, cursor }])
-                }
+                    vec![Action::UpdatePreedit { text, cursor }]
+                };
+                // The Backspace changed the in-flight word: the strip
+                // follows it down (list for the shorter word, or hide once
+                // nothing completes it).
+                actions.extend(self.suggest_step_after_erase());
+                Some(actions)
             }
             // Off is gated above. Keeps the match exhaustive.
             Mode::Off => None,
@@ -1496,9 +1613,13 @@ impl Engine {
                     debug_log::log("backspace forwarded (no delete transport)");
                     self.tail = replace_tail(&self.tail, 1, "");
                     self.note_backspace_forwarded();
-                    return Some(vec![Action::Forward]);
+                    // The word the strip is showing changed (or is gone): the
+                    // step closes it when the gate no longer allows a pick.
+                    let mut actions = vec![Action::Forward];
+                    actions.extend(self.suggest_step_after_erase());
+                    return Some(actions);
                 }
-                let actions = if self.charset == Charset::Unicode {
+                let mut actions = if self.charset == Charset::Unicode {
                     let mut actions = Vec::new();
                     if edit.delete_chars > 0 {
                         let insert_len = edit.insert.chars().count();
@@ -1526,6 +1647,10 @@ impl Engine {
                         self.note_char(c);
                     }
                 }
+                // The Backspace changed the in-flight word: the strip follows
+                // it down (list for the shorter word, or hide once nothing
+                // completes it) — the preedit arm's contract, inline flavor.
+                actions.extend(self.suggest_step_after_erase());
                 Some(actions)
             }
         }
@@ -1600,7 +1725,7 @@ impl Engine {
     /// `FocusOut` is a no-op for the same reason.
     pub fn drop_pending_word(&mut self, hide_preedit: bool) -> Vec<Action> {
         self.wrapper.reset();
-        let actions = if hide_preedit {
+        let mut actions = if hide_preedit {
             self.hide_if_visible()
         } else {
             let _ = std::mem::take(&mut self.preedit_visible);
@@ -1620,6 +1745,15 @@ impl Engine {
         self.emoji_word = false;
         self.raw_word_start = 0;
         self.idle_committed = None;
+        self.prev_committed_word = None;
+        self.last_committed_word = None;
+        // The strip rides the in-flight word; the word is gone here, and a
+        // strip left open would offer candidates for text that no longer
+        // exists. The lookup-table hide, unlike the preedit one, is safe on
+        // focus loss — the client does not own that display.
+        if std::mem::take(&mut self.suggest_open) {
+            actions.push(Action::HideCandidates);
+        }
         actions
     }
 
@@ -1653,6 +1787,597 @@ impl Engine {
         }
     }
 
+    /// The single gate every strip branch consults: the switch on and a mode
+    /// whose delete transport can rewrite the held word. The pick keys are
+    /// `Alt`+digits and `` ` ``, so no preset's digit tone keys are in the
+    /// way.
+    /// Whether the strip may open for a word served in `mode`: preedit owns
+    /// its display (the client holds nothing on the wire — the pick commits
+    /// over it), the inline modes hold the composed text in the application
+    /// — a pick rewrites it, so the mode's own delete transport must be able
+    /// to. Without one the strip never opens: a pick would duplicate the
+    /// word the field already shows.
+    fn strip_possible(&self, mode: Mode) -> bool {
+        match mode {
+            Mode::Preedit => true,
+            Mode::Surrounding => self.deletes_allowed(),
+            // Forwarded Backspace keys reach every client — that is the
+            // mode's whole delete contract.
+            Mode::ForwardBackspace => true,
+            Mode::Flow => self.uinput_available,
+            Mode::Off => false,
+        }
+    }
+
+    fn suggest_active(&self) -> bool {
+        self.suggest_words && self.strip_possible(self.word_mode.unwrap_or(self.mode))
+    }
+
+    /// The context bonus for the in-flight word's prefix range: the last
+    /// committed word's bigram rows whose follower sits inside the range,
+    /// keyed by row id. A keyed row outranks the strangers of its band —
+    /// typing `c` right after `xin ` keeps `chào` at the top of the c*
+    /// rows, however frequent the others are. Empty without a model, a
+    /// context word, or a context that is not a model token.
+    fn context_pairs(
+        &self,
+        model: &crate::predict::PredictModel,
+    ) -> std::collections::HashMap<u32, u32> {
+        let Some(last) = self.last_committed_word.as_deref() else {
+            return std::collections::HashMap::new();
+        };
+        let Some(id) = model.id_of(last) else {
+            return std::collections::HashMap::new();
+        };
+        model.bigram_iter(id).collect()
+    }
+
+    /// The state-A candidate list for the in-flight word — the MODEL only,
+    /// the dictionary having left the suggestion business entirely (its
+    /// future home is spell-check): no table completions, no corrections,
+    /// on any path. Page 1 has a fixed shape, so the digits `1`-`5` always
+    /// mean the same thing:
+    ///
+    /// * slots 1-3 — single words: the model's VN syllables for the toneless
+    ///   prefix (context bonus first, then unigram frequency), then its EN
+    ///   rows on a pure-ASCII prefix (`hel` offers `hello`; `hè` excludes EN
+    ///   outright);
+    /// * slot 4 — the strongest compound, two or three words (`sinh` shows
+    ///   `sinh viên`);
+    /// * slot 5 — a keyword-matching emoji when the word has one, else the
+    ///   second compound.
+    ///
+    /// Past slot 5 the leftovers follow in the same band order, for the
+    /// strip's pages. The learning bonus (the personalization task) stays
+    /// inside these bands too — it reorders within a band, never across one.
+    /// One builder for the strip emit and the pick path, so the two can
+    /// never drift apart: the pick indexes into the list the strip emitted.
+    fn state_a_candidates(&self, word: &str) -> Vec<String> {
+        let cap = crate::suggest::MAX_CANDIDATES;
+        let (singles, compounds) = self.vn_material(word);
+        let en = self.en_candidates(word);
+        // A prefix the model knows nothing about is a mistyped word: the
+        // embedded syllable table's distance-1 neighbours ("sinhh" finds
+        // "sinh") fill the slots the model left empty. The table scan is the
+        // only edit-distance work on the key path, so it runs only here —
+        // and only when no band matched, or its near misses would bury the
+        // rows the model does know (`hel` losing `hello` to `hè`).
+        let corrections: Vec<(String, u32)> = if singles.is_empty()
+            && compounds.is_empty()
+            && en.is_empty()
+            && word.chars().count() >= 3
+        {
+            crate::suggest::SuggestTable::embedded()
+                .candidates_within(word, 1)
+                .into_iter()
+                .map(|candidate| (candidate.word, candidate.freq))
+                .filter(|(candidate, _)| candidate != word)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut emoji: Vec<String> = crate::emoji::glyphs_for_word(word)
+            .into_iter()
+            .take(crate::emoji::STRIP_EMOJI_CAP)
+            .map(str::to_string)
+            .collect();
+        // The word slots in order of how common each candidate is: the
+        // model's own counts decide, so a strong compound like `sinh viên`
+        // outranks the rare `sính` spellings of the same prefix, and inside
+        // its own band a common English word outranks a rare one. The VN
+        // band stays ahead of the EN band: mixed by count alone, the short
+        // prefixes drown in English (`h` offered he/have/has, no Vietnamese
+        // at all in the probe).
+        let mut words: Vec<Rated> = singles.into_iter().chain(compounds).collect();
+        words.extend(
+            corrections
+                .into_iter()
+                .map(|(surface, freq)| (surface, 0, freq)),
+        );
+        // The personal picks multiply that commonness: a word the user keeps
+        // picking climbs inside its band, while a far more common one keeps
+        // its lead until the picks add up.
+        let picks = self.picks.as_ref();
+        let context = self.last_committed_word.as_deref();
+        let score = |row: &Rated| f64::from(row.2) * picks.map_or(1.0, |p| p.lift(&row.0, context));
+        words.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| {
+                    score(b)
+                        .partial_cmp(&score(a))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        // The EN band keeps following the VN one (see above), ranked the same
+        // way.
+        words.extend(en);
+        // Page 1: the most common words, the keyword emoji holding the last
+        // slot. No padding — a thin prefix shows a short page instead of an
+        // empty slot.
+        let word_slots = if emoji.is_empty() {
+            crate::suggest::STRIP_PAGE_SIZE
+        } else {
+            crate::suggest::STRIP_PAGE_SIZE - 1
+        };
+        let mut out: Vec<String> = Vec::new();
+        let mut rest: Vec<String> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for (surface, _, _) in words {
+            // One listing per surface: the same word reaches the list from
+            // two bands or from the compound stream.
+            if !seen.insert(surface.clone()) {
+                continue;
+            }
+            if out.len() < word_slots {
+                out.push(surface);
+            } else {
+                rest.push(surface);
+            }
+        }
+        if !emoji.is_empty() {
+            out.push(emoji.remove(0));
+        }
+        out.extend(rest);
+        out.extend(emoji);
+        out.truncate(cap);
+        out
+    }
+
+    /// The model's VN material for the in-flight word as `(single words,
+    /// compounds)`, each `Rated` and ranked: the pair count with the landed
+    /// context first (typing `xin ch` puts `chào` on top, `196` pairs), the
+    /// unigram then deciding the rest — with no context every pair is zero
+    /// and commonness alone ranks the list. The prefix match alone filters
+    /// language: VN syllables never start an English prefix (`hel` finds
+    /// none) and vice versa.
+    fn vn_material(&self, word: &str) -> (Vec<Rated>, Vec<Rated>) {
+        let Some(model) = self.model.as_ref() else {
+            return (Vec::new(), Vec::new());
+        };
+        let (start, end) = model.prefix_range(word);
+        let pairs = self.context_pairs(model);
+        let pair_of = |id: u32| pairs.get(&id).copied().unwrap_or(0);
+        let mut singles: Vec<(u32, String, u32, u32)> = (start..end)
+            .map(|row| row as u32)
+            .filter(|&id| model.flags(id) & crate::predict::FLAG_VN_SYLLABLE != 0)
+            .map(|id| {
+                (
+                    id,
+                    model.surface(id).to_string(),
+                    pair_of(id),
+                    model.unigram(id),
+                )
+            })
+            .filter(|(_, surface, _, _)| surface != word)
+            // A landed word narrows the band to what the model actually saw
+            // after it: no random neighbour of the typed prefix.
+            .filter(|&(_, _, pair, _)| pairs.is_empty() || pair > 0)
+            .collect();
+        singles.sort_by(|a, b| {
+            b.2.cmp(&a.2)
+                .then_with(|| b.3.cmp(&a.3))
+                .then_with(|| a.1.cmp(&b.1))
+        });
+        let mut compounds: Vec<Rated> = model
+            .compounds_for_prefix(&crate::suggest::toneless(word))
+            .into_iter()
+            .map(|(surface, strength)| {
+                let pair = model.id_of(&surface).map_or(0, pair_of);
+                (surface, pair, strength)
+            })
+            .collect();
+        compounds.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| b.2.cmp(&a.2))
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        (
+            singles
+                .into_iter()
+                .map(|(_, surface, pair, unigram)| (surface, pair, unigram))
+                .collect(),
+            compounds,
+        )
+    }
+
+    /// The EN band: the model's EN-word rows whose toneless key starts with
+    /// the typed prefix, the typed word itself excluded. Empty unless the
+    /// word is pure ASCII — a Vietnamese letter or tone mark anywhere
+    /// excludes EN (`hè` never offers `hello`).
+    fn en_candidates(&self, word: &str) -> Vec<Rated> {
+        if !word.chars().all(|c| c.is_ascii_alphabetic()) {
+            return Vec::new();
+        }
+        let Some(model) = self.model.as_deref() else {
+            return Vec::new();
+        };
+        let (start, end) = model.prefix_range(&crate::suggest::toneless(word));
+        let pairs = self.context_pairs(model);
+        let mut rows: Vec<(u32, String, u32, u32)> = (start as u32..end as u32)
+            .filter(|id| model.flags(*id) & crate::predict::FLAG_EN_WORD != 0)
+            .map(|id| {
+                (
+                    id,
+                    model.surface(id).to_string(),
+                    pairs.get(&id).copied().unwrap_or(0),
+                    model.unigram(id),
+                )
+            })
+            .filter(|(_, surface, _, _)| surface != word)
+            .filter(|&(_, _, pair, _)| pairs.is_empty() || pair > 0)
+            .collect();
+        // The same rule the VN band follows: the context pair leads, the rest
+        // falls back to frequency with the learning bonus riding on it.
+        let picks = self.picks.as_ref();
+        let context = self.last_committed_word.as_deref();
+        let score = |row: &(u32, String, u32, u32)| {
+            row.3 as f64 * picks.map_or(1.0, |p| p.lift(&row.1, context))
+        };
+        rows.sort_by(|a, b| {
+            b.2.cmp(&a.2)
+                .then_with(|| {
+                    score(b)
+                        .partial_cmp(&score(a))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| a.1.cmp(&b.1))
+        });
+        rows.into_iter()
+            .map(|(_, surface, pair, uni)| (surface, pair, uni))
+            .collect()
+    }
+
+    /// The focused field's IBus content purpose (the server's ContentType
+    /// handler). Only the two hidden-entry purposes quiet the strip — and
+    /// with it the learning path; typing itself composes exactly the same.
+    pub fn set_content_purpose(&mut self, purpose: u32) {
+        self.password_quiet = purpose == PURPOSE_PASSWORD || purpose == PURPOSE_PIN;
+    }
+
+    /// Whether the focused field is a password/PIN entry (server tests and
+    /// debug logging read this; the engine itself consults the flag inline).
+    pub fn password_quiet(&self) -> bool {
+        self.password_quiet
+    }
+
+    /// The strip refresh after a key changed the in-flight word: emit the
+    /// word's full candidate list while it has any, hide once the word is
+    /// gone or the table offers nothing. Called only where the word really
+    /// changed (the Edit/Finish arms, the Backspace path) — a key that
+    /// leaves the word untouched must not re-emit and reset the server's
+    /// page.
+    /// The strip after a Backspace: it follows the shorter word down and
+    /// closes once the box holds nothing. The landed-word list (state B) is
+    /// the landing surface — reached after an erase it would offer next-word
+    /// candidates under an empty input box (`xin ch` erased to nothing listed
+    /// `lỗi`, `được`, `phép`).
+    fn suggest_step_after_erase(&mut self) -> Vec<Action> {
+        // The landed surface ends with the space it came from: a Backspace
+        // that takes that space back leaves the caret right after the word,
+        // where the next-word list would commit into it ("xin" then a pick
+        // of "xinh đẹp" gave "xinxinh đẹp").
+        self.strip_landing = false;
+        if self.wrapper.output().is_empty() {
+            if std::mem::take(&mut self.suggest_open) {
+                return vec![Action::HideCandidates];
+            }
+            return Vec::new();
+        }
+        self.suggest_step()
+    }
+
+    /// The word the screen holds: the composition, or — in a uinput mode
+    /// whose per-key batch already landed it — the tail that mirrors that
+    /// word on screen. A tail ending in a space is not a word in flight: the
+    /// caret sits after the landing space, and the landed list owns it.
+    fn current_word(&self) -> String {
+        let word = self.wrapper.output();
+        if word.is_empty() && !self.tail.is_empty() && !self.tail.ends_with(' ') {
+            return self.tail.clone();
+        }
+        word
+    }
+
+    fn suggest_step(&mut self) -> Vec<Action> {
+        // A password field: the strip never opens — and with it the accept
+        // path (learning) is unreachable. Typing itself is untouched.
+        if self.password_quiet {
+            if std::mem::take(&mut self.suggest_open) {
+                return vec![Action::HideCandidates];
+            }
+            return Vec::new();
+        }
+        if !self.suggest_active() {
+            // The gate turned off while the strip is up (a config reload mid-
+            // word): close it here so no stale strip survives to accept picks.
+            if std::mem::take(&mut self.suggest_open) {
+                return vec![Action::HideCandidates];
+            }
+            return Vec::new();
+        }
+        // The landed-word surface (nothing in flight) is the state-B
+        // next-word list; from the FIRST typed letter on, the list is the
+        // context+prefix fusion of state A. The old below-two-chars silence
+        // was the dictionary's full-table scan guard — the model's bounded
+        // range scan has no such degenerate case, and a frozen context list
+        // that ignores the letter being typed reads as a hung strip.
+        let word = self.current_word();
+        let state_b = word.is_empty();
+        // The landed-word list is the one a single space opens: after any
+        // other mark with nothing in flight (`chao`, `.`, a second space) the
+        // list would predict the next word of text the punctuation moved on
+        // from, so the strip closes instead.
+        if state_b && !self.strip_landing {
+            if std::mem::take(&mut self.suggest_open) {
+                return vec![Action::HideCandidates];
+            }
+            return Vec::new();
+        }
+        let items = if state_b {
+            self.state_b_candidates(
+                self.prev_committed_word.as_deref(),
+                self.last_committed_word.as_deref().unwrap_or(""),
+            )
+        } else {
+            self.state_a_candidates(&word)
+        };
+        if items.is_empty() {
+            // Idle keys cost nothing: the hide fires only on the open→closed
+            // edge, everything else is a no-op.
+            if self.suggest_open {
+                self.suggest_open = false;
+                return vec![Action::HideCandidates];
+            }
+            return Vec::new();
+        }
+        self.suggest_open = true;
+        // The box's input line: the word being typed, or — on the state-B
+        // surface — the context word the predictions continue.
+        let display_word = if state_b {
+            self.last_committed_word.clone().unwrap_or_default()
+        } else {
+            word.clone()
+        };
+        vec![Action::UpdateCandidates {
+            word: display_word,
+            items,
+        }]
+    }
+
+    /// The state-B next-word list for the pair `(prev, last)` — the fused
+    /// stupid-backoff ranking of [`scoring::fused_state_b`]: the pair's
+    /// trigram rows lead (or the last word's bigram rows when no pair is
+    /// known), the last word's bigram rows back off at 0.4, and the model's
+    /// unigram stream fills at 0.16. Surfaces only, capped. Empty when
+    /// there is no model, the last word is not a model token, or nothing
+    /// follows it — the strip then goes quiet.
+    fn state_b_candidates(&self, prev: Option<&str>, last: &str) -> Vec<String> {
+        let Some(model) = self.model.as_deref() else {
+            return Vec::new();
+        };
+        let Some(id2) = model.id_of(last) else {
+            return Vec::new();
+        };
+        let bigram_rows: Vec<(u32, u32)> = model.bigram_iter(id2).collect();
+        let bigram_total: u32 = bigram_rows.iter().map(|(_, c)| c).sum();
+        // The pair's trigram rows take the context seat when they exist;
+        // otherwise the bigram rows are the context tier and no backoff
+        // tier exists (the evaluator's one-token shape).
+        let pair = prev
+            .and_then(|w| model.id_of(w))
+            .map(|id1| model.trigram_iter(id1, id2).collect::<Vec<(u32, u32)>>());
+        let uni_factor = if pair.as_ref().is_some_and(|rows| !rows.is_empty()) {
+            scoring::BACKOFF2
+        } else {
+            scoring::BACKOFF
+        };
+        let (ctx, backoff) = match &pair {
+            Some(rows) if !rows.is_empty() => {
+                let total: u32 = rows.iter().map(|(_, c)| c).sum();
+                (
+                    scoring::Tier {
+                        rows,
+                        total: total as f64,
+                        factor: 1.0,
+                    },
+                    scoring::Tier {
+                        rows: &bigram_rows,
+                        total: bigram_total as f64,
+                        factor: scoring::BACKOFF,
+                    },
+                )
+            }
+            _ => (
+                scoring::Tier {
+                    rows: &bigram_rows,
+                    total: bigram_total as f64,
+                    factor: 1.0,
+                },
+                scoring::Tier {
+                    rows: &[],
+                    total: 1.0,
+                    factor: 0.0,
+                },
+            ),
+        };
+        let picks = self.picks.as_ref();
+        let lift =
+            |id: u32| -> f64 { picks.map_or(1.0, |p| p.lift(model.surface(id), Some(last))) };
+        let ids = scoring::fused_state_b(
+            ctx,
+            backoff,
+            scoring::UniStream {
+                order: model.uni_order(),
+                count: |id| model.unigram(id),
+                total: model.uni_total() as f64,
+                factor: uni_factor,
+            },
+            |x, y| model.surface(x).cmp(model.surface(y)),
+            lift,
+            crate::suggest::MAX_CANDIDATES,
+        );
+        ids.into_iter()
+            .map(|id| model.surface(id).to_string())
+            .collect()
+    }
+
+    /// Commit the strip candidate at `index` — the position in the FULL
+    /// list the last `UpdateCandidates` carried (the server pages the list
+    /// and maps page + label to this global index; the digit never reaches
+    /// the engine, so the in-flight word — and the list — still match).
+    /// Resets the composition through the same word-end state drop and
+    /// records the candidate as the context word. A closed strip or an
+    /// out-of-range index is a race between the server's strip state and
+    /// the engine's (the word moved on between the last update and the
+    /// key): commit nothing rather than a stale or wrong word — the caller
+    /// forwards the key instead.
+    pub fn accept_candidate(&mut self, index: usize) -> Vec<Action> {
+        if !self.suggest_open || self.password_quiet {
+            return Vec::new();
+        }
+        let word = self.current_word();
+        if word.is_empty() {
+            // State B: nothing is in flight — the strip holds the last
+            // committed word's next-word list and the pick commits that
+            // word wholesale, then closes the strip.
+            return self.accept_state_b(index);
+        }
+        let Some(candidate) = self.state_a_candidates(&word).into_iter().nth(index) else {
+            return Vec::new();
+        };
+        let replaced = word.chars().count();
+        // Learning records the PICKED candidate — never the keystrokes —
+        // with the ranking context (the last committed word) as the pair
+        // key. A quiet (password) field never reaches this: the gate above.
+        if let Some(picks) = self.picks.as_mut() {
+            picks.record_pick(&candidate, self.last_committed_word.as_deref());
+        }
+        // The candidate replaces the word wholesale: no macro, no
+        // auto-restore — exactly what the strip offered. The commit is
+        // charset-encoded like every word end. A sentence-start word takes
+        // the composition path's own capitalization decision (`cap_word`,
+        // recorded at the word's first key), first character only.
+        let word = if std::mem::take(&mut self.cap_word) {
+            capitalize_first(&candidate)
+        } else {
+            candidate
+        };
+        let text = format!("{} ", encode(self.charset, &word));
+        // The mode the word was served in decides the rewrite: preedit holds
+        // nothing on the wire (drop and commit), the inline modes hold the
+        // composed text in the application — the pick erases it through the
+        // mode's own delete transport first, exactly like the inline word-end
+        // rewrites (macro, emoji). Without a transport the commit would land
+        // on top of the held word and duplicate it; the strip gate never
+        // opens there, and a race is refused rather than committed.
+        let mode = self.word_mode.unwrap_or(self.mode);
+        if !self.strip_possible(mode) {
+            return Vec::new();
+        }
+        let inline = mode != Mode::Preedit;
+        // The erase length comes off the tail (the screen the transports
+        // model) — `drop_pending_word` clears it, so read it first. Flow's
+        // last batch may still be parked: land it before the erase so the
+        // Backspaces count against the screen they model.
+        let held = self.tail.chars().count();
+        // The width comes off the tail, which mirrors the screen: it has to
+        // be exactly the word being replaced. A stale tail (a focus switch,
+        // an application that edited its own text) would otherwise erase
+        // into the sentence before it — refused rather than committed.
+        if inline && held > 0 && held != replaced {
+            return Vec::new();
+        }
+        let parked = if mode == Mode::Flow {
+            self.per_key_park.take()
+        } else {
+            None
+        };
+        let mut actions = self.drop_pending_word(true);
+        if let Some((_, parked_text)) = parked {
+            actions.push(Action::CommitNow(parked_text));
+        }
+        if inline && held > 0 {
+            if mode == Mode::Flow {
+                // Flow's transport is the injected Backspaces (see the
+                // per-key coalesce), paced like every Flow rewrite.
+                actions.push(Action::InjectBackspaces(held as u32));
+                if self.post_delay_ms > 0 {
+                    actions.push(Action::PostDelay(self.post_delay_ms));
+                }
+            } else {
+                actions.push(self.delete_action(mode, held as u32, text.chars().count()));
+            }
+        }
+        // The context word is the commit as it landed — like `on_finish`
+        // recording the word as Finish carried it, capital included. The
+        // space rides the commit (ibus intelligent pinyin's shape: a pick
+        // ends the word and the next one starts fresh), so the context stays
+        // the bare word for the next round's ranking.
+        self.prev_committed_word = self.last_committed_word.take();
+        self.last_committed_word = Some(word);
+        // The candidate's last char (the space) is now on screen: keep the
+        // capitalize window and `last_char` in step, like every committed
+        // word — a space re-opens the em-dash/double-space windows.
+        self.note_committed(&text);
+        actions.push(Action::Commit(text));
+        actions
+    }
+
+    /// The state-B pick: nothing is in flight, so the candidate commits
+    /// wholesale — a plain commit, no delete transport exists or is needed —
+    /// and becomes the next context word. The strip closes: a pick ends the
+    /// session, and a next-word list would appear only after the user types.
+    fn accept_state_b(&mut self, index: usize) -> Vec<Action> {
+        let Some(context) = self.last_committed_word.clone() else {
+            return Vec::new();
+        };
+        let Some(candidate) = self
+            .state_b_candidates(self.prev_committed_word.as_deref(), &context)
+            .into_iter()
+            .nth(index)
+        else {
+            return Vec::new();
+        };
+        // The pair (context, picked) is exactly what the state-B bonus reads.
+        if let Some(picks) = self.picks.as_mut() {
+            picks.record_pick(&candidate, Some(&context));
+        }
+        let text = format!("{} ", encode(self.charset, &candidate));
+        // The pick's trailing space re-opens the em-dash/double-space
+        // windows like every committed word.
+        self.note_committed(&text);
+        let mut actions = vec![Action::Commit(text)];
+        self.prev_committed_word = self.last_committed_word.take();
+        self.last_committed_word = Some(candidate);
+        // The pick ends the strip: the list after a pick is the next word's
+        // guess, and the owner wants it gone until the next letter asks for
+        // one (it used to chain in place).
+        self.suggest_open = false;
+        actions.push(Action::HideCandidates);
+        actions
+    }
+
     /// The client `Reset` method. GTK fires it when the user clicks in a text
     /// field and on focus changes. The preedit is sent with
     /// `IBUS_ENGINE_PREEDIT_COMMIT`, so GTK has already committed the pending
@@ -1672,6 +2397,10 @@ impl Engine {
     /// first and wipe the very word they are about to commit (ibus-bamboo's
     /// `FocusOut` is a no-op for the same reason).
     pub fn focus_out(&mut self) -> Vec<Action> {
+        // The purpose belongs to the field we just left: without this, one
+        // password field would quiet every later normal field until the
+        // daemon happened to resend a ContentType.
+        self.password_quiet = false;
         debug_log::log("focus-out → drop the pending word, no signals");
         self.drop_pending_word(false)
     }
@@ -1685,6 +2414,13 @@ impl Engine {
     /// word character can re-enter the composition via `idle_committed`.
     pub fn tick(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
+        // Pick files flush on tick — the key path never writes — and
+        // re-read when a file moved underneath us (external edit, the
+        // GUI's clear button).
+        if let Some(picks) = self.picks.as_mut() {
+            picks.flush();
+            picks.reload_if_changed();
+        }
         // Parked commits past their deadline become deliverable here —
         // the main loop woke for exactly this deadline (ms_until_tick).
         for text in self.take_due_commits() {
@@ -1750,6 +2486,9 @@ impl Engine {
             self.idle_committed = Some((raw, encode(self.charset, &pending)));
             debug_log::log(&format!("idle commit len={}", pending.chars().count()));
             actions.extend(finished);
+            // The in-flight word is gone: close the strip with the commit
+            // (the next word's first key would hide it only one key later).
+            actions.extend(self.suggest_step());
         }
         actions
     }

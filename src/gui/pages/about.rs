@@ -125,7 +125,7 @@ pub(crate) fn build() -> adw::PreferencesPage {
         &t("about.license_title", "Giấy phép mã nguồn mở"),
         &t(
             "about.license_value",
-            "GPL — phiên bản 3, chi tiết trong LICENSE",
+            "GPL phiên bản 3, chi tiết trong LICENSE",
         ),
     ));
     project.add(&feature_row(

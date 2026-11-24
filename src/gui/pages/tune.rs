@@ -1,17 +1,26 @@
-//! Page "Tinh chỉnh": the technical knobs most users never touch — the
-//! uinput pacing (Flow only) and the X11/XIM workarounds. The rows
-//! themselves come from `build`; this page groups them and keeps subtitles
-//! to two lines.
+//! Page "Tinh chỉnh": the knobs that change how typing feels — the two
+//! caret edits, the uinput pacing (Flow only) and the X11/XIM workarounds.
+//! The rows themselves come from `build`; this page groups them and keeps
+//! subtitles to two lines.
 
 use super::*;
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
 
+    // How Backspace and the arrow keys behave while a word is open: they
+    // change the typing feel, not the spelling rules of the tab above.
+    let marks = adw::PreferencesGroup::builder()
+        .title(t("groups.tune.marks.title", "Dấu &amp; điều hướng"))
+        .build();
+    marks.add(&ui.backspace_tone);
+    marks.add(&ui.nav_key_while_preedit);
+    page.add(&marks);
+
     // uinput pacing plus the per-key park delay: everything only the
     // uinput modes use.
     let pacing = adw::PreferencesGroup::builder()
-        .title(t("groups.tune.pacing.title", "Cấu hình uinput"))
+        .title(t("groups.tune.pacing.title", "Nhịp gõ &amp; độ trễ uinput"))
         .description(t("groups.tune.pacing.description", "Chỉ áp dụng cho Flow."))
         .build();
     pacing.add(&ui.pacing_row);
@@ -35,7 +44,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
                 }
             });
     }
-    for spin in [&ui.commit_interval, &ui.backspace_interval, &ui.post_delay] {
+    for spin in [&ui.backspace_interval, &ui.post_delay] {
         let s = ui.save_cb.clone();
         spin.connect_value_notify(move |_| {
             if let Some(save) = s.borrow().as_ref() {
@@ -61,7 +70,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     ));
     ui.preedit_xim.set_subtitle(&t(
         "rows.preedit_xim.subtitle",
-        "Giữ gạch chân cho app XIM: chữ đang gõ hiện trong cửa sổ riêng, commit khi hết từ.",
+        "Cửa sổ preedit riêng cho XIM",
     ));
     page.add(&xim);
 

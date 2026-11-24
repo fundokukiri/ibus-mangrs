@@ -28,6 +28,12 @@ const XK_SHIFT_L: u32 = 0xffe1;
 const XK_SHIFT_R: u32 = 0xffe2;
 const XK_CONTROL_L: u32 = 0xffe3;
 const XK_CONTROL_R: u32 = 0xffe4;
+/// The Alt keys themselves: their release is the signal that a pick asked
+/// for with Alt may now send the Backspaces it injects.
+pub fn is_alt_key(keyval: u32) -> bool {
+    matches!(keyval, XK_ALT_L | XK_ALT_R)
+}
+
 const XK_ALT_L: u32 = 0xffe9;
 const XK_ALT_R: u32 = 0xffea;
 const XK_SUPER_L: u32 = 0xffeb;
@@ -71,6 +77,8 @@ const XK_DOWN: u32 = 0xff54;
 const XK_PAGE_UP: u32 = 0xff55;
 const XK_PAGE_DOWN: u32 = 0xff56;
 const XK_END: u32 = 0xff57;
+const XK_COMMA: u32 = 0x2c;
+const XK_PERIOD: u32 = 0x2e;
 
 /// Convert an X11 keysym to the character it produces.
 ///
@@ -129,6 +137,9 @@ pub const BACKSPACE: u32 = XK_BACKSPACE;
 pub const RETURN: u32 = XK_RETURN;
 pub const ESCAPE: u32 = XK_ESCAPE;
 pub const TAB: u32 = XK_TAB;
+/// The strip's pick key: `` ` `` opens slot 1, `Shift`+`` ` `` (`~`) the same.
+pub const GRAVE: u32 = 0x0060;
+pub const ASCII_TILDE: u32 = 0x007e;
 /// Keysym constants the server's forward paths reference by name.
 pub const LEFT: u32 = XK_LEFT;
 /// The remaining navigation keys, for the nav-key replay's evdev table.
@@ -139,6 +150,10 @@ pub const PAGE_UP: u32 = XK_PAGE_UP;
 pub const PAGE_DOWN: u32 = XK_PAGE_DOWN;
 pub const HOME: u32 = XK_HOME;
 pub const END: u32 = XK_END;
+/// The suggestion strip's keyboard page keys, `Ctrl+,`/`Ctrl+.` — the
+/// popup's ◀▶ buttons with a keyboard flavor; plain `,`/`.` stay content.
+pub const COMMA: u32 = XK_COMMA;
+pub const PERIOD: u32 = XK_PERIOD;
 
 #[cfg(test)]
 mod tests {

@@ -3,6 +3,50 @@
 
 use super::*;
 
+/// Every group description moves into a tooltip on its title: the header
+/// keeps a single line, and the explanation still shows on hover.
+pub(super) fn descriptions_into_tooltips(root: &impl IsA<gtk4::Widget>) {
+    let mut child = root.as_ref().first_child();
+    while let Some(widget) = child {
+        if let Some(group) = widget.downcast_ref::<adw::PreferencesGroup>() {
+            move_description_to_title(group);
+        }
+        descriptions_into_tooltips(&widget);
+        child = widget.next_sibling();
+    }
+}
+
+fn move_description_to_title(group: &adw::PreferencesGroup) {
+    let Some(description) = group.description() else {
+        return;
+    };
+    // The title label is internal to libadwaita: match it by its text. No
+    // match means the text would be lost, so the line stays visible.
+    let Some(title) = find_label(group.upcast_ref(), &group.title()) else {
+        return;
+    };
+    title.set_tooltip_text(Some(&description));
+    group.set_description(None);
+}
+
+pub(super) fn find_label(widget: &gtk4::Widget, text: &str) -> Option<gtk4::Label> {
+    if let Some(label) = widget.downcast_ref::<gtk4::Label>() {
+        // Titles are Pango markup: `text()` is decoded, `label()` keeps the
+        // entity (`Sao lưu &amp; khôi phục`), and the group carries the raw.
+        if label.text() == text || label.label() == text {
+            return Some(label.clone());
+        }
+    }
+    let mut child = widget.first_child();
+    while let Some(widget) = child {
+        if let Some(found) = find_label(&widget, text) {
+            return Some(found);
+        }
+        child = widget.next_sibling();
+    }
+    None
+}
+
 /// The widgets on their own, so a test can drive `refresh`/`read` without a
 /// window; `build` composes them into pages and presents them.
 pub(super) fn widgets() -> Rc<Ui> {
@@ -10,40 +54,20 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.enabled.title", "Bật tiếng Việt"),
         // {page} is the macros page's real sidebar label, so the sentence
         // cannot drift from the sidebar.
-        &t(
-            "rows.enabled.subtitle",
-            "Tắt để gõ thẳng mọi phím. Gõ tắt vẫn chạy nếu bật ở trang Gõ tắt.",
-        )
-        .replace("{page}", &t("pages.macros", "Gõ tắt")),
+        &t("rows.enabled.subtitle", "Tắt là mọi phím đi thẳng vào app")
+            .replace("{page}", &t("pages.macros", "Gõ tắt")),
     );
     let method = combo_row(
         &t("rows.method.title", "Kiểu gõ"),
         &t("rows.method.subtitle", "Cách gõ dấu tiếng Việt"),
         &labels(METHODS),
     );
-    // The visible-mode list is the single source for every mode picker in
-    // the window: the main combo, the add-rule picker and the rule rows.
-    let mode_choices = Config::load().visible_modes();
+    let mode_choices = ModeConfig::ALL.to_vec();
     let mode = combo_row(
         &t("rows.mode.title", "Chế độ gõ"),
         &t("rows.mode.subtitle", "Cách đưa chữ vào ứng dụng"),
         &mode_labels(&mode_choices),
     );
-    // "Chế độ gõ hiển thị": an expander holding one switch per mode. The
-    // expander keeps five rows out of the page's main flow.
-    let mode_visibility = adw::ExpanderRow::new();
-    mode_visibility.set_use_markup(false);
-    mode_visibility.set_title(&t("rows.mode_visibility.title", "Chế độ gõ hiển thị"));
-    mode_visibility.set_tooltip_text(Some(&t(
-        "tips.mode_visibility",
-        "Bỏ chọn một chế độ để ẩn nó khỏi menu, phím tắt, luật theo app và bộ chọn chế độ. Chế độ đang dùng sẽ chuyển sang mục còn hiện đầu tiên.",
-    )));
-    let mut mode_visible_switches = Vec::new();
-    for (mode, ..) in MODE_LABELS {
-        let switch = switch_row(mode_label(*mode), "");
-        mode_visibility.add_row(&switch);
-        mode_visible_switches.push(switch);
-    }
     let charset = combo_row(
         &t("rows.charset.title", "Bảng mã"),
         &t("rows.charset.subtitle", "Unicode và 10 bảng mã cũ"),
@@ -73,79 +97,48 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     let free = switch_row(
         &t("rows.free.title", "Dấu tự do"),
-        &t(
-            "rows.free.subtitle",
-            "Dấu đặt anywhere trong từ: hoangf → hoàng",
-        ),
+        &t("rows.free.subtitle", "Dấu ở đâu trong từ cũng được"),
     );
     let auto_correct = switch_row(
-        &t("rows.auto_correct.title", "Từ sai trả phím gốc"),
-        &t(
-            "rows.auto_correct.subtitle",
-            "Âm tiết không hợp lệ trả về đúng phím đã bấm",
-        ),
+        &t("rows.auto_correct.title", "Trả lại phím khi gõ sai"),
+        &t("rows.auto_correct.subtitle", "Âm tiết lạ thì trả phím gốc"),
     );
     let auto_restore = switch_row(
         &t("rows.auto_restore.title", "Khôi phục từ nước ngoài"),
-        &t(
-            "rows.auto_restore.subtitle",
-            "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
-        ),
+        &t("rows.auto_restore.subtitle", "Từ ngoại lai trả về phím gốc"),
     );
     let extended_finals = switch_row(
         &t("rows.extended_finals.title", "Âm cuối mở rộng"),
         &t(
             "rows.extended_finals.subtitle",
-            "g, k, h, nk thay ng, c, nh: nhuwgx → nhữg",
+            "g, k, h, nk thay ng, c, nh",
         ),
     );
     let extended_onsets = switch_row(
         &t("rows.extended_onsets.title", "Âm đầu mở rộng"),
-        &t(
-            "rows.extended_onsets.subtitle",
-            "f, j, w làm âm đầu được ghi dấu: fos → fó",
-        ),
+        &t("rows.extended_onsets.subtitle", "f, j, w làm âm đầu"),
     );
     let abbrev = switch_row(
-        &t("rows.abbrev.title", "Viết tắt"),
-        &t(
-            "rows.abbrev.subtitle",
-            "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
-        ),
+        &t("rows.abbrev.title", "Giữ đ trong từ viết tắt"),
+        &t("rows.abbrev.subtitle", "ddc, ddk không thành đ"),
     );
     let bypass_url = switch_row(
         &t("rows.bypass_url.title", "Không dấu sau URL"),
-        &t(
-            "rows.bypass_url.subtitle",
-            "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
-        ),
-    );
-    let extra_url_chars_entry = chars_entry();
-    extra_url_chars_entry.set_sensitive(false);
-    let (extra_url_chars_row, extra_url_chars_switch) = switch_value_row(
-        &t("rows.extra_url_chars.title", "Thêm ký tự giữ nguyên dấu"),
-        &t(
-            "rows.extra_url_chars.subtitle",
-            "Ký tự riêng liệt kê ở ô bên phải",
-        ),
-        &extra_url_chars_entry,
+        &t("rows.bypass_url.subtitle", "Sau ký tự URL thì giữ nguyên"),
     );
     let w2u = combo_row(
         &t("rows.w2u.title", "W thành ư"),
-        &t("rows.w2u.subtitle", "Chọn vị trí áp dụng"),
+        &t("rows.w2u.subtitle", "w = ư, wa = ưa"),
         &labels(ON_OFF_MODES),
     );
     let bracket = combo_row(
         &t("rows.bracket.title", "[ ] thành ơ ư"),
-        &t("rows.bracket.subtitle", "Chọn vị trí áp dụng"),
+        &t("rows.bracket.subtitle", "[ và ] ra ơ, ư theo vị trí"),
         &labels(ON_OFF_MODES),
     );
     let backspace_tone = combo_row(
         &t("rows.backspace_tone.title", "Xóa dấu bằng Backspace"),
-        &t(
-            "rows.backspace_tone.subtitle",
-            "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành ha). Hoặc xóa cả dấu và chữ (hạ thành h), hoặc lùi từng phím như unikey.",
-        ),
+        &t("rows.backspace_tone.subtitle", "Cách xoá dấu khi Backspace"),
         &labels(BACKSPACE_TONE_MODES),
     );
     let nav_key_while_preedit = combo_row(
@@ -161,34 +154,15 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     let em_dash = switch_row(
         &t("rows.em_dash.title", "Gạch ngang dài"),
-        &t(
-            "rows.em_dash.subtitle",
-            "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)",
-        ),
+        &t("rows.em_dash.subtitle", "Hai dấu trừ thành gạch dài"),
     );
     let auto_capitalize = switch_row(
-        &t("rows.auto_capitalize.title", "Tự viết hoa"),
+        &t("rows.auto_capitalize.title", "Tự viết hoa đầu câu"),
         &t("rows.auto_capitalize.subtitle", "Sau . ! ? và Enter"),
     );
-    let auto_capitalize_after_entry = chars_entry();
-    auto_capitalize_after_entry.set_sensitive(false);
-    let (auto_capitalize_after_row, auto_capitalize_after_switch) = switch_value_row(
-        &t(
-            "rows.auto_capitalize_after.title",
-            "Viết hoa sau ký tự thêm",
-        ),
-        &t(
-            "rows.auto_capitalize_after.subtitle",
-            "Ký tự thêm liệt kê ở ô bên phải",
-        ),
-        &auto_capitalize_after_entry,
-    );
     let double_space = switch_row(
-        &t(
-            "rows.double_space.title",
-            "Nhấn “Space” hai lần thành dấu chấm",
-        ),
-        &t("rows.double_space.subtitle", "Hai dấu cách thành dấu chấm"),
+        &t("rows.double_space.title", "Hai dấu cách thành dấu chấm"),
+        &t("rows.double_space.subtitle", "Thay cho gõ dấu chấm tay"),
     );
     let macro_enabled = switch_row(
         &t("rows.macro_enabled.title", "Gõ tắt"),
@@ -212,17 +186,17 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let macro_valid_words = switch_row(
-        &t(
-            "rows.macro_valid_words.title",
-            "Gõ tắt: nở cả trên từ hợp lệ",
-        ),
+        &t("rows.macro_valid_words.title", "Gõ tắt thắng từ tiếng Việt"),
         &t(
             "rows.macro_valid_words.subtitle",
-            "Phím tắt trùng từ thật vẫn nở",
+            "Khoá trùng từ thật vẫn mở",
         ),
     );
     let keep_composed_words = switch_row(
-        &t("rows.keep_composed_words.title", "Giữ từ khi gõ phím lạ"),
+        &t(
+            "rows.keep_composed_words.title",
+            "Giữ từ khi gõ thêm phím lạ",
+        ),
         &t(
             "rows.keep_composed_words.subtitle",
             "tùng + g → tùngg thay vì tungfg",
@@ -238,51 +212,53 @@ pub(super) fn widgets() -> Rc<Ui> {
             "giữ o → oooo… thay vì dừng ở ô",
         ),
     );
+    let suggest_words = switch_row(
+        &t("rows.suggest_words.title", "Gợi ý từ khi gõ"),
+        &t("rows.suggest_words.subtitle", "Dải gợi ý cạnh con trỏ"),
+    );
     let preferred_backend = combo_row(
-        &t("rows.preferred_backend.title", "Backend ưu tiên"),
-        &t(
-            "rows.preferred_backend.subtitle",
-            "Backend tiêm phím được ưu tiên; không dựng được thì tự rơi về tự động",
-        ),
+        &t("rows.preferred_backend.title", "Cách chèn phím"),
+        &t("rows.preferred_backend.subtitle", "Ưu tiên cách chèn phím"),
         // Order pinned by preferred_backend_index: auto, uinput, xtest,
         // wlr-virtual-keyboard, libei.
-        &[
-            "Tự động (theo môi trường)",
-            "uinput (bàn phím ảo kernel)",
-            "XTest (X11)",
-            "wlroots virtual-keyboard (Hyprland, sway...)",
-            "libei (mutter/GNOME — rủi ro crash, chỉ để thử nghiệm)",
-        ],
+        &["Tự động", "Uinput", "Xtest", "Wlroots", "Libei"],
     );
-    // The formats are preset dropdowns like every other combo; a format
-    // the old free-text rows saved that matches no preset is appended by
+    // One row for both formats: two plain dropdowns with a dot between
+    // them, and the live example of each on the subtitle. A format the old
+    // free-text rows saved that matches no preset is appended by
     // `select_format` instead of being rewritten.
-    // No subtitle: the row's live hint is the example — a static "Ví dụ"
-    // line would duplicate it. The empty default keeps the row one-line
-    // unless the owner re-adds a subtitle in gui-content.toml.
-    let time_format = combo_row(
-        &t("rows.time_format.title", "Định dạng giờ ($TIME)"),
-        &t("rows.time_format.subtitle", ""),
-        TIME_FORMATS,
-    );
-    let date_format = combo_row(
-        &t("rows.date_format.title", "Định dạng ngày ($DATE)"),
-        &t("rows.date_format.subtitle", ""),
-        DATE_FORMATS,
-    );
+    let time_format = gtk4::DropDown::from_strings(TIME_FORMATS);
+    let date_format = gtk4::DropDown::from_strings(DATE_FORMATS);
+    let formats_row = action_row(&t("rows.formats.title", "Định dạng giờ & ngày"), "");
+    let dot = gtk4::Label::new(Some("·"));
+    dot.add_css_class("dim-label");
+    for widget in [
+        time_format.upcast_ref::<gtk4::Widget>(),
+        dot.upcast_ref(),
+        date_format.upcast_ref(),
+    ] {
+        widget.set_valign(gtk4::Align::Center);
+        formats_row.add_suffix(widget);
+    }
+    for dd in [&time_format, &date_format] {
+        let row = formats_row.clone();
+        let time = time_format.clone();
+        let date = date_format.clone();
+        dd.connect_selected_notify(move |_| {
+            row.set_subtitle(&pages::macros::formats_line(&time, &date));
+        });
+    }
+    formats_row.set_subtitle(&pages::macros::formats_line(&time_format, &date_format));
     // The item labels are proper names (LANGUAGES), never translated.
     let language = combo_row(
         &t("rows.language.title", "Ngôn ngữ"),
-        &t("rows.language.subtitle", ""),
+        &t("rows.language.subtitle", "Ngôn ngữ cửa sổ cài đặt"),
         LANGUAGES,
     );
     let macros_text = text_view("");
     let emoji_enabled = switch_row(
         &t("rows.emoji_enabled.title", "Gõ tắt emoji"),
-        &t(
-            "rows.emoji_enabled.subtitle",
-            "Gõ :ten: kèm dấu hai chấm sẽ thành emoji khi hết từ",
-        ),
+        &t("rows.emoji_enabled.subtitle", "Gõ :tên: thành emoji"),
     );
     let emoji_hotkey_display =
         ShortcutDisplay::new(&t("rows.hotkey_emoji.title", "Phím tắt mở bảng emoji"));
@@ -312,7 +288,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     }
     dictionary_enabled.set_tooltip_text(Some(&t(
         "tips.dictionary_enabled",
-        "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc.",
+        "Từ trong từ điển cá nhân không bị trả về chuỗi phím gốc.",
     )));
     let dictionary_text = text_view("");
     // Fixed height so the list cannot stretch (or collapse) the page; the
@@ -340,23 +316,6 @@ pub(super) fn widgets() -> Rc<Ui> {
     if let Some(label) = first_label(&rule_add_mode_pick) {
         label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     }
-    // The input is a native EntryRow; the verdict is the subtitle of a
-    // read-only result row underneath it, with a status icon up front.
-    // EntryRow has no placeholder in this libadwaita, so the examples live
-    // in the tooltip.
-    let rule_preview_input = adw::EntryRow::builder()
-        .title(t("rows.rule_name.title", "Tên app"))
-        .build();
-    rule_preview_input.set_tooltip_text(Some(&t(
-        "rows.rule_preview_input.tooltip",
-        "Nhập tên app rồi Enter: cho biết luật nào sẽ khớp. Ví dụ: Firefox / wayland:Firefox / xim",
-    )));
-    let rule_preview = action_row(&t("rules.result_title", "Kết quả"), "");
-    // The verdict icon swaps between search (nothing typed), ok (match)
-    // and remove (no match); `update_rule_preview` drives it.
-    let rule_preview_icon = gtk4::Image::from_icon_name("system-search-symbolic");
-    rule_preview_icon.add_css_class("dim-label");
-    rule_preview.add_prefix(&rule_preview_icon);
     // The merged add-rule form ("Thêm luật"): the pill entry whose
     // placeholder mirrors the focused app, the copy/apply pair shown only
     // while an app is detected, and the Thêm button. The page lays them
@@ -415,15 +374,12 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.desktop_icon.title", "Hiện trong menu ứng dụng"),
         &t(
             "rows.desktop_icon.subtitle",
-            "Icon MăngRS Cấu hình trong lưới ứng dụng của GNOME",
+            "Biểu tượng trong lưới ứng dụng",
         ),
     );
     let show_toasts = switch_row(
         &t("rows.show_toasts.title", "Thông báo nhanh"),
-        &t(
-            "rows.show_toasts.subtitle",
-            "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại",
-        ),
+        &t("rows.show_toasts.subtitle", "Bong bóng báo thao tác"),
     );
     let desktop_icon_loading = Rc::new(RefCell::new(false));
     let save_cb: SharedSave = Rc::new(RefCell::new(None));
@@ -437,33 +393,18 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     // The debug-log path reads as a path: markup is on so the subtitle can
     // wrap it in <tt> (the text carries no & — markup is safe here).
+    // One switch; the two optional log tiers are picked in its confirmation
+    // dialog and have no rows of their own.
     let debug_log = adw::SwitchRow::new();
     debug_log.set_use_markup(true);
-    debug_log.set_title(&t("rows.debug_log.title", "Ghi log gỡ lỗi"));
+    debug_log.set_title(&t("rows.debug_log.title", "Chế độ gỡ lỗi"));
     debug_log.set_subtitle(&t(
         "rows.debug_log.subtitle_markup",
         "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangrs/debug.log</tt>",
     ));
-    let debug_log_text = switch_row(
-        &t("rows.debug_log_text.title", "Log cả nội dung đang gõ"),
-        &t(
-            "rows.debug_log_text.subtitle",
-            "Ghi cả nội dung đang gõ vào log — chỉ bật khi tái hiện lỗi mất chữ/sai ký tự, và không đính kèm log này lên issue",
-        ),
-    );
-    let debug_log_keys = switch_row(
-        &t("rows.debug_log_keys.title", "Log từng phím nhấn"),
-        &t(
-            "rows.debug_log_keys.subtitle",
-            "Mỗi phím một dòng keyval/state — chỉ bật khi gỡ lỗi đường phím (keymap, modifier, hotkey); mặc định tắt để log không đầy rác",
-        ),
-    );
     let x11_delete = switch_row(
         &t("rows.x11_delete.title", "Xoá đuôi từ ở app X11"),
-        &t(
-            "rows.x11_delete.subtitle",
-            "App X11 trực tiếp xoá đuôi từ dù không gửi báo cáo — như ibus-bamboo. Có thể xoá nhầm vài ký tự nếu con trỏ bị đổi chỗ.",
-        ),
+        &t("rows.x11_delete.subtitle", "Cách xoá từ ở app X11"),
     );
     let preedit_xim = switch_row(
         &t("rows.preedit_xim.title", "Preedit cho app XIM"),
@@ -475,67 +416,56 @@ pub(super) fn widgets() -> Rc<Ui> {
     // One pacing row, three columns: the three uinput timings share the
     // merged-row shape — a caption above each spin, dividers between the
     // columns — and the row subtitle carries the shipped defaults.
-    let commit_interval = spin_button(1.0, 500.0, 1.0);
     let backspace_interval = spin_button(1.0, 100.0, 1.0);
     let post_delay = spin_button(0.0, 500.0, 1.0);
     let pacing_defaults = crate::config::Config::default();
     let pacing_row = action_row(
-        &t("rows.pacing.title", "Nhịp uinput (ms)"),
-        &t(
-            "rows.pacing.subtitle",
-            "Khoảng nghỉ giữa các phím ảo. Mặc định: {n}",
-        )
-        .replace(
+        &t("rows.pacing.title", "Nhịp gõ phím ảo"),
+        &t("rows.pacing.subtitle", "Mặc định: {n}").replace(
             "{n}",
             &format!(
-                "{} · {} · {}",
-                pacing_defaults.commit_interval_ms,
-                pacing_defaults.backspace_interval_ms,
-                pacing_defaults.post_delay_ms
+                "{} · {}",
+                pacing_defaults.backspace_interval_ms, pacing_defaults.post_delay_ms
             ),
         ),
     );
-    let mut first_column = true;
+    // Both merged rows share one column width (see below), so their
+    // caption+input clusters start at the same x instead of each row
+    // sizing itself.
+    let mut merged_columns = Vec::new();
+    // The caption is one short word: the full name and the advice ride as
+    // the column tooltip, and "ms" lives in the group description so it is
+    // not repeated on every column.
     for (key, fallback, spin) in [
-        (
-            "rows.commit_interval.title",
-            "Nhịp gõ chữ",
-            &commit_interval,
-        ),
-        (
-            "rows.backspace_interval.title",
-            "Nhịp xoá lùi",
-            &backspace_interval,
-        ),
-        ("rows.post_delay.title", "Độ trễ sau từ", &post_delay),
+        ("rows.backspace_interval", "Xoá lùi", &backspace_interval),
+        ("rows.post_delay", "Chờ viết lại từ", &post_delay),
     ] {
-        if !first_column {
+        if !merged_columns.is_empty() {
             pacing_row.add_suffix(&pacing_divider());
         }
-        first_column = false;
-        let caption_text = t(key, fallback);
-        pacing_row.add_suffix(&pacing_column(&caption_text, spin));
+        let caption_text = t(&format!("{key}.title"), fallback);
+        let column = pacing_column(&caption_text, spin);
+        column.set_tooltip_text(Some(&t(
+            &format!("{key}.subtitle"),
+            "Nghỉ giữa các phím ảo",
+        )));
+        pacing_row.add_suffix(&column);
+        merged_columns.push(column);
         let spoken = format!("{} (ms)", caption_text);
         spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
     }
     let echo_stale_spin = spin_button(50.0, 1000.0, 10.0);
     echo_stale_spin.set_sensitive(false);
     let (echo_stale_row, echo_stale_switch) = switch_value_row(
-        &t("rows.echo_stale.title", "Xả commit khi echo lạc (ms)"),
-        &t(
-            "rows.echo_stale.subtitle",
-            "Thời hạn chờ echo trước khi xả chữ",
-        ),
+        &t("rows.echo_stale.title", "Chờ phím ảo quay về (ms)"),
+        &t("rows.echo_stale.subtitle", "Quá hạn thì đổ chữ luôn"),
         &echo_stale_spin,
     );
     let idle_commit_spin = spin_button(300.0, 2000.0, 50.0);
     idle_commit_spin.set_sensitive(false);
     let (idle_commit_row, idle_commit_switch) = switch_value_row(
-        &t("rows.idle_commit.title", "Chấp nhận từ khi nghỉ gõ (ms)"),
-        &t(
-            "rows.idle_commit.subtitle",
-            "Nghỉ tay lâu thì từ được chấp nhận",
-        ),
+        &t("rows.idle_commit.title", "Tự chốt từ khi ngừng gõ (ms)"),
+        &t("rows.idle_commit.subtitle", "Như bấm dấu cách"),
         &idle_commit_spin,
     );
     let flow_per_key_spin = spin_button(0.0, 500.0, 5.0);
@@ -546,7 +476,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     // subtitle the shipped defaults; both knobs stay outside the
     // experimental gate like the pacing knobs they pace with.
     let flow_delay_row = action_row(
-        "",
+        &t("rows.flow_delay.title", "Độ trễ Flow"),
         &t("rows.flow_delay.subtitle", "Mặc định: {n}").replace(
             "{n}",
             &format!(
@@ -557,16 +487,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let mut first_flow_column = true;
-    for (caption, spin) in [
+    for (key, fallback, spin) in [
+        ("rows.flow_per_key_delay", "Hiện dấu", &flow_per_key_spin),
         (
-            t("rows.flow_per_key_delay.title", "Dấu từng bước (ms)"),
-            &flow_per_key_spin,
-        ),
-        (
-            t(
-                "rows.flow_backspace_restore_delay.title",
-                "Hoàn dấu sau Backspace (ms)",
-            ),
+            "rows.flow_backspace_restore_delay",
+            "Hoàn dấu sau Backspace",
             &flow_backspace_restore_spin,
         ),
     ] {
@@ -574,27 +499,28 @@ pub(super) fn widgets() -> Rc<Ui> {
             flow_delay_row.add_suffix(&pacing_divider());
         }
         first_flow_column = false;
+        let caption = t(&format!("{key}.title"), fallback);
         let column = pacing_column(&caption, spin);
+        column.set_tooltip_text(Some(&t(
+            &format!("{key}.subtitle"),
+            "Chờ rồi mới sửa màn hình",
+        )));
         // Center the column vertically: the default Fill stretches it to
         // the row's height and top-packs the caption, leaving all the
         // slack below the input.
         column.set_valign(gtk4::Align::Center);
         flow_delay_row.add_suffix(&column);
-        // The caption already carries (ms): the spoken label is the caption.
-        spin.update_property(&[gtk4::accessible::Property::Label(&caption)]);
+        merged_columns.push(column);
+        // "ms" left the caption, so the spoken label adds the unit back.
+        let spoken = format!("{caption} (ms)");
+        spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
     }
-    // The caption column is the row's tallest child: an exact-fit row pins
-    // the caption to the top edge and the input to the bottom. Growing the
-    // row past its natural height floats the column vertically centered —
-    // 12px of air above and below, the same balance the "Thử nghiệm" value
-    // controls get from their centered valign.
-    let row_height = flow_delay_row.measure(gtk4::Orientation::Vertical, -1).1;
-    flow_delay_row.set_size_request(-1, row_height + 24);
+    equalize_columns(&merged_columns);
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
             "rows.experimental_features.subtitle",
-            "Bật để hiện và chạy các tính năng dưới",
+            "Bật để dùng các tính năng bên dưới",
         ),
     );
 
@@ -619,209 +545,200 @@ pub(super) fn widgets() -> Rc<Ui> {
     tip!(
         enabled,
         "tips.enabled",
-        "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
+        "Bật hoặc tắt cả bộ gõ. Khi tắt, phím đi thẳng vào app như chưa cài."
     );
     tip!(
         method,
         "tips.method",
-        "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
+        "Kiểu gõ quyết định cách ra chữ có dấu, ví dụ Telex gõ ss ra á, VNI gõ a1 ra á."
     );
     tip!(
         mode,
         "tips.mode",
-        "Gạch chân (preedit): chữ gạch chân inline, commit khi hết từ — cần client hỗ trợ preedit, không hỗ trợ thì tự chuyển Surrounding. Surrounding text: mỗi phím commit ngay, đuôi từ được sửa lại qua xóa-văn-bản — cần client báo surrounding-text; client không báo thì đuôi từ được xóa bằng phím chèn (backend) hoặc phím chuyển tiếp thay thế. Flow: phím raw được chuyển thẳng, dấu hiện ngay từng bước, hết từ commit — cần backend chèn phím (uinput/Wayland), không có thì tự chạy như Forward Backspace. Forward Backspace: mỗi phím commit ngay, sửa đuôi bằng phím Backspace chuyển tiếp qua IBus — không bao giờ tự chuyển mode, chạy được ở mọi client kể cả terminal/XIM. OFF: tắt xử lý tiếng Việt, macro vẫn chạy."
+        "Cách đưa chữ vào app. Gạch chân hiện chữ ngay trong app, cần app hỗ trợ. Surrounding sửa đuôi từ dựa vào báo cáo của chính app. Flow chèn từng phím, cần backend chèn phím. Forward Backspace chạy được ở mọi app. OFF tắt tiếng Việt."
     );
     tip!(
         charset,
         "tips.charset",
-        "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
+        "Bảng mã chữ. Unicode dùng cho mọi việc thường ngày, VNI và TCVN3 chỉ để đọc file cũ."
     );
     tip!(
         modern,
         "tips.modern",
-        "Chuẩn đặt dấu mới của Bộ GD-ĐT: hòa thay vì hoà, thuế thay vì thuể."
+        "Đặt dấu theo chuẩn mới của Bộ GD-ĐT: hòa thay vì hoà."
     );
     tip!(
         free,
         "tips.free",
-        "Cho phép dấu đứng tự do trong từ thay vì luôn ở nguyên âm gần nhất."
+        "Cho dấu đứng tự do trong từ, không buộc phải nằm ở nguyên âm gần nhất."
     );
     tip!(
         auto_correct,
         "tips.auto_correct",
-        "Âm tiết không có trong từ điển tiếng Việt sẽ trả về đúng chuỗi phím đã bấm."
+        "Âm tiết không có trong từ điển sẽ trả về đúng chuỗi phím đã bấm."
     );
     tip!(
         auto_restore,
         "tips.auto_restore",
-        "Từ nước ngoài (english, hello) gõ xong tự trả về chuỗi phím gốc thay vì giữ nguyên."
+        "Từ nước ngoài như english, hello tự trả về chuỗi phím gốc khi gõ xong."
     );
     tip!(
         extended_finals,
         "tips.extended_finals",
-        "Cho phép g, k, h, nk đứng thay cho âm cuối ng, c, nh nên dấu thanh đúng dù gõ trước hay sau âm cuối (nhuwgx → nhữg). Từ tiếng Anh có thể đổi (book → bôk); mặc định tắt."
+        "Cho g, k, h, nk thay cho ng, c, nh để dấu thanh đúng dù gõ trước hay sau âm cuối. Mặc định tắt."
     );
     tip!(
         extended_onsets,
         "tips.extended_onsets",
-        "Cho phép f, j, w đứng làm âm đầu và nhận dấu thanh (fos → fó). Mặc định tắt: không từ tiếng Việt nào bắt đầu bằng các chữ này, tắt giúp từ tiếng Anh (fire, water) không bị ghi dấu oan."
+        "Cho f, j, w làm âm đầu và nhận dấu. Mặc định tắt để từ tiếng Anh không bị ghi dấu oan."
     );
     tip!(
         abbrev,
         "tips.abbrev",
-        "Giữ đ nguyên trong từ viết tắt: ddc, ddk, ddt không bị đổi thành đ."
+        "Giữ đ trong từ viết tắt, ví dụ ddc, ddk không bị đổi thành đ."
     );
     tip!(
         bypass_url,
         "tips.bypass_url",
-        "Từ ngay sau URL/email/path không được thêm dấu, tránh làm hỏng liên kết khi soạn chat."
+        "Liên kết thật như https:// và www. gõ nguyên cả chuỗi, dấu câu sau đó vẫn gõ tiếng Việt bình thường."
     );
     tip!(
         w2u,
         "tips.w2u",
-        "Gõ w nhận ư: w = ư, wa = ưa... tiện cho bàn phím không có sẵn ư."
+        "Gõ w ra ư: w thành ư, wa thành ưa. Tiện cho bàn phím không có ư."
     );
     tip!(
         bracket,
         "tips.bracket",
-        "Gõ [ và ] nhận ơ và ư theo vị trí trong từ."
+        "Gõ [ và ] ra ơ và ư tuỳ vị trí trong từ."
     );
+    tip!(show_toasts, "tips.show_toasts", "Bong bóng nhỏ khi thêm, xoá, xuất, nhập hoặc cài extension. Tắt để im lặng, lỗi vẫn hiện hộp thoại.");
     tip!(
         backspace_tone,
         "tips.backspace_tone",
-        "Xóa dấu trước (mặc định): hạ thành ha, rồi h. Xóa cả dấu và chữ: hạ thành h, việt thành việc rồi vi — mỗi Backspace xóa đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
+        "Xoá dấu trước: hạ thành ha rồi h. Xoá cả dấu và chữ: hạ thành h, mỗi Backspace xoá đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
     );
     tip!(
         em_dash,
         "tips.em_dash",
-        "Hai dấu gạch ngang liên tiếp (--) thành gạch ngang dài (—)."
+        "Hai gạch ngang liền nhau thành một gạch dài."
     );
     tip!(
         auto_capitalize,
         "tips.auto_capitalize",
-        "Tự viết hoa chữ cái đầu câu sau dấu chấm, !, ? hoặc Enter."
+        "Tự viết hoa chữ đầu câu sau dấu chấm, dấu chấm than, dấu hỏi hoặc Enter."
     );
     tip!(
         double_space,
         "tips.double_space",
-        "Nhấn hai dấu cách liên tiếp thành dấu chấm + khoảng cách (thử nghiệm)."
+        "Nhấn hai dấu cách liền nhau thành dấu chấm và khoảng cách."
     );
     tip!(
         macro_enabled,
         "tips.macro_enabled",
-        "Bật bảng gõ tắt: chuỗi khóa được mở rộng thành nội dung khi gõ xong từ."
+        "Bật gõ tắt: gõ xong khoá thì nội dung tắt được thay vào."
     );
     tip!(
         capitalize_macro,
         "tips.capitalize_macro",
-        "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo."
+        "Khoá viết hoa thì nội dung cũng viết hoa theo."
     );
     tip!(
         macro_in_off_mode,
         "tips.macro_in_off_mode",
-        "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
+        "Gõ tắt vẫn chạy khi tiếng Việt đang tắt."
     );
     tip!(
         emoji_enabled,
         "tips.emoji_enabled",
-        "Gõ :smile: thành emoji. Từ dán ngay sau dấu hai chấm không được thêm dấu khi tính năng này bật (như quy tắc bỏ qua URL); tắt đi nếu bạn thường viết kiểu :từ_viết."
+        "Gõ :smile: ra emoji. Tên không khớp thì giữ nguyên chữ đã gõ."
     );
     tip!(
         hide_underline,
         "tips.hide_underline",
-        "Ẩn gạch chân preedit cho những app vẽ gạch chân lỗi (một số game, terminal)."
+        "Ẩn gạch chân ở những app vẽ gạch chân bị lỗi, ví dụ vài game và terminal."
     );
     tip!(
         debug_log,
         "tips.debug_log",
-        "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
+        "Engine ghi quyết định vào ~/.cache/ibus-mangrs/debug.log. Khi bật sẽ hỏi có ghi nội dung đang gõ và từng phím hay không. Log tự cắt mỗi 5 MB."
     );
     tip!(
         x11_delete,
         "tips.x11_delete",
-        "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."
+        "Cách xoá từ ở app X11: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."
     );
     tip!(
         preedit_xim,
         "tips.preedit_xim",
-        "Dùng cửa sổ preedit riêng cho app XIM (Java/JetBrains) vốn không hỗ trợ preedit của IBus."
-    );
-    tip!(
-        commit_interval,
-        "tips.commit_interval",
-        "Nhịp gửi từng chữ ở mode uinput — giảm nếu app bị mất chữ, tăng nếu bị đơ."
+        "Dùng cửa sổ gạch chân riêng cho app XIM như Java và JetBrains, vốn không nhận gạch chân của IBus."
     );
     tip!(
         backspace_interval,
         "tips.backspace_interval",
-        "Nhịp gửi Backspace ở mode uinput — giảm nếu xoá chậm, tăng nếu app xử lý không kịp."
+        "Nhịp gửi Backspace. Giảm nếu xoá chậm, tăng nếu app xử lý không kịp."
     );
     tip!(
         post_delay,
         "tips.post_delay",
-        "Chờ sau khi viết lại cả từ trước khi gõ chữ tiếp, dành cho app xử lý phím chậm."
+        "Chờ một chút sau khi viết lại cả từ, dành cho app xử lý phím chậm."
     );
     // Every "Thử nghiệm" row: the tooltip names the feature it belongs to.
     tip!(
         experimental_features,
         "tips.experimental_features",
-        "Công tắc chính của tab Thử nghiệm: tắt thì mọi hàng dưới bị khóa và bộ gõ chạy theo mặc định; giá trị đã chỉnh vẫn được lưu để dùng lại khi bật lại."
+        "Công tắc chính của tab Thử nghiệm. Tắt thì mọi hàng bên dưới bị khoá và bộ gõ chạy theo mặc định, giá trị đã chỉnh vẫn được lưu."
     );
     tip!(
         macro_valid_words,
         "tips.macro_valid_words",
-        "Tính năng Gõ tắt: phím tắt trùng một từ tiếng Việt thật (vd “cam”) không nở để không cản gõ từ thường. Bật thì gõ tắt vẫn thắng — muốn gõ từ thật, Backspace một phím rồi gõ lại phím đó."
+        "Khoá gõ tắt trùng một từ tiếng Việt thật, ví dụ cam, thì không mở rộng để không cản gõ. Bật thì gõ tắt thắng; muốn gõ từ thật, bấm Backspace một lần rồi gõ lại."
     );
     tip!(
         keep_composed_words,
         "tips.keep_composed_words",
-        "Sau một từ hoàn chỉnh, phím chữ mà từ không nhận được sẽ nối vào từ thay vì đập cả từ về chuỗi phím gốc (tùng + g → tùngg). Đổi giá khi bật: từ tiếng Anh dạng soft sẽ ở lại sòt, vì từ được giữ miễn khôi phục cuối từ. Mặc định tắt."
+        "Từ đã hoàn chỉnh thì phím mới nối vào từ chứ không kéo cả từ về chuỗi phím gốc. Mặc định tắt."
     );
     tip!(
         keep_repeats_raw,
         "tips.keep_repeats_raw",
-        "Dành riêng cho chế độ Flow: giữ một phím ở Flow chỉ lặp được một lần rồi dừng ở ô (oo → ô rồi đứng im), bật thì phím giữ chảy nguyên bản oooo… như bàn phím thường. Các chế độ gõ khác không gặp lỗi này nên không cần bật. Đổi giá khi bật: hai phím giống nhau gõ cách nhau quá ~0,4 giây sẽ ở lại nguyên bản (tooi thay vì tôi). Mặc định tắt."
+        "Dành cho Flow: bật để giữ phím lặp lại nguyên bản như bàn phím thường. Mặc định tắt."
+    );
+    tip!(
+        suggest_words,
+        "tips.suggest_words",
+        "Hiện từ đang gõ cùng dải gợi ý ngay cạnh con trỏ. Chọn bằng phím `, Alt+1 đến Alt+5 hoặc bấm vào dòng gợi ý. Mặc định tắt."
     );
     tip!(
         preferred_backend,
         "tips.preferred_backend",
-        "Chọn backend tiêm phím được ưu tiên: uinput là bàn phím ảo của nhân, XTest chỉ có trên X11, wlroots cho Hyprland/sway, libei qua GNOME (đã đo thấy rủi ro crash — chỉ để thử nghiệm). Backend chọn được đặt lên đầu danh sách ưu tiên; không dựng được thì bộ gõ tự rơi về thứ tự theo môi trường. Tự động là hành vi mặc định."
-    );
-    tip!(
-        extra_url_chars_row,
-        "tips.extra_url_chars",
-        "Tính năng Không dấu sau URL (mặc định áp dụng cho / : @ . _ ~ = # & % ?): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; dấu - bị loại để giữ -- thành gạch dài."
-    );
-    tip!(
-        auto_capitalize_after_row,
-        "tips.auto_capitalize_after",
-        "Tính năng Tự viết hoa (sau . ! ? và Enter): hàng này thêm ký tự riêng vào bộ đó. Bật công tắc trái, liệt kê ký tự vào ô phải; không nhận chữ, số, khoảng trắng."
+        "Chọn cách chèn phím được ưu tiên. Để tự động là tốt nhất, chỉ đổi khi cần thử nghiệm."
     );
     tip!(
         echo_stale_row,
         "tips.echo_stale",
-        "Bảo vệ xả commit trên Wayland: chờ các phím Backspace ảo (echo) quay về trước khi đổ chữ đã commit vào app. Số ms bên phải là thời hạn chờ — quá hạn thì xả luôn để chữ không treo. Mặc định 150 ms."
+        "Chờ các phím Backspace ảo quay về trước khi đổ chữ đã commit, để không mất chữ trên Wayland. Số ms là thời hạn chờ, mặc định 150."
     );
     tip!(
         idle_commit_row,
         "tips.idle_commit",
-        "Tính năng Chấp nhận từ khi nghỉ gõ: dừng tay quá lâu trên một từ đang gạch chân thì từ đó được commit luôn, như bấm dấu cách. Số ms bên phải là ngưỡng nghỉ tay."
+        "Dừng tay quá lâu trên một từ còn gạch chân thì từ đó tự commit như bấm dấu cách. Số ms là ngưỡng nghỉ tay."
     );
     // The two Flow tips sit on their spins now: one row carries both knobs.
     tip!(
         flow_per_key_spin,
         "tips.flow_per_key",
-        "Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay vì giữ phím raw đến hết từ — luôn bật, không có công tắc. Gõ rất nhanh các bước được gộp, chữ hiện khi nghỉ tay. Số ms trong ô là trễ đổ chữ có dấu vào văn bản — thấp là dấu hiện sớm hơn, cao là gõ mượt hơn. 0–500 ms, mặc định 20. Quá thấp có thể làm lệch thứ tự chữ trên Wayland."
+        "Flow hiện chữ có dấu ngay khi gõ. Số ms là độ trễ đổ chữ vào app, thấp thì dấu hiện sớm hơn."
     );
     tip!(
         flow_backspace_restore_spin,
         "tips.flow_backspace_restore",
-        "Hoàn dấu sau Backspace, chuẩn ở Flow: gõ chào rồi gõ thêm f (dấu bị gỡ, màn hình thành chaof), bấm Backspace thì dấu quay lại (chào) — theo đúng cài đặt “Xóa dấu bằng Backspace”: Unikey và Xóa dấu trước trả lại dấu, Cả ký tự thì xoá một ký tự. Số ms trong ô là thời gian chờ sau Backspace rồi mới sửa màn hình (0–1000, mặc định 150)."
+        "Gõ thêm dấu làm mất dấu, bấm Backspace thì dấu quay lại. Số ms là thời gian chờ trước khi sửa màn hình, mặc định 150."
     );
     tip!(
         nav_key_while_preedit,
         "tips.nav_key_while_preedit",
-        "Điều hướng khi còn từ: khi từ vẫn còn gạch chân, phím mũi tên đầu tiên mặc định đưa caret chạy ngay (kiểu ibus-bamboo) — commit vẫn nằm trong cùng lượt trả về, tới trước phím mũi tên. Nếu chữ bị chèn sai chỗ ở một app nào, chọn lại Nuốt phím đầu: lần nhấn đầu chỉ commit từ, lần hai mới di chuyển."
+        "Khi còn từ gạch chân, phím mũi tên vẫn chạy ngay như ibus-bamboo. Nếu chữ bị chèn sai chỗ, chọn Nuốt phím đầu để lần nhấn đầu chỉ commit từ."
     );
 
     Rc::new(Ui {
@@ -829,9 +746,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         method,
         mode,
         mode_choices: Rc::new(RefCell::new(mode_choices)),
-        mode_visibility,
-        mode_visible_switches,
-        mode_visibility_loading: Rc::new(RefCell::new(false)),
         charset,
         hotkey_display,
         hotkey_value,
@@ -847,18 +761,12 @@ pub(super) fn widgets() -> Rc<Ui> {
         extended_onsets,
         abbrev,
         bypass_url,
-        extra_url_chars_row,
-        extra_url_chars_switch,
-        extra_url_chars_entry,
         w2u,
         bracket,
         backspace_tone,
         nav_key_while_preedit,
         em_dash,
         auto_capitalize,
-        auto_capitalize_after_row,
-        auto_capitalize_after_switch,
-        auto_capitalize_after_entry,
         double_space,
         macro_enabled,
         capitalize_macro,
@@ -866,9 +774,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         macro_valid_words,
         keep_composed_words,
         keep_repeats_raw,
+        suggest_words,
         preferred_backend,
         time_format,
         date_format,
+        formats_row,
         language,
         macros_text,
         emoji_enabled,
@@ -890,11 +800,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         desktop_icon_loading,
         save_cb,
         suppress_save,
+        saved_macros: RefCell::new(None),
+        saved_dictionary: RefCell::new(None),
+        saved_emoji: RefCell::new(None),
         self_saved_mtime: Cell::new(None),
         sidebar_select: RefCell::new(None),
-        rule_preview_input,
-        rule_preview,
-        rule_preview_icon,
         rule_pill,
         rule_name_entry,
         rule_copy_btn,
@@ -903,12 +813,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         rule_focus_value,
         hide_underline,
         debug_log,
-        debug_log_text,
-        debug_log_keys,
+        debug_tiers: Rc::new(RefCell::new((false, false))),
+        debug_log_loading: Rc::new(Cell::new(false)),
         x11_delete,
         preedit_xim,
         pacing_row,
-        commit_interval,
         backspace_interval,
         post_delay,
         echo_stale_row,

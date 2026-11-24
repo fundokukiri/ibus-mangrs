@@ -35,7 +35,8 @@ IBus phải là bộ quản lý input của hệ thống (GNOME mặc định đ
 
 Tải mã nguồn, biên dịch và cài luôn; thiếu gì trình cài tự cài thêm nên máy chỉ cần có `curl`
 (hoặc `wget`) và `sudo`. Quyền `/dev/uinput` được thiết lập qua ACL của phiên đăng nhập (không
-cần nhóm), gói chỉ dùng để biên dịch sẽ được gỡ sau khi xong, chạy lại không cài đúp. Thêm
+cần nhóm); module `uinput` cũng được nạp ngay và tự nạp mỗi lần khởi động; gói chỉ dùng để
+biên dịch sẽ được gỡ sau khi xong, chạy lại không cài đúp. Thêm
 `--demo` để chạy thử toàn bộ các bước mà không đụng gì vào máy:
 
 ```sh
@@ -85,6 +86,33 @@ Script copy engine vào `/usr/lib/ibus-mangrs/`, đăng ký component cho IBus, 
 **gỡ bạn khỏi nhóm `input`** nếu bản cũ đã thêm (hiệu lực từ lần đăng nhập sau). Gỡ:
 `sudo ./scripts/uninstall.sh` (giữ nguyên cấu hình). Trên Arch thì gọn hơn: `makepkg -si`.
 
+### Model dự đoán (gợi ý từ)
+
+Bộ gõ chạy được ngay mà không cần model — thiếu model thì bảng gợi ý chỉ còn emoji theo từ
+khóa. Gợi ý từ tiếng Việt/Anh (switch "Gợi ý từ (n-gram)" ở tab "Thử nghiệm") cần file
+model khoảng **100 MB**, đặt vào một trong hai chỗ:
+
+```
+~/.config/ibus-mangrs/mangrs-predict-v1.bin        # riêng cho bạn, được ưu tiên
+/usr/share/ibus-mangrs/model/mangrs-predict-v1.bin  # dùng chung cho mọi tài khoản
+```
+
+`MANGRS_MODEL_PATH=/đường/dẫn/model.bin` ép engine dùng một file khác (tiện cho việc thử
+nghiệm). Model phát hành dưới dạng nhiều phần 7 MB trong `data/model/` cho vừa giới hạn file của
+GitHub, và việc nối phần do script có sẵn trong đó lo: `data/model/merge_chunks.sh`.
+`sudo ./scripts/install.sh` gọi script này trên một bản sao tạm rồi đặt file vào
+`~/.config/ibus-mangrs/mangrs-predict-v1.bin` của bạn; chạy lại thì bỏ qua nếu file đã đủ
+kích thước. Nối tay, hoặc cho một tài khoản khác:
+
+```sh
+cp data/model/mangrs-predict-v1.bin.part* /tmp/model/   # script xoá các phần sau khi nối
+data/model/merge_chunks.sh /tmp/model
+cp /tmp/model/mangrs-predict-v1.bin ~/.config/ibus-mangrs/
+```
+
+Gói `makepkg -si` trên Arch không kèm model. File model chỉ được đọc lại khi cấu hình nạp lại,
+nên sau khi đặt file hãy chạy `ibus restart` (hoặc đổi một mục bất kỳ trong cửa sổ cài đặt).
+
 ### Cấp quyền `/dev/uinput` (làm tay)
 
 Bộ gõ nhấn **phím thật** qua `/dev/uinput` cho những app không xoá chữ được qua IBus; thiếu
@@ -96,9 +124,11 @@ không phải từ nhóm. Tạo `/etc/udev/rules.d/70-uinput.rules` (mẫu có s
 KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
 ```
 
-Sau đó nạp lại rule và đăng nhập lại một lần (ACL chỉ được cấp khi phiên đang hoạt động):
+Sau đó nạp module, nạp lại rule và đăng nhập lại một lần (ACL chỉ được cấp khi phiên đang
+hoạt động):
 
 ```sh
+sudo modprobe uinput    # nạp module ngay — nhiều distro không tự nạp, thiếu nó thì chưa có /dev/uinput
 sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
 echo uinput | sudo tee /etc/modules-load.d/uinput.conf   # tự nạp mỗi lần khởi động
 getfacl -p /dev/uinput            # phải có user:<bạn>:rw-

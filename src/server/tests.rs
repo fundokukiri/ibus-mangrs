@@ -114,26 +114,17 @@ fn cycle_next_wraps_around_the_list() {
 }
 
 #[test]
-fn visible_cycle_skips_hidden_modes_and_wraps() {
-    use super::hotkey::next_visible_mode;
-    let visible = vec![
-        ModeConfig::Preedit,
-        ModeConfig::Surrounding,
-        ModeConfig::Off,
-    ];
+fn mode_cycle_follows_the_five_in_order_and_wraps() {
+    use super::hotkey::next_mode;
+    let list = crate::config::ModeConfig::ALL;
     assert_eq!(
-        next_visible_mode(&visible, ModeConfig::Preedit),
+        next_mode(&list, ModeConfig::Preedit),
         ModeConfig::Surrounding
     );
     assert_eq!(
-        next_visible_mode(&visible, ModeConfig::Off),
+        next_mode(&list, ModeConfig::Off),
         ModeConfig::Preedit,
         "wraps to the first"
-    );
-    assert_eq!(
-        next_visible_mode(&visible, ModeConfig::Flow),
-        ModeConfig::Preedit,
-        "a mode outside the visible list lands on the first visible entry"
     );
 }
 
@@ -544,6 +535,37 @@ fn registry_includes_custom_shortcuts() {
     assert_eq!(reg.len(), 2, "bad spec and unknown action are skipped");
     assert_eq!(reg[0].2, HotkeyAction::CycleMode);
     assert_eq!(reg[1].2, HotkeyAction::AppRulePicker);
+}
+
+/// An experimental switch is a shortcut only while the gate is open: with
+/// the gate closed the feature is off anyway, so the key must not consume a
+/// press.
+#[test]
+fn experimental_shortcuts_need_the_gate() {
+    let custom = vec![crate::config::CustomHotkey {
+        spec: "Control+Alt+g".into(),
+        action: "suggest_words".into(),
+    }];
+    let open = Config {
+        experimental_features: true,
+        custom_hotkeys: custom.clone(),
+        ..Config::default()
+    };
+    assert_eq!(
+        hotkey_registry(&open).last().map(|(.., action)| *action),
+        Some(HotkeyAction::QuickToggle("suggest_words"))
+    );
+    let closed = Config {
+        experimental_features: false,
+        custom_hotkeys: custom,
+        ..Config::default()
+    };
+    assert!(
+        !hotkey_registry(&closed)
+            .iter()
+            .any(|(.., action)| *action == HotkeyAction::QuickToggle("suggest_words")),
+        "the gate is closed, the shortcut must not register"
+    );
 }
 
 #[test]
@@ -3032,9 +3054,9 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
 #[test]
 fn picker_keys_map_onto_entries() {
     use super::picker::{picker_entries, PickerKey, PickerState};
-    let visible = Config::default().visible_modes();
-    let len = picker_entries(&visible, ModeConfig::Preedit, false).len();
-    assert_eq!(len, visible.len(), "only the visible modes, nothing else");
+    let all = crate::config::ModeConfig::ALL;
+    let len = picker_entries(&all, ModeConfig::Preedit, false).len();
+    assert_eq!(len, all.len(), "every display mode, nothing else");
     let state = PickerState::new("e2epick".into(), 1);
     // Digits 1..9 pick entries 1..9, 0 picks the last; Enter picks the
     // highlighted entry; Up/Down move the highlight.
@@ -3052,15 +3074,14 @@ fn picker_keys_map_onto_entries() {
     assert_eq!(state.on_key(0x76), PickerKey::Ignore);
     // The current mode's entry carries the dot marker (Preedit is first in
     // the default visible order).
-    let entries = picker_entries(&visible, ModeConfig::Preedit, false);
+    let entries = picker_entries(&all, ModeConfig::Preedit, false);
     assert!(
         entries[0].starts_with("● "),
-        "preedit is first in the default visible order: {}",
+        "preedit is first in the mode order: {}",
         entries[0]
     );
     assert!(!entries[1].starts_with("● "));
-    // A shortened visible list renders exactly its entries; a hidden mode
-    // never appears in the picker.
+    // A shorter list renders exactly its entries and marks the current one.
     let short = vec![ModeConfig::Preedit, ModeConfig::Off];
     let entries = picker_entries(&short, ModeConfig::Off, true);
     assert_eq!(entries, vec!["Underline (preedit)", "● OFF"]);
@@ -3069,7 +3090,7 @@ fn picker_keys_map_onto_entries() {
 #[test]
 fn picker_cursor_moves_with_wrap() {
     // The same arithmetic the Move arm runs: wrapping over the visible list.
-    let len = Config::default().visible_modes().len() as i32;
+    let len = crate::config::ModeConfig::ALL.len() as i32;
     let mut cursor = 2usize;
     for delta in [1, -1, -1] {
         cursor = (cursor as i32 + delta).rem_euclid(len) as usize;
@@ -3197,7 +3218,7 @@ fn emoji_menu_backspace_returns_to_the_recents() {
 }
 
 #[test]
-fn emoji_menu_arrows_move_the_highlight_across_pages() {
+fn emoji_menu_arrows_wrap_within_the_page() {
     use super::emoji_picker::EmojiPickerState;
     let mut state = EmojiPickerState::with(emoji_rows(), Vec::new());
     assert_eq!(state.cursor, 0, "the first row starts highlighted");
@@ -3209,23 +3230,20 @@ fn emoji_menu_arrows_move_the_highlight_across_pages() {
         Some("🐢".into()),
         "Enter will commit exactly the highlighted row"
     );
-    // Up at the page's top does not underflow.
+    // Up past the page's top wraps to the page's last row, same page.
     state.cursor_up();
     state.cursor_up();
-    state.cursor_up();
-    assert_eq!(state.cursor, 0);
-    // Down from the last row walks into the next page's first row.
-    state.cursor = 9;
-    state.cursor_down();
-    assert_eq!(state.page, 1, "twelve rows, so a second page exists");
-    assert_eq!(state.cursor, 0);
-    assert_eq!(state.pick(0).map(|(_, g)| g), Some("🌙".into()));
-    // Up from that page's top returns to the previous page's last row.
     state.cursor_up();
     assert_eq!(state.page, 0);
     assert_eq!(state.cursor, 9);
     assert_eq!(state.pick(9).map(|(_, g)| g), Some("☕".into()));
+    // Down past the page's end wraps back to the first row — the arrows
+    // never turn a page (< > do).
+    state.cursor_down();
+    assert_eq!(state.page, 0);
+    assert_eq!(state.cursor, 0);
     // Page turns keep the slot but clamp it to a short page.
+    state.cursor = 9;
     state.page_down();
     assert_eq!(state.page, 1);
     assert_eq!(state.cursor, 1, "the last page holds two rows");
@@ -3470,5 +3488,1050 @@ fn backend_selection_log_names_the_role() {
     assert_eq!(
         backend_selection_log(None, Some(Kind::XTest)),
         "injection backend: none (fallback — xtest denied)"
+    );
+}
+
+// --- The suggestion strip on the IBus lookup table (server plumbing) ---
+
+/// The seven-item strip list the paging tests share: two pages, the second
+/// holding two entries — the partial last page the labels must survive.
+fn strip_items() -> Vec<String> {
+    ["một", "hai", "ba", "bốn", "năm", "sáu", "bảy"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// The decoded `IBusLookupTable` payload a strip table carries — page size,
+/// cursor, cursor visible, round, orientation, candidate texts, label
+/// texts. A table read back off the wire arrives as a `VecDeque` of boxed
+/// fields: [type tag, property map, page size, cursor, cursor visible,
+/// round, orientation, candidates, labels]; the first two lead and are
+/// dropped.
+fn table_parts(
+    table: &Variant<Box<dyn RefArg>>,
+) -> (u64, u64, bool, bool, i64, Vec<String>, Vec<String>) {
+    /// The IBusText payloads of one av field of a wire-decoded table.
+    fn texts(field: &(dyn RefArg + 'static)) -> Vec<String> {
+        let list = field
+            .as_any()
+            .downcast_ref::<Vec<Variant<Box<dyn RefArg>>>>()
+            .expect("av field");
+        list.iter()
+            .map(|v| text_from_variant(v).expect("IBusText"))
+            .collect()
+    }
+    let fields = table
+        .0
+        .as_any()
+        .downcast_ref::<std::collections::VecDeque<Box<dyn RefArg>>>()
+        .unwrap_or_else(|| panic!("IBusLookupTable fields: {:?}", table.0));
+    let flag = |i: usize| {
+        fields[i]
+            .as_any()
+            .downcast_ref::<bool>()
+            .copied()
+            .expect("bool field")
+    };
+    (
+        fields[2].as_u64().expect("page size"),
+        fields[3].as_u64().expect("cursor"),
+        flag(4),
+        flag(5),
+        fields[6].as_i64().expect("orientation"),
+        texts(&fields[7]),
+        texts(&fields[8]),
+    )
+}
+
+/// The members of one outgoing batch, for shape assertions.
+fn members(out: &[Message]) -> Vec<String> {
+    out.iter()
+        .filter_map(|m| m.member().map(|m| m.to_string()))
+        .collect()
+}
+
+/// The strip state is per-thread; reset it so a test that needs a closed
+/// strip starts from one regardless of test order.
+fn strip_reset_for_test() {
+    STRIP.with(|cell| *cell.borrow_mut() = None);
+}
+
+/// A handler over a plain Telex/Preedit engine with the preedit capability.
+/// The config stays at its defaults unless the test applies its own: the
+/// strip's `suggest_words` switch rides the experimental master gate (the
+/// engine bakes `experimental && suggest_words`), so a test that turns the
+/// strip on turns the gate on with it.
+fn strip_handler(suggest_words: bool) -> (SharedEngine, EngineHandler) {
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+    {
+        let mut e = lock_engine(&engine);
+        e.apply_config(&Config {
+            mode: Mode::Preedit.into(),
+            suggest_words,
+            experimental_features: suggest_words,
+            ..Config::default()
+        });
+        e.set_method(Method::Telex);
+        e.set_capabilities(1);
+        if suggest_words {
+            // The strip opens only with a model now (the dictionary left it):
+            // pin the committed fixture instead of apply_config's auto-load —
+            // that one picks up whatever file the host carries and would
+            // make these shapes machine-dependent.
+            e.model = Some(crate::engine::tests::sample_model());
+        }
+    }
+    let handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        injection: Injection::new(),
+        // The hot-reload check stays past the horizon: the gui sandbox test
+        // swaps XDG_CONFIG_HOME process-wide while running, and a reload
+        // mid-test would swap this engine's switches under its own asserts.
+        last_config_check: Instant::now() + std::time::Duration::from_secs(3600),
+        last_config_mtime: None,
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
+        focus_ext: None,
+    };
+    (engine, handler)
+}
+
+/// One ProcessKeyEvent press through the handler: (consumed, signals).
+fn press(handler: &mut EngineHandler, keyval: u32) -> (bool, Vec<Message>) {
+    press_with_state(handler, keyval, 0)
+}
+
+/// One ProcessKeyEvent press with a modifier state (Ctrl combos).
+fn press_with_state(handler: &mut EngineHandler, keyval: u32, state: u32) -> (bool, Vec<Message>) {
+    let msg = engine_msg("ProcessKeyEvent").append3(keyval, 0u32, state);
+    let mut out = Vec::new();
+    let reply = handler.process_key_call(&msg, &mut out);
+    (reply.read1::<bool>().expect("bool reply"), out)
+}
+
+#[test]
+fn update_candidates_renders_the_full_list() {
+    strip_reset_for_test();
+    let msgs = emitted(&[Action::UpdateCandidates {
+        word: "th".into(),
+        items: strip_items(),
+    }]);
+    assert_eq!(
+        members(&msgs),
+        vec!["UpdateLookupTable"],
+        "the table is the strip's only surface"
+    );
+    let (table, visible) = msgs[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table + visible");
+    assert!(visible);
+    let (page_size, cursor, cursor_visible, round, orientation, cands, labels) =
+        table_parts(&table);
+    assert_eq!(page_size, 5);
+    assert_eq!(cursor, 0, "page 0 at open");
+    assert!(cursor_visible);
+    // round=false: the server clamps the pager at both ends, so the panel
+    // hides the prev/next buttons there instead of wrapping.
+    assert!(!round);
+    assert_eq!(orientation, 0, "horizontal: one row of labeled entries");
+    assert_eq!(
+        cands,
+        ["một", "hai", "ba", "bốn", "năm", "sáu", "bảy"],
+        "the full list travels at once — the panel's page count then renders the pager buttons"
+    );
+    assert_eq!(labels, ["1.", "2.", "3.", "4.", "5."]);
+}
+
+#[test]
+fn hide_candidates_hides_and_clears_the_strip() {
+    strip_reset_for_test();
+    let msgs = emitted(&[
+        Action::UpdateCandidates {
+            word: "th".into(),
+            items: strip_items(),
+        },
+        Action::HideCandidates,
+    ]);
+    assert_eq!(
+        members(&msgs),
+        vec!["UpdateLookupTable", "HideAuxiliaryText", "HideLookupTable"]
+    );
+    // The state cleared with the hide: a second close is silent instead of
+    // pushing a stray signal (the engine's close racing the server's own
+    // teardown must not double).
+    let msgs = emitted(&[Action::HideCandidates]);
+    assert!(msgs.is_empty(), "{:?}", members(&msgs));
+}
+
+#[test]
+fn the_strip_keeps_the_word_inline_only() {
+    strip_reset_for_test();
+    // The word's only surface is the client's inline preedit beside the
+    // table — the box carries no input line. The first letter opens the
+    // strip (1-char contract).
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, out) = press(&mut handler, 0x73); // 's'
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the first key opens the strip with the word inline"
+    );
+    let preedit = out[0]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("preedit variant");
+    assert_eq!(
+        text_from_variant(&preedit).as_deref(),
+        Some("s"),
+        "the client's field shows the word-in-flight"
+    );
+    assert_eq!(
+        members(&out)
+            .iter()
+            .filter(|m| *m == "UpdateAuxiliaryText")
+            .count(),
+        0,
+        "the box carries no input line any more"
+    );
+    // The word and the list track every change.
+    let (_, out) = press(&mut handler, 0x69); // 'i'
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the second letter updates the word and the list"
+    );
+    let preedit = out[0]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("preedit variant");
+    assert_eq!(
+        text_from_variant(&preedit).as_deref(),
+        Some("si"),
+        "the inline preedit follows the word"
+    );
+}
+
+#[test]
+fn backspace_tracks_the_word_and_the_list() {
+    strip_reset_for_test();
+    // The inline preedit is the word's display: a Backspace shrinks it and
+    // the list follows the shorter word. The strip stays open at one letter
+    // now, so the deletion re-serves the list.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i' — the strip is up
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip is up: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, keymap::BACKSPACE);
+    assert!(consumed, "backspace edits the word");
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the word and the list follow the deletion"
+    );
+    let preedit = out[0]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("preedit variant");
+    assert_eq!(
+        text_from_variant(&preedit).as_deref(),
+        Some("s"),
+        "the inline preedit follows the word down"
+    );
+}
+
+#[test]
+fn the_classic_display_keeps_the_inline_preedit() {
+    strip_reset_for_test();
+    // The inline-only choice: the word stays inline in the client and the
+    // table rides beside it — no floating input line anywhere.
+    let (engine, mut handler) = strip_handler(true);
+    {
+        let mut e = lock_engine(&engine);
+        e.apply_config(&Config {
+            suggest_words: true,
+            experimental_features: true,
+            ..Config::default()
+        });
+    }
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "classic: the preedit stays inline, no auxiliary line"
+    );
+}
+
+#[test]
+fn minus_equals_end_the_word_while_the_strip_is_up() {
+    strip_reset_for_test();
+    // `-`/`=` are word terminators again: the strip owns no paging keys —
+    // pressing one while the strip is up ends the word exactly like a
+    // non-label digit (commit, box closes) and no paging signal exists
+    // anywhere.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip is up: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, 0x2d); // '-' — a terminator again
+    assert!(!consumed, "the terminator belongs to the app");
+    let members_seen = members(&out);
+    assert!(
+        members_seen.contains(&"CommitText".to_string())
+            && members_seen.contains(&"HideAuxiliaryText".to_string())
+            && members_seen.contains(&"HideLookupTable".to_string())
+            && !members_seen.contains(&"UpdateLookupTable".to_string()),
+        "the word ends, the box closes, no paging: {:?}",
+        members_seen
+    );
+}
+
+#[test]
+fn page_keys_end_the_word_while_the_strip_is_up() {
+    strip_reset_for_test();
+    // PageUp/PageDown keep their app role: while the strip is up they end
+    // the word exactly like the arrows — no paging, the box closes.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip is up: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, keymap::PAGE_DOWN);
+    assert!(!consumed, "the page key belongs to the app");
+    let members_seen = members(&out);
+    assert!(
+        members_seen.contains(&"CommitText".to_string())
+            && members_seen.contains(&"HideAuxiliaryText".to_string())
+            && members_seen.contains(&"HideLookupTable".to_string())
+            && !members_seen.contains(&"UpdateLookupTable".to_string()),
+        "the word ends, the box closes, no paging: {:?}",
+        members_seen
+    );
+}
+
+#[test]
+fn ctrl_comma_and_ctrl_period_page_the_strip() {
+    strip_reset_for_test();
+    // Ctrl+. / Ctrl+, are the keyboard flavor of the popup's ◀▶ buttons:
+    // page forward (clamped), page back — and with the strip closed the
+    // combo passes through untouched.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i'
+    assert!(members(&out).iter().any(|m| m == "UpdateLookupTable"));
+    let (consumed, out) = press_with_state(&mut handler, keymap::PERIOD, keymap::CONTROL_MASK);
+    assert!(consumed, "Ctrl+. pages while the strip is up");
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 5, "Ctrl+. turns to page 1");
+    // The fixture list holds six entries (two pages): the second press
+    // CLAMPS at the last page head, and two Ctrl+, walk back to page 0.
+    let (consumed, out) = press_with_state(&mut handler, keymap::PERIOD, keymap::CONTROL_MASK);
+    assert!(consumed);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 5, "Ctrl+. clamps at the last page head");
+    let (consumed, out) = press_with_state(&mut handler, keymap::COMMA, keymap::CONTROL_MASK);
+    assert!(consumed);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 0, "Ctrl+, walks back");
+    let (consumed, out) = press_with_state(&mut handler, keymap::COMMA, keymap::CONTROL_MASK);
+    assert!(consumed);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 0, "Ctrl+, stays on page 0 at the clamp");
+    // Without Ctrl, `.` ends the word like any terminator.
+    let (consumed, out) = press(&mut handler, keymap::PERIOD);
+    assert!(!consumed, "plain `.` belongs to the app");
+    let members_seen = members(&out);
+    assert!(
+        members_seen.contains(&"CommitText".to_string())
+            && !members_seen.contains(&"UpdateLookupTable".to_string()),
+        "the word ends, no paging: {:?}",
+        members_seen
+    );
+    // With the strip closed the combo passes through untouched.
+    let (consumed, out) = press_with_state(&mut handler, keymap::PERIOD, keymap::CONTROL_MASK);
+    assert!(!consumed, "a closed strip never sees the combo");
+    assert!(members(&out).is_empty(), "{:?}", members(&out));
+}
+
+#[test]
+fn arrows_fall_through_while_the_strip_is_visible() {
+    strip_reset_for_test();
+    // The arrows are caret navigation again — the strip never owns them: a
+    // LEFT while the strip is up ends the word and moves the caret, exactly
+    // the closed-strip flow (commit rides the reply, the strip closes with
+    // the word's end).
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip is up: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, keymap::LEFT);
+    assert!(!consumed, "the arrow belongs to the caret");
+    let members_seen = members(&out);
+    assert!(
+        members_seen.contains(&"CommitText".to_string()),
+        "the word ends on the arrow: {:?}",
+        members_seen
+    );
+    assert!(
+        !members_seen.contains(&"UpdateLookupTable".to_string()),
+        "no paging happened: {:?}",
+        members_seen
+    );
+}
+
+#[test]
+fn panel_pager_methods_page_the_strip() {
+    strip_reset_for_test();
+    // The candidate popup's ◀▶ buttons forward PageUp/PageDown engine
+    // methods; they page the strip the same way the keys do (ibus
+    // intelligent pinyin's popup paging). A wordless engine has no strip:
+    // the method is a silent no-op.
+    let (_engine, mut handler) = strip_handler(false);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    assert!(
+        !members(&out).contains(&"UpdateLookupTable".to_string()),
+        "no strip, no table: {:?}",
+        members(&out)
+    );
+    // Seed the strip through the funnel the engine's actions ride, then
+    // page it through the panel's methods.
+    let (engine, mut handler) = strip_handler(false);
+    let mut out = Vec::new();
+    {
+        let mut e = lock_engine(&engine);
+        emit(
+            &mut e,
+            &Injection::new(),
+            &[Action::UpdateCandidates {
+                word: "th".into(),
+                items: strip_items(),
+            }],
+            &mut out,
+        );
+    }
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 5, "the panel's next button turns to page 1");
+    // The seeded list has seven items: the second PageDown clamps on the
+    // partial last page instead of walking past it.
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 5, "the last page clamps");
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("PageUp"), "PageUp", &mut out);
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, ..) = table_parts(&table);
+    assert_eq!(cursor, 0, "the panel's prev button walks back");
+}
+
+#[test]
+fn candidate_clicked_picks_through_the_strip() {
+    strip_reset_for_test();
+    // A click on a candidate row forwards CandidateClicked(index): the
+    // global index commits, same as pressing the entry's digit. The picked
+    // text is read back off the rendered table, never a literal.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(members(&out).iter().any(|m| m == "UpdateLookupTable"));
+    let table_msg = out
+        .iter()
+        .find(|m| m.member() == Some("UpdateLookupTable".into()))
+        .expect("the strip's table");
+    let (table, _) = table_msg
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (.., cands, _) = table_parts(&table);
+    assert!(!cands.is_empty(), "candidates on screen: {cands:?}");
+    let mut out = Vec::new();
+    let msg = engine_msg("CandidateClicked").append3(0u32, 1u32, 0u32);
+    handler.engine_call(&msg, "CandidateClicked", &mut out);
+    let members_seen = members(&out);
+    assert!(
+        members_seen.contains(&"HideLookupTable".to_string())
+            && members_seen.contains(&"CommitText".to_string()),
+        "the click picks: {:?}",
+        members_seen
+    );
+    let committed = out
+        .iter()
+        .find(|m| m.member() == Some("CommitText".into()))
+        .and_then(|m| m.read1::<Variant<Box<dyn RefArg>>>().ok())
+        .map(|v| text_from_variant(&v))
+        .unwrap_or_else(|| panic!("the clicked entry commits: {:?}", members_seen));
+    assert_eq!(
+        committed.as_deref(),
+        Some(format!("{} ", cands[0]).as_str()),
+        "the clicked row commits (plus the pick's space), not the raw keys"
+    );
+}
+
+#[test]
+fn a_pick_that_erases_waits_for_alt_to_go_up() {
+    strip_reset_for_test();
+    // The deletes a pick injects reach the application while Alt is still
+    // down, and it drops them as Alt+Backspace: nothing is erased and the
+    // candidate lands on top of the word ("xin chaochào"). The pick waits
+    // for Alt's release, where its keys carry no modifier.
+    let (engine, mut handler) = strip_handler(true);
+    {
+        let mut e = lock_engine(&engine);
+        e.set_mode(Mode::Flow);
+        e.set_uinput_available(true);
+    }
+    let (_, out) = press(&mut handler, 0x74); // 't'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip opens: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press_with_state(&mut handler, 0x31, keymap::MOD1_MASK);
+    assert!(consumed, "the combo is the strip's");
+    assert!(
+        !members(&out).contains(&"HideLookupTable".to_string()),
+        "the strip is still up while Alt is held: {:?}",
+        members(&out)
+    );
+    assert!(
+        !members(&out).contains(&"CommitText".to_string()),
+        "nothing commits while Alt is held: {:?}",
+        members(&out)
+    );
+    let (_, out) = press_with_state(
+        &mut handler,
+        0xffe9, // Alt_L
+        keymap::RELEASE_MASK | keymap::MOD1_MASK,
+    );
+    assert!(
+        members(&out).contains(&"HideLookupTable".to_string()),
+        "Alt's release runs the pick: {:?}",
+        members(&out)
+    );
+}
+
+#[test]
+fn an_echo_keeps_the_modifiers_of_the_key_it_serves() {
+    strip_reset_for_test();
+    // The deletes an Alt+1 pick injects come back as echoes while the Alt it
+    // was pressed with is still down, so the echo carries MOD1. Taken for an
+    // application shortcut it reset the engine mid-rewrite and was never
+    // counted, and the pick's parked commit went out ahead of its own
+    // deletes ("xin chao" + Alt+1 left "xin chaoc").
+    let (engine, mut handler) = strip_handler(false);
+    {
+        let mut e = lock_engine(&engine);
+        e.set_uinput_available(true);
+        e.add_injected(1);
+        e.defer_commit(1, "chào ".into());
+    }
+    let (_consumed, out) = press_with_state(&mut handler, keymap::BACKSPACE, keymap::MOD1_MASK);
+    assert!(
+        !lock_engine(&engine).pending_echoes(),
+        "the echo is counted, not taken for an Alt shortcut"
+    );
+    assert!(
+        lock_engine(&engine).has_deferred(),
+        "the parked commit stays parked behind the deletes"
+    );
+    assert!(
+        !members(&out).contains(&"CommitText".to_string()),
+        "the commit never rides the echo's reply: {:?}",
+        members(&out)
+    );
+}
+
+#[test]
+fn alt_digits_pick_while_the_strip_is_visible() {
+    strip_reset_for_test();
+    // The real flow: a suggest-enabled engine opens the strip on the FIRST
+    // letter, and Alt+1 picks its first candidate (the bare digits stay
+    // content — see `a_plain_digit_types_while_the_strip_is_visible`). The committed text is
+    // read back off the rendered table, never a literal — the model builds
+    // the list, the label-to-entry mapping is the contract.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, out) = press(&mut handler, 0x73); // 's'
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the first key opens the strip with the word inline"
+    );
+    let (table, _) = out[1]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, _, _, _, _, cands, _) = table_parts(&table);
+    assert!(
+        !cands.is_empty(),
+        "the first page offered candidates: {cands:?}"
+    );
+    // Alt+1 picks: the candidate commits off the emitted list, the box
+    // closes, the composition resets.
+    let (consumed, out) = press_with_state(&mut handler, 0x31, keymap::MOD1_MASK); // Alt+1
+    assert!(consumed, "a pick consumes the combo");
+    assert_eq!(
+        members(&out),
+        vec![
+            "UpdatePreeditText",
+            "HideAuxiliaryText",
+            "HideLookupTable",
+            "CommitText"
+        ]
+    );
+    let committed = out[3]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("CommitText variant");
+    assert_eq!(
+        text_from_variant(&committed).as_deref(),
+        Some(format!("{} ", cands[0]).as_str()),
+        "the labeled first candidate commits (plus the pick's space), not the raw keys"
+    );
+    // The strip is closed: the next word types fresh — `z` matches no model
+    // row and no emoji keyword, so the strip stays closed.
+    let (_, out) = press(&mut handler, 0x7a); // 'z'
+    assert!(
+        !members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "{:?}",
+        members(&out)
+    );
+}
+
+#[test]
+fn grave_picks_the_first_slot_while_the_strip_is_visible() {
+    strip_reset_for_test();
+    // ` takes the head of the visible page — one key, no modifier. The
+    // committed text is read back off the rendered table like the digit
+    // picks.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, out) = press(&mut handler, 0x73); // 's'
+    let (table, _) = out[1]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, _, _, _, _, cands, _) = table_parts(&table);
+    let (consumed, out) = press(&mut handler, keymap::GRAVE);
+    assert!(consumed, "a pick consumes the `");
+    assert_eq!(
+        members(&out),
+        vec![
+            "UpdatePreeditText",
+            "HideAuxiliaryText",
+            "HideLookupTable",
+            "CommitText"
+        ]
+    );
+    let committed = out[3]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("CommitText variant");
+    assert_eq!(
+        text_from_variant(&committed).as_deref(),
+        Some(format!("{} ", cands[0]).as_str()),
+        "` commits the page's first candidate plus the pick's space"
+    );
+}
+
+#[test]
+fn a_pick_after_a_landed_word_leaves_the_strip_closed() {
+    strip_reset_for_test();
+    // Picking the word the strip offered for a landed word used to chain
+    // straight into that word's own next-word list; the pick now ends the
+    // strip and only the next typed letter asks for a new list.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, _) = press(&mut handler, 0x69); // 'i'
+    let (_, _) = press(&mut handler, 0x6e); // 'n'
+    let (_, _) = press(&mut handler, 0x68); // 'h'
+    let (_, out) = press(&mut handler, 0x20); // space: 'sinh' lands, next-word list
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the landed word opens the next-word list: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press_with_state(&mut handler, 0x31, keymap::MOD1_MASK); // Alt+1
+    assert!(consumed, "a pick consumes the combo");
+    assert!(
+        !members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "no next-word list under the picked word: {:?}",
+        members(&out)
+    );
+}
+
+#[test]
+fn grave_types_normally_once_the_strip_is_closed() {
+    strip_reset_for_test();
+    // The pick key is only a pick while the strip is up: pressed again (or
+    // with no list at all) it is an ordinary character, which is how a
+    // literal ` reaches the app — two presses, the first one picking.
+    let (_engine, mut handler) = strip_handler(true);
+    let (consumed, _) = press(&mut handler, keymap::GRAVE);
+    assert!(!consumed, "` falls through when no list is up");
+    let (_, _out) = press(&mut handler, 0x73); // 's'
+    let (consumed, _) = press(&mut handler, keymap::GRAVE);
+    assert!(consumed, "the pick consumes the first `");
+    let (consumed, _) = press(&mut handler, keymap::GRAVE);
+    assert!(!consumed, "the second ` types");
+}
+
+#[test]
+fn alt_digits_pick_while_the_strip_is_paged() {
+    strip_reset_for_test();
+    // Page 1 through the popup's ◀▶ button (its PageDown method): Alt+1
+    // picks that page's first slot — the global index 5 the page mapping
+    // promises. The committed text is read back off the rendered table,
+    // never a literal (see the visible pick above): paging shifts the
+    // mapping, the label-to-entry contract does not move.
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, out) = press(&mut handler, 0x73); // 's'
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the strip opens with the word inline"
+    );
+    let (_, out) = press(&mut handler, 0x69); // 'i'
+    assert_eq!(
+        members(&out),
+        vec!["UpdatePreeditText", "UpdateLookupTable"],
+        "the second letter updates the word and the list"
+    );
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    assert_eq!(members(&out), vec!["UpdateLookupTable"]);
+    let (table, _) = out[0]
+        .read2::<Variant<Box<dyn RefArg>>, bool>()
+        .expect("table");
+    let (_, cursor, .., cands, _) = table_parts(&table);
+    assert_eq!(cursor, 5, "the cursor marks the page head");
+    assert!(
+        cands.len() > 5,
+        "page 1 holds entries past the first five: {cands:?}"
+    );
+    let (consumed, out) = press_with_state(&mut handler, 0x31, keymap::MOD1_MASK); // Alt+1
+    assert!(consumed, "a pick on page 1 consumes the combo");
+    assert_eq!(
+        members(&out),
+        vec![
+            "UpdatePreeditText",
+            "HideAuxiliaryText",
+            "HideLookupTable",
+            "CommitText"
+        ]
+    );
+    let committed = out[3]
+        .read1::<Variant<Box<dyn RefArg>>>()
+        .expect("CommitText variant");
+    assert_eq!(
+        text_from_variant(&committed).as_deref(),
+        Some(format!("{} ", cands[5]).as_str()),
+        "label 1 on page 1 commits the list's sixth entry (global index 5), plus the pick's space"
+    );
+}
+
+#[test]
+fn a_plain_digit_types_while_the_strip_is_visible() {
+    strip_reset_for_test();
+    // The bare digits are content again, label range included: a digit falls
+    // through unconsumed and ends the word exactly as with the strip closed
+    // — the digit enters the composition and the word's end closes the strip
+    // server-side (`si` is no model token, so the landing has no next-word
+    // list to chain into).
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip is up: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, 0x31); // '1'
+    assert!(!consumed, "a label digit reaches the composition");
+    assert!(
+        members(&out).iter().any(|m| m == "HideLookupTable"),
+        "the digit entered the word, the strip hides: {:?}",
+        members(&out)
+    );
+    let committed = out
+        .iter()
+        .find(|m| m.member() == Some("CommitText".into()))
+        .and_then(|m| m.read1::<Variant<Box<dyn RefArg>>>().ok())
+        .map(|v| text_from_variant(&v))
+        .unwrap_or_else(|| panic!("the word ends on the digit: {:?}", members(&out)));
+    // The raw keys commit and the digit itself follows as the forwarded key
+    // (the digit terminator never commits a candidate — no pick happened).
+    assert_eq!(
+        committed,
+        Some("si".into()),
+        "the in-flight word commits as typed, the digit follows"
+    );
+    // 0 rides the same path: the strip reopens with the next word and the
+    // non-label digit falls through again.
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, out) = press(&mut handler, 0x69); // 'i'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "the strip reopens: {:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, 0x30); // '0'
+    assert!(!consumed, "0 types as well");
+    assert!(
+        members(&out).iter().any(|m| m == "HideLookupTable"),
+        "the digit entered the word, the strip hides: {:?}",
+        members(&out)
+    );
+}
+
+#[test]
+fn a_digit_beyond_the_list_falls_through_to_the_engine() {
+    strip_reset_for_test();
+    // The wordless-engine race: the funnel still shows page 1 of a seeded
+    // list while the engine has nothing in flight, so every accept is
+    // refused — label 5's global index (9) is past any real list.
+    let (engine, mut handler) = strip_handler(false);
+    let mut out = Vec::new();
+    {
+        let mut e = lock_engine(&engine);
+        emit(
+            &mut e,
+            &Injection::new(),
+            &[Action::UpdateCandidates {
+                word: "th".into(),
+                items: strip_items(),
+            }],
+            &mut out,
+        );
+    }
+    let mut page = Vec::new();
+    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut page);
+    assert_eq!(
+        members(&page),
+        vec!["UpdateLookupTable"],
+        "paging still works for the seeded strip"
+    );
+    // Label 5 on page 1 → global index 9 → the engine refuses → the combo
+    // falls through to the shortcut path and nothing commits.
+    let (consumed, out) = press_with_state(&mut handler, 0x35, keymap::MOD1_MASK); // Alt+5
+    assert!(!consumed, "the refused pick falls through");
+    assert!(
+        members(&out).is_empty(),
+        "no pick, no commit, no hide: {:?}",
+        members(&out)
+    );
+}
+
+#[test]
+fn strip_keys_type_normally_when_the_strip_is_closed() {
+    strip_reset_for_test();
+    // Byte-identical to today's engine, captured from the pre-strip
+    // behavior: a wordless engine forwards arrows and digits with no
+    // signals; a word in flight commits on the arrow and ends on the digit.
+    let (_engine, mut handler) = strip_handler(false);
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(!consumed);
+    assert!(members(&out).is_empty(), "{:?}", members(&out));
+    let (consumed, out) = press(&mut handler, 0x31); // '1'
+    assert!(!consumed);
+    assert!(members(&out).is_empty(), "{:?}", members(&out));
+    let (consumed, out) = press(&mut handler, 0x74); // 't'
+    assert!(consumed);
+    assert_eq!(members(&out), vec!["UpdatePreeditText"]);
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert_eq!(members(&out), vec!["UpdatePreeditText"]);
+    // The arrow ends the word and passes through: commit rides the reply.
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(!consumed);
+    assert_eq!(members(&out), vec!["UpdatePreeditText", "CommitText"]);
+    let (consumed, out) = press(&mut handler, 0x31); // '1'
+    assert!(!consumed);
+    assert!(members(&out).is_empty(), "{:?}", members(&out));
+}
+
+#[test]
+fn word_end_chains_or_hides_server_side() {
+    strip_reset_for_test();
+    let (_engine, mut handler) = strip_handler(true);
+    // A model-token landing CHAINS: `sinh ` keeps the strip up with the
+    // follower list — the space batch carries a fresh table, no hide.
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, _) = press(&mut handler, 0x69); // 'i'
+    let (_, _) = press(&mut handler, 0x6e); // 'n'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable"),
+        "strip open: {:?}",
+        members(&out)
+    );
+    let (_, out) = press(&mut handler, 0x20); // space
+    assert!(
+        members(&out).iter().any(|m| m == "UpdateLookupTable")
+            && !members(&out).iter().any(|m| m == "HideLookupTable"),
+        "the landing chains into the next-word list: {:?}",
+        members(&out)
+    );
+    // A non-model landing HIDES: `si ` carries no follower list, so the
+    // engine's HideCandidates closes the strip server-side with the commit.
+    let (_, _) = press(&mut handler, 0x73); // 's'
+    let (_, _) = press(&mut handler, 0x69); // 'i'
+    let (_, out) = press(&mut handler, 0x20); // space
+    assert!(
+        members(&out).iter().any(|m| m == "HideLookupTable"),
+        "the word end hides the strip: {:?}",
+        members(&out)
+    );
+    // Closed again: the arrow flows as today (forwarded, no table).
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(!consumed);
+    assert!(!members(&out).iter().any(|m| m == "UpdateLookupTable"));
+}
+
+#[test]
+fn focus_out_and_reset_teardown_the_strip() {
+    strip_reset_for_test();
+    let (_engine, mut handler) = strip_handler(true);
+    let (_, _) = press(&mut handler, 0x74); // 't'
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(members(&out).iter().any(|m| m == "UpdateLookupTable"));
+    // FocusOut: the strip rides the picker's teardown — exactly one hide,
+    // and the engine's own HideCandidates stays silent behind the taken
+    // state instead of doubling it.
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+    assert_eq!(
+        members(&out)
+            .iter()
+            .filter(|m| *m == "HideLookupTable")
+            .count(),
+        1,
+        "{:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, keymap::RIGHT);
+    assert!(!consumed, "the strip is closed: today's arrow flow");
+    assert!(!members(&out).iter().any(|m| m == "UpdateLookupTable"));
+
+    // Same teardown on a client Reset (a click elsewhere dismisses it).
+    let (_, out) = press(&mut handler, 0x74); // 't'
+    let _ = out;
+    let (_, out) = press(&mut handler, 0x68); // 'h'
+    assert!(members(&out).iter().any(|m| m == "UpdateLookupTable"));
+    let mut out = Vec::new();
+    handler.engine_call(&engine_msg("Reset"), "Reset", &mut out);
+    assert_eq!(
+        members(&out)
+            .iter()
+            .filter(|m| *m == "HideLookupTable")
+            .count(),
+        1,
+        "{:?}",
+        members(&out)
+    );
+    let (consumed, out) = press(&mut handler, keymap::LEFT);
+    assert!(!consumed);
+    assert!(!members(&out).iter().any(|m| m == "UpdateLookupTable"));
+}
+
+// --- ContentType (InputPurpose) gate ---
+
+/// A `org.freedesktop.DBus.Properties.Set` call for one engine property,
+/// the wire shape ibus-daemon uses for ContentType: (interface, name, (uu)).
+fn properties_set_msg(prop: &str, purpose: u32, hints: u32) -> Message {
+    use dbus::strings::{BusName, Interface, Member, Path};
+    let mut msg = Message::method_call(
+        &BusName::new(BUS_NAME).unwrap(),
+        &Path::new(ENGINE_PATH).unwrap(),
+        &Interface::new("org.freedesktop.DBus.Properties").unwrap(),
+        &Member::new("Set").unwrap(),
+    );
+    msg.set_serial(1);
+    msg.append3(
+        ENGINE_IFACE.to_string(),
+        prop.to_string(),
+        dbus::arg::Variant(Box::new((purpose, hints))),
+    )
+}
+
+#[test]
+fn content_type_set_gates_password_fields() {
+    // The daemon's ContentType write is the only purpose channel: PASSWORD
+    // and PIN quiet the engine, TERMINAL (10) and FREE_FORM (0) do not, and
+    // a Set of another property leaves the flag alone.
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+    let mut handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        injection: Injection::new(),
+        last_config_check: Instant::now(),
+        last_config_mtime: None,
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
+        focus_ext: None,
+    };
+    handler.properties_call(&properties_set_msg("ContentType", 8u32, 0u32), "Set");
+    assert!(lock_engine(&engine).password_quiet(), "PASSWORD quiets");
+    handler.properties_call(&properties_set_msg("ContentType", 9u32, 0u32), "Set");
+    assert!(lock_engine(&engine).password_quiet(), "PIN quiets too");
+    handler.properties_call(&properties_set_msg("ContentType", 10u32, 0u32), "Set");
+    assert!(
+        !lock_engine(&engine).password_quiet(),
+        "TERMINAL keeps ordinary typing"
+    );
+    handler.properties_call(&properties_set_msg("ContentType", 0u32, 0u32), "Set");
+    assert!(
+        !lock_engine(&engine).password_quiet(),
+        "FREE_FORM opens again"
+    );
+    handler.properties_call(&properties_set_msg("Capabilities", 0u32, 0u32), "Set");
+    assert!(
+        !lock_engine(&engine).password_quiet(),
+        "a Set of another property is inert"
     );
 }

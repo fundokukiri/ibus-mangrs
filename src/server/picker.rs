@@ -33,19 +33,10 @@ pub(super) fn picker_entries(visible: &[ModeConfig], current: ModeConfig, en: bo
         .collect()
 }
 
-/// The mode a picker row resolves to right now: the rule/app mode when it is
-/// still visible, else the global mode, else the first visible entry.
+/// The mode a picker row resolves to right now: the rule/app mode, else the
+/// global mode.
 fn picker_current(config: &Config, target: &str) -> ModeConfig {
-    let visible = config.visible_modes();
-    let stored =
-        crate::config::app_rule_mode(&config.app_rules, Some(target)).unwrap_or(config.mode);
-    if visible.contains(&stored) {
-        stored
-    } else if visible.contains(&config.mode) {
-        config.mode
-    } else {
-        visible[0]
-    }
+    crate::config::app_rule_mode(&config.app_rules, Some(target)).unwrap_or(config.mode)
 }
 
 /// Keys the picker consumes while open.
@@ -133,9 +124,8 @@ impl EngineHandler {
         // lookup-table cursor as the blue hover, so the current choice is
         // visible the moment the menu opens.
         let config = Config::load();
-        let visible = config.visible_modes();
         let current = picker_current(&config, &target);
-        let cursor = visible
+        let cursor = ModeConfig::ALL
             .iter()
             .position(|mode| *mode == current)
             .unwrap_or(0);
@@ -150,9 +140,8 @@ impl EngineHandler {
             return;
         };
         let config = Config::load();
-        let visible = config.visible_modes();
         let current = picker_current(&config, &state.target);
-        let entries = picker_entries(&visible, current, config.language == "en");
+        let entries = picker_entries(&ModeConfig::ALL, current, config.language == "en");
         let current_label = ibus_prop::mode_label(current, config.language == "en").to_string();
         let table =
             ibus_prop::lookup_table_variant(PICKER_PAGE_SIZE, state.cursor as u32, &entries);
@@ -181,12 +170,12 @@ impl EngineHandler {
                 true
             }
             PickerKey::SelectLast => {
-                let len = Config::load().visible_modes().len();
+                let len = ModeConfig::ALL.len();
                 self.apply_picker_entry(len.saturating_sub(1), out);
                 true
             }
             PickerKey::Move(delta) => {
-                let len = Config::load().visible_modes().len();
+                let len = ModeConfig::ALL.len();
                 if len > 0 {
                     if let Some(p) = self.picker.as_mut() {
                         p.cursor = (p.cursor as i32 + delta).rem_euclid(len as i32) as usize;
@@ -214,7 +203,7 @@ impl EngineHandler {
             return;
         };
         let mut config = Config::load();
-        let Some(mode) = config.visible_modes().get(index).copied() else {
+        let Some(mode) = ModeConfig::ALL.get(index).copied() else {
             out.push(signal("HideLookupTable"));
             out.push(signal("HideAuxiliaryText"));
             return;

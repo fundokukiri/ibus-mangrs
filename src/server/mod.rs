@@ -312,6 +312,19 @@ fn address_from_dir(dir: &std::path::Path) -> Option<String> {
     newest.map(|(_, addr)| addr)
 }
 
+/// Unpack the purpose out of a ContentType value — GVariant "(uu)" boxed in
+/// a variant. The dbus crate hands us either the demarshalled tuple or an
+/// opaque structure; read the first element either way. A wrong-shaped
+/// value yields None and the gate stays where it was.
+fn content_type_purpose(value: &(dyn dbus::arg::RefArg + 'static)) -> Option<u32> {
+    if let Some((purpose, _hints)) = value.as_any().downcast_ref::<(u32, u32)>() {
+        return Some(*purpose);
+    }
+    let mut iter = value.as_iter()?;
+    let purpose = iter.next()?.as_u64()?;
+    u32::try_from(purpose).ok()
+}
+
 struct EngineHandler {
     engine: SharedEngine,
     /// The selected injection backend: `emit`'s transports route through it,
@@ -396,7 +409,32 @@ impl EngineHandler {
             // (engineproxy.c `_get_has_focus_id_cb`). Answering `true` for
             // FocusId is what makes the daemon send `FocusInId(path, client)`,
             // which is the only way an engine learns which app has focus.
-            ("org.freedesktop.DBus.Properties", "Get") => {
+            ("org.freedesktop.DBus.Properties", m) => {
+                match self.properties_call(msg, m) {
+                    Some(reply) => send(conn, reply),
+                    // An unreadable Properties message still answers — the
+                    // daemon waits on every Properties call.
+                    None => send(conn, msg.method_return()),
+                }
+            }
+            _ => return None,
+        }
+        Some(())
+    }
+
+    /// `org.freedesktop.DBus.Properties` calls on the engine object.
+    /// Returns the reply; `None` on an unreadable message (the caller still
+    /// answers with an empty return — the daemon waits on every call).
+    fn properties_call(&mut self, msg: &Message, member: &str) -> Option<Message> {
+        match member {
+            "Get" => {
+                // `FocusId` and `ActiveSurroundingText` are booleans on the
+                // wire: the daemon calls g_variant_get_boolean() on them
+                // and, on any other type, warns and falls back to the plain
+                // `FocusIn` signal (engineproxy.c `_get_has_focus_id_cb`).
+                // Answering `true` for FocusId is what makes the daemon
+                // send `FocusInId(path, client)`, which is the only way an
+                // engine learns which app has focus.
                 let reply = match msg.read2::<String, String>() {
                     Ok((_, prop)) => match prop.as_str() {
                         "FocusId" => msg
@@ -411,16 +449,35 @@ impl EngineHandler {
                     },
                     Err(_) => msg.method_return(),
                 };
-                send(conn, reply);
+                Some(reply)
             }
-            ("org.freedesktop.DBus.Properties", "GetAll") => {
+            "GetAll" => {
                 let props: dbus::arg::PropMap = Default::default();
-                send(conn, msg.method_return().append1(props));
+                Some(msg.method_return().append1(props))
             }
-            ("org.freedesktop.DBus.Properties", "Set") => send(conn, msg.method_return()),
-            _ => return None,
+            "Set" => {
+                // ibus-daemon delivers the focused field's content type as
+                // the engine's write-only ContentType property, (purpose,
+                // hints) — the only channel a purpose reaches an engine
+                // through (libibus's engine interface has no InputPurpose
+                // member; the interface XML lives inside libibus itself).
+                // PASSWORD/PIN close the strip and the learning files;
+                // every other purpose — TERMINAL included — opens them.
+                if let Ok((interface, prop, value)) =
+                    msg.read3::<String, String, dbus::arg::Variant<Box<dyn dbus::arg::RefArg>>>()
+                {
+                    if prop == "ContentType" && interface == ENGINE_IFACE {
+                        if let Some(purpose) = content_type_purpose(value.0.as_ref()) {
+                            if let Ok(mut engine) = self.engine.lock() {
+                                engine.set_content_purpose(purpose);
+                            }
+                        }
+                    }
+                }
+                Some(msg.method_return())
+            }
+            _ => None,
         }
-        Some(())
     }
 
     /// Handle one `org.freedesktop.IBus.Engine` call: push any signals into
@@ -432,8 +489,20 @@ impl EngineHandler {
         }
         if member == "CandidateClicked" {
             // A mouse click on a picker entry (GNOME's candidate popup
-            // forwards it here): same as pressing the entry's digit. Handled
-            // before the engine lock — the apply locks by itself.
+            // forwards it here): same as pressing the entry's digit. The
+            // strip is checked first — it owns the table when its word is
+            // in flight, and picker/emoji cannot coexist with it.
+            if strip_open() {
+                if let Ok((index, _button, _state)) = msg.read3::<u32, u32, u32>() {
+                    let mut engine = lock_engine(&self.engine);
+                    let actions = engine.accept_candidate(index as usize);
+                    if !actions.is_empty() {
+                        let injected = emit(&mut engine, &self.injection, &actions, out);
+                        add_injected_batch(&mut engine, &mut self.burst, injected);
+                    }
+                }
+                return msg.method_return();
+            }
             if self.emoji_picker.is_some() {
                 if let Ok((index, _button, _state)) = msg.read3::<u32, u32, u32>() {
                     self.apply_emoji_pick(index as usize, out);
@@ -448,8 +517,14 @@ impl EngineHandler {
             return msg.method_return();
         }
         if member == "PageUp" || member == "PageDown" {
-            // The candidate popup's pager buttons; only the emoji menu has
-            // more than one page. Handled before the engine lock.
+            // The candidate popup's pager buttons; the suggestion strip
+            // pages by them too when it is up, the emoji menu only when it
+            // is open. Server-side state — no engine lock needed for the
+            // strip.
+            if strip_open() {
+                strip_move_page(if member == "PageDown" { 1 } else { -1 });
+                strip_emit_table(out);
+            }
             if self.emoji_picker.is_some() {
                 if let Some(picker) = self.emoji_picker.as_mut() {
                     if member == "PageDown" {
@@ -659,6 +734,12 @@ impl EngineHandler {
                     out.push(signal("HideLookupTable"));
                     out.push(signal("HideAuxiliaryText"));
                 }
+                // The suggestion strip rides the same teardown — the table
+                // belongs to the outgoing context, even when a burst defers
+                // the reset below (then the engine's own close never fires).
+                // The engine's HideCandidates from focus_out stays silent
+                // behind the taken state instead of doubling the hide.
+                strip_hide(out);
                 // Focus-bounce tolerance: a burst in flight defers the whole
                 // reset for the bounce window. A quick unfocus/refocus of the
                 // same context resumes it untouched in FocusIn; a real switch
@@ -741,6 +822,10 @@ impl EngineHandler {
                     out.push(signal("HideLookupTable"));
                     out.push(signal("HideAuxiliaryText"));
                 }
+                // The suggestion strip rides the same teardown; the engine's
+                // own HideCandidates from on_client_reset stays silent behind
+                // the taken state instead of doubling the hide.
+                strip_hide(out);
                 // The preedit is sent with IBUS_ENGINE_PREEDIT_COMMIT, so the
                 // client has already committed the word by the time this
                 // arrives (GTK sends it on a mouse click, a focus change and a
@@ -900,6 +985,15 @@ fn process_key(
         if keyval == keymap::BACKSPACE {
             engine.note_backspace_released();
         }
+        // alt+digit, the pick waits for the modifier it was asked with to go
+        // up: the Backspaces it injects otherwise arrive at the application
+        // as Alt+Backspace, which deletes nothing ("xin chao" plus an Alt+1
+        // pick left "xin chaochào"). The key itself stays the app's.
+        if keymap::is_alt_key(keyval) {
+            if let Some(index) = engine.take_pending_pick() {
+                strip_pick(engine, injection, burst, index, out);
+            }
+        }
         return false;
     }
     // The engine's flag is pulled mid-session when an injection fails on a
@@ -933,8 +1027,53 @@ fn process_key(
             }
         }
     }
+    // An injected Backspace echo arrives with the modifiers of the key it
+    // serves: an Alt+1 pick still holds Alt when its own deletes come back
+    // (state=MASK_MOD1). The shortcut branch below would take it for an
+    // application shortcut, reset the engine mid-rewrite and leave the echo
+    // uncounted, so the pick's parked commit went out ahead of its deletes
+    // ("xin chao" + Alt+1 left "xin chaoc"). Echoes are decided before any
+    // branch that reads modifiers.
+    if keyval == keymap::BACKSPACE && note_burst_echo(engine, burst) {
+        return false;
+    }
     // Ctrl/Alt/Super combinations are application shortcuts.
     if state & keymap::SHORTCUT_MASK != 0 {
+        // The strip's `Ctrl+,`/`Ctrl+.` paging owns the combo while it is
+        // up — a page must not commit the word the box is showing (the
+        // reset below would). Any other shortcut, or a closed strip, stays
+        // an application shortcut.
+        if strip_open() && state & keymap::CONTROL_MASK != 0 {
+            match keyval {
+                keymap::COMMA => {
+                    strip_move_page(-1);
+                    strip_emit_table(out);
+                    return true;
+                }
+                keymap::PERIOD => {
+                    strip_move_page(1);
+                    strip_emit_table(out);
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        // Alt+1..5 picks a slot. The bare digits are content again: a digit
+        // typed inside a word reaches the composition, which matters in the
+        // presets that treat digits as tone keys and whenever a number
+        // belongs to the word.
+        if strip_open() && state & keymap::MOD1_MASK != 0 {
+            if let Some(digit) = strip_digit(keyval) {
+                let index = strip_page() * STRIP_PAGE_SIZE + digit - 1;
+                if !engine.pick_needs_modifier_release() {
+                    return strip_pick(engine, injection, burst, index, out);
+                }
+                // Erasing with key events: held for Alt's release (see the
+                // release arm), where they no longer carry the modifier.
+                engine.ask_pick(index);
+                return true;
+            }
+        }
         // Held like any keystroke: replaying the shortcut after the keys
         // already held keeps the user's sequence — resetting the engine
         // now would orphan them past the caret move the shortcut makes.
@@ -962,12 +1101,7 @@ fn process_key(
                 out.push(signal("CommitText").append1(plain_text(&text)));
             }
         }
-        // An echo of a Backspace we injected ourselves: pass it to the
-        // application — that key press IS the deletion mechanism. Once the
-        // last echo of a rewrite is forwarded, its deferred commit can go.
-        if note_burst_echo(engine, burst) {
-            return false;
-        }
+        // Echoes are already decided above, before the modifier branches.
         // A real Backspace typed mid-burst: held like any keystroke. The
         // check sits after the echo test on purpose — an echo must never
         // hold, or the burst would never settle.
@@ -1000,6 +1134,16 @@ fn process_key(
         for text in engine.flush_deferred() {
             out.push(signal("CommitText").append1(plain_text(&text)));
         }
+    }
+
+    // The suggestion strip's keys: digits pick, `Ctrl+,`/`Ctrl+.` page —
+    // the only keys an open strip owns (the popup's ◀▶ buttons page by
+    // mouse). Sits before the editing-key dispatch so a pick or page never
+    // reaches the composition; a closed strip changes nothing here, and
+    // every other key — arrows, `,`/`.` without Ctrl — types or navigates
+    // exactly as with the strip off.
+    if strip_key(engine, injection, burst, keyval, out) {
+        return true;
     }
 
     // Arrows, Tab, Escape, Delete... end the word and belong to the app.
@@ -1758,24 +1902,31 @@ fn emit_with(
                 }
             }
             Action::UpdatePreedit { text, cursor } => {
-                let len = text.chars().count() as u32;
-                let attrs: &[Attr] = if hide_underline {
-                    &[]
-                } else {
-                    &[Attr::underline(0, len)]
-                };
-                out.push(
-                    signal("UpdatePreeditText")
-                        .append1(text_variant(text, attrs))
-                        .append1(*cursor)
-                        .append1(true)
-                        // IBUS_ENGINE_PREEDIT_COMMIT: when the client resets
-                        // the input context (a mouse click, a focus change) it
-                        // commits this preedit itself instead of clearing it,
-                        // so a pending word is never lost. ibus-bamboo sends
-                        // this same mode.
-                        .append1(1u32),
-                );
+                {
+                    // Both display choices keep the classic preedit beside
+                    // the table; a batch without candidates sends it alone.
+                    let len = text.chars().count() as u32;
+                    let attrs: &[Attr] = if hide_underline {
+                        &[]
+                    } else {
+                        &[Attr::underline(0, len)]
+                    };
+                    out.push(
+                        signal("UpdatePreeditText")
+                            .append1(text_variant(text, attrs))
+                            .append1(*cursor)
+                            .append1(true)
+                            // IBUS_ENGINE_PREEDIT_COMMIT: when the client resets
+                            // the input context (a mouse click, a focus change) it
+                            // commits this preedit itself instead of clearing it,
+                            // so a pending word is never lost. ibus-bamboo sends
+                            // this same mode.
+                            .append1(1u32),
+                    );
+                }
+                // The box's input line is not shaped here: the word rides
+                // `UpdateCandidates` (the inline display has no preedit
+                // signal to convert) and `strip_show` writes it.
             }
             Action::HidePreedit => {
                 out.push(
@@ -1834,9 +1985,191 @@ fn emit_with(
                 }
             }
             Action::Forward | Action::Consumed => {}
+            // The strip renders server-side, the picker's lookup-table
+            // precedent: the candidate actions carry the word-in-flight and
+            // the engine's full list, the server pages and labels the list
+            // (below). The word's only surface is the classic inline preedit
+            // beside the table, so the box carries no input line.
+            Action::UpdateCandidates { word, items } => strip_show(false, word, items, out),
+            Action::HideCandidates => strip_hide(out),
         }
     }
     injected_total
+}
+
+/// Page size of the suggestion strip's lookup table: five labeled slots,
+/// `Tab` and `Alt`+`1`-`5` pick them (slots shared with the engine's page-1
+/// builder), `Ctrl+,`/`Ctrl+.` and PageUp/PageDown turn the page — the
+/// panel's ◀▶ buttons page the same way.
+use crate::suggest::STRIP_PAGE_SIZE;
+
+/// The server's view of the suggestion strip — the full candidate list the
+/// last `UpdateCandidates` carried and the page the pagers moved to (the
+/// `-`/`=`/PageUp/PageDown keys and the panel's pager methods; the arrows
+/// stay caret navigation). It lives beside `emit` instead of on
+/// `EngineHandler` because those two actions reach the server only through
+/// `emit`, whose call sites span the key path, the tick, focus/reset and
+/// the config applies across five files; riding the funnel keeps the state
+/// in step with the table on screen no matter which of them fired. The
+/// server's message loop is single-threaded (the callback runs inside
+/// `conn.iter()` on the main thread) and `EngineHandler` is `!Send`
+/// anyway, so a thread-local is sound.
+struct StripState {
+    items: Vec<String>,
+    page: usize,
+}
+
+thread_local! {
+    static STRIP: std::cell::RefCell<Option<StripState>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Show the strip: rewrite the box's input line with the word-in-flight,
+/// store the engine's full list and render page 0. Every `UpdateCandidates`
+/// is a word change, so the input line is rewritten and the pager's page
+/// never survives it. An empty list would render an empty table — hide
+/// instead, keeping the state and the screen in step.
+fn strip_show(aux: bool, word: &str, items: &[String], out: &mut Vec<Message>) {
+    if items.is_empty() {
+        strip_hide(out);
+        return;
+    }
+    // The floating input line: the word-in-flight shows in the candidate
+    // window (ibus intelligent pinyin's aux line); the cursor arg carries
+    // no meaning there. The action carries the word because the inline
+    // modes have no preedit signal to convert — this is the only source.
+    // The inline display keeps the classic preedit as the word's only
+    // surface, so no line at all.
+    if aux {
+        out.push(
+            signal("UpdateAuxiliaryText")
+                .append1(plain_text(word))
+                .append1(true),
+        );
+    }
+    STRIP.with(|cell| {
+        *cell.borrow_mut() = Some(StripState {
+            items: items.to_vec(),
+            page: 0,
+        });
+    });
+    strip_emit_table(out);
+}
+
+/// Hide the strip and drop its state. The signals ride only when something
+/// was shown: the engine's close racing the server's own teardown (focus
+/// out) must not push a duplicate hide. The floating input line dies with
+/// the table — they share the one candidate window.
+fn strip_hide(out: &mut Vec<Message>) {
+    let shown = STRIP.with(|cell| cell.borrow_mut().take().is_some());
+    if shown {
+        out.push(signal("HideAuxiliaryText"));
+        out.push(signal("HideLookupTable"));
+    }
+}
+
+/// Whether the strip is showing.
+fn strip_open() -> bool {
+    STRIP.with(|cell| cell.borrow().is_some())
+}
+
+/// The page the pagers moved to, `0` while page 0 is the newest update.
+fn strip_page() -> usize {
+    STRIP.with(|cell| cell.borrow().as_ref().map(|s| s.page).unwrap_or(0))
+}
+
+/// Move the page by `delta`, clamped at both ends — the strip never wraps
+/// (a wrap past the last page would re-show page 0 under the user's hand).
+fn strip_move_page(delta: i32) {
+    STRIP.with(|cell| {
+        let mut s = cell.borrow_mut();
+        if let Some(s) = s.as_mut() {
+            let last = s.items.len().saturating_sub(1) / STRIP_PAGE_SIZE;
+            s.page = (s.page as i32 + delta).clamp(0, last as i32) as usize;
+        }
+    });
+}
+
+/// Render the strip: the full list travels at once with the cursor on the
+/// page head — the panel's page count then renders the ◀▶ buttons (mouse
+/// paging) — horizontal with the `1.`-`5.` labels, one digit label per
+/// slot, so the key that picks an entry is visible on it.
+fn strip_emit_table(out: &mut Vec<Message>) {
+    STRIP.with(|cell| {
+        let s = cell.borrow();
+        let Some(s) = s.as_ref() else {
+            return;
+        };
+        let cursor = (s.page * STRIP_PAGE_SIZE) as u32;
+        let table = ibus_prop::lookup_table_strip(STRIP_PAGE_SIZE as u32, cursor, &s.items);
+        out.push(signal("UpdateLookupTable").append2(table, true));
+    });
+}
+
+/// The selection digit a keysym names, `1`-`5` (keypad digits included
+/// through their chars); `None` for every other key.
+fn strip_digit(keyval: u32) -> Option<usize> {
+    match keymap::keysym_to_char(keyval) {
+        Some(c @ '1'..='5') => Some(c as usize - '0' as usize),
+        _ => None,
+    }
+}
+
+/// The strip's server-side keys, tried between the burst hold and the
+/// editing-key dispatch: `Tab` picks the first slot — the only key the
+/// strip owns here. `Alt`+digits pick (in the shortcut branch above, where
+/// the modifier is still readable); the bare digits stayed content, so the
+/// strip no longer eats a number typed inside a word. `Ctrl+,`/`Ctrl+.` paging lives in the shortcut branch above
+/// (a combo must be intercepted before the branch's reset commits the
+/// word the box is showing), and the popup's ◀▶ buttons page through
+/// their PageUp/PageDown methods. Returns whether the key was consumed.
+///
+/// A pick maps page + digit to the global index and hands it to
+/// `accept_candidate`, whose returned actions ride the normal emit — the
+/// commit, the composition reset and the strip's own close all travel the
+/// regular paths. The engine validates the index: an over-range label or a
+/// strip the word has moved past returns empty, and the key falls through
+/// to the normal dispatch (a refused digit types as content, exactly the
+/// no-strip behavior). The strip never injects on its own; a pick's commit
+/// rides the word's own delete transports (protocol delete, forwarded or
+/// injected Backspaces), and the returned count feeds `add_injected_batch`
+/// like any word end.
+fn strip_key(
+    engine: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    keyval: u32,
+    out: &mut Vec<Message>,
+) -> bool {
+    if !strip_open() || !matches!(keyval, keymap::GRAVE | keymap::ASCII_TILDE) {
+        return false;
+    }
+    // The first slot of the visible page. A page the word moved past, or an
+    // empty slot, returns empty and the key keeps its app meaning.
+    strip_pick(
+        engine,
+        injection,
+        burst,
+        strip_page() * STRIP_PAGE_SIZE,
+        out,
+    )
+}
+
+/// Commit the strip slot at `index` and emit its actions. False when the
+/// engine refuses the index, so the caller's key falls through untouched.
+fn strip_pick(
+    engine: &mut Engine,
+    injection: &mut Injection,
+    burst: &mut BurstWatch,
+    index: usize,
+    out: &mut Vec<Message>,
+) -> bool {
+    let actions = engine.accept_candidate(index);
+    if actions.is_empty() {
+        return false;
+    }
+    let injected = emit(engine, injection, &actions, out);
+    add_injected_batch(engine, burst, injected);
+    true
 }
 
 /// A signal on the static engine path and interface: `new_signal` cannot

@@ -65,33 +65,26 @@ pub(super) fn switch_row(title: &str, subtitle: &str) -> adw::SwitchRow {
     row
 }
 
-/// The experimental row carries a small "Thử nghiệm" badge UNDER its
-/// subtitle — the description's own line, out of the control area — and the
-/// switch (its own or the merged row's) gets a spoken name mentioning the
-/// trial status. The subtitle label's parent is the row's internal vertical
-/// title box, reached through the same private-child walk as `row_subtitle`;
-/// a row without a subtitle falls back to the internal suffixes box. Works
-/// for every row type: they all render a title box.
+/// The experimental row carries a small "[Thử nghiệm]" badge in front of its
+/// title, and its switch gets a spoken name mentioning the trial status.
+/// The title label is not a public child either, so the badge is spliced into
+/// the row's internal title box: the label moves into a horizontal pair that
+/// replaces it. Every row type renders a title box; a row without one keeps
+/// the badge in its suffixes area.
 pub(super) fn decorate_experimental<W>(row: &W)
 where
     W: IsA<gtk4::Widget> + IsA<adw::PreferencesRow>,
 {
     let badge_text = t("misc.experimental_badge", "Thử nghiệm");
-    let badge = gtk4::Label::new(Some(&badge_text));
+    let badge = gtk4::Label::new(Some(&format!("[{badge_text}]")));
     badge.add_css_class("caption");
     badge.add_css_class("warning");
-    badge.set_xalign(0.0);
+    badge.set_valign(gtk4::Align::Center);
     uniform_title_width(row);
-    let subtitle_box = row_subtitle(row).and_then(|l| l.parent().and_downcast::<gtk4::Box>());
     let (suffixes, switch) = find_suffixes_and_switch(row.upcast_ref());
-    match subtitle_box {
-        Some(b) => b.append(&badge),
-        // No subtitle to sit under: keep the badge inside the control area.
-        None => {
-            if let Some(suffixes) = suffixes {
-                suffixes.prepend(&badge);
-                badge.set_valign(gtk4::Align::Center);
-            }
+    if !badge_beside_title(row, &badge) {
+        if let Some(suffixes) = suffixes {
+            suffixes.prepend(&badge);
         }
     }
     let spoken = format!("{}, {}", row.title(), badge_text);
@@ -103,7 +96,43 @@ where
     }
 }
 
-/// A boxed-list choice row; `selected` indexes into `items`.
+/// Move the row's title into a horizontal pair led by `badge`, so the tag
+/// rides the title's own line instead of a second one.
+fn badge_beside_title<W>(row: &W, badge: &gtk4::Label) -> bool
+where
+    W: IsA<gtk4::Widget> + IsA<adw::PreferencesRow>,
+{
+    let (Some(title), Some(title_box)) = (
+        row_title(row),
+        row_title(row).and_then(|l| l.parent().and_downcast::<gtk4::Box>()),
+    ) else {
+        return false;
+    };
+    let line = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    title.unparent();
+    line.append(badge);
+    line.append(&title);
+    title_box.prepend(&line);
+    true
+}
+
+/// A flat popover-list button whose label starts at the left edge. The stock
+/// button centers its label, which makes a list of app names or menu items
+/// read as a column of pills instead of a list.
+pub(super) fn list_button(label: &str) -> gtk4::Button {
+    let text = gtk4::Label::new(Some(label));
+    text.set_xalign(0.0);
+    text.set_halign(gtk4::Align::Start);
+    text.set_margin_start(6);
+    let btn = gtk4::Button::new();
+    btn.add_css_class("flat");
+    btn.set_child(Some(&text));
+    btn
+}
+
+/// A boxed-list choice row; `selected` indexes into `items`. Every combo in
+/// the app goes through here so the popup interaction stays uniform: click
+/// picks, hover only highlights (see `combo_popup_factory`).
 pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::ComboRow {
     let row = adw::ComboRow::new();
     row.set_use_markup(false);
@@ -111,7 +140,131 @@ pub(super) fn combo_row(title: &str, subtitle: &str, items: &[&str]) -> adw::Com
     row.set_subtitle(subtitle);
     row.set_model(Some(&StringList::new(items)));
     row.set_selected(0);
+    row.set_list_factory(Some(&combo_popup_factory()));
+    // The popup ListView is a template child, built with the row — walkable
+    // and fixable right away.
+    unset_hover_select(row.upcast_ref());
     row
+}
+
+/// The popup ListView must not select whatever row the pointer crosses:
+/// libadwaita's combo template ships it with single-click-activate on, and
+/// GTK reads that flag as "activate on click AND select on hover" — the
+/// selected look (accent row, checkmark) swept along with the mouse instead
+/// of waiting for a press. Off, a press alone picks again: the factory's
+/// click gesture selects the clicked item before firing the activate action
+/// upstream commits from. The inline value view is walked too; its flag was
+/// already off, so this is a no-op there.
+fn unset_hover_select(w: &gtk4::Widget) {
+    if let Some(view) = w.downcast_ref::<gtk4::ListView>() {
+        view.set_single_click_activate(false);
+    }
+    let mut child = w.first_child();
+    while let Some(c) = child {
+        unset_hover_select(&c);
+        child = c.next_sibling();
+    }
+}
+
+/// The popup list factory every combo row ships with: a rebuild of the
+/// upstream default factory's rows — label plus the selected-item checkmark.
+/// The checkmark's opacity follows `item.selected`: the popup model is a
+/// single selection mirroring the row's selection, so it marks exactly the
+/// item the popup will commit. The click gesture is the pick path now that
+/// `unset_hover_select` turned hover-select off: select first (upstream's
+/// row_activated_cb reads the popup selection, not the signal position),
+/// then fire `list.activate-item` — the same action GTK's Enter uses — so
+/// upstream commits and pops the popover down. The item rides a weak ref:
+/// a strong one would cycle (item → controller → closure → item) and leak
+/// every pooled popup item.
+fn combo_popup_factory() -> gtk4::SignalListItemFactory {
+    let factory = gtk4::SignalListItemFactory::new();
+    factory.connect_setup(|_, obj| {
+        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else {
+            return;
+        };
+        let label = gtk4::Label::builder()
+            .xalign(0.0)
+            .ellipsize(gtk4::pango::EllipsizeMode::End)
+            .max_width_chars(20)
+            .width_chars(1)
+            .valign(gtk4::Align::Center)
+            .build();
+        let icon = gtk4::Image::builder()
+            .accessible_role(gtk4::AccessibleRole::Presentation)
+            .icon_name("object-select-symbolic")
+            .build();
+        let item_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        item_box.append(&label);
+        item_box.append(&icon);
+        item.set_child(Some(&item_box));
+        // Setup runs once per item widget: one binding per item, no
+        // unbind bookkeeping. The transform captures nothing — the icon
+        // comes off the binding — because notify handlers must be
+        // Send + Sync and widgets are not.
+        item.bind_property("selected", &icon, "opacity")
+            .sync_create()
+            .transform_to(|_, selected: bool| {
+                Some(gtk4::glib::Value::from(if selected { 1.0f64 } else { 0.0 }))
+            })
+            .build();
+        let weak_item = gtk4::glib::WeakRef::new();
+        weak_item.set(Some(item));
+        let click = gtk4::GestureClick::new();
+        click.set_button(gtk4::gdk::BUTTON_PRIMARY);
+        // A drag that leaves the item cancels the sequence, so released
+        // never fires for it — the pick happens only on an in-item release.
+        // GtkListItem is a plain GObject, not a widget: the widget ops go
+        // through its child box, whose ancestor chain reaches the ListView.
+        click.connect_released(move |_, n_press, _, _| {
+            if n_press != 1 {
+                return;
+            }
+            let Some(item) = weak_item.upgrade() else {
+                return;
+            };
+            let Some(box_) = item.child().and_downcast::<gtk4::Box>() else {
+                return;
+            };
+            let Some(view) = box_
+                .ancestor(gtk4::ListView::static_type())
+                .and_downcast::<gtk4::ListView>()
+            else {
+                return;
+            };
+            let Some(model) = view.model().and_downcast::<gtk4::SingleSelection>() else {
+                return;
+            };
+            let position = item.position();
+            model.select_item(position, false);
+            // The action lives on the ListView's widget class (gtklistview.c
+            // installs "list.activate-item") and view is its ancestor, so the
+            // Err is unreachable by construction and there is nothing to fall
+            // back to on an input path.
+            let _ = box_.activate_action("list.activate-item", Some(&position.to_variant()));
+        });
+        item_box.add_controller(click);
+    });
+    factory.connect_bind(|_, obj| {
+        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else {
+            return;
+        };
+        let Some(label) = item
+            .child()
+            .and_downcast::<gtk4::Box>()
+            .and_then(|item_box| item_box.first_child())
+            .and_downcast::<gtk4::Label>()
+        else {
+            return;
+        };
+        let text = item
+            .item()
+            .and_downcast::<gtk4::StringObject>()
+            .map(|s| s.string().to_string())
+            .unwrap_or_default();
+        label.set_text(&text);
+    });
+    factory
 }
 
 /// An info row for a boxed list (title + dim subtitle, no control). Not
@@ -243,14 +396,24 @@ pub(super) fn pacing_column(caption: &str, spin: &gtk4::SpinButton) -> gtk4::Box
     column
 }
 
-/// The text half of a merged row: a plain entry sized to the shared value
-/// width (a short character list, `: " ').
-pub(super) fn chars_entry() -> gtk4::Entry {
-    let entry = gtk4::Entry::new();
-    entry.set_size_request(VALUE_WIDTH_PX, -1);
-    entry
+/// Equalize the caption columns of the merged rows. Captions differ in
+/// length ("Nhịp xoá lùi" against "Chờ sau khi viết lại từ"), so packed at their
+/// natural widths the divider lands off-centre and each row starts at its
+/// own x. Every column takes the widest caption's width, which centres each
+/// divider and lines the rows up with each other.
+pub(super) fn equalize_columns(columns: &[gtk4::Box]) {
+    let widest = columns
+        .iter()
+        .map(|c| c.measure(gtk4::Orientation::Horizontal, -1).1)
+        .max()
+        .unwrap_or(0);
+    for column in columns {
+        column.set_size_request(widest, -1);
+    }
 }
 
+/// The text half of a merged row: a plain entry sized to the shared value
+/// width (a short character list, `: " ').
 pub(super) fn text_view(content: &str) -> TextView {
     let view = TextView::builder()
         .hexpand(true)

@@ -54,25 +54,42 @@ fn gtk_widget_scenarios() {
     row_texts_render_as_plain_text();
     flow_delay_row_shows_captions();
     rules_add_group_merges_the_focus_chip();
-    rule_rows_and_preview_track_the_engine_match();
+    rule_rows_round_trip_through_read();
     macro_page_helpers_count_and_preview();
     macros_editor_follows_the_switch();
     emoji_editor_follows_the_switch();
     toggling_off_releases_the_editor_caret();
+    close_test_windows();
     every_switch_triggers_save();
-    mode_visibility_hides_pickers_and_moves_the_active_mode();
+    debug_mode_switch_keeps_the_dialog_choice();
+    group_descriptions_become_title_tooltips();
+    experimental_badge_sits_beside_the_title();
+    experimental_css_parses();
+    hotkey_action_choices_follow_the_experimental_switches();
+    experimental_gate_toggle_keeps_the_saved_values();
+    popover_list_buttons_read_from_the_left();
+    row_popover_items_read_from_the_left();
+    mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
+    close_test_windows();
+    pacing_columns_are_symmetric();
+    close_test_windows();
     experimental_gate_locks_rows_and_preserves_values();
     preferred_backend_combo_saves_loads_and_survives_the_gate();
     combo_value_stays_right_after_a_pick();
+    close_test_windows();
     popup_marks_the_selected_item();
+    close_test_windows();
+    combo_popups_do_not_select_on_hover();
     format_combos_keep_presets_and_unknowns();
+    close_test_windows();
     language_row_round_trips();
     nav_key_row_round_trips();
     language_switch_rebuilds_the_window();
     language_handler_rebuilds_both_ways();
     save_round_skips_unchanged_files_and_stamps_self_writes();
     poll_reloads_skips_self_writes();
+    close_test_windows();
     // Restore before the sandbox dir could be cleaned under a racing test.
     match original_config_dir {
         Some(dir) => std::env::set_var("XDG_CONFIG_HOME", dir),
@@ -98,6 +115,79 @@ fn labels_follow_the_language() {
     // Restore for other tests; LANG is process-global and the GTK scenario
     // runner asserts Vietnamese text in a parallel thread.
     set_language("vi");
+}
+
+/// Close every mapped toplevel. The scenarios present real windows only to
+/// run map-time checks; left alive, they sit frozen on the desktop for the
+/// rest of the run and the session offers a force-close when the test
+/// process exits.
+fn close_test_windows() {
+    for w in gtk4::Window::list_toplevels() {
+        if let Some(win) = w.downcast_ref::<gtk4::Window>() {
+            win.destroy();
+        }
+    }
+    for _ in 0..3 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+}
+
+/// The merged pacing row is laid out symmetrically: the two caption
+/// columns share one width and the divider between them sits at that
+/// pair's centre. Packed at natural widths ("Nhịp xoá lùi" is much shorter
+/// than "Chờ sau khi viết lại từ") the divider drifted and the row read
+/// lopsided.
+fn pacing_columns_are_symmetric() {
+    let ui = widgets();
+    let page = crate::gui::pages::tune::build(&ui);
+    let win = gtk4::Window::new();
+    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
+    win.present();
+    for _ in 0..10 {
+        gtk4::glib::MainContext::default().iteration(false);
+    }
+    let column_of = |row: &gtk4::Widget, caption: &str| {
+        let label = descendants::<gtk4::Label>(row)
+            .into_iter()
+            .find(|l| l.text() == caption)
+            .expect("the caption label");
+        label
+            .parent()
+            .and_downcast::<gtk4::Box>()
+            .expect("the caption column")
+    };
+    let pacing = ui.pacing_row.clone().upcast::<gtk4::Widget>();
+    let flow = ui.flow_delay_row.clone().upcast::<gtk4::Widget>();
+    let left = column_of(&pacing, "Xoá lùi");
+    let right = column_of(&pacing, "Chờ viết lại từ");
+    let bounds = |w: &gtk4::Widget| {
+        w.compute_bounds(ui.pacing_row.upcast_ref::<gtk4::Widget>())
+            .expect("an allocated column")
+    };
+    let (l, r) = (bounds(left.upcast_ref()), bounds(right.upcast_ref()));
+    assert_eq!(
+        l.width(),
+        r.width(),
+        "both caption columns take the same width"
+    );
+    let divider = descendants::<gtk4::Separator>(&pacing)
+        .into_iter()
+        .next()
+        .expect("the divider between the columns");
+    let d = bounds(divider.upcast_ref());
+    let pair_centre = (l.x() + r.x() + r.width()) / 2.0;
+    assert!(
+        (d.x() + d.width() / 2.0 - pair_centre).abs() <= 1.0,
+        "the divider sits at the pair's centre"
+    );
+    // The Flow row shares the width, so its first column starts at the same
+    // x — the two rows read as one grid instead of two clusters.
+    let flow_left = bounds(column_of(&flow, "Hiện dấu").upcast_ref::<gtk4::Widget>());
+    assert_eq!(
+        flow_left.x(),
+        l.x(),
+        "both merged rows start their columns at the same x"
+    );
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -178,6 +268,37 @@ fn popup_marks_the_selected_item() {
         .filter(|icon| icon.opacity() == 1.0)
         .count();
     assert_eq!(lit, 1, "exactly the selected item carries a lit checkmark");
+}
+
+/// Combo popups must not select whatever row the pointer merely crosses:
+/// libadwaita's combo template ships its popup ListView with single-click-
+/// activate on, which GTK reads as "activate on click and SELECT on hover" —
+/// the selected look (accent row, checkmark) swept along with the mouse
+/// instead of waiting for a press. The builder turns the flag off below
+/// every combo row; picking happens on click instead (see widgets.rs).
+fn combo_popups_do_not_select_on_hover() {
+    let ui = widgets();
+    let combos = [
+        &ui.method,
+        &ui.mode,
+        &ui.charset,
+        &ui.w2u,
+        &ui.backspace_tone,
+        &ui.nav_key_while_preedit,
+        &ui.bracket,
+        &ui.preferred_backend,
+        &ui.language,
+    ];
+    for row in combos {
+        let sweeps_with_hover = descendants::<gtk4::ListView>(row.upcast_ref())
+            .into_iter()
+            .any(|view| view.is_single_click_activate());
+        assert!(
+            !sweeps_with_hover,
+            "{}'s popup must not select rows on hover",
+            row.title()
+        );
+    }
 }
 
 /// While typing in a raw table, a switch turned off (by hand or by a live
@@ -374,21 +495,36 @@ fn shortcut_helpers_render_and_capture() {
         .clone();
     assert_eq!(label.text(), "Chưa gán");
     display.render("Control+Alt+v");
-    let keys = stack
-        .visible_child()
-        .unwrap()
-        .downcast_ref::<gtk4::ShortcutLabel>()
-        .unwrap()
-        .clone();
+    // The keycaps sit in their own right-aligned box inside the fixed slot.
+    let keys = descendants::<gtk4::ShortcutLabel>(stack.visible_child().unwrap().upcast_ref())
+        .into_iter()
+        .next()
+        .expect("a shortcut label");
     assert_eq!(keys.accelerator().as_deref(), Some("<Control><Alt>v"));
+    // A modifier-only combo draws keycaps, not the raw spec text.
     display.render("Shift+Control");
+    let caps: Vec<(String, bool)> =
+        descendants::<gtk4::Label>(stack.visible_child().unwrap().upcast_ref())
+            .into_iter()
+            .map(|l| (l.text().to_string(), l.has_css_class("modifier-keycap")))
+            .collect();
+    assert_eq!(
+        caps,
+        vec![
+            ("Ctrl".to_string(), true),
+            ("+".to_string(), false),
+            ("Shift".to_string(), true)
+        ]
+    );
+    // An unparseable spec still falls back to the plain text.
+    display.render("not-a-combo");
     let label = stack
         .visible_child()
         .unwrap()
         .downcast_ref::<gtk4::Label>()
         .unwrap()
         .clone();
-    assert_eq!(label.text(), "Shift+Control");
+    assert_eq!(label.text(), "not-a-combo");
     // The capture dialog: only the Hủy response, no rejection note yet.
     let (dialog, _preview, note) = build_capture_dialog(
         "Phím tắt đổi chế độ gõ",
@@ -435,27 +571,17 @@ fn rules_add_group_merges_the_focus_chip() {
     }
 }
 
-/// The rebuilt rule rows: the empty list renders one dim row, a loaded rule
-/// reads back through `read()` unchanged, and the "Thử luật" verdict row
-/// walks the engine's own matcher — icon and subtitle per state.
-fn rule_rows_and_preview_track_the_engine_match() {
+/// The rebuilt rule rows: the empty list renders one dim row, and a loaded
+/// rule reads back through `read()` unchanged.
+fn rule_rows_round_trip_through_read() {
     let ui = widgets();
     // Empty list: one plain row, not activatable, carrying the notice.
     ui.fill_rules(&[]);
     let empty = ui.rules_box.row_at_index(0).expect("empty-state row");
     assert!(!empty.is_activatable());
     assert!(empty.downcast_ref::<adw::ActionRow>().is_none());
-    ui.rule_preview_input.set_text("");
-    ui.update_rule_preview();
-    assert_eq!(
-        ui.rule_preview.subtitle().as_deref(),
-        Some("Nhập tên app ở trên để xem kết quả")
-    );
-    assert!(ui.rule_preview_icon.icon_name().as_deref() == Some("system-search-symbolic"));
-    assert!(!ui.rule_preview_icon.has_css_class("success"));
 
-    // One rule: the row round-trips through read(), and the verdict row
-    // reports the match with its priority and mode.
+    // One rule: the row round-trips through read().
     ui.fill_rules(&[crate::config::AppRule {
         pattern: "kate".into(),
         mode: ModeConfig::Preedit,
@@ -473,21 +599,147 @@ fn rule_rows_and_preview_track_the_engine_match() {
         .and_downcast::<adw::ActionRow>()
         .expect("rule row");
     assert_eq!(row.title().as_str(), "kate");
-    ui.rule_preview_input.set_text("kate");
-    ui.update_rule_preview();
-    assert_eq!(
-        ui.rule_preview.subtitle().as_deref(),
-        Some("Khớp luật #1: Gạch chân (preedit)")
+}
+
+/// "Chế độ gỡ lỗi" is one switch: the two log tiers come from its dialog,
+/// stay saved while it is off, and the row says what it is recording.
+fn debug_mode_switch_keeps_the_dialog_choice() {
+    use crate::gui::content::{debug_choice, wire_debug_mode};
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    ui.refresh(&Config::default(), &macros, &dictionary);
+    assert!(!ui.debug_log.is_active(), "off by default");
+    assert_eq!(*ui.debug_tiers.borrow(), (false, false));
+    *ui.save_cb.borrow_mut() = Some(Rc::new({
+        let ui = ui.clone();
+        move || ui.save_all().expect("debug save")
+    }));
+    wire_debug_mode(&ui);
+
+    // The dialog's verdict lands in the three config keys and the row says
+    // what it records.
+    ui.debug_log.set_active(true); // no parent window: the saved choice applies
+    debug_choice(&ui, true, true);
+    assert_eq!(*ui.debug_tiers.borrow(), (true, true));
+    assert!(
+        ui.debug_log
+            .subtitle()
+            .is_some_and(|s| s.contains("nội dung đang gõ + từng phím")),
+        "the row reports the tiers: {:?}",
+        ui.debug_log.subtitle()
     );
-    assert!(ui.rule_preview_icon.has_css_class("success"));
-    // A non-matching name reports no match, without the success tint.
-    ui.rule_preview_input.set_text("zed");
-    ui.update_rule_preview();
-    assert_eq!(
-        ui.rule_preview.subtitle().as_deref(),
-        Some("Không khớp luật nào")
+    let saved = Config::load();
+    assert!(saved.debug_log && saved.debug_log_text && saved.debug_log_keys);
+
+    // Off is immediate and keeps the tiers for next time.
+    ui.debug_log.set_active(false);
+    let off = Config::load();
+    assert!(!off.debug_log, "the switch is a kill switch");
+    assert!(off.debug_log_text && off.debug_log_keys, "tiers remembered");
+    assert_eq!(*ui.debug_tiers.borrow(), (true, true));
+    assert!(ui
+        .debug_log
+        .subtitle()
+        .is_some_and(|s| !s.contains("Đang bật")));
+
+    // Reopening the window shows the switch off with the tiers still known;
+    // turning it on re-applies them without asking again in this harness.
+    ui.refresh(&off, &macros, &dictionary);
+    assert_eq!(*ui.debug_tiers.borrow(), (true, true));
+    ui.debug_log.set_active(true);
+    let back_on = Config::load();
+    assert!(back_on.debug_log && back_on.debug_log_text && back_on.debug_log_keys);
+}
+
+/// Group headers stay one line: the description moves into the title's
+/// tooltip instead of sitting under it.
+fn group_descriptions_become_title_tooltips() {
+    let group = adw::PreferencesGroup::builder()
+        .title("Dấu thanh")
+        .description("Kiểu đặt dấu trên nguyên âm")
+        .build();
+    let page = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    page.append(&group);
+    crate::gui::build::descriptions_into_tooltips(&page);
+    assert!(
+        group.description().is_none_or(|d| d.is_empty()),
+        "the line under the title is gone: {:?}",
+        group.description()
     );
-    assert!(!ui.rule_preview_icon.has_css_class("success"));
+    let title = crate::gui::build::find_label(group.upcast_ref(), "Dấu thanh")
+        .expect("the title label stays");
+    assert_eq!(
+        title.tooltip_text().as_deref(),
+        Some("Kiểu đặt dấu trên nguyên âm")
+    );
+
+    // Titles are Pango markup: the escaped "&amp;" must still match the label
+    // showing "&", or that one group keeps its line (the "Sao lưu" bug).
+    let marked = adw::PreferencesGroup::builder()
+        .title("Sao lưu &amp; khôi phục")
+        .description("Một tệp JSON chứa cấu hình, gõ tắt và từ điển.")
+        .build();
+    page.append(&marked);
+    crate::gui::build::descriptions_into_tooltips(&page);
+    assert!(
+        marked.description().is_none_or(|d| d.is_empty()),
+        "an escaped title must not keep its description"
+    );
+    let marked_title =
+        crate::gui::build::find_label(marked.upcast_ref(), "Sao lưu &amp; khôi phục")
+            .expect("the escaped title label is found");
+    assert_eq!(
+        marked_title.tooltip_text().as_deref(),
+        Some("Một tệp JSON chứa cấu hình, gõ tắt và từ điển.")
+    );
+}
+
+/// The experimental badge is an amber "[Thử nghiệm]" tag in front of the title.
+fn experimental_badge_sits_beside_the_title() {
+    let ui = widgets();
+    widgets::decorate_experimental(&ui.suggest_words);
+    let title = widgets::row_title(&ui.suggest_words).expect("the title label");
+    let badge = title
+        .prev_sibling()
+        .and_downcast::<gtk4::Label>()
+        .expect("the badge leads the title");
+    assert_eq!(badge.text(), "[Thử nghiệm]");
+    assert!(badge.has_css_class("warning"));
+    assert_eq!(badge.parent(), title.parent(), "both share one line");
+}
+
+/// The seen-apps and add-item popover lists read from the left edge: the
+/// stock button centers its label.
+fn popover_list_buttons_read_from_the_left() {
+    let btn = widgets::list_button("firefox");
+    let label = btn.child().and_downcast::<gtk4::Label>().expect("a label");
+    assert_eq!(label.xalign(), 0.0);
+    assert_eq!(label.halign(), gtk4::Align::Start);
+    assert!(btn.has_css_class("flat"));
+}
+
+/// Both row popovers (the panel menu's ⋮ and the rules' ⋮) build their
+/// items through `list_button`: stock buttons centre the label, which made
+/// the popover read as a column of loose words.
+fn row_popover_items_read_from_the_left() {
+    let ui = widgets();
+    *ui.menu.borrow_mut() = Config::default().default_menu();
+    let menu_more = ui.menu_more_button(vec![0], "root");
+    let rule_more = widgets::list_button("Kiểm tra");
+    assert_eq!(
+        rule_more
+            .child()
+            .and_downcast::<gtk4::Label>()
+            .expect("a label")
+            .xalign(),
+        0.0
+    );
+    let labels = descendants::<gtk4::Label>(menu_more.upcast_ref());
+    assert!(!labels.is_empty(), "the row menu has items");
+    for label in labels {
+        assert_eq!(label.xalign(), 0.0, "{} centres its text", label.text());
+    }
 }
 
 /// B3 regression: the import path pushes a config into every widget through
@@ -517,21 +769,15 @@ fn refresh_round_trips_every_widget() {
         extended_onsets: true,
         keep_composed_words: true,
         keep_repeats_raw: true,
+        suggest_words: true,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
         bypass_url: false,
-        // The switch off must NOT wipe the stored value: refresh shows it
-        // (locked) and read returns it — the value reapplies when the
-        // switch comes back on. Pinned by the read() round-trip below.
-        extra_url_chars: "`<".into(),
-        extra_url_chars_enabled: false,
         w2u: W2uConfig::NonStart,
         backspace_tone: BackspaceToneConfig::ToneFirst,
         bracket: BracketConfig::Everywhere,
         em_dash: true,
         auto_capitalize: true,
-        auto_capitalize_after: ":".into(),
-        auto_capitalize_after_enabled: true,
         double_space_period: true,
         macro_enabled: false,
         capitalize_macro: false,
@@ -548,7 +794,6 @@ fn refresh_round_trips_every_widget() {
         emoji_hotkey: "Control+Alt+e".into(),
         emoji_enabled: true,
         hide_underline: true,
-        commit_interval_ms: 33,
         backspace_interval_ms: 7,
         post_delay_ms: 12,
         unicode_channel: crate::config::UnicodeChannel::Commit,
@@ -579,15 +824,6 @@ fn refresh_round_trips_every_widget() {
         // Passes through read() untouched (see baseline above).
         quick_menu: baseline.quick_menu,
         menu_modes: baseline.menu_modes,
-        // The scenario lists every mode explicitly; refresh/read must
-        // preserve that order.
-        visible_modes: Some(vec![
-            "preedit".into(),
-            "surrounding".into(),
-            "flow".into(),
-            "forwardbackspace".into(),
-            "off".into(),
-        ]),
         // The editor always produces a design, and refresh normalizes an
         // absent/empty one to the shipped shape; here a small tree that
         // must survive the store round-trip unchanged.
@@ -704,13 +940,12 @@ fn row_texts_render_as_plain_text() {
         !ui.bypass_url.uses_markup(),
         !ui.method.uses_markup(),
         !ui.echo_stale_row.uses_markup(),
-        !ui.rule_preview.uses_markup(),
     ] {
         assert!(markup_off, "row titles and subtitles must be plain text");
     }
     assert_eq!(
         ui.bypass_url.subtitle().as_deref(),
-        Some("URL thật (https://, www.) giữ nguyên cả vùng tới dấu cách hoặc dấu câu")
+        Some("URL giữ nguyên tới dấu cách")
     );
 }
 
@@ -771,116 +1006,20 @@ fn flow_delay_row_shows_captions() {
     );
 }
 
-/// The visibility switches drive one shared list: hiding a mode removes it
-/// from the main combo and the rule pickers, the active hidden mode moves to
-/// the first visible entry, and the last visible mode cannot be turned off.
-fn mode_visibility_hides_pickers_and_moves_the_active_mode() {
+/// Every mode dropdown renders the five modes in `ModeConfig::ALL` order —
+/// the same list the panel submenu, the rule pickers and the cycle walk.
+fn mode_dropdowns_list_every_mode() {
     let ui = widgets();
     let config = Config::default();
     let macros = Macros::load();
     let dictionary = Dictionary::load();
     ui.refresh(&config, &macros, &dictionary);
-    // The dropdown model is the shipped five, in the shipped order — the
-    // same list the panel submenu, the rule pickers and the cycle walk.
-    assert_eq!(
-        *ui.mode_choices.borrow(),
-        vec![
-            ModeConfig::Preedit,
-            ModeConfig::Surrounding,
-            ModeConfig::Flow,
-            ModeConfig::ForwardBackspace,
-            ModeConfig::Off,
-        ]
-    );
-    assert_eq!(
-        ui.mode_choices.borrow().len(),
-        crate::config::DEFAULT_VISIBLE_MODES.len()
-    );
-    // The switch presentation follows the default list exactly.
-    for (idx, (mode, ..)) in MODE_LABELS.iter().enumerate() {
-        assert_eq!(
-            ui.mode_visible_switches[idx].is_active(),
-            ui.mode_choices.borrow().contains(mode),
-            "switch state for {mode:?}"
-        );
-    }
-
-    let saved = Rc::new(RefCell::new(Config::default()));
-    {
-        let ui_for_save = ui.clone();
-        let saved = saved.clone();
-        wire_mode_visibility(
-            &ui,
-            Rc::new(move || *saved.borrow_mut() = ui_for_save.read()),
-        );
-    }
-
-    // Turn on a mode hidden by an explicit subset (no variant ships hidden
-    // anymore, so the subset manufactures the hidden mode): it joins the
-    // end of the list.
-    let subset = Config {
-        visible_modes: Some(vec![
-            "preedit".into(),
-            "surrounding".into(),
-            "flow".into(),
-            "off".into(),
-        ]),
-        ..Config::default()
-    };
-    ui.refresh(&subset, &macros, &dictionary);
-    assert!(!ui
-        .mode_choices
-        .borrow()
-        .contains(&ModeConfig::ForwardBackspace));
-    let index_of = |mode: ModeConfig| {
-        MODE_LABELS
-            .iter()
-            .position(|(m, ..)| *m == mode)
-            .expect("mode in table")
-    };
-    ui.mode_visible_switches[index_of(ModeConfig::ForwardBackspace)].set_active(true);
-    assert!(ui
-        .mode_choices
-        .borrow()
-        .contains(&ModeConfig::ForwardBackspace));
-    assert_eq!(
-        ui.mode_choices.borrow().last(),
-        Some(&ModeConfig::ForwardBackspace),
-        "a newly enabled mode is appended"
-    );
-
-    // Hide the active mode: Preedit is first in the default list, so the
-    // selection moves to Surrounding and both the file and the combo follow.
-    ui.mode_visible_switches[index_of(ModeConfig::Preedit)].set_active(false);
-    assert!(!ui.mode_choices.borrow().contains(&ModeConfig::Preedit));
-    assert_eq!(saved.borrow().mode, ModeConfig::Surrounding);
-    let visible = saved.borrow().visible_modes.clone().unwrap();
-    assert!(
-        visible.contains(&"forwardbackspace".to_string()),
-        "new mode saved"
-    );
-    assert!(
-        !visible.contains(&"preedit".to_string()),
-        "hidden mode dropped"
-    );
+    assert_eq!(*ui.mode_choices.borrow(), ModeConfig::ALL.to_vec());
+    assert_eq!(ui.mode_choices.borrow().len(), 5);
     assert_eq!(
         mode_at(&ui.mode_choices.borrow()[..], ui.mode.selected()),
-        ModeConfig::Surrounding,
-        "the combo follows the coerced mode"
-    );
-
-    // Turn everything off but one; the last switch must refuse to turn off.
-    for switch in ui.mode_visible_switches.clone() {
-        if ui.mode_choices.borrow().len() > 1 {
-            switch.set_active(false);
-        }
-    }
-    assert_eq!(ui.mode_choices.borrow().len(), 1);
-    let last = ui.mode_choices.borrow()[0];
-    ui.mode_visible_switches[index_of(last)].set_active(false);
-    assert!(
-        ui.mode_visible_switches[index_of(last)].is_active(),
-        "the last visible mode must stay on"
+        config.mode,
+        "the combo shows the configured mode"
     );
 }
 
@@ -925,7 +1064,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 24] = [
+    let rows: [&adw::SwitchRow; 21] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -945,9 +1084,8 @@ fn every_switch_triggers_save() {
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,
-        &ui.debug_log,
-        &ui.debug_log_text,
-        &ui.debug_log_keys,
+        // `debug_log` has its own confirmation dialog and is covered by
+        // `debug_mode_switch_keeps_the_dialog_choice` instead.
         &ui.x11_delete,
         &ui.preedit_xim,
     ];
@@ -958,12 +1096,7 @@ fn every_switch_triggers_save() {
     }
     // The merged "Thử nghiệm" rows carry bare GtkSwitch suffixes — same
     // wiring, different widget type.
-    let switches: [&gtk4::Switch; 4] = [
-        &ui.extra_url_chars_switch,
-        &ui.auto_capitalize_after_switch,
-        &ui.echo_stale_switch,
-        &ui.idle_commit_switch,
-    ];
+    let switches: [&gtk4::Switch; 2] = [&ui.echo_stale_switch, &ui.idle_commit_switch];
     for switch in switches {
         let before = saves.get();
         switch.set_active(!switch.is_active());
@@ -978,6 +1111,20 @@ fn every_switch_triggers_save() {
     );
 }
 
+/// The tab's one CSS rule must parse: an unknown colour name drops the whole
+/// rule and every switch silently stays the theme's blue.
+fn experimental_css_parses() {
+    let provider = gtk4::CssProvider::new();
+    let errors = Rc::new(std::cell::RefCell::new(Vec::new()));
+    {
+        let errors = Rc::clone(&errors);
+        provider.connect_parsing_error(move |_, _, err| errors.borrow_mut().push(err.to_string()));
+    }
+    provider.load_from_data(pages::experimental::EXPERIMENTAL_CSS);
+    let errors = errors.borrow();
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
 /// The experimental master gate lives inside the "Thử nghiệm" tab: off
 /// locks every experimental row and displays the shipped defaults, while
 /// the save funnel keeps the file's values and reopening restores them.
@@ -986,6 +1133,10 @@ fn every_switch_triggers_save() {
 /// through a real save_cb.
 fn experimental_gate_locks_rows_and_preserves_values() {
     let ui = widgets();
+    // The tab's amber switch trough is scoped by a page class; a class on
+    // the row never reached the switch the merged rows wrap.
+    let page = pages::experimental::build(&ui);
+    assert!(page.has_css_class("experimental-page"));
     let macros = Macros::load();
     let dictionary = Dictionary::load();
     {
@@ -998,8 +1149,6 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     // Seed the sandbox file: the gate on, distinctive saved values.
     let saved = Config {
         experimental_features: true,
-        extra_url_chars_enabled: true,
-        extra_url_chars: "`".into(),
         echo_stale_enabled: true,
         echo_stale_ms: 250,
         flow_per_key_delay_ms: 200,
@@ -1009,9 +1158,9 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     let on = Config::load();
     ui.refresh(&on, &macros, &dictionary);
     assert!(ui.macro_valid_words.is_sensitive());
+    assert!(ui.suggest_words.is_sensitive());
     // The merged row locks as one unit with the gate.
-    assert!(ui.extra_url_chars_row.is_sensitive());
-    assert_eq!(ui.extra_url_chars_entry.text(), "`", "the value shows");
+    assert!(ui.echo_stale_row.is_sensitive());
     assert_eq!(ui.echo_stale_spin.value(), 250.0);
 
     // Off (driven through the file, as the real funnel produces it): rows
@@ -1022,9 +1171,8 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     let off = Config::load();
     ui.refresh(&off, &macros, &dictionary);
     assert!(!ui.macro_valid_words.is_sensitive());
-    assert!(!ui.extra_url_chars_row.is_sensitive());
-    assert!(!ui.extra_url_chars_entry.is_sensitive());
-    assert_eq!(ui.extra_url_chars_entry.text(), "", "defaults on display");
+    assert!(!ui.suggest_words.is_sensitive());
+    assert!(!ui.echo_stale_row.is_sensitive());
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
 
     // A save with the gate off — the funnel reads the default-displaying
@@ -1032,8 +1180,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.fire_save();
     let closed = Config::load();
     assert!(!closed.experimental_features);
-    assert_eq!(closed.extra_url_chars, "`", "no wipe on save");
-    assert_eq!(closed.echo_stale_ms, 250);
+    assert_eq!(closed.echo_stale_ms, 250, "no wipe on save");
     assert_eq!(closed.flow_per_key_delay_ms, 200);
 
     // Reopen (what the real toggle does: flip the switch, then the
@@ -1042,14 +1189,12 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.experimental_features.set_active(true);
     ui.restore_experimental_saved();
     ui.set_experimental_sensitive(true);
-    assert!(ui.extra_url_chars_row.is_sensitive());
-    assert!(ui.extra_url_chars_entry.is_sensitive());
+    assert!(ui.echo_stale_row.is_sensitive());
     assert_eq!(
-        ui.extra_url_chars_entry.text(),
-        "`",
+        ui.echo_stale_spin.value(),
+        250.0,
         "reopening restores the saved value"
     );
-    assert_eq!(ui.echo_stale_spin.value(), 250.0);
 
     // Close again: locked and defaults on display.
     ui.experimental_features.set_active(false);
@@ -1059,6 +1204,106 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     // Hand the sandbox file to the later scenarios the way they expect it:
     // with the gate off, read() reports the file's experimental fields, so
     // a leftover saved value would trip their refresh asserts.
+    Config::default().save().expect("reset sandbox config");
+}
+
+/// The add-shortcut picker offers an experimental switch only while the
+/// gate is open and that switch is on: the engine ignores the others, so a
+/// shortcut for them would do nothing.
+fn hotkey_action_choices_follow_the_experimental_switches() {
+    let ui = widgets();
+    let actions = |ui: &Ui| -> Vec<&'static str> {
+        pages::hotkeys::action_choices(ui)
+            .into_iter()
+            .map(|(action, _)| action)
+            .collect()
+    };
+    let base = Config::default();
+    let (macros, dictionary) = (Macros::load(), Dictionary::load());
+
+    // Gate closed: the fixed list only.
+    ui.refresh(&base, &macros, &dictionary);
+    let closed = actions(&ui);
+    assert_eq!(closed.len(), crate::config::CUSTOM_HOTKEY_ACTIONS.len());
+    assert!(!closed.contains(&"suggest_words"));
+
+    // Gate open, every experimental switch off: still nothing to offer.
+    let mut gate_only = base.clone();
+    gate_only.experimental_features = true;
+    ui.refresh(&gate_only, &macros, &dictionary);
+    assert_eq!(
+        actions(&ui).len(),
+        crate::config::CUSTOM_HOTKEY_ACTIONS.len()
+    );
+
+    // Two switches on: exactly those two join the list, in table order.
+    let mut two = gate_only.clone();
+    two.suggest_words = true;
+    two.keep_repeats_raw = true;
+    ui.refresh(&two, &macros, &dictionary);
+    let listed = actions(&ui);
+    assert_eq!(listed.len(), crate::config::CUSTOM_HOTKEY_ACTIONS.len() + 2);
+    assert_eq!(
+        &listed[crate::config::CUSTOM_HOTKEY_ACTIONS.len()..],
+        &["suggest_words", "keep_repeats_raw"]
+    );
+    // A switch turned off after a shortcut exists drops back out.
+    ui.suggest_words.set_active(false);
+    assert!(!actions(&ui).contains(&"suggest_words"));
+}
+
+/// Closing the experimental gate keeps every experimental value the user
+/// set: `read()` restores the file's values for the fields the gate locks,
+/// and the suggestion and word-keeping switches were missing from that
+/// list, so a single save with the gate off overwrote them with defaults.
+fn experimental_gate_toggle_keeps_the_saved_values() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("scenario save");
+        }));
+    }
+    let saved = Config {
+        experimental_features: true,
+        suggest_words: true,
+        keep_composed_words: true,
+        keep_repeats_raw: true,
+        echo_stale_enabled: true,
+        echo_stale_ms: 250,
+        ..Config::default()
+    };
+    saved.save().expect("seed config");
+    let on = Config::load();
+    ui.refresh(&on, &macros, &dictionary);
+    assert!(ui.suggest_words.is_active());
+
+    // Gate off: the rows display the shipped defaults and save on every
+    // swap, so one save here used to wipe the file.
+    ui.experimental_features.set_active(false);
+    ui.show_experimental_defaults();
+    ui.fire_save();
+    let closed = Config::load();
+    assert!(!closed.experimental_features);
+    assert!(closed.suggest_words, "off must not wipe suggest_words");
+    assert!(
+        closed.keep_composed_words,
+        "off must not wipe keep_composed"
+    );
+    assert!(closed.keep_repeats_raw, "off must not wipe keep_repeats");
+    assert_eq!(closed.echo_stale_ms, 250, "off must not wipe the ms");
+
+    // Gate on again: the saved values come back on the rows and in the file.
+    ui.restore_experimental_saved();
+    ui.set_experimental_sensitive(true);
+    ui.fire_save();
+    assert!(ui.suggest_words.is_active(), "reopen restores the switch");
+    assert_eq!(ui.echo_stale_spin.value(), 250.0, "reopen restores the ms");
+    let reopened = Config::load();
+    assert!(reopened.suggest_words && reopened.keep_composed_words && reopened.keep_repeats_raw);
+    assert_eq!(reopened.echo_stale_ms, 250);
     Config::default().save().expect("reset sandbox config");
 }
 
@@ -1078,9 +1323,11 @@ fn preferred_backend_combo_saves_loads_and_survives_the_gate() {
     }
 
     // Seed the sandbox file: the gate on, libei chosen.
-    let mut saved = Config::default();
-    saved.experimental_features = true;
-    saved.preferred_backend = crate::config::PreferredBackendConfig::Libei;
+    let saved = Config {
+        experimental_features: true,
+        preferred_backend: crate::config::PreferredBackendConfig::Libei,
+        ..Config::default()
+    };
     saved.save().expect("seed config");
     let on = Config::load();
     ui.refresh(&on, &macros, &dictionary);
@@ -1133,10 +1380,10 @@ fn preferred_backend_combo_saves_loads_and_survives_the_gate() {
     Config::default().save().expect("reset sandbox config");
 }
 
-/// The $TIME/$DATE combos: a preset selects its preset index, a format the
-/// old free-text rows saved comes back verbatim as its own appended item
-/// (never rewritten to a preset), and re-refreshing does not stack
-/// duplicates.
+/// The merged $TIME/$DATE row: a preset selects its preset index, a format
+/// the old free-text rows saved comes back verbatim as its own appended
+/// item (never rewritten to a preset), re-refreshing does not stack
+/// duplicates, and the subtitle shows both formats rendered live.
 fn format_combos_keep_presets_and_unknowns() {
     let ui = widgets();
     let macros = Macros::load();
@@ -1149,12 +1396,11 @@ fn format_combos_keep_presets_and_unknowns() {
     };
     ui.refresh(&config, &macros, &dictionary);
     assert_eq!(ui.time_format.selected(), 1, "preset selects its index");
+    assert_eq!(ui.date_format.selected(), 2);
     assert_eq!(ui.read().time_format, TIME_FORMATS[1]);
     assert_eq!(ui.read().date_format, DATE_FORMATS[2]);
 
-    // The widened value view carries the pattern to the row's end, like
-    // the typing page combos — widen_value runs in the page build, so the
-    // page must exist first.
+    // One row holds both dropdowns and one live line: time then date.
     let page = crate::gui::pages::macros::build(&ui);
     let win = gtk4::Window::new();
     win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
@@ -1162,27 +1408,17 @@ fn format_combos_keep_presets_and_unknowns() {
     for _ in 0..10 {
         gtk4::glib::MainContext::default().iteration(false);
     }
-    assert!(
-        combo_value_view(&ui.time_format).is_some_and(|v| v.hexpands()),
-        "the time pattern renders at the row end"
-    );
-    assert!(
-        combo_value_view(&ui.date_format).is_some_and(|v| v.hexpands()),
-        "the date pattern renders at the row end"
-    );
-    // The hint lives in the subtitle — the old "Ví dụ" spot under the
-    // title — not in the suffixes (that parked it mid-row).
-    assert!(
-        ui.time_format.uses_subtitle(),
-        "the subtitle space stays reserved"
-    );
-    assert!(
-        ui.time_format.subtitle().is_some_and(|s| !s.is_empty()),
-        "the subtitle carries the live preview"
-    );
-    assert!(
-        ui.date_format.subtitle().is_some_and(|s| !s.is_empty()),
-        "the date subtitle carries the live preview"
+    let subtitle = ui.formats_row.subtitle().unwrap_or_default();
+    let parts: Vec<&str> = subtitle.split(" · ").collect();
+    assert_eq!(parts.len(), 2, "both formats render: {subtitle}");
+    // Read the shape, not the clock: the exact time can tick over between
+    // the refresh and this line.
+    assert!(parts.iter().all(|part| !part.is_empty()), "{subtitle}");
+    assert!(parts[0].contains(':'), "the time sits first: {subtitle}");
+    assert_eq!(
+        parts[1].split('.').count(),
+        3,
+        "the date follows in the picked %d.%m.%Y shape: {subtitle}"
     );
 
     let mut unknown = config.clone();
@@ -1323,7 +1559,7 @@ fn language_switch_rebuilds_the_window() {
             .expect("tooltip")
     };
     let win1 = crate::gui::content::build(&app, Some("typing"));
-    assert_eq!(nav_tip(&win1, "other"), "Cài đặt khác", "vi by default");
+    assert_eq!(nav_tip(&win1, "other"), "Cài đặt nâng cao", "vi by default");
     let picked = |w: &adw::ApplicationWindow, name: &str| {
         descendants::<gtk4::ListBoxRow>(w.upcast_ref())
             .into_iter()
@@ -1337,7 +1573,7 @@ fn language_switch_rebuilds_the_window() {
     let win2 = crate::gui::content::build(&app, Some("other"));
     assert_eq!(
         nav_tip(&win2, "other"),
-        "Other settings",
+        "Advanced settings",
         "rebuild re-resolves texts"
     );
     assert!(
@@ -1393,29 +1629,15 @@ fn language_handler_rebuilds_both_ways() {
         .application_id("org.freedesktop.IBus.mangrs.test-lang")
         .build();
     let win1 = crate::gui::content::build(&app, Some("typing"));
-    assert_eq!(nav_tip(&win1, "other"), "Cài đặt khác");
+    assert_eq!(nav_tip(&win1, "other"), "Cài đặt nâng cao");
 
     // VI → EN through the real handler.
     language_combo(&win1).set_selected(1);
     pump();
-    #[cfg(test)]
-    eprintln!(
-        "DEBUG win1 after pick: visible={} mapped={} in_toplevels={}",
-        win1.is_visible(),
-        win1.is_mapped(),
-        gtk4::Window::list_toplevels().iter().any(|w| {
-            std::ptr::eq(
-                w.as_ptr().cast::<std::ffi::c_void>(),
-                win1.upcast_ref::<gtk4::Widget>()
-                    .as_ptr()
-                    .cast::<std::ffi::c_void>(),
-            )
-        })
-    );
     let en = app_windows();
     assert_eq!(en.len(), 1, "exactly one window after VI→EN: {en:?}");
     let win2 = en.first().expect("the EN window");
-    assert_eq!(nav_tip(win2, "other"), "Other settings", "VI→EN rebuilt");
+    assert_eq!(nav_tip(win2, "other"), "Advanced settings", "VI→EN rebuilt");
 
     // EN → VI through the same handler.
     language_combo(win2).set_selected(0);
@@ -1423,9 +1645,10 @@ fn language_handler_rebuilds_both_ways() {
     let vi = app_windows();
     assert_eq!(vi.len(), 1, "exactly one window after EN→VI: {vi:?}");
     let win3 = vi.first().expect("the VI window");
-    assert_eq!(nav_tip(win3, "other"), "Cài đặt khác", "EN→VI rebuilt");
+    assert_eq!(nav_tip(win3, "other"), "Cài đặt nâng cao", "EN→VI rebuilt");
 
     win3.close();
+    close_test_windows();
     set_language("vi");
 }
 
@@ -1508,5 +1731,20 @@ fn poll_reloads_skips_self_writes() {
     assert!(
         crate::gui::content::poll_reloads(Some(base), None),
         "no stamp (a failed save) must reload"
+    );
+}
+
+#[test]
+fn a_save_only_rewrites_the_list_that_changed() {
+    // The window writes macros, dictionary and emoji on every save; a knob
+    // change must not rewrite the personal dictionary (~8 ms at 20k words).
+    // `save_changed` is the guard: equal content stays on disk untouched.
+    let last = vec!["học".to_string(), "sinh".to_string()];
+    assert!(!crate::gui::save_changed(Some(&last[..]), &last));
+    let grown = vec!["học".to_string(), "sinh".to_string(), "viên".to_string()];
+    assert!(crate::gui::save_changed(Some(&last[..]), &grown));
+    assert!(
+        crate::gui::save_changed(None, &last),
+        "the first save writes"
     );
 }

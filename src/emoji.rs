@@ -97,19 +97,20 @@ pub fn search_rows(user: &BTreeMap<String, String>) -> Vec<SearchRow> {
         .map(|(name, glyph, keywords)| {
             let mut blob = fold_ascii(&name);
             for keyword in keywords {
-                for word in fold_ascii(&keyword).split_whitespace() {
-                    blob.push(' ');
-                    blob.push_str(word);
-                }
+                // fold_ascii has stripped the spaces: one keyword, one
+                // token, joined by a separator the query can never match.
+                blob.push(' ');
+                blob.push_str(&fold_ascii(&keyword));
             }
             SearchRow { name, glyph, blob }
         })
         .collect()
 }
 
-/// Fold Vietnamese diacritics to their ASCII base and lowercase. The
-/// picker's search runs on what the user types — bare letter keys — so
-/// `cuoi` must find "cười".
+/// Fold Vietnamese diacritics to their ASCII base, lowercase, and drop
+/// spaces and underscores. The picker's search runs without word
+/// boundaries — bare letter keys — so `cuoi` finds "cười", `nuocmy` finds
+/// "nước mỹ" and `united states` finds "flag_united_states".
 pub fn fold_ascii(s: &str) -> String {
     fn fold(c: char) -> char {
         match c {
@@ -129,7 +130,45 @@ pub fn fold_ascii(s: &str) -> String {
             _ => c,
         }
     }
-    s.to_lowercase().chars().map(fold).collect()
+    s.to_lowercase()
+        .chars()
+        .filter(|c| !matches!(c, ' ' | '_'))
+        .map(fold)
+        .collect()
+}
+
+/// How many emoji glyphs the suggestion strip offers per list — a keyword
+/// like `cười` sits on dozens of rows, and the strip's one row must not
+/// flood with faces.
+pub const STRIP_EMOJI_CAP: usize = 3;
+
+/// The emoji glyphs whose name, an alias or a keyword folds (see
+/// `fold_ascii`) to EXACTLY the typed word's fold — `meo` reaches the cat
+/// through the keyword `mèo`, `cuoi` the laughing faces via `cười`. Only
+/// single-word keys can equal one typed word, so multi-word keywords are
+/// not indexed. The index builds once on first strip use; the query is one
+/// fold plus a hash lookup (the engine's key path).
+pub fn glyphs_for_word(word: &str) -> Vec<&'static str> {
+    static INDEX: OnceLock<HashMap<String, Vec<&'static str>>> = OnceLock::new();
+    let index = INDEX.get_or_init(|| {
+        let mut map: HashMap<String, Vec<&'static str>> = HashMap::new();
+        for row in embedded() {
+            for key in std::iter::once(&row.name)
+                .chain(row.aliases.iter())
+                .chain(row.keywords.iter())
+            {
+                if key.chars().any(|c| c == ' ' || c == '_') {
+                    continue;
+                }
+                let glyphs = map.entry(fold_ascii(key)).or_default();
+                if !glyphs.contains(&row.glyph.as_str()) {
+                    glyphs.push(row.glyph.as_str());
+                }
+            }
+        }
+        map
+    });
+    index.get(&fold_ascii(word)).cloned().unwrap_or_default()
 }
 
 /// The emoji recently picked through the picker, newest first — its first
@@ -264,6 +303,14 @@ mod tests {
         assert!(rows.len() > 1500, "{} rows", rows.len());
         assert!(embedded_names().contains_key("grinning_face_with_smiling_eyes"));
         assert!(embedded_names().contains_key("smile"));
+        // The flags live in the CLDR derived annotations, not the main
+        // ones; a table built from the main file alone silently drops
+        // them all.
+        assert!(embedded_names().contains_key("flag_vietnam"));
+        assert_eq!(embedded_names().get("vn").map(String::as_str), Some("🇻🇳"));
+        // Curated out as non-emoji (punctuation, math operators); a
+        // re-run of the bootstrap must not resurrect them.
+        assert!(!embedded_names().contains_key("en_dash"));
     }
 
     #[test]
@@ -295,10 +342,32 @@ mod tests {
     }
 
     #[test]
+    fn flag_search_finds_the_common_names() {
+        // The flags' CLDR keywords are the official names only; the picker
+        // must also find them by code and colloquial name — the way users
+        // actually type them.
+        let rows = search_rows(&BTreeMap::new());
+        let found = |q: &str| {
+            let q = fold_ascii(q);
+            rows.iter()
+                .any(|r| r.name == "flag_united_states" && r.blob.contains(&q))
+        };
+        assert!(found("usa"), "alpha-3 code");
+        assert!(found("america"), "english common name");
+        assert!(found("nuoc my"), "vietnamese, spaced");
+        assert!(found("nuocmy"), "vietnamese, no space");
+    }
+
+    #[test]
     fn fold_ascii_strips_vietnamese_diacritics() {
         assert_eq!(fold_ascii("Cười"), "cuoi");
         assert_eq!(fold_ascii("đặt"), "dat");
         assert_eq!(fold_ascii("Fire!"), "fire!");
+        // The search runs without word boundaries: a no-space query meets a
+        // spaced keyword, and a shortcode name's underscores never block a
+        // phrase.
+        assert_eq!(fold_ascii("nước mỹ"), "nuocmy");
+        assert_eq!(fold_ascii("flag_united_states"), "flagunitedstates");
     }
 
     #[test]
@@ -313,5 +382,45 @@ mod tests {
         }
         assert_eq!(list.len(), RECENT_CAP);
         assert_eq!(list[0], "e12");
+    }
+
+    // --- strip keyword lookup ---
+
+    #[test]
+    fn glyphs_for_word_reaches_the_vietnamese_keywords() {
+        // `meo` reaches the cat family through the keyword `mèo`, `cuoi`
+        // the laughing faces via `cười` — the embedded table is static, so
+        // the anchors hold on every machine.
+        let got = glyphs_for_word("meo");
+        assert!(!got.is_empty(), "{got:?}");
+        assert!(got.contains(&"🐱"), "{got:?}");
+        assert!(
+            glyphs_for_word("cuoi")
+                .iter()
+                .any(|g| g.contains('😃') || g.contains('😄') || g.contains('😀')),
+            "the laughing faces answer cuoi"
+        );
+    }
+
+    #[test]
+    fn glyphs_for_word_answers_english_and_names() {
+        assert!(
+            glyphs_for_word("dog").contains(&"🐶"),
+            "{:?}",
+            glyphs_for_word("dog")
+        );
+        assert!(glyphs_for_word("kitty").contains(&"🐱"));
+    }
+
+    #[test]
+    fn glyphs_for_word_stays_silent_without_an_exact_match() {
+        // Substring folds must not leak (the picker searches, the strip
+        // matches exactly): an unknown word reaches nothing, and a
+        // multi-word keyword can never equal one typed word.
+        assert!(glyphs_for_word("qqq").is_empty());
+        assert!(glyphs_for_word("meoma").is_empty());
+        assert!(glyphs_for_word("").is_empty());
+        // `con mèo` is a two-word keyword — not indexed.
+        assert!(glyphs_for_word("conmeo").is_empty());
     }
 }

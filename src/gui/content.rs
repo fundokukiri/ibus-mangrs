@@ -5,6 +5,11 @@
 
 use super::*;
 
+/// One settings save per burst of widget notifications: long enough to
+/// swallow a spin button's steps, short enough that the engine's hot-reload
+/// poll sees the value within its own second.
+const SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(300);
+
 // Per-process rebuild bookkeeping. Each `build()` installs a live-reload
 // poller holding its own `Ui` — the rebuild removes the previous one or it
 // would poll forever behind the closed window. `PENDING_REBUILD` keeps at
@@ -53,7 +58,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     // ===== Page 5: Luật — chip, quick-add, list editor, preview.
     let rules_page = pages::rules::build(&ui);
 
-    // ===== Page 6: Cài đặt khác — icon, extension, backup, reset.
+    // ===== Page 6: Cài đặt nâng cao — icon, extension, backup, reset.
     let other_page = pages::other::build(&ui);
 
     // ===== Page 7: Thử nghiệm — every gated feature on one tab.
@@ -80,7 +85,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         ),
         (
             "tone",
-            t("pages.tone", "Dấu và tự động"),
+            t("pages.tone", "Dấu & Chính tả"),
             "accessories-character-map-symbolic",
         ),
         (
@@ -97,12 +102,12 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         (
             "rules",
             t("pages.rules", "Luật theo app"),
-            "view-app-grid-symbolic",
+            "focus-windows-symbolic",
         ),
         (
             "panel",
-            t("pages.panel", "Menu trên panel"),
-            "open-menu-symbolic",
+            t("pages.panel", "Menu panel"),
+            "view-list-symbolic",
         ),
         (
             "hotkeys",
@@ -116,8 +121,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         ),
         (
             "other",
-            t("pages.other", "Cài đặt khác"),
-            "view-more-horizontal-symbolic",
+            t("pages.other", "Cài đặt nâng cao"),
+            "emblem-system-symbolic",
         ),
         (
             "tune",
@@ -331,7 +336,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
 
     // Programmatic page jump for the non-widget code paths: the experimental
     // gate closes its tab while the user may be standing on it and lands
-    // them on "Cài đặt khác". select_row drives the same row_selected
+    // them on "Cài đặt nâng cao". select_row drives the same row_selected
     // handler the clicks use, so the stack, the title and the single
     // selection all stay in sync.
     {
@@ -661,27 +666,58 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         list.select_row(Some(wanted_row));
     }
 
-    {
+    // The write the debounced funnel ends in, and the immediate one the
+    // language rebuild needs: it re-reads config.toml as soon as it runs, so
+    // a deferred save would hand it the old language.
+    let write_now: Rc<dyn Fn()> = {
         let window_for_save = window.clone();
+        let ui_for_save = ui.clone();
+        Rc::new(move || match ui_for_save.save_all() {
+            // The change is live: the engine's run-loop hot-reload applies it
+            // and refreshes the panel menu within a second.
+            Ok(()) => {}
+            Err(e) => alert(&window_for_save, &e.to_string()),
+        })
+    };
+    {
+        let write = Rc::clone(&write_now);
+        // One save per burst: a spin button reports every step and a typed
+        // range reports every digit, so saving inline stalled the main loop
+        // on the personal dictionary's rewrite. The engine polls the file,
+        // so the coalesced write loses nothing.
+        let pending = Rc::new(Cell::new(false));
+        // A save still waiting on the debounce must not die with the window:
+        // the last knob turn before a close is the user's.
+        {
+            let write = Rc::clone(&write);
+            let pending = Rc::clone(&pending);
+            window.connect_close_request(move |_| {
+                if pending.replace(false) {
+                    write();
+                }
+                gtk4::glib::Propagation::Proceed
+            });
+        }
         let ui_for_save = ui.clone();
         let save = move || {
             // Programmatic widget updates (external_reload) fire the same
             // handlers; saving then would write back what we just read.
-            if ui_for_save.suppress_save.get() {
+            if ui_for_save.suppress_save.get() || pending.get() {
                 return;
             }
-            match ui_for_save.save_all() {
-                // The change is live: the engine's run-loop hot-reload
-                // applies it and refreshes the panel menu within a second.
-                Ok(()) => {}
-                Err(e) => alert(&window_for_save, &e.to_string()),
-            }
+            pending.set(true);
+            let write_later = Rc::clone(&write);
+            let pending_later = Rc::clone(&pending);
+            gtk4::glib::timeout_add_local_once(SAVE_DEBOUNCE, move || {
+                pending_later.set(false);
+                write_later();
+            });
         };
         // The rule rows are created by `refresh`, so they save through this
         // handle instead of a closure captured at build time.
         *ui.save_cb.borrow_mut() = Some(Rc::new(save.clone()));
         wire_switch_saves(&ui, Rc::new(save.clone()));
-        wire_mode_visibility(&ui, Rc::new(save.clone()));
+        wire_debug_mode(&ui);
         {
             let s = save.clone();
             ui.method.connect_selected_notify(move |_| s());
@@ -733,13 +769,14 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         // refreshes run with the funnel suppressed — a rebuild here would
         // tear the window down mid-refresh.
         {
-            let s = save.clone();
+            let write_now = Rc::clone(&write_now);
             let app_for_lang = app.clone();
             let page_for_lang = current_page.clone();
             let built_en = crate::gui::text::is_english();
             ui.language.connect_selected_notify(move |row| {
                 if (row.selected() == 1) != built_en {
-                    s();
+                    // Immediate: the idle below reads the file.
+                    write_now();
                     let window = row.root().and_downcast::<gtk4::Window>();
                     let page = page_for_lang.borrow().clone();
                     let app = app_for_lang.clone();
@@ -825,49 +862,9 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         });
     }
 
+    descriptions_into_tooltips(&window);
     window.present();
     window
-}
-
-/// The visible-mode switches: each one adds/removes its mode from the shared
-/// choice list, rebuilds the mode dropdowns and rule rows, then saves. The
-/// last visible mode cannot be turned off — the engine needs at least one
-/// selectable entry.
-pub(super) fn wire_mode_visibility(ui: &Rc<Ui>, save: Rc<dyn Fn()>) {
-    for (idx, switch) in ui.mode_visible_switches.iter().enumerate() {
-        let mode = MODE_LABELS[idx].0;
-        let ui = ui.clone();
-        let save = Rc::clone(&save);
-        switch.connect_active_notify(move |switch| {
-            if *ui.mode_visibility_loading.borrow() {
-                return;
-            }
-            let on = switch.is_active();
-            let mut choices = ui.mode_choices.borrow().clone();
-            if on {
-                if !choices.contains(&mode) {
-                    choices.push(mode);
-                }
-            } else if choices.len() <= 1 {
-                // Refuse the last one: revert the switch without saving.
-                *ui.mode_visibility_loading.borrow_mut() = true;
-                switch.set_active(true);
-                *ui.mode_visibility_loading.borrow_mut() = false;
-                return;
-            } else {
-                choices.retain(|m| *m != mode);
-            }
-            let selected = mode_at(&ui.mode_choices.borrow()[..], ui.mode.selected());
-            *ui.mode_choices.borrow_mut() = choices;
-            ui.rebuild_mode_choices(Some(selected));
-            ui.update_mode_visibility_subtitle();
-            // Rule rows carry a per-row list: rebuild them with the new one,
-            // keeping every stored mode (a hidden one keeps its extra entry).
-            let rules = ui.rules_from_rows();
-            ui.fill_rules(&rules);
-            save();
-        });
-    }
 }
 
 /// Wire every boolean row the window owns to the save funnel — one
@@ -892,10 +889,8 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.extended_onsets);
     on_change!(ui.abbrev);
     on_change!(ui.bypass_url);
-    on_change!(ui.extra_url_chars_switch);
     on_change!(ui.em_dash);
     on_change!(ui.auto_capitalize);
-    on_change!(ui.auto_capitalize_after_switch);
     on_change!(ui.echo_stale_switch);
     on_change!(ui.idle_commit_switch);
     on_change!(ui.experimental_features);
@@ -907,14 +902,89 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.macro_valid_words);
     on_change!(ui.keep_composed_words);
     on_change!(ui.keep_repeats_raw);
+    on_change!(ui.suggest_words);
     on_change!(ui.emoji_enabled);
     on_change!(ui.dictionary_enabled);
     on_change!(ui.hide_underline);
-    on_change!(ui.debug_log);
-    on_change!(ui.debug_log_text);
-    on_change!(ui.debug_log_keys);
     on_change!(ui.x11_delete);
     on_change!(ui.preedit_xim);
+}
+
+/// "Chế độ gỡ lỗi": turning it on asks first — the dialog carries the two
+/// optional log tiers (typed text, per-key), remembered between sessions.
+/// Off is immediate: the switch is a kill switch, and the tiers stay saved
+/// so the next dialog opens with the last choice.
+pub(super) fn wire_debug_mode(ui: &Rc<Ui>) {
+    let ui_for_switch = ui.clone();
+    ui.debug_log.connect_active_notify(move |switch| {
+        if ui_for_switch.debug_log_loading.get() {
+            return;
+        }
+        if !switch.is_active() {
+            ui_for_switch.update_debug_subtitle();
+            ui_for_switch.fire_save();
+            return;
+        }
+        // No parent window (a widget test): nothing to show the dialog on,
+        // so the saved choice applies.
+        let Some(window) = switch.root().and_downcast::<gtk4::Window>() else {
+            let (text, keys) = *ui_for_switch.debug_tiers.borrow();
+            debug_choice(&ui_for_switch, text, keys);
+            return;
+        };
+        ask_debug_mode(&ui_for_switch, &window);
+    });
+}
+
+/// The dialog's verdict: store the picked tiers, refresh the row, save.
+pub(super) fn debug_choice(ui: &Rc<Ui>, text: bool, keys: bool) {
+    *ui.debug_tiers.borrow_mut() = (text, keys);
+    ui.update_debug_subtitle();
+    ui.fire_save();
+}
+
+/// The enable confirmation: what the log holds, plus the two tier
+/// checkboxes prefilled with the saved choice.
+fn ask_debug_mode(ui: &Rc<Ui>, window: &gtk4::Window) {
+    let text_check = gtk4::CheckButton::with_label(&t("other.debug_text_check", "Log nội dung"));
+    let keys_check = gtk4::CheckButton::with_label(&t("other.debug_keys_check", "Keyloger"));
+    let (text, keys) = *ui.debug_tiers.borrow();
+    text_check.set_active(text);
+    keys_check.set_active(keys);
+    let extra = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    extra.append(&text_check);
+    extra.append(&keys_check);
+    let dialog = adw::AlertDialog::builder()
+        .heading(t("other.debug_heading", "Bật chế độ gỡ lỗi?"))
+        .body(t(
+            "other.debug_body",
+            "Engine ghi quyết định vào ~/.cache/ibus-mangrs/debug.log. Hai mục tuỳ chọn ghi cả nội dung riêng tư, xem lại log trước khi đính kèm vào issue.",
+        ))
+        .extra_child(&extra)
+        .build();
+    dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
+    dialog.add_response("apply", &t("other.debug_apply", "Bật gỡ lỗi"));
+    // Red, not the accent colour: the dialog turns on logging, and the
+    // click should read as a warning rather than the obvious next step.
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Destructive);
+    dialog.set_default_response(Some("apply"));
+    dialog.set_close_response("cancel");
+    {
+        let ui = ui.clone();
+        let switch = ui.debug_log.clone();
+        dialog.connect_response(None, move |_, response| {
+            if response == "apply" {
+                debug_choice(&ui, text_check.is_active(), keys_check.is_active());
+                return;
+            }
+            // Cancelled: the switch goes back to off without saving.
+            ui.debug_log_loading.set(true);
+            switch.set_active(false);
+            ui.debug_log_loading.set(false);
+            ui.update_debug_subtitle();
+        });
+    }
+    dialog.present(Some(window));
 }
 
 /// mtime of config.toml, `None` while it does not exist yet — the watch

@@ -37,7 +37,8 @@ it is).
 
 Downloads the source, builds and installs; missing dependencies are installed too, so only
 `curl` (or `wget`) and `sudo` are needed up front. The `/dev/uinput` udev rule is set up (the
-session's user gets the device through logind, no group membership), build-only packages
+session's user gets the device through logind, no group membership) and the `uinput` module is
+loaded right away and at every boot, build-only packages
 installed by the run are removed afterwards, and re-running installs nothing twice. `--demo`
 previews the whole run without touching anything:
 
@@ -89,6 +90,34 @@ installs the udev rule and removes your user from the `input` group if an older 
 (effective at next login). Uninstall: `sudo ./scripts/uninstall.sh` (keeps your config). On
 Arch: `makepkg -si`.
 
+### Prediction model (word suggestions)
+
+The engine runs without the model: without it the suggestion strip only offers emoji by
+keyword. Vietnamese and English word suggestions (the "Gợi ý từ (n-gram)" switch on the
+"Thử nghiệm" tab) need a model file of about **100 MB**, placed in one of two directories:
+
+```
+~/.config/ibus-mangrs/mangrs-predict-v1.bin         # per user, takes precedence
+/usr/share/ibus-mangrs/model/mangrs-predict-v1.bin  # shared by every account
+```
+
+`MANGRS_MODEL_PATH=/path/to/model.bin` forces a different file (handy for experiments). The
+model ships as 7 MB parts under `data/model/` to stay under GitHub's file limit, and the join is
+the script that lives there: `data/model/merge_chunks.sh`. `sudo ./scripts/install.sh` runs it
+on a temp copy and puts the file in your own `~/.config/ibus-mangrs/mangrs-predict-v1.bin`;
+re-running it skips the join when the file already has the right size. For another account, or
+by hand:
+
+```sh
+cp data/model/mangrs-predict-v1.bin.part* /tmp/model/   # the script deletes the parts after joining
+data/model/merge_chunks.sh /tmp/model
+cp /tmp/model/mangrs-predict-v1.bin ~/.config/ibus-mangrs/
+```
+
+The Arch package (`makepkg -si`) ships no model. The model is only re-read when the
+configuration reloads, so run `ibus restart` after placing the file (or change any setting in
+the settings window).
+
 ### /dev/uinput permissions (manual fallback)
 
 The engine presses **real Backspace keys** through `/dev/uinput` for apps that cannot delete
@@ -100,9 +129,11 @@ the active session's user through logind, not from group membership. Create
 KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
 ```
 
-Then reload the rules and log out/in once (the ACL is granted when the session becomes active):
+Then load the module, reload the rules and log out/in once (the ACL is granted when the
+session becomes active):
 
 ```sh
+sudo modprobe uinput    # load the module now — many distros do not autoload it; without it /dev/uinput is missing
 sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=/dev/uinput
 echo uinput | sudo tee /etc/modules-load.d/uinput.conf   # load at every boot
 getfacl -p /dev/uinput            # must list user:<you>:rw-

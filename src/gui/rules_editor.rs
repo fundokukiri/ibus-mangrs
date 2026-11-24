@@ -118,7 +118,6 @@ impl Ui {
             self.rule_row(idx, total, &rule.pattern, rule.mode, &row_choices[idx]);
         }
         *self.rules_loading.borrow_mut() = false;
-        self.update_rule_preview();
     }
 
     /// One rule as a one-line row: [drag handle] [priority number] [app id]
@@ -238,7 +237,6 @@ impl Ui {
                     return;
                 }
                 ui.fire_save();
-                ui.update_rule_preview();
             });
         }
 
@@ -257,8 +255,8 @@ impl Ui {
         ))]);
         let pop = gtk4::Popover::new();
         let menu = gtk4::Box::new(Orientation::Vertical, 0);
-        let up_btn = gtk4::Button::with_label(&t("rows.rule_menu.up", "Lên"));
-        up_btn.add_css_class("flat");
+        // Left-aligned like every other popover list (see `list_button`).
+        let up_btn = list_button(&t("rows.rule_menu.up", "Lên"));
         up_btn.set_sensitive(idx > 0);
         {
             let ui = self.clone();
@@ -273,8 +271,7 @@ impl Ui {
             });
         }
         menu.append(&up_btn);
-        let down_btn = gtk4::Button::with_label(&t("rows.rule_menu.down", "Xuống"));
-        down_btn.add_css_class("flat");
+        let down_btn = list_button(&t("rows.rule_menu.down", "Xuống"));
         down_btn.set_sensitive(idx + 1 < total);
         {
             let ui = self.clone();
@@ -289,8 +286,7 @@ impl Ui {
             });
         }
         menu.append(&down_btn);
-        let del_btn = gtk4::Button::with_label(&t("rows.rule_menu.delete", "Xóa"));
-        del_btn.add_css_class("flat");
+        let del_btn = list_button(&t("rows.rule_menu.delete", "Xóa"));
         del_btn.add_css_class("destructive-action");
         {
             let ui = self.clone();
@@ -405,55 +401,6 @@ impl Ui {
         row.add_controller(tgt);
 
         self.rules_box.append(&row);
-    }
-
-    /// The "thử luật" verdict as the result row's status icon and subtitle:
-    /// which rule hits the typed name and the mode it forces. Rules only —
-    /// the engine's capability fallbacks are not modelled here; matching is
-    /// `config::app_rule_matches`, the engine's own function.
-    pub(super) fn update_rule_preview(&self) {
-        let input = self.rule_preview_input.text().trim().to_string();
-        let icon = &self.rule_preview_icon;
-        let set_state = |icon_name: &str, success: bool| {
-            icon.set_icon_name(Some(icon_name));
-            icon.remove_css_class("dim-label");
-            icon.remove_css_class("success");
-            if success {
-                icon.add_css_class("success");
-            } else {
-                icon.add_css_class("dim-label");
-            }
-        };
-        if input.is_empty() {
-            set_state("system-search-symbolic", false);
-            self.rule_preview.set_subtitle(&t(
-                "rules.preview_empty",
-                "Nhập tên app ở trên để xem kết quả",
-            ));
-            return;
-        }
-        let rules = self.rules_from_rows();
-        let target = Some(input.as_str());
-        match crate::config::app_rule_mode(&rules, target) {
-            Some(mode) => {
-                let idx = rules
-                    .iter()
-                    .position(|r| crate::config::app_rule_matches(&r.pattern, target))
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
-                set_state("emblem-ok-symbolic", true);
-                self.rule_preview.set_subtitle(
-                    &t("rules.match_result", "Khớp luật #{n}: {mode}")
-                        .replace("{n}", &idx.to_string())
-                        .replace("{mode}", mode_label(mode)),
-                );
-            }
-            None => {
-                set_state("list-remove-symbolic", false);
-                self.rule_preview
-                    .set_subtitle(&t("rules.no_match", "Không khớp luật nào"));
-            }
-        }
     }
 }
 

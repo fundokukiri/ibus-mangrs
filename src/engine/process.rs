@@ -17,6 +17,9 @@ impl Engine {
     /// Process one character (already decoded from a keysym).
     pub fn process_char(&mut self, c: char) -> Vec<Action> {
         self.tail_ends_word = false;
+        // The strip's landed-word list belongs to the space that ended the
+        // word: a later mark (a second space, `.`, `,`) closes it instead.
+        self.strip_key = Some(c);
         // The idle-commit clock: only stamped while the feature is on, so
         // the default path costs nothing.
         if self.idle_commit_enabled {
@@ -65,22 +68,17 @@ impl Engine {
 
         let mode = self.key_mode();
 
-        // URL bypass, two ways in: a real URL (`://` completed by this `/`,
+        // URL bypass, one way in: a real URL (`://` completed by this `/`,
         // or the word `www` ending at the previous `.`) opens a span that
-        // keeps the whole address raw until a sentence boundary; the user's
-        // own opt-in `extra_url_chars` keeps a word raw for that word only.
-        // No built-in character starts a bypass — punctuation in prose never
-        // blocks marks. The URL evidence comes from the word that just ended
+        // keeps the whole address raw until a sentence boundary. No built-in
+        // character starts a bypass — punctuation in prose never blocks
+        // marks. The URL evidence comes from the word that just ended
         // (`note_url_pending`); `last_char` is its terminator.
         if !self.url_word && !self.wrapper.has_composition() {
             let scheme_arm =
                 c == '/' && self.scheme_pending && matches!(self.last_char, Some(':') | Some('/'));
             let www_arm = self.www_pending && !crate::bamboo_wrapper::is_word_terminator(c);
-            let per_word = !self.extra_url_chars.is_empty()
-                && self
-                    .last_char
-                    .is_some_and(|p| self.extra_url_chars.contains(&p));
-            if self.bypass_url && (scheme_arm || www_arm || per_word) {
+            if self.bypass_url && (scheme_arm || www_arm) {
                 self.url_word = true;
                 self.url_span = scheme_arm || www_arm;
                 self.raw_word_start = self.tail.chars().count();
@@ -183,6 +181,13 @@ impl Engine {
             && c.is_alphabetic()
             && !self.wrapper.has_composition()
             && self.capitalize_next;
+        if !self.wrapper.has_composition() {
+            // The strip's accept re-applies this decision when a candidate is
+            // picked for the word in flight — `note_char` below clears
+            // `capitalize_next` once the word started (the uinput rewrite
+            // records it for the same reason).
+            self.cap_word = cap;
+        }
         let c = if cap {
             c.to_uppercase().next().unwrap_or(c)
         } else {
@@ -219,8 +224,11 @@ impl Engine {
                     // a shortcode context is not prose.
                     let close = self.emoji_close_rewrite(mode, &word, &raw);
                     self.emoji_word = false;
-                    if let Some(actions) = close {
-                        return actions;
+                    if let Some(mut close) = close {
+                        // The word is gone from the wrapper (the Finish
+                        // reset it): close the strip with the rewrite.
+                        close.extend(self.suggest_step());
+                        return close;
                     }
                     // Miss: the shortcode stays as typed — the raw keys, not
                     // the composed word, and no word-macro expansion.
@@ -233,6 +241,7 @@ impl Engine {
                         CandidateEnd::Close,
                     ));
                     self.note_char(c);
+                    actions.extend(self.suggest_step());
                     return actions;
                 }
                 let candidate = if self.emoji_word {
@@ -247,10 +256,18 @@ impl Engine {
                 actions.extend(self.on_finish(mode, word, raw, valid, valid_prefix, candidate));
                 // The terminator itself reaches the application last.
                 self.note_char(c);
+                actions.extend(self.suggest_step());
                 actions
             }
             Outcome::Edit(edit) => {
+                // Only a real edit changes the in-flight word; a Consumed
+                // no-op must not re-emit the list and reset the server's
+                // page.
+                let changed = !edit.is_empty();
                 actions.extend(self.on_edit(mode, edit));
+                if changed {
+                    actions.extend(self.suggest_step());
+                }
                 actions
             }
         }
@@ -628,12 +645,25 @@ impl Engine {
                 // over an erased region.
                 self.region_plain &= self.wrapper.output() == self.wrapper.raw();
                 actions.extend(self.per_key_coalesce(want));
+                // The composed word changed: the strip follows it, like the
+                // common path's Edit arm. An empty edit must not re-emit —
+                // it would reset the server's page with the same list.
+                if !edit.is_empty() {
+                    actions.extend(self.suggest_step());
+                }
                 actions
             }
             Outcome::Finish {
                 word, raw, valid, ..
             } => {
+                // The per-key path lands its word here, not through
+                // `on_finish`: the strip's landed-word gate is set the same
+                // way — only a space keeps the next-word list.
+                self.strip_landing = !word.is_empty() && self.strip_key == Some(' ');
                 actions.extend(self.on_finish_uinput(mode, word, raw, valid, c));
+                // The word ended: the strip closes with it, like the common
+                // path's Finish arm.
+                actions.extend(self.suggest_step());
                 actions
             }
         }
@@ -1001,10 +1031,12 @@ impl Engine {
     }
 
     /// Word end: macros and auto-restore replace the committed word, preedit
-    /// commits the word it still holds, and everything moves on. A shortcode
-    /// candidate word never word-macro-expands — the ':name:' key is the
-    /// emoji path's own lookup — and a missed close puts the raw keys back
-    /// instead of the composed word.
+    /// commits the word it still holds, and everything moves on; then the
+    /// state-B surface offers the landed word's next-word predictions (the
+    /// legacy path emits nothing there). A shortcode candidate word never
+    /// word-macro-expands — the ':name:' key is the emoji path's own lookup
+    /// — and a missed close puts the raw keys back instead of the composed
+    /// word.
     pub(super) fn on_finish(
         &mut self,
         mode: Mode,
@@ -1014,7 +1046,38 @@ impl Engine {
         valid_prefix: bool,
         candidate: CandidateEnd,
     ) -> Vec<Action> {
+        self.strip_landing = !word.is_empty() && self.strip_key == Some(' ');
+        let mut actions = self.on_finish_inner(mode, word, raw, valid, valid_prefix, candidate);
+        // The state-B surface: only when the in-flight word is actually
+        // gone. The wrapper releases the word lazily — its output can still
+        // be the finished word here — and re-running the state-A step on
+        // that stale word would re-open the strip the landing just closed.
+        if self.wrapper.output().chars().count() < 2 {
+            actions.extend(self.suggest_step());
+        }
+        actions
+    }
+
+    /// The landing itself — every branch returns through the wrapper above,
+    /// which is the single state-B hook point.
+    fn on_finish_inner(
+        &mut self,
+        mode: Mode,
+        word: String,
+        raw: String,
+        valid: bool,
+        valid_prefix: bool,
+        candidate: CandidateEnd,
+    ) -> Vec<Action> {
         let mut actions = self.hide_if_visible();
+        // The strip's context memory: the word as Finish carried it, before
+        // the macro/auto-restore rewrites below replace what actually lands
+        // (the context follows the typed word). The uinput and OFF word ends
+        // never reach this path — the strip does not run on those modes.
+        if !word.is_empty() {
+            self.prev_committed_word = self.last_committed_word.take();
+            self.last_committed_word = Some(word.clone());
+        }
         let inline = mode != Mode::Preedit;
         let skip_macro = !matches!(candidate, CandidateEnd::None);
         let force_raw = matches!(candidate, CandidateEnd::Close) && word != raw;

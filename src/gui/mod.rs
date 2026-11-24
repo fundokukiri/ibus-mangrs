@@ -139,12 +139,9 @@ const BACKSPACE_TONE_MODES: &[(&str, &str)] = &[
 /// combo index is the mapping contract for `refresh`/`read`. The default
 /// leads, like every combo in the window.
 const NAV_KEY_MODES: &[(&str, &str)] = &[
-    (
-        "Chuyển caret ngay (mặc định)",
-        "Move the caret at once (default)",
-    ),
+    ("Chuyển ngay (mặc định)", "Move at once (default)"),
     ("Nuốt phím đầu", "Swallow the first press"),
-    ("Phát lại phím qua tín hiệu", "Replay the key as a signal"),
+    ("Phát lại phím", "Replay the key"),
 ];
 
 /// The combo item labels for `pairs` in the window's language.
@@ -237,15 +234,9 @@ struct Ui {
     enabled: adw::SwitchRow,
     method: adw::ComboRow,
     mode: adw::ComboRow,
-    /// The ordered visible modes every picker currently renders. Updated by
-    /// refresh and by the visibility switches; `read` maps dropdown
-    /// positions through it.
+    /// The modes every picker renders, in `ModeConfig::ALL` order; `read`
+    /// maps dropdown positions through it.
     mode_choices: Rc<RefCell<Vec<ModeConfig>>>,
-    /// "Chế độ gõ hiển thị": one switch per mode, inside an expander.
-    mode_visibility: adw::ExpanderRow,
-    mode_visible_switches: Vec<adw::SwitchRow>,
-    /// Guards the programmatic switch updates in refresh/external reload.
-    mode_visibility_loading: Rc<RefCell<bool>>,
     charset: adw::ComboRow,
     /// Built-in shortcut rows: the value is the stored spec, the display
     /// renders it as keycaps (see `ShortcutDisplay`).
@@ -263,20 +254,14 @@ struct Ui {
     extended_onsets: adw::SwitchRow,
     abbrev: adw::SwitchRow,
     bypass_url: adw::SwitchRow,
-    extra_url_chars_row: adw::ActionRow,
-    extra_url_chars_switch: gtk4::Switch,
-    extra_url_chars_entry: gtk4::Entry,
     w2u: adw::ComboRow,
     backspace_tone: adw::ComboRow,
     /// What the first navigation key does while a preedit commit is
-    /// pending (the "Dấu và tự động" tab).
+    /// pending (the "Dấu & Chính tả" tab).
     nav_key_while_preedit: adw::ComboRow,
     bracket: adw::ComboRow,
     em_dash: adw::SwitchRow,
     auto_capitalize: adw::SwitchRow,
-    auto_capitalize_after_row: adw::ActionRow,
-    auto_capitalize_after_switch: gtk4::Switch,
-    auto_capitalize_after_entry: gtk4::Entry,
     double_space: adw::SwitchRow,
     macro_enabled: adw::SwitchRow,
     capitalize_macro: adw::SwitchRow,
@@ -284,9 +269,17 @@ struct Ui {
     macro_valid_words: adw::SwitchRow,
     keep_composed_words: adw::SwitchRow,
     keep_repeats_raw: adw::SwitchRow,
+    /// The suggestion strip switch ("Thử nghiệm"): the one strip switch —
+    /// the model's compounds, single words and next-word lists serve under
+    /// it. Bound to the master gate like the keeps — locked,
+    /// default-displayed and restored with them; needs the prediction
+    /// model file to do anything.
+    suggest_words: adw::SwitchRow,
     preferred_backend: adw::ComboRow,
-    time_format: adw::ComboRow,
-    date_format: adw::ComboRow,
+    time_format: gtk4::DropDown,
+    date_format: gtk4::DropDown,
+    /// The merged row the two format dropdowns live in.
+    formats_row: adw::ActionRow,
     /// The interface language; picking it rebuilds the window (content.rs).
     language: adw::ComboRow,
     /// Emoji shortcodes ("Emoji" tab): the on/off switch, the picker
@@ -335,6 +328,13 @@ struct Ui {
     /// created in `refresh`, so they fire edits through this instead of a
     /// closure captured at build time. `None` in headless tests.
     save_cb: SharedSave,
+    /// The entries last written to macros.toml, dictionary.txt and
+    /// emoji.toml. A settings change usually touches one of them; rewriting
+    /// the personal dictionary on every knob step costs ~8 ms at 20k words
+    /// and is what made the window feel sticky.
+    saved_macros: RefCell<Option<Vec<(String, String)>>>,
+    saved_dictionary: RefCell<Option<Vec<String>>>,
+    saved_emoji: RefCell<Option<Vec<(String, String)>>>,
     /// The config.toml mtime this window itself wrote (the last `save_all`):
     /// the live-reload poll skips it — reloading our own save would churn
     /// every row for nothing. External writers still reload.
@@ -347,10 +347,6 @@ struct Ui {
     /// Programmatic page jump: select_row drives the same row_selected
     /// handler the clicks use. `None` headless.
     sidebar_select: RefCell<Option<PageJump>>,
-    /// "Thử luật" input, its verdict row and the verdict's status icon.
-    rule_preview_input: adw::EntryRow,
-    rule_preview: adw::ActionRow,
-    rule_preview_icon: gtk4::Image,
     /// The merged add-rule form ("Thêm luật"): the pill (fill + tooltip),
     /// the frameless name entry whose placeholder mirrors the focused app,
     /// the copy/apply pair shown only while an app is detected, and Thêm.
@@ -365,12 +361,13 @@ struct Ui {
     rule_focus_value: Rc<RefCell<String>>,
     hide_underline: adw::SwitchRow,
     debug_log: adw::SwitchRow,
-    /// Second log tier: typed-text lines (verify diffs, surrounding content).
-    /// Only effective while `debug_log` is on — see `Config::debug_log_text`.
-    debug_log_text: adw::SwitchRow,
-    /// Only effective while `debug_log` is on — see `Config::debug_log_keys`.
-    debug_log_keys: adw::SwitchRow,
-    /// App-grid icon visibility ("Cài đặt khác"). Filesystem state, not a
+    /// The two optional log tiers (text, keys) the debug dialog picked. They
+    /// have no rows; they stay saved while the switch is off, so the dialog
+    /// reopens with the last choice.
+    debug_tiers: Rc<RefCell<(bool, bool)>>,
+    /// Guards the programmatic switch update in `refresh`.
+    debug_log_loading: Rc<Cell<bool>>,
+    /// App-grid icon visibility ("Cài đặt nâng cao"). Filesystem state, not a
     /// config key: the override file under ~/.local/share/applications.
     desktop_icon: adw::SwitchRow,
     /// Guards the programmatic `desktop_icon` state set in `refresh`.
@@ -378,7 +375,6 @@ struct Ui {
     x11_delete: adw::SwitchRow,
     preedit_xim: adw::SwitchRow,
     pacing_row: adw::ActionRow,
-    commit_interval: gtk4::SpinButton,
     backspace_interval: gtk4::SpinButton,
     post_delay: gtk4::SpinButton,
     echo_stale_row: adw::ActionRow,
@@ -480,7 +476,7 @@ fn on_off_index<T: PartialEq>(value: &T, disabled: T, nonstart: T) -> u32 {
 /// Select `value` in a format combo: the matching preset's index, or — for
 /// a format stored by the old free-text rows — a temporary extra item
 /// appended to the end, so no stored format is rewritten on save.
-fn select_format(row: &adw::ComboRow, presets: &[&str], value: &str) {
+fn select_format(row: &gtk4::DropDown, presets: &[&str], value: &str) {
     let list = StringList::new(presets);
     let index = match presets.iter().position(|p| *p == value) {
         Some(i) => i as u32,
@@ -493,9 +489,9 @@ fn select_format(row: &adw::ComboRow, presets: &[&str], value: &str) {
     row.set_selected(index);
 }
 
-/// The pattern the combo currently shows: presets and appended values read
+/// The pattern the dropdown currently shows: presets and appended values read
 /// back the same way, the model being the single source of truth.
-pub(crate) fn format_selected(row: &adw::ComboRow) -> String {
+pub(crate) fn format_selected(row: &gtk4::DropDown) -> String {
     row.selected_item()
         .and_downcast::<gtk4::StringObject>()
         .map(|o| o.string().into())
@@ -503,6 +499,33 @@ pub(crate) fn format_selected(row: &adw::ComboRow) -> String {
 }
 
 impl Ui {
+    /// The debug row's subtitle: the log path, and what it records while on.
+    pub(super) fn update_debug_subtitle(&self) {
+        let subtitle = if !self.debug_log.is_active() {
+            t(
+                "rows.debug_log.subtitle_markup",
+                "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangrs/debug.log</tt>",
+            )
+        } else {
+            let (text, keys) = *self.debug_tiers.borrow();
+            let tiers = match (text, keys) {
+                (true, true) => t(
+                    "rows.debug_log.tiers_both",
+                    ": nội dung đang gõ + từng phím",
+                ),
+                (true, false) => t("rows.debug_log.tiers_text", ": nội dung đang gõ"),
+                (false, true) => t("rows.debug_log.tiers_keys", ": từng phím"),
+                (false, false) => String::new(),
+            };
+            t(
+                "rows.debug_log.subtitle_on_markup",
+                "Đang bật{tiers} → <tt>~/.cache/ibus-mangrs/debug.log</tt>",
+            )
+            .replace("{tiers}", &tiers)
+        };
+        self.debug_log.set_subtitle(&subtitle);
+    }
+
     /// Rebuild every mode dropdown's model from `mode_choices`, keeping the
     /// selected mode when it is still visible. The mode row and the add-rule
     /// picker share the list, so hiding a mode updates both at once.
@@ -517,15 +540,6 @@ impl Ui {
             .set_model(Some(&StringList::new(&labels)));
         self.rule_add_mode_pick
             .set_selected(mode_index(&choices, add_selected));
-    }
-
-    /// The expander's "n/5 đang hiện" line.
-    pub(super) fn update_mode_visibility_subtitle(&self) {
-        let n = self.mode_choices.borrow().len();
-        self.mode_visibility.set_subtitle(
-            &t("rows.mode_visibility.subtitle", "{n}/5 chế độ đang hiện")
-                .replace("{n}", &n.to_string()),
-        );
     }
 
     /// Push a config (plus the two text lists) into every widget. This is the
@@ -559,21 +573,10 @@ impl Ui {
         // Same for the visible-mode list: read() always pins an explicit
         // list and the engine coerces a hidden current mode to the first
         // visible entry, so the copy being displayed must match both.
-        let choices = config.visible_modes();
-        if !choices.contains(&config.mode) {
-            config.mode = choices[0];
-        }
-        config.visible_modes = Some(choices.iter().map(|m| m.key().to_string()).collect());
-        *self.mode_choices.borrow_mut() = choices.clone();
+        *self.mode_choices.borrow_mut() = ModeConfig::ALL.to_vec();
         self.enabled.set_active(config.enabled);
         self.method.set_selected(method_index(config.method));
         self.rebuild_mode_choices(Some(config.mode));
-        *self.mode_visibility_loading.borrow_mut() = true;
-        for (switch, (mode, ..)) in self.mode_visible_switches.iter().zip(MODE_LABELS) {
-            switch.set_active(choices.contains(mode));
-        }
-        *self.mode_visibility_loading.borrow_mut() = false;
-        self.update_mode_visibility_subtitle();
         self.charset.set_selected(charset_index(config.charset));
         *self.hotkey_value.borrow_mut() = config.cycle_mode_hotkey.clone();
         self.hotkey_display.render(&config.cycle_mode_hotkey);
@@ -589,14 +592,6 @@ impl Ui {
         self.extended_onsets.set_active(config.extended_onsets);
         self.abbrev.set_active(config.abbreviations);
         self.bypass_url.set_active(config.bypass_url);
-        self.extra_url_chars_switch
-            .set_active(config.extra_url_chars_enabled);
-        self.extra_url_chars_entry
-            .set_sensitive(config.extra_url_chars_enabled);
-        // The typed characters stay saved even while the switch is off —
-        // they reapply when the switch returns; the off state itself
-        // applies the built-in set only.
-        self.extra_url_chars_entry.set_text(&config.extra_url_chars);
         self.w2u.set_selected(on_off_index(
             &config.w2u,
             W2uConfig::Disabled,
@@ -617,12 +612,6 @@ impl Ui {
             .set_selected(nav_key_selected(&config.nav_key_while_preedit));
         self.em_dash.set_active(config.em_dash);
         self.auto_capitalize.set_active(config.auto_capitalize);
-        self.auto_capitalize_after_switch
-            .set_active(config.auto_capitalize_after_enabled);
-        self.auto_capitalize_after_entry
-            .set_sensitive(config.auto_capitalize_after_enabled);
-        self.auto_capitalize_after_entry
-            .set_text(&config.auto_capitalize_after);
         self.double_space.set_active(config.double_space_period);
         self.macro_enabled.set_active(config.macro_enabled);
         self.capitalize_macro.set_active(config.capitalize_macro);
@@ -632,6 +621,7 @@ impl Ui {
         self.keep_composed_words
             .set_active(config.keep_composed_words);
         self.keep_repeats_raw.set_active(config.keep_repeats_raw);
+        self.suggest_words.set_active(config.suggest_words);
         self.preferred_backend
             .set_selected(preferred_backend_index(config.preferred_backend));
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
@@ -643,9 +633,11 @@ impl Ui {
         self.emoji_hotkey_display.render(&config.emoji_hotkey);
         self.dictionary_enabled
             .set_active(config.dictionary_enabled);
+        self.debug_log_loading.set(true);
         self.debug_log.set_active(config.debug_log);
-        self.debug_log_text.set_active(config.debug_log_text);
-        self.debug_log_keys.set_active(config.debug_log_keys);
+        self.debug_log_loading.set(false);
+        *self.debug_tiers.borrow_mut() = (config.debug_log_text, config.debug_log_keys);
+        self.update_debug_subtitle();
         // Not a config key: the app-grid override file on disk decides.
         *self.desktop_icon_loading.borrow_mut() = true;
         self.desktop_icon.set_active(!desktop_icon_hidden());
@@ -654,8 +646,6 @@ impl Ui {
             .set_sensitive(system_desktop_entry_exists());
         self.x11_delete.set_active(config.x11_delete_without_report);
         self.preedit_xim.set_active(config.preedit_for_xim);
-        self.commit_interval
-            .set_value(config.commit_interval_ms as f64);
         self.backspace_interval
             .set_value(config.backspace_interval_ms as f64);
         self.post_delay.set_value(config.post_delay_ms as f64);
@@ -760,8 +750,9 @@ impl Ui {
         config.enabled_hotkey = self.enabled_hotkey_value.borrow().clone();
         config.app_rule_hotkey = self.app_rule_hotkey_value.borrow().clone();
         config.debug_log = self.debug_log.is_active();
-        config.debug_log_text = self.debug_log_text.is_active();
-        config.debug_log_keys = self.debug_log_keys.is_active();
+        let (debug_text, debug_keys) = *self.debug_tiers.borrow();
+        config.debug_log_text = debug_text;
+        config.debug_log_keys = debug_keys;
         config.x11_delete_without_report = self.x11_delete.is_active();
         config.preedit_for_xim = self.preedit_xim.is_active();
         config.modern_tone_style = self.modern.is_active();
@@ -773,8 +764,6 @@ impl Ui {
         config.abbreviations = self.abbrev.is_active();
         config.hide_underline = self.hide_underline.is_active();
         config.bypass_url = self.bypass_url.is_active();
-        config.extra_url_chars_enabled = self.extra_url_chars_switch.is_active();
-        config.extra_url_chars = self.extra_url_chars_entry.text().trim().to_string();
         config.w2u = match self.w2u.selected() {
             1 => W2uConfig::NonStart,
             2 => W2uConfig::Everywhere,
@@ -797,8 +786,6 @@ impl Ui {
         };
         config.em_dash = self.em_dash.is_active();
         config.auto_capitalize = self.auto_capitalize.is_active();
-        config.auto_capitalize_after_enabled = self.auto_capitalize_after_switch.is_active();
-        config.auto_capitalize_after = self.auto_capitalize_after_entry.text().trim().to_string();
         config.double_space_period = self.double_space.is_active();
         config.macro_enabled = self.macro_enabled.is_active();
         config.capitalize_macro = self.capitalize_macro.is_active();
@@ -806,6 +793,7 @@ impl Ui {
         config.macro_expand_valid_words = self.macro_valid_words.is_active();
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
+        config.suggest_words = self.suggest_words.is_active();
         config.preferred_backend = match self.preferred_backend.selected() {
             1 => PreferredBackendConfig::Uinput,
             2 => PreferredBackendConfig::XTest,
@@ -824,7 +812,6 @@ impl Ui {
         config.emoji_enabled = self.emoji_enabled.is_active();
         config.emoji_hotkey = self.emoji_hotkey_value.borrow().clone();
         config.dictionary_enabled = self.dictionary_enabled.is_active();
-        config.commit_interval_ms = self.commit_interval.value() as u64;
         config.backspace_interval_ms = self.backspace_interval.value() as u64;
         config.post_delay_ms = self.post_delay.value() as u64;
         config.echo_stale_enabled = self.echo_stale_switch.is_active();
@@ -838,33 +825,6 @@ impl Ui {
         // The designed menu tree; never empty (the editor refuses to remove
         // the last entry), so a save always pins the design down.
         config.menu = Some(self.read_menu());
-        // The visible-mode order: the list currently rendered, filtered to
-        // the switches now on, then any newly enabled mode in table order.
-        let active: Vec<ModeConfig> = MODE_LABELS
-            .iter()
-            .zip(&self.mode_visible_switches)
-            .filter(|(_, switch)| switch.is_active())
-            .map(|((mode, ..), _)| *mode)
-            .collect();
-        let mut ordered: Vec<ModeConfig> = self
-            .mode_choices
-            .borrow()
-            .iter()
-            .copied()
-            .filter(|mode| active.contains(mode))
-            .collect();
-        for mode in &active {
-            if !ordered.contains(mode) {
-                ordered.push(*mode);
-            }
-        }
-        if ordered.is_empty() {
-            ordered = crate::config::DEFAULT_VISIBLE_MODES
-                .iter()
-                .filter_map(|key| ModeConfig::from_key(key))
-                .collect();
-        }
-        config.visible_modes = Some(ordered.iter().map(|mode| mode.key().to_string()).collect());
         // Read here, not in `save_all`: `refresh` asserts that `read` returns
         // everything it just pushed into the widgets, and the rule rows are
         // among those widgets.
@@ -879,11 +839,10 @@ impl Ui {
             })
             .collect();
         if !gate_on {
-            config.extra_url_chars_enabled = saved_experimental.extra_url_chars_enabled;
-            config.extra_url_chars = saved_experimental.extra_url_chars;
-            config.auto_capitalize_after_enabled = saved_experimental.auto_capitalize_after_enabled;
-            config.auto_capitalize_after = saved_experimental.auto_capitalize_after;
             config.macro_expand_valid_words = saved_experimental.macro_expand_valid_words;
+            config.keep_composed_words = saved_experimental.keep_composed_words;
+            config.keep_repeats_raw = saved_experimental.keep_repeats_raw;
+            config.suggest_words = saved_experimental.suggest_words;
             config.echo_stale_enabled = saved_experimental.echo_stale_enabled;
             config.echo_stale_ms = saved_experimental.echo_stale_ms;
             config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
@@ -941,13 +900,12 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 8] = [
+        let rows: [&gtk4::Widget; 7] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
+            self.suggest_words.upcast_ref(),
             self.preferred_backend.upcast_ref(),
-            self.extra_url_chars_row.upcast_ref(),
-            self.auto_capitalize_after_row.upcast_ref(),
             self.echo_stale_row.upcast_ref(),
             self.idle_commit_row.upcast_ref(),
         ];
@@ -962,10 +920,6 @@ impl Ui {
                 .set_sensitive(gate && self.echo_stale_switch.is_active());
             self.idle_commit_spin
                 .set_sensitive(gate && self.idle_commit_switch.is_active());
-            self.extra_url_chars_entry
-                .set_sensitive(gate && self.extra_url_chars_switch.is_active());
-            self.auto_capitalize_after_entry
-                .set_sensitive(gate && self.auto_capitalize_after_switch.is_active());
         }
     }
 
@@ -981,14 +935,8 @@ impl Ui {
             .set_active(d.macro_expand_valid_words);
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
+        self.suggest_words.set_active(d.suggest_words);
         self.preferred_backend.set_selected(0);
-        self.extra_url_chars_switch
-            .set_active(d.extra_url_chars_enabled);
-        self.extra_url_chars_entry.set_text(&d.extra_url_chars);
-        self.auto_capitalize_after_switch
-            .set_active(d.auto_capitalize_after_enabled);
-        self.auto_capitalize_after_entry
-            .set_text(&d.auto_capitalize_after);
         self.echo_stale_switch.set_active(d.echo_stale_enabled);
         self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
         self.idle_commit_switch.set_active(d.idle_commit_enabled);
@@ -1006,15 +954,9 @@ impl Ui {
             .set_active(c.macro_expand_valid_words);
         self.keep_composed_words.set_active(c.keep_composed_words);
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
+        self.suggest_words.set_active(c.suggest_words);
         self.preferred_backend
             .set_selected(preferred_backend_index(c.preferred_backend));
-        self.extra_url_chars_switch
-            .set_active(c.extra_url_chars_enabled);
-        self.extra_url_chars_entry.set_text(&c.extra_url_chars);
-        self.auto_capitalize_after_switch
-            .set_active(c.auto_capitalize_after_enabled);
-        self.auto_capitalize_after_entry
-            .set_text(&c.auto_capitalize_after);
         self.echo_stale_switch.set_active(c.echo_stale_enabled);
         self.echo_stale_spin.set_value(c.echo_stale_ms as f64);
         self.idle_commit_switch.set_active(c.idle_commit_enabled);
@@ -1060,17 +1002,31 @@ impl Ui {
                 .and_then(|m| m.modified().ok()),
         );
 
-        let mut macros = Macros::load();
-        macros.set_entries(self.macros_from_text().into_iter());
-        macros.save()?;
+        // Each list is compared with what was last written: a knob on the
+        // typing page must not rewrite the personal dictionary.
+        let macros_text = self.macros_from_text();
+        if save_changed(self.saved_macros.borrow().as_deref(), &macros_text) {
+            let mut macros = Macros::load();
+            macros.set_entries(macros_text.iter().cloned());
+            macros.save()?;
+            *self.saved_macros.borrow_mut() = Some(macros_text);
+        }
 
-        let mut dict = Dictionary::load();
-        dict.set_words(self.read_dictionary().into_iter());
-        dict.save()?;
+        let dictionary = self.read_dictionary();
+        if save_changed(self.saved_dictionary.borrow().as_deref(), &dictionary) {
+            let mut dict = Dictionary::load();
+            dict.set_words(dictionary.iter().cloned());
+            dict.save()?;
+            *self.saved_dictionary.borrow_mut() = Some(dictionary);
+        }
 
-        let mut emoji = crate::emoji::UserEmoji::load();
-        emoji.set_entries(self.emoji_from_text().into_iter());
-        emoji.save()?;
+        let emoji_text = self.emoji_from_text();
+        if save_changed(self.saved_emoji.borrow().as_deref(), &emoji_text) {
+            let mut emoji = crate::emoji::UserEmoji::load();
+            emoji.set_entries(emoji_text.iter().cloned());
+            emoji.save()?;
+            *self.saved_emoji.borrow_mut() = Some(emoji_text);
+        }
         Ok(())
     }
 
@@ -1087,6 +1043,13 @@ impl Ui {
         self.refresh(&config, &macros, &dictionary);
         self.suppress_save.set(false);
     }
+}
+
+/// Whether the widgets' parsed list differs from what was last written to
+/// its file: a settings change usually touches one list, and rewriting the
+/// personal dictionary on every knob step is what made the window sticky.
+fn save_changed<T: PartialEq>(last: Option<&[T]>, now: &[T]) -> bool {
+    last != Some(now)
 }
 
 /// The shipped focus extension, embedded so the install button works on a
@@ -1234,7 +1197,7 @@ pub(super) fn install_focus_extension() -> Result<String, String> {
         _ => {
             let _ = writeln!(
                 note,
-                "Chưa bật được từ đây — mở ứng dụng Extensions và bật, hoặc chạy: gnome-extensions enable mangrs-focus@fundokukiri"
+                "Chưa bật được từ đây. Mở ứng dụng Extensions và bật, hoặc chạy: gnome-extensions enable mangrs-focus@fundokukiri"
             );
         }
     }
@@ -1264,7 +1227,7 @@ fn system_desktop_entry_exists() -> bool {
         })
 }
 
-/// Hide/show "MăngRS Cấu hình" in the application grid by writing or
+/// Hide/show "MăngRS" in the application grid by writing or
 /// removing a user-level override of the installed desktop entry. The
 /// override is a full copy plus `Hidden=true` — the highest-priority entry
 /// file replaces the system one, the spec does not merge keys.

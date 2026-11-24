@@ -89,16 +89,51 @@ mod tests {
     use super::*;
     use crate::config::Config;
 
+    /// A row subtitle must stay one short line: anything longer wraps on a
+    /// narrow window and pushes the switch down. The long form belongs in the
+    /// row's tooltip (`tips.*`).
+    #[test]
+    fn every_row_subtitle_fits_one_line() {
+        for content in [CONTENT, CONTENT_EN] {
+            let parsed: toml::Table = toml::from_str(content).expect("content parses");
+            let rows = parsed["rows"].as_table().expect("a rows table");
+            for (key, row) in rows {
+                let Some(subtitle) = row.get("subtitle").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let len = subtitle.chars().count();
+                assert!(len <= 40, "{key}: {len} chars — {subtitle}");
+            }
+        }
+    }
+
+    /// Tooltips read as plain sentences: no em dash and no drawn-out
+    /// explanation, since the owner reads them as machine text.
+    #[test]
+    fn every_tooltip_stays_plain_and_short() {
+        for (content, limit) in [(CONTENT, 240), (CONTENT_EN, 300)] {
+            let parsed: toml::Table = toml::from_str(content).expect("content parses");
+            let tips = parsed["tips"].as_table().expect("a tips table");
+            for (key, val) in tips {
+                let text = val.as_str().expect("a string");
+                assert!(!text.contains('—'), "{key}: em dash in {text}");
+                assert!(!text.contains(" - "), "{key}: dash in {text}");
+                let len = text.chars().count();
+                assert!(len <= limit, "{key}: {len} chars in {text}");
+            }
+        }
+    }
+
     #[test]
     fn t_respects_the_language_and_falls_back_to_vi() {
         let _g = LANG_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         set_language("en");
-        assert_eq!(t("pages.other", ""), "Other settings");
+        assert_eq!(t("pages.other", ""), "Advanced settings");
         set_language("vi");
-        assert_eq!(t("pages.other", ""), "Cài đặt khác");
+        assert_eq!(t("pages.other", ""), "Cài đặt nâng cao");
         // Anything unknown ("fr", "", garbage) behaves as Vietnamese.
         set_language("fr");
-        assert_eq!(t("pages.other", ""), "Cài đặt khác");
+        assert_eq!(t("pages.other", ""), "Cài đặt nâng cao");
         set_language("vi"); // restore for other tests; global state
     }
 

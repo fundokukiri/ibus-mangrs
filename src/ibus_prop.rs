@@ -347,9 +347,91 @@ pub fn folder_display_label(label: &str, en: bool) -> &str {
     }
 }
 
+/// Experimental switches a hotkey may flip. Kept out of `QUICK_TOGGLES` on
+/// purpose: the popup menu must not grow with them, and the engine ignores
+/// these keys while the experimental gate is closed.
+pub const EXPERIMENTAL_TOGGLES: &[QuickToggle] = &[
+    QuickToggle {
+        key: "suggest_words",
+        label: ("Gợi ý từ khi gõ", "Suggest while typing"),
+        tooltip: ("Hiện dải gợi ý cạnh con trỏ", "Show the suggestion strip"),
+        get: |c| c.suggest_words,
+        set: |c, on| c.suggest_words = on,
+    },
+    QuickToggle {
+        key: "keep_composed_words",
+        label: ("Giữ từ đã ghép", "Keep composed words"),
+        tooltip: (
+            "Phím mới nối vào từ đã hoàn chỉnh",
+            "New keys append to a finished word",
+        ),
+        get: |c| c.keep_composed_words,
+        set: |c, on| c.keep_composed_words = on,
+    },
+    QuickToggle {
+        key: "keep_repeats_raw",
+        label: ("Giữ phím lặp nguyên bản", "Keep raw key repeats"),
+        tooltip: ("Phím lặp lại như bàn phím thường", "Repeats stay raw"),
+        get: |c| c.keep_repeats_raw,
+        set: |c, on| c.keep_repeats_raw = on,
+    },
+    QuickToggle {
+        key: "macro_expand_valid_words",
+        label: ("Gõ tắt chỉ cho từ hợp lệ", "Shorthand for valid words only"),
+        tooltip: (
+            "Chỉ mở rộng khi từ gõ đúng chính tả",
+            "Expand only when the word is spelled right",
+        ),
+        get: |c| c.macro_expand_valid_words,
+        set: |c, on| c.macro_expand_valid_words = on,
+    },
+    QuickToggle {
+        key: "echo_stale_enabled",
+        label: ("Chờ phím ảo quay về", "Wait for the fake key"),
+        tooltip: (
+            "Chờ phím ảo quay về trước khi gõ tiếp",
+            "Wait for the injected key before typing on",
+        ),
+        get: |c| c.echo_stale_enabled,
+        set: |c, on| c.echo_stale_enabled = on,
+    },
+    QuickToggle {
+        key: "idle_commit_enabled",
+        label: ("Tự chốt từ khi ngừng gõ", "Commit when typing stops"),
+        tooltip: (
+            "Tự chốt từ sau khi ngừng gõ",
+            "Commit the word once typing pauses",
+        ),
+        get: |c| c.idle_commit_enabled,
+        set: |c, on| c.idle_commit_enabled = on,
+    },
+];
+
+#[cfg(test)]
+mod experimental_toggle_tests {
+    use super::*;
+
+    /// The GUI offers these keys and the engine answers them, so the two
+    /// tables must name the same toggles in the same order.
+    #[test]
+    fn the_action_list_and_the_toggle_table_agree() {
+        let keys: Vec<&str> = EXPERIMENTAL_TOGGLES.iter().map(|t| t.key).collect();
+        assert_eq!(keys, crate::config::EXPERIMENTAL_HOTKEY_ACTIONS);
+        // None of them leaks into the panel registry.
+        for key in keys {
+            assert!(quick_toggle(key).is_none(), "{key} joins the popup menu");
+        }
+    }
+}
+
 /// The registered toggle with this menu key, if any.
 pub fn quick_toggle(key: &str) -> Option<&'static QuickToggle> {
     QUICK_TOGGLES.iter().find(|t| t.key == key)
+}
+
+/// The experimental toggle with this action key, if any.
+pub fn experimental_toggle(key: &str) -> Option<&'static QuickToggle> {
+    EXPERIMENTAL_TOGGLES.iter().find(|t| t.key == key)
 }
 
 /// The whole menu for the current settings. Called on `Enable` and on every
@@ -411,18 +493,10 @@ fn build_menu(config: &Config, nodes: &[MenuNode], depth: usize) -> Vec<Prop> {
                     // existed (or a hand edit) shows what the group showed
                     // before the tree: every entry, or the menu_modes
                     // selection for display.
-                    // The display group only offers modes the user still
-                    // shows; a design or `menu_modes` entry naming a hidden
-                    // mode is skipped by `radio_items` below.
-                    let visible_modes = config.visible_modes();
-                    let display_entries: Vec<(&str, &str, &str)> = MODES
-                        .iter()
-                        .copied()
-                        .filter(|(key, ..)| {
-                            ModeConfig::from_key(key)
-                                .is_some_and(|mode| visible_modes.contains(&mode))
-                        })
-                        .collect();
+                    // Every display mode is always offered; a `menu_modes`
+                    // entry naming an unknown mode is skipped by
+                    // `radio_items` below.
+                    let display_entries: Vec<(&str, &str, &str)> = MODES.to_vec();
                     let (group_key, label, entries, active): (
                         &str,
                         &str,
@@ -566,16 +640,17 @@ fn radio_items(
         .collect()
 }
 
-/// The serialized `IBusLookupTable` for the per-app rule picker, ready for
-/// a `v` slot. Signature `(sa{sv}uubbiavav)` — type tag, properties,
-/// page size, cursor, cursor visible, round, orientation, candidates
-/// (IBusText), labels — captured from libibus 1.5.34's own serialization
-/// (`IBus.LookupTable` via GI). The engine shows it at the caret the way
-/// ibus-bamboo's Shift+` menu does.
-pub fn lookup_table_variant(
+/// The serialized `IBusLookupTable` both table helpers share. Signature
+/// `(sa{sv}uubbiavav)` — type tag, properties, page size, cursor, cursor
+/// visible, round, orientation, candidates (IBusText), labels — captured
+/// from libibus 1.5.34's own serialization (`IBus.LookupTable` via GI).
+fn lookup_table_shape(
     page_size: u32,
     cursor: u32,
+    round: bool,
+    orientation: i32,
     candidates: &[String],
+    labels: &[String],
 ) -> Variant<Box<dyn RefArg>> {
     Variant(Box::new((
         "IBusLookupTable".to_string(),
@@ -583,14 +658,47 @@ pub fn lookup_table_variant(
         page_size,
         cursor,
         true, // cursor visible
-        true, // round: wrap around at the ends
-        2i32, // vertical orientation
+        round,
+        orientation,
         candidates
             .iter()
             .map(|c| crate::ibus_text::plain_text(c))
             .collect::<Vec<_>>(),
-        Vec::<Variant<Box<dyn RefArg>>>::new(), // default 1..n labels
+        labels
+            .iter()
+            .map(|l| crate::ibus_text::plain_text(l))
+            .collect::<Vec<_>>(),
     )) as Box<dyn RefArg>)
+}
+
+/// The serialized `IBusLookupTable` for the per-app rule picker, ready for
+/// a `v` slot. The engine shows it at the caret the way ibus-bamboo's
+/// Shift+` menu does: one page of entries the panel lays out as it likes
+/// (orientation free, default 1..n labels).
+pub fn lookup_table_variant(
+    page_size: u32,
+    cursor: u32,
+    candidates: &[String],
+) -> Variant<Box<dyn RefArg>> {
+    lookup_table_shape(page_size, cursor, true, 2, candidates, &[])
+}
+
+/// The serialized `IBusLookupTable` for the whole suggestion strip: the
+/// full candidate list travels at once with the cursor marking the page
+/// head, so the panel's page count renders the ◀▶ buttons (mouse paging,
+/// ibus intelligent pinyin's shape) and the `-`/`=` keys plus the panel's
+/// PageUp/PageDown methods re-emit at the moved cursor. Horizontal with
+/// the `1.`-`n.` labels naming the digit that picks each slot; round is
+/// false because the server clamps the pager — the buttons hide at the
+/// ends instead of wrapping.
+pub fn lookup_table_strip(
+    page_size: u32,
+    cursor: u32,
+    candidates: &[String],
+) -> Variant<Box<dyn RefArg>> {
+    let labels: Vec<String> = (1..=page_size).map(|i| format!("{i}.")).collect();
+    // Orientation 0 = horizontal: one row, a digit label beside each entry.
+    lookup_table_shape(page_size, cursor, false, 0, candidates, &labels)
 }
 
 #[cfg(test)]
@@ -691,11 +799,11 @@ mod tests {
     }
 
     #[test]
-    fn display_group_hides_modes_outside_the_visible_list() {
+    fn display_group_offers_every_mode() {
+        // No visibility filter anymore: the display group shows all five
+        // modes whatever the saved design names.
         let config = Config {
-            visible_modes: Some(vec!["preedit".into(), "off".into()]),
-            // The default menu selection names surrounding/flow too; both
-            // must vanish while hidden.
+            menu_modes: vec!["preedit".into(), "off".into()],
             ..Config::default()
         };
         let props = properties(&config);
@@ -711,30 +819,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["display:preedit", "display:off"]
         );
-        // Unhiding re-admits the entry without touching the saved design.
+        // A design naming a mode key this build does not know still renders
+        // nothing rather than an empty group.
         let config = Config {
-            visible_modes: Some(vec![
-                "preedit".into(),
-                "surrounding".into(),
-                "flow".into(),
-                "off".into(),
-            ]),
-            ..Config::default()
-        };
-        let props = properties(&config);
-        let display = props.iter().find(|p| p.key == KEY_DISPLAY).unwrap();
-        assert_eq!(display.sub.len(), 4);
-
-        // A design that lists only hidden modes renders no empty submenu
-        // (the explicit subset hides Flow, a shipped mode).
-        let config = Config {
-            visible_modes: Some(vec!["preedit".into(), "off".into()]),
-            menu_modes: vec!["flow".into()],
+            menu_modes: vec!["nonsense".into()],
             ..Config::default()
         };
         assert!(
             !properties(&config).iter().any(|p| p.key == KEY_DISPLAY),
-            "an all-hidden display group is skipped"
+            "an empty display group is skipped"
         );
     }
 
@@ -926,9 +1019,9 @@ mod tests {
         // the GUI dropdown, the cycle hotkey and the rule picker walk the
         // same five.
         let config = Config {
-            menu_modes: crate::config::DEFAULT_VISIBLE_MODES
+            menu_modes: crate::config::ModeConfig::ALL
                 .iter()
-                .map(|k| k.to_string())
+                .map(|m| m.key().to_string())
                 .collect(),
             ..Config::default()
         };
@@ -985,6 +1078,41 @@ mod tests {
             .map(|p| p.key.as_str())
             .collect();
         assert_eq!(checked, vec!["display:flow"]);
+    }
+
+    #[test]
+    fn strip_table_is_horizontal_with_digit_labels() {
+        // The suggestion strip's table: the full list at the paged cursor,
+        // horizontal, one digit label per slot so the picking key is visible
+        // on the entry; round=false so the panel hides the pager at the ends.
+        let table = lookup_table_strip(5, 5, &["một".into(), "hai".into()]);
+        assert_eq!(table.0.signature().to_string(), "(sa{sv}uubbiavav)");
+        let parts = table
+            .0
+            .as_any()
+            .downcast_ref::<(
+                String,
+                crate::ibus_text::Props,
+                u32,
+                u32,
+                bool,
+                bool,
+                i32,
+                Vec<Variant<Box<dyn RefArg>>>,
+                Vec<Variant<Box<dyn RefArg>>>,
+            )>()
+            .expect("IBusLookupTable fields");
+        assert_eq!(
+            (parts.2, parts.3, parts.4, parts.5, parts.6),
+            (5, 5, true, false, 0)
+        );
+        let text = |list: &Vec<Variant<Box<dyn RefArg>>>| -> Vec<String> {
+            list.iter()
+                .map(|v| crate::ibus_text::text_from_variant(v).expect("IBusText"))
+                .collect()
+        };
+        assert_eq!(text(&parts.7), vec!["một".to_string(), "hai".to_string()]);
+        assert_eq!(text(&parts.8), ["1.", "2.", "3.", "4.", "5."]);
     }
 
     #[test]

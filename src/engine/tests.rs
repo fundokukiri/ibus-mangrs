@@ -1229,68 +1229,6 @@ fn none_rule_targets_unnamed_clients_in_every_display_mode() {
 }
 
 #[test]
-fn hidden_modes_are_not_selectable_from_config_or_rules() {
-    let mut e = Engine::new(Method::Telex, Mode::Preedit);
-    e.set_capabilities(CAP_PREEDIT_TEXT);
-    e.set_client(Some("gtk4-im:game".into()));
-    e.apply_config(&Config {
-        // The global mode is hidden by the explicit subset (no variant
-        // ships hidden anymore): the engine moves to the first visible
-        // entry instead of running a mode the user cannot see.
-        mode: ModeConfig::Flow,
-        visible_modes: Some(vec!["preedit".into(), "off".into()]),
-        // A rule naming a hidden mode is ignored; the global mode stands.
-        app_rules: vec![crate::config::AppRule {
-            pattern: "game".into(),
-            mode: ModeConfig::Flow,
-        }],
-        ..Config::default()
-    });
-    assert_eq!(e.mode(), Mode::Preedit, "hidden global mode coerced");
-    assert_eq!(e.effective_mode(), Mode::Preedit, "hidden rule ignored");
-
-    // A visible rule still wins over the global mode (a forward-transport
-    // mode, so the missing uinput device does not force a preedit fallback).
-    e.apply_config(&Config {
-        mode: ModeConfig::Preedit,
-        visible_modes: Some(vec!["preedit".into(), "forwardkeyevent".into()]),
-        app_rules: vec![crate::config::AppRule {
-            pattern: "game".into(),
-            mode: ModeConfig::ForwardBackspace,
-        }],
-        ..Config::default()
-    });
-    assert_eq!(
-        e.effective_mode(),
-        Mode::ForwardBackspace,
-        "visible rule applies"
-    );
-}
-
-#[test]
-fn hidden_mode_fallback_follows_the_visible_order() {
-    let mut e = Engine::new(Method::Telex, Mode::Preedit);
-    e.apply_config(&Config {
-        mode: ModeConfig::Surrounding,
-        visible_modes: Some(vec!["off".into(), "preedit".into()]),
-        ..Config::default()
-    });
-    assert_eq!(e.mode(), Mode::Off, "the first visible entry wins");
-    // The explicit subset hides Preedit itself: the fallback still follows
-    // the list order, not the factory default.
-    e.apply_config(&Config {
-        mode: ModeConfig::Preedit,
-        visible_modes: Some(vec!["forwardbackspace".into(), "flow".into()]),
-        ..Config::default()
-    });
-    assert_eq!(
-        e.mode(),
-        Mode::ForwardBackspace,
-        "the fallback follows the list order, not the factory default"
-    );
-}
-
-#[test]
 fn app_name_feeds_rules_but_not_transport_decisions() {
     // A mutter-relayed client (gnome-shell) is named by the focus
     // extension: rules must now match the name, while every transport
@@ -1813,48 +1751,6 @@ fn macro_on_valid_word_is_opt_in() {
 }
 
 #[test]
-fn extra_url_char_bypass_is_opt_in() {
-    // Default: a backtick is not URL context — `` `vieejt` `` composes.
-    for mode in [Mode::Preedit, Mode::Surrounding] {
-        let mut e = engine(mode, Config::default());
-        assert_eq!(type_replay(&mut e, "`vieejt` "), "`việt` ", "{mode:?}");
-        // With the character added, the word between the backticks stays raw.
-        let mut e = engine(
-            mode,
-            Config {
-                experimental_features: true,
-                extra_url_chars_enabled: true,
-                extra_url_chars: "`".into(),
-                ..Config::default()
-            },
-        );
-        assert_eq!(type_replay(&mut e, "`vieejt` "), "`vieejt` ", "{mode:?}");
-    }
-}
-
-#[test]
-fn extra_url_chars_never_accept_a_hyphen() {
-    // `-` is filtered out of the start set so `--` keeps becoming an em
-    // dash, even when a hand-edited file smuggles it in.
-    let mut e = engine(
-        Mode::Surrounding,
-        Config {
-            em_dash: true,
-            experimental_features: true,
-            extra_url_chars_enabled: true,
-            extra_url_chars: "-".into(),
-            ..Config::default()
-        },
-    );
-    assert_eq!(type_replay(&mut e, "a-"), "a-", "the hyphen must stay raw");
-    assert_eq!(
-        type_replay(&mut e, "-"),
-        "—",
-        "`--` still becomes an em dash"
-    );
-}
-
-#[test]
 fn experimental_gate_forces_every_feature_off() {
     // Every switch on, master gate closed: the engine must behave exactly
     // like the defaults — the saved switches and values stay in the file
@@ -1863,8 +1759,6 @@ fn experimental_gate_forces_every_feature_off() {
         Mode::Surrounding,
         Config {
             macro_expand_valid_words: true,
-            extra_url_chars_enabled: true,
-            extra_url_chars: "`".into(),
             echo_stale_enabled: true,
             echo_stale_ms: 400,
             ..Config::default()
@@ -1880,24 +1774,17 @@ fn experimental_gate_forces_every_feature_off() {
     );
     assert_eq!(e.echo_stale(), Duration::from_millis(150), "default window");
     assert!(!e.macro_expand_valid_words && !e.idle_commit_enabled);
-    assert!(e.extra_url_chars.is_empty() && e.extra_capitalize_after.is_empty());
     // Gate open: the same switches apply again.
     let mut e = engine(
         Mode::Surrounding,
         Config {
             experimental_features: true,
             macro_expand_valid_words: true,
-            extra_url_chars_enabled: true,
-            extra_url_chars: "`".into(),
             ..Config::default()
         },
     );
     assert!(e.macro_expand_valid_words);
-    assert_eq!(
-        type_replay(&mut e, "`vieejt` "),
-        "`vieejt` ",
-        "bypass applies"
-    );
+    assert_eq!(type_replay(&mut e, "`vieejt` "), "`việt` ", "composition");
 }
 
 #[test]
@@ -2019,33 +1906,6 @@ fn idle_commit_disabled_by_default_and_terminators_reset_reentry() {
         !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
         "a stale report must keep the commit final: {actions:?}"
     );
-}
-
-#[test]
-fn extra_capitalize_triggers_are_opt_in() {
-    // Default: a colon does not start a sentence.
-    for mode in [Mode::Preedit, Mode::Surrounding] {
-        let mut e = engine(
-            mode,
-            Config {
-                auto_capitalize: true,
-                ..Config::default()
-            },
-        );
-        assert_eq!(type_replay(&mut e, "tra: cam "), "tra: cam ", "{mode:?}");
-        // With the colon added, the next word capitalizes.
-        let mut e = engine(
-            mode,
-            Config {
-                auto_capitalize: true,
-                experimental_features: true,
-                auto_capitalize_after_enabled: true,
-                auto_capitalize_after: ":".into(),
-                ..Config::default()
-            },
-        );
-        assert_eq!(type_replay(&mut e, "tra: cam "), "tra: Cam ", "{mode:?}");
-    }
 }
 
 #[test]
@@ -3234,6 +3094,30 @@ fn surrounding_on_a_capability_less_client_forwards_backspaces() {
             .iter()
             .any(|a| matches!(a, Action::ForwardBackspaces(_))),
         "terminal transport: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn caps0_uinput_auto_resolves_to_forward() {
+    // A caps-0 context (a real XIM client) under auto, with an injection
+    // backend present: the backend proves nothing about an inline rewrite
+    // the client renders no preedit for, so the walk still terminates on the
+    // forwarded transport — the one that reaches every client by contract.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(0);
+    e.set_uinput_available(true);
+    assert_eq!(e.effective_mode(), Mode::ForwardBackspace);
+    let actions = type_raw(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "the forwarded transport serves the caps-0 client: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+        "no injected rewrite without a preedit-capable client: {actions:?}"
     );
     assert_eq!(replay(&actions), "tiếng");
 }
@@ -5006,4 +4890,1215 @@ fn keep_repeats_raw_a_mark_key_after_a_hold_keeps_screen_and_word_in_sync() {
     // The screen showed "ooo" and "ooo'" — the committed trail word and
     // the literal quote land exactly that.
     assert_eq!(buf, "ooo' ");
+}
+
+// --- suggestion strip ---
+
+/// Engine with the strip switch applied; unlike `engine` above this picks
+/// the input method too — every preset serves the strip now that the pick
+/// keys are `Alt`+digits and `` ` ``. The switch rides the experimental gate
+/// (the engine bakes `experimental && suggest_words`), so a strip-on test
+/// turns the gate on with it.
+fn suggest_engine(method: Method, mode: Mode, suggest_words: bool) -> Engine {
+    let mut e = Engine::new(method, mode);
+    e.apply_config(&Config {
+        mode: mode.into(),
+        suggest_words,
+        experimental_features: true,
+        ..Config::default()
+    });
+    // apply_config resets the method to the config default, exactly like it
+    // resets the mode (see `engine` above); the caller wins again.
+    e.set_method(method);
+    e
+}
+
+/// Feed keys one at a time, keeping each key's action batch apart: the
+/// strip assertions are per-key (quiet on the first char, open on the
+/// second, hidden on the terminator). Clients here need only the preedit
+/// capability — inline modes get their own surrounding-text feeder below.
+fn suggest_keys(e: &mut Engine, keys: &str) -> Vec<Vec<Action>> {
+    if e.client().is_none() {
+        e.set_client(Some("gtk4-im:test".into()));
+    }
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    keys.chars().map(|c| e.process_char(c)).collect()
+}
+
+/// The strip actions in one key's batch, for the zero-leak assertions.
+fn strip_actions(actions: &[Action]) -> Vec<&Action> {
+    actions
+        .iter()
+        .filter(|a| matches!(a, Action::UpdateCandidates { .. } | Action::HideCandidates))
+        .collect()
+}
+
+/// The candidate list a batch carries, if any.
+fn candidates_of(actions: &[Action]) -> Option<&Vec<String>> {
+    actions.iter().find_map(|a| match a {
+        Action::UpdateCandidates { items, .. } => Some(items),
+        _ => None,
+    })
+}
+
+/// The committed sample model for the predict tests. Injected straight into
+/// the engine's `model` field: an env override would be process-global and
+/// leak into the concurrent legacy strip tests. The Arc matches the field's
+/// shared-parse type; the sample bypasses the process-wide cache, so every
+/// call parses its own (2 KB) fixture.
+pub(crate) fn sample_model() -> std::sync::Arc<crate::predict::PredictModel> {
+    // Test-only expect: the committed fixture's absence is the failure.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("data/model-sample.bin");
+    std::sync::Arc::new(
+        crate::predict::open(&path)
+            .expect("data/model-sample.bin missing — run scripts/build-predict-model.py --sample"),
+    )
+}
+
+/// Engine with the strip switch on and the committed sample model injected:
+/// the model's compounds, single words and next-word lists serve the strip
+/// (the merged switch — there is no dictionary path left to layer under).
+fn predict_engine(method: Method, mode: Mode) -> Engine {
+    let mut e = suggest_engine(method, mode, true);
+    e.model = Some(sample_model());
+    e
+}
+
+/// The candidate a pick at `index` commits, off the list the strip emitted.
+/// The list is model-built and deterministic for the fixture, but the pick
+/// must still be checked against what the strip actually carried — never a
+/// literal.
+fn picked_candidate(actions: &[Action], index: usize) -> String {
+    let list =
+        candidates_of(actions).unwrap_or_else(|| panic!("the strip offered a list: {actions:?}"));
+    list.get(index)
+        .unwrap_or_else(|| panic!("the list holds the picked index: {list:?}"))
+        .clone()
+}
+
+/// The expected sentence-start accept-commit: the candidate with its first
+/// character uppercased. Spelled out here instead of borrowed from
+/// `capitalize_first`, so the check stays independent of the code it tests.
+fn capitalized(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+#[test]
+fn suggest_strip_opens_on_the_first_char() {
+    // The strip starts at the first letter: the model's rows for the
+    // 1-char prefix serve right away (the old below-two-chars silence was
+    // the dictionary's full-table scan guard — the model's bounded range
+    // scan has no such degenerate case). No other candidate action rides
+    // the same key.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "si");
+    let first =
+        candidates_of(&keys[0]).unwrap_or_else(|| panic!("the strip opens on `s`: {:?}", keys[0]));
+    assert!(
+        first.first().is_some_and(|w| w.starts_with("s")),
+        "{first:?}"
+    );
+    assert_eq!(strip_actions(&keys[0]).len(), 1, "{:?}", keys[0]);
+    let list =
+        candidates_of(&keys[1]).unwrap_or_else(|| panic!("the strip rides `si`: {:?}", keys[1]));
+    assert!(
+        list.first().is_some_and(|w| w.starts_with("si")),
+        "{list:?}"
+    );
+    assert_eq!(strip_actions(&keys[1]).len(), 1, "{:?}", keys[1]);
+}
+
+#[test]
+fn state_a_lists_only_what_follows_the_landed_word() {
+    // A landed word narrows the band to what the model actually saw after it:
+    // after `hello ` the list is the `w` words that follow `hello`, not every
+    // `w` word of the vocabulary (`want` is more common on its own but never
+    // follows `hello`, so it is not offered). The 1-char pick commits through
+    // the state-A path (the held letter is the word the strip replaces).
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "hello ");
+    let keys = suggest_keys(&mut e, "w");
+    let items = candidates_of(&keys[0]).expect("the 1-char word refreshes the list");
+    assert_eq!(
+        items.first().map(String::as_str),
+        Some("world"),
+        "{items:?}"
+    );
+    assert!(!items.iter().any(|w| w == "want"), "{items:?}");
+    let actions = e.accept_candidate(0);
+    assert!(
+        actions.contains(&Action::Commit("world ".to_string())),
+        "{actions:?}"
+    );
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "sinh ");
+    let keys = suggest_keys(&mut e, "h");
+    let items = candidates_of(&keys[0]).expect("the 1-char word refreshes the list");
+    assert_eq!(items.first().map(String::as_str), Some("học"));
+}
+
+#[test]
+fn a_mark_other_than_a_space_closes_the_strip() {
+    // A word landing keeps the list only when a space ended it — the
+    // landed-word surface is pinned by `state_b_predicts_next_syllable`.
+    // A comma, a full stop or a second space is punctuation the user typed
+    // after the word, and the next-word list would be a guess for text the
+    // mark already moved on from.
+    for (keys, mark) in [("sinh,", ','), ("sinh.", '.'), ("sinh  ", ' ')] {
+        let mut e = predict_engine(Method::Telex, Mode::Preedit);
+        let batches = suggest_keys(&mut e, keys);
+        assert!(
+            batches[..keys.len() - 1]
+                .iter()
+                .any(|batch| candidates_of(batch).is_some()),
+            "the strip is open before the mark: {keys:?} {batches:?}"
+        );
+        assert!(
+            candidates_of(batches.last().unwrap()).is_none(),
+            "no next-word list after the closing {mark:?}: {keys:?} {batches:?}"
+        );
+        assert!(
+            batches.last().unwrap().contains(&Action::HideCandidates),
+            "the strip closes on {mark:?}: {keys:?} {batches:?}"
+        );
+    }
+}
+
+#[test]
+fn a_mistyped_word_offers_its_nearest_corrections() {
+    // `sinhh` extends `sinh` with a letter nothing composes: no model row
+    // carries the prefix, so the embedded syllable table answers with its
+    // distance-1 neighbours — the intended `sinh` among them.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "sinhh");
+    let items = candidates_of(keys.last().unwrap()).expect("the corrections open the strip");
+    assert_eq!(items.first().map(String::as_str), Some("sinh"), "{items:?}");
+}
+
+#[test]
+fn suggest_strip_hides_when_nothing_matches_the_word() {
+    // `sinhvx` outgrows both bands — no model row carries the prefix and no
+    // table word sits one edit away — so the list empties and the strip
+    // closes while the word is still in flight.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "sinhvx");
+    assert!(
+        keys[..4].iter().any(|batch| candidates_of(batch).is_some()),
+        "the strip opened mid-word: {keys:?}"
+    );
+    assert!(
+        keys.last().unwrap().contains(&Action::HideCandidates),
+        "{:?}",
+        keys.last()
+    );
+}
+
+#[test]
+fn suggest_accept_commits_the_candidate_and_closes() {
+    // Selection rides the server (the picker's digit precedent); the
+    // engine's accept path commits the candidate off the emitted list,
+    // resets the composition like a word end, and records the context
+    // word for the strip's next round. The committed text is the emitted
+    // entry at the picked index, checked against that list — never a
+    // literal (see `picked_candidate`).
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "si");
+    let picked = picked_candidate(&keys[1], 0);
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HidePreedit,
+            Action::HideCandidates,
+            Action::Commit(format!("{} ", picked.clone())),
+        ]
+    );
+    assert!(!e.suggest_open);
+    assert_eq!(e.last_committed_word.as_deref(), Some(picked.as_str()));
+    assert!(!e.preedit_commit_pending());
+}
+
+#[test]
+fn suggest_accept_ignores_a_closed_strip_and_an_out_of_range_index() {
+    // The server maps page + label to a global index; a race between its
+    // strip state and the engine's (the word moved on between the last
+    // update and the key) must commit nothing rather than a stale word.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    assert!(e.accept_candidate(0).is_empty());
+    suggest_keys(&mut e, "si");
+    assert!(e.accept_candidate(25).is_empty());
+    // State untouched: the strip is still up, the word still composing.
+    assert!(e.suggest_open);
+    assert!(e.preedit_commit_pending());
+    assert!(e.last_committed_word.is_none());
+}
+
+#[test]
+fn suggest_accept_capitalizes_a_sentence_start_candidate() {
+    // The accepted candidate gets the same auto_capitalize treatment as the
+    // word it replaces: the composition path uppercases the first key of a
+    // sentence-start word (the capital rides the composition), so the
+    // candidate committing in its place carries the capital too — first
+    // character only. The commit is checked against the emitted list
+    // entry, not a literal (see `picked_candidate`); the capitalization is
+    // the invariant under test.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        mode: Mode::Preedit.into(),
+        auto_capitalize: true,
+        suggest_words: true,
+        experimental_features: true,
+        ..Config::default()
+    });
+    e.set_method(Method::Telex);
+    e.model = Some(sample_model());
+    // `.` arms the capitalize window; the strip answers with the model's
+    // list for the word. A mid-list index keeps the index-to-entry mapping
+    // under test the way the original position lookup did.
+    let keys = suggest_keys(&mut e, ".si");
+    let picked = picked_candidate(&keys[2], 1);
+    let actions = e.accept_candidate(1);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HidePreedit,
+            Action::HideCandidates,
+            Action::Commit(format!("{} ", capitalized(&picked))),
+        ]
+    );
+    // The context word follows the commit as it landed: the capitalized form.
+    assert_eq!(
+        e.last_committed_word.as_deref(),
+        Some(capitalized(&picked).as_str())
+    );
+    assert!(!e.suggest_open);
+}
+
+#[test]
+fn suggest_accept_keeps_the_model_form_without_auto_capitalize() {
+    // The switch off: even at a sentence start the candidate commits in
+    // its model form verbatim — capitalization is opt-in. The commit is
+    // checked against the emitted list entry, not a literal (see
+    // `picked_candidate`).
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        mode: Mode::Preedit.into(),
+        auto_capitalize: false,
+        suggest_words: true,
+        experimental_features: true,
+        ..Config::default()
+    });
+    e.set_method(Method::Telex);
+    e.model = Some(sample_model());
+    let keys = suggest_keys(&mut e, ".si");
+    let picked = picked_candidate(&keys[2], 0);
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HidePreedit,
+            Action::HideCandidates,
+            Action::Commit(format!("{} ", picked.clone())),
+        ]
+    );
+    assert_eq!(e.last_committed_word.as_deref(), Some(picked.as_str()));
+}
+
+#[test]
+fn suggest_accept_stays_lowercase_mid_sentence() {
+    // The capitalize condition is sentence start, not global: with the
+    // switch on, a word typed after a plain space still commits the model
+    // form verbatim. The commit is checked against the emitted list entry,
+    // not a literal (see `picked_candidate`).
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        mode: Mode::Preedit.into(),
+        auto_capitalize: true,
+        suggest_words: true,
+        experimental_features: true,
+        ..Config::default()
+    });
+    e.set_method(Method::Telex);
+    e.model = Some(sample_model());
+    suggest_keys(&mut e, "sinh ");
+    let keys = suggest_keys(&mut e, "si");
+    let picked = picked_candidate(&keys[1], 0);
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HidePreedit,
+            Action::HideCandidates,
+            Action::Commit(format!("{} ", picked.clone())),
+        ]
+    );
+    assert_eq!(e.last_committed_word.as_deref(), Some(picked.as_str()));
+}
+
+#[test]
+fn suggest_digit_still_ends_the_word_and_hides() {
+    // The engine never intercepts digits (the server owns selection while
+    // its strip is up): on a Telex preset a digit is a word terminator, so
+    // `si1` commits the raw keys and closes the strip, and the next digit
+    // types as content — no candidate action leaks on either.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "si1");
+    assert!(candidates_of(&keys[1]).is_some(), "{:?}", keys[1]);
+    assert!(keys[2].contains(&Action::HideCandidates), "{:?}", keys[2]);
+    assert!(candidates_of(&keys[2]).is_none(), "{:?}", keys[2]);
+    let after = suggest_keys(&mut e, "1");
+    assert!(strip_actions(&after[0]).is_empty(), "{:?}", after[0]);
+}
+
+// --- prediction tier (state A) ---
+
+#[test]
+fn page_one_is_the_most_common_words() {
+    // Page 1 fills by how common each candidate is, single words and
+    // compounds ranked together: for `h` the compound `học sinh` beats the
+    // rarer single `họ`, and `họ là` closes the page ahead of the English
+    // `hello`, which follows the Vietnamese band. `h` matches no emoji, so
+    // five words take the five slots; the rest keeps coming for the pages.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "h");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on h");
+    let page: Vec<&str> = items.iter().take(5).map(String::as_str).collect();
+    assert_eq!(
+        page,
+        ["học", "học sinh", "học sinh giỏi", "họ", "họ là"],
+        "{items:?}"
+    );
+    assert!(items.len() > 5, "the leftovers still page: {items:?}");
+}
+
+#[test]
+fn page_one_gives_the_last_slot_to_a_keyword_emoji() {
+    // A keyword-matching emoji holds slot 5, outside the commonness order
+    // of the word slots: `sinh` leads with its strongest compound and the
+    // glyph closes the page. A thin prefix pads nothing — the page is as
+    // long as the material.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "sinh");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on sinh");
+    assert_eq!(items[0], "sinh viên", "{items:?}");
+    assert_eq!(items[4], "🍼", "the emoji holds slot 5: {items:?}");
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "si");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on si");
+    assert_eq!(items[0], "sinh", "{items:?}");
+    assert_eq!(items[1], "sinh viên", "{items:?}");
+    assert_eq!(items[4], "🇸🇮", "the emoji holds slot 5: {items:?}");
+}
+
+#[test]
+fn strip_without_a_model_serves_the_table_words_and_emoji() {
+    // With the model slot cleared the model bands are empty, but the
+    // embedded syllable table still answers an unknown prefix (`meo` finds
+    // `mèo`, its toneless twin) and the emoji keywords still open the strip;
+    // `zz` is too short for the correction band and matches neither, so
+    // nothing opens. (The slot is cleared directly: apply_config would
+    // auto-load whatever file the machine carries, and an env override is
+    // process-global across parallel tests.)
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    e.model = None;
+    let zz = suggest_keys(&mut e, "zz");
+    assert!(zz.iter().all(|b| candidates_of(b).is_none()), "{zz:?}");
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    e.model = None;
+    let meo = suggest_keys(&mut e, "meo");
+    let items = candidates_of(&meo[meo.len() - 1]).expect("the table and the emoji open the strip");
+    assert!(items.contains(&"mèo".to_string()), "{items:?}");
+    assert!(
+        items
+            .iter()
+            .any(|w| !w.chars().any(|c| c.is_ascii_alphanumeric())),
+        "the emoji still reach the list without a model: {items:?}"
+    );
+}
+
+#[test]
+fn predict_state_a_leads_model_completions() {
+    // A partial prefix finishes the syllable first: the model's single
+    // words lead the list, its compounds (what could continue the
+    // endings) follow, the emoji tail trails.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "si");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on si");
+    assert!(
+        !items.is_empty(),
+        "the model's VN rows fill the list on a live prefix"
+    );
+    assert!(!items.first().unwrap().contains(' '), "{items:?}");
+    assert!(
+        items.iter().any(|item| item.contains(' ')),
+        "the compounds follow the singles: {items:?}"
+    );
+}
+
+// --- prediction tier (state B) ---
+
+#[test]
+fn state_b_predicts_next_syllable() {
+    // `sinh ` lands the word and the strip re-opens with the model's
+    // next-word list for the new context, strongest follower first.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "sinh ");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens after the space");
+    assert_eq!(items.first().map(String::as_str), Some("viên"));
+}
+
+#[test]
+fn state_b_english_context_predicts_english() {
+    // The unified id space: an EN context finds its EN followers in the
+    // same bigram table, and the unigram backoff tier fills the list
+    // behind them (0.4 * count / total) with no VN syllable leaking into
+    // the head — the fixture's own rows first, global frequent fillers after.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "hello ");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens after the space");
+    assert_eq!(&items[..2], &["world".to_string(), "there".to_string()]);
+    assert_eq!(
+        &items[2..5],
+        &["hello".to_string(), "want".to_string(), "help".to_string()],
+        "the unigram tier fills by global frequency (hello is the top row)"
+    );
+    assert!(
+        items[..5].iter().all(|w| w.is_ascii()),
+        "no VN syllable leaks into the EN head"
+    );
+}
+
+#[test]
+fn state_b_pick_commits_the_word_and_closes_the_strip() {
+    // The state-B pick commits the candidate wholesale (nothing is held —
+    // no delete transport) and ends the strip: no next-word list under the
+    // word the user just chose.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "sinh ");
+    let actions = e.accept_candidate(0);
+    assert_eq!(replay(&actions), "viên ");
+    assert_eq!(strip_actions(&actions), vec![&Action::HideCandidates]);
+    assert!(!e.suggest_open);
+    // The next letter asks for a new list, and it still follows the pick.
+    let next = suggest_keys(&mut e, "h");
+    let items = candidates_of(&next[0]).expect("the next word opens its own list");
+    assert!(items.iter().any(|w| w.starts_with('h')), "{items:?}");
+}
+
+#[test]
+fn state_b_confined_to_strip_modes() {
+    // The state-B hook lives on the common-path word landing only: Flow's
+    // uinput word ends never reach it (its state-A strip still runs — the
+    // space batch just hides without offering a next-word list) and OFF
+    // turns the strip off outright.
+    for mode in [Mode::Flow, Mode::Off] {
+        let mut e = predict_engine(Method::Telex, mode);
+        let keys = suggest_keys(&mut e, "sinh ");
+        assert!(
+            candidates_of(keys.last().unwrap()).is_none(),
+            "no state-B list after the space in {mode:?}: {:?}",
+            keys.last().unwrap()
+        );
+    }
+}
+
+#[test]
+fn state_b_without_a_model_stays_silent() {
+    // No model, no next-word list: the space batch hides the strip and
+    // offers nothing — the dictionary that once served this surface is out
+    // of the strip entirely. (The slot is cleared directly — see
+    // `strip_without_a_model_serves_emoji_only`.)
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    e.model = None;
+    let keys = suggest_keys(&mut e, "sinh ");
+    assert!(
+        candidates_of(keys.last().unwrap()).is_none(),
+        "the state-B surface stays silent without a model: {:?}",
+        keys.last().unwrap()
+    );
+}
+
+#[test]
+fn state_b_without_context_stays_silent() {
+    // A bare space with no word before it: no context, no strip.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, " ");
+    assert!(keys.iter().all(|b| candidates_of(b).is_none()));
+}
+
+// --- prediction tier (bands: EN + emoji) ---
+
+#[test]
+fn english_completions_on_ascii_prefix() {
+    // `hel` is pure ASCII and the Vietnamese band matches nothing: the EN
+    // rows on that prefix take the page, commonest first.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "hel");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on hel");
+    assert_eq!(
+        items.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["hello", "help"],
+        "{items:?}"
+    );
+}
+
+#[test]
+fn vietnamese_letters_exclude_english() {
+    // A Vietnamese letter or tone mark anywhere excludes EN: `hè` never
+    // offers `hello`.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "hè");
+    if let Some(items) = candidates_of(keys.last().unwrap()) {
+        assert!(!items.contains(&"hello".to_string()), "{items:?}");
+    }
+}
+
+#[test]
+fn emoji_reach_the_strip_tail() {
+    // `meo` folds to the mèo keywords: the toneless syllable matches fill
+    // the word slots, the glyphs trail them, capped at STRIP_EMOJI_CAP.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    let keys = suggest_keys(&mut e, "meo");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on meo");
+    assert!(
+        items.iter().any(|w| w == "mèo" || w == "mẹo"),
+        "the syllable band leads: {items:?}"
+    );
+    let count = items
+        .iter()
+        .filter(|w| !w.chars().any(|c| c.is_ascii_alphanumeric()))
+        .count();
+    assert!(
+        count > 0 && count <= crate::emoji::STRIP_EMOJI_CAP,
+        "{items:?}"
+    );
+}
+
+#[test]
+fn digit_tone_presets_serve_the_strip_too() {
+    // The pick keys are `Alt`+digits and `` ` ``, so a preset whose digits
+    // are tone keys no longer has to stay silent: the digits stay in the
+    // word and the strip follows it like any other preset.
+    for method in [Method::Vni, Method::TelexVni, Method::VniFrench] {
+        let mut e = suggest_engine(method, Mode::Preedit, true);
+        let keys = suggest_keys(&mut e, "vie");
+        assert!(
+            keys.iter().any(|batch| candidates_of(batch).is_some()),
+            "{method:?} opens the strip: {keys:?}"
+        );
+        // A digit is the preset's own mark or a terminator, never a pick:
+        // the strip keeps following the word through it.
+        let keys = suggest_keys(&mut e, "t6");
+        assert!(
+            keys.iter().any(|batch| candidates_of(batch).is_some()),
+            "{method:?} the strip follows the word through a digit: {keys:?}"
+        );
+    }
+}
+
+#[test]
+fn suggest_stays_silent_while_the_experimental_gate_is_closed() {
+    // The row lives behind "Bật thử nghiệm" like the keeps: the engine bakes
+    // the master gate into the mirror (`experimental && suggest_words`), so
+    // the saved switch alone — gate closed — must keep every strip action
+    // off the wire. Config::default() carries the closed gate on purpose.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.apply_config(&Config {
+        suggest_words: true,
+        ..Config::default()
+    });
+    let keys = suggest_keys(&mut e, "th");
+    for (i, batch) in keys.iter().enumerate() {
+        assert!(
+            strip_actions(batch).is_empty(),
+            "key {i} emitted a strip action: {batch:?}"
+        );
+    }
+}
+
+#[test]
+fn suggest_off_and_flow_stay_silent() {
+    // OFF forwards raw keys — nothing composes, so no candidate action may
+    // appear. (Flow composes through the injection backend and serves the
+    // strip like the other modes now; its own pin follows.)
+    let mut e = suggest_engine(Method::Telex, Mode::Off, true);
+    let keys = suggest_keys(&mut e, "tieng ");
+    let all: Vec<Action> = keys.into_iter().flatten().collect();
+    assert!(strip_actions(&all).is_empty(), "{all:?}");
+}
+
+#[test]
+fn suggest_strip_opens_in_flow_and_rides_the_word_end() {
+    // Flow's per-key path now carries the strip like the common path: the
+    // list follows the composed word while it grows, and the word-end
+    // rewrite closes it with the commit.
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    let keys = suggest_keys(&mut e, "thooi ");
+    assert!(
+        keys[..5].iter().any(|batch| candidates_of(batch).is_some()),
+        "the strip is open before the terminator: {keys:?}"
+    );
+    assert!(keys[5].contains(&Action::HideCandidates), "{:?}", keys[5]);
+    assert!(candidates_of(&keys[5]).is_none(), "{:?}", keys[5]);
+}
+
+/// The word an `UpdateCandidates` action carries — the box's input line
+/// source (the inline modes have no preedit signal to convert).
+fn word_of(actions: &[Action]) -> Option<&str> {
+    actions.iter().find_map(|a| match a {
+        Action::UpdateCandidates { word, .. } => Some(word.as_str()),
+        _ => None,
+    })
+}
+
+/// Feed keys like `suggest_keys` but with surrounding-text reports after
+/// every key — the inline modes' delete transports (the protocol delete,
+/// clamped to the report) need a client that reports its buffer.
+fn suggest_keys_st(e: &mut Engine, keys: &str) -> Vec<Vec<Action>> {
+    if e.client().is_none() {
+        e.set_client(Some("gtk4-im:test".into()));
+    }
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_surrounding(String::new(), 0);
+    let mut buf: Vec<char> = Vec::new();
+    keys.chars()
+        .map(|c| {
+            let actions = e.process_char(c);
+            for a in &actions {
+                match a {
+                    Action::DeleteBefore(n) => {
+                        buf.truncate(buf.len().saturating_sub(*n as usize));
+                    }
+                    Action::DeleteSurrounding { offset, n } => {
+                        let start = (buf.len() as i64 + *offset as i64).max(0) as usize;
+                        let end = (start + *n as usize).min(buf.len());
+                        buf.drain(start..end);
+                    }
+                    Action::Commit(t) => buf.extend(t.chars()),
+                    _ => {}
+                }
+            }
+            let text: String = buf.iter().collect();
+            e.set_surrounding(text, buf.len() as u32);
+            actions
+        })
+        .collect()
+}
+
+#[test]
+fn suggest_strip_carries_the_word_for_the_box_line() {
+    // The action is the word's only vehicle to the box's input line: the
+    // inline modes have no preedit signal to convert, so the word rides
+    // every `UpdateCandidates` — and never collides with its own list (the
+    // completions exclude the word itself).
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let keys = suggest_keys(&mut e, "th");
+    assert_eq!(word_of(&keys[1]), Some("th"), "{:?}", keys[1]);
+    let items = candidates_of(&keys[1]).expect("the strip opens on `th`");
+    assert!(
+        !items.iter().any(|w| w == "th"),
+        "completions exclude the word: {items:?}"
+    );
+}
+
+#[test]
+fn suggest_accept_rewrites_the_held_word_in_surrounding() {
+    // Commit-as-you-type: `th` already sits in the application's field, so
+    // the pick erases it through the protocol delete (clamped to the
+    // report) before the candidate commits — the old shape appended the
+    // candidate after the held word (`chon` + pick → `chonchọn`).
+    let mut e = suggest_engine(Method::Telex, Mode::Surrounding, true);
+    let keys = suggest_keys_st(&mut e, "th");
+    let picked = picked_candidate(&keys[1], 0);
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HideCandidates,
+            Action::DeleteBefore(2),
+            Action::Commit(format!("{} ", picked)),
+        ],
+        "{actions:?}"
+    );
+    assert!(!e.suggest_open);
+}
+
+#[test]
+fn suggest_accept_uses_forwarded_backspaces_in_forward_mode() {
+    // ForwardBackspace holds the composed text in the application too; its
+    // transport is Backspace key events sent through IBus — they reach
+    // every client, so the pick erases through them.
+    let mut e = suggest_engine(Method::Telex, Mode::ForwardBackspace, true);
+    let keys = suggest_keys(&mut e, "th");
+    let picked = picked_candidate(&keys[1], 0);
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HideCandidates,
+            Action::ForwardBackspaces(2),
+            Action::Commit(format!("{} ", picked)),
+        ],
+        "{actions:?}"
+    );
+}
+
+#[test]
+fn suggest_accept_rewrites_through_injection_in_flow() {
+    // Flow holds the word on screen through the per-key batch: the pick
+    // lands any parked commit first (a fast digit must not let the stale
+    // park re-insert the old text), erases through the injected Backspaces
+    // and commits — the emoji rewrite's exact sequence.
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    let keys = suggest_keys(&mut e, "th");
+    let picked = picked_candidate(&keys[1], 0);
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        actions,
+        vec![
+            Action::HideCandidates,
+            Action::CommitNow("th".into()),
+            Action::InjectBackspaces(2),
+            Action::PostDelay(10),
+            Action::Commit(format!("{} ", picked)),
+        ],
+        "{actions:?}"
+    );
+}
+
+#[test]
+fn suggest_backspace_follows_the_word_in_inline_modes() {
+    // The Backspace arms' contract, inline flavor: the list follows the
+    // shorter word all the way down to the single letter — from the first
+    // letter on the model serves (the old floor that closed the strip
+    // below two characters was the dictionary's scan guard).
+    let mut e = suggest_engine(Method::Telex, Mode::Surrounding, true);
+    let keys = suggest_keys_st(&mut e, "tha");
+    assert!(
+        candidates_of(&keys[2]).is_some(),
+        "the strip is up: {:?}",
+        keys[2]
+    );
+    let actions = e.backspace().expect("the word is in flight");
+    assert!(
+        candidates_of(&actions).is_some(),
+        "the list follows the shorter word: {actions:?}"
+    );
+    let actions = e.backspace().expect("the word is still in flight");
+    assert!(
+        candidates_of(&actions).is_some(),
+        "the list follows the single letter too: {actions:?}"
+    );
+
+    let mut e = suggest_engine(Method::Telex, Mode::ForwardBackspace, true);
+    let keys = suggest_keys(&mut e, "tha");
+    assert!(candidates_of(&keys[2]).is_some(), "{:?}", keys[2]);
+    let actions = e.backspace().expect("the word is in flight");
+    assert!(
+        candidates_of(&actions).is_some(),
+        "the list follows the shorter word: {actions:?}"
+    );
+    let actions = e.backspace().expect("the word is still in flight");
+    assert!(
+        candidates_of(&actions).is_some(),
+        "the list follows the single letter too: {actions:?}"
+    );
+
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    suggest_keys(&mut e, "tha");
+    let actions = e.backspace().expect("the word is in flight");
+    assert_eq!(
+        strip_actions(&actions).len(),
+        1,
+        "exactly one strip action rides the backspace: {actions:?}"
+    );
+    let actions = e.backspace().expect("the word is still in flight");
+    assert!(
+        candidates_of(&actions).is_some(),
+        "the list follows the single letter too: {actions:?}"
+    );
+}
+
+#[test]
+fn suggest_last_committed_word_follows_the_word_end() {
+    // The word a Finish commits becomes the strip's context word; focus
+    // loss drops it with the rest of the word state.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    suggest_keys(&mut e, "tieengs");
+    assert!(e.last_committed_word.is_none());
+    suggest_keys(&mut e, " ");
+    assert_eq!(e.last_committed_word.as_deref(), Some("tiếng"));
+    e.focus_out();
+    assert!(e.last_committed_word.is_none());
+}
+
+// --- pick learning (tier 3) ---
+
+/// A strip engine with pick learning on, redirected away from the real
+/// config dir: behavioral data from a test run must never touch the
+/// owner's files.
+fn learn_engine(method: Method, mode: Mode) -> Engine {
+    let mut e = suggest_engine(method, mode, true);
+    e.apply_config(&Config {
+        mode: mode.into(),
+        suggest_words: true,
+        experimental_features: true,
+        ..Config::default()
+    });
+    e.set_method(method);
+    e.model = Some(sample_model());
+    e.learn_dir = learn_tmp("engine");
+    e.picks = Some(crate::learn::UserPicks::load(&e.learn_dir));
+    e
+}
+
+fn learn_tmp(tag: &str) -> std::path::PathBuf {
+    // A fresh dir per call: the tests run on parallel threads and a shared
+    // directory would let one test's wipe/delete race another's asserts.
+    static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "mangrs-learn-test-{tag}-{}-{n}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp learn dir");
+    dir
+}
+
+#[test]
+fn learning_off_writes_nothing() {
+    // The pick path is shared with the legacy strip: with the switch off,
+    // picking a candidate must not create the behavioral files — they
+    // exist only when the owner opted in.
+    let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
+    let dir = learn_tmp("off");
+    e.learn_dir = dir.clone();
+    suggest_keys(&mut e, "sinh");
+    e.accept_candidate(0);
+    assert!(!dir.join(crate::learn::PICKS_FILE).exists());
+    assert!(!dir.join(crate::learn::PAIRS_FILE).exists());
+}
+
+#[test]
+fn pick_flushes_on_tick_not_on_key() {
+    // The pick lands in memory at accept time and on disk at the engine's
+    // tick — the key path never touches the filesystem. `sin` completes the
+    // fixture's `sinh` row (single words only now — the model compound band
+    // is gone).
+    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let dir = e.learn_dir.clone();
+    let keys = suggest_keys(&mut e, "sin");
+    let items = candidates_of(keys.last().unwrap()).expect("the strip opens on sin");
+    let word = items[0].clone();
+    e.accept_candidate(0);
+    assert!(
+        !dir.join(crate::learn::PICKS_FILE).exists(),
+        "no write on the key path"
+    );
+    e.tick();
+    let text = std::fs::read_to_string(dir.join(crate::learn::PICKS_FILE))
+        .expect("the tick flushed the pick");
+    assert!(text.contains(&format!("{word}\t1\n")), "{text}");
+}
+
+#[test]
+fn user_bonus_stays_inside_its_band() {
+    // 25 picks of `help` after `world` (both frequency and pair bonus)
+    // lift help over the more frequent hello INSIDE the EN band — and
+    // never over the Vietnamese rows: the sample fixture has no VN row
+    // under `he`, so the band check rides the `h` prefix, whose VN
+    // completions must still lead the boosted EN band.
+    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    e.last_committed_word = Some("world".into());
+    for _ in 0..25 {
+        e.picks
+            .as_mut()
+            .expect("learning is on")
+            .record_pick("help", Some("world"));
+    }
+    let list = e.state_a_candidates("he");
+    let pos_help = list.iter().position(|w| w == "help").expect("help offered");
+    let pos_hello = list
+        .iter()
+        .position(|w| w == "hello")
+        .expect("hello offered");
+    assert!(pos_help < pos_hello, "picks lift help over hello: {list:?}");
+    let list_h = e.state_a_candidates("h");
+    let first_vn = list_h
+        .iter()
+        .position(|w| !w.chars().all(|c| c.is_ascii_alphabetic()))
+        .expect("the h prefix serves VN rows");
+    let first_en = list_h
+        .iter()
+        .position(|w| w.chars().all(|c| c.is_ascii_alphabetic()))
+        .expect("the h prefix serves EN rows too");
+    assert!(
+        first_vn < first_en,
+        "the bonus never crosses the band: {list_h:?}"
+    );
+}
+
+#[test]
+fn password_purpose_gates_strip_and_learning() {
+    // PASSWORD (8) and PIN (9) quiet the strip and the learning files;
+    // typing itself is untouched, and a normal field (0) re-opens the
+    // strip on the in-flight word.
+    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let dir = e.learn_dir.clone();
+    e.set_content_purpose(PURPOSE_PASSWORD);
+    let keys = suggest_keys(&mut e, "sinh");
+    assert!(
+        candidates_of(keys.last().unwrap()).is_none(),
+        "the strip stays quiet in a password field"
+    );
+    // Typing itself is untouched: the in-flight word composes exactly as
+    // before (Preedit holds it — no commit exists mid-word).
+    assert_eq!(e.wrapper.output(), "sinh");
+    e.accept_candidate(0);
+    e.tick();
+    assert!(
+        !dir.join(crate::learn::PICKS_FILE).exists(),
+        "a password field learns nothing"
+    );
+    e.set_content_purpose(PURPOSE_PIN);
+    assert!(
+        candidates_of(&e.suggest_step()).is_none(),
+        "PIN stays quiet too"
+    );
+    e.set_content_purpose(0);
+    let reopen = e.suggest_step();
+    assert!(
+        candidates_of(&reopen).is_some(),
+        "a normal field re-opens the strip on the in-flight word"
+    );
+}
+
+// --- fused state-B scoring (trigram + stupid backoff, task 6) ---
+
+#[test]
+fn prev_committed_word_shifts() {
+    // Two typed words land: the register holds the pair (before, last) the
+    // trigram tier keys on.
+    let mut e = predict_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "sinh viên ");
+    assert_eq!(e.last_committed_word.as_deref(), Some("viên"));
+    assert_eq!(e.prev_committed_word.as_deref(), Some("sinh"));
+}
+
+#[test]
+fn pick_lifts_a_state_b_candidate() {
+    // Ten picks of (hello, there) triple there's context score — it
+    // overtakes the stronger world inside the same list.
+    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    suggest_keys(&mut e, "hello ");
+    for _ in 0..10 {
+        e.picks
+            .as_mut()
+            .expect("learning is on")
+            .record_pick("there", Some("hello"));
+    }
+    let items = e.state_b_candidates(None, "hello");
+    assert_eq!(items.first().map(String::as_str), Some("there"));
+}
+
+#[test]
+fn erasing_the_word_closes_the_strip() {
+    // Erasing back to an empty input box must close the strip: without this
+    // the erase fell through to the landed-word surface and offered the
+    // next-word list for a word that is no longer being typed (`xin ` then
+    // `ch` then two Backspaces listed `lỗi`, `được`, `phép` under an empty
+    // box).
+    for mode in [Mode::Preedit, Mode::Surrounding, Mode::ForwardBackspace] {
+        let mut e = predict_engine(Method::Telex, mode);
+        suggest_keys(&mut e, "hello ");
+        suggest_keys(&mut e, "wo");
+        let actions = e.backspace().expect("the word is still in flight");
+        assert!(
+            candidates_of(&actions).is_some(),
+            "the list follows the single letter: {mode:?} {actions:?}"
+        );
+        let actions = e.backspace().expect("the word is still in flight");
+        assert!(
+            candidates_of(&actions).is_none(),
+            "nothing left to suggest: {mode:?} {actions:?}"
+        );
+        assert!(
+            actions.contains(&Action::HideCandidates),
+            "the strip closes with the word: {mode:?} {actions:?}"
+        );
+    }
+}
+
+#[test]
+fn a_flow_word_keeps_its_transport_through_a_backspace() {
+    // The owner's own setup, straight from their log: display mode Preedit
+    // with an app rule serving the word per key (Flow). The space ended the
+    // word and released the mode lock; the Backspace rebuilt the word on
+    // screen, but the pick then fell back to the configured Preedit and
+    // committed without erasing — `xin chao` plus a pick gave `xin chaochào`.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_client(Some("gtk4-im:editor".into()));
+    e.apply_config(&Config {
+        suggest_words: true,
+        experimental_features: true,
+        app_rules: vec![crate::config::AppRule {
+            pattern: "editor".into(),
+            mode: crate::config::ModeConfig::Flow,
+        }],
+        ..Config::default()
+    });
+    e.set_mode(Mode::Preedit);
+    e.set_uinput_available(true);
+    suggest_keys(&mut e, "xin chao ");
+    assert_eq!(e.word_mode, None, "the word end releases the lock");
+    e.backspace();
+    assert_eq!(
+        e.word_mode,
+        Some(Mode::Flow),
+        "the word is back on screen and still Flow's"
+    );
+    let actions = e.accept_candidate(0);
+    assert_eq!(replay(&actions), "chào ", "{actions:?}");
+    assert!(
+        actions.contains(&Action::InjectBackspaces(4)),
+        "the word is erased through Flow's transport: {actions:?}"
+    );
+}
+
+#[test]
+fn erasing_the_landing_space_turns_the_strip_back_into_the_word_list() {
+    // `xin chao ` + Backspace leaves the caret right after the word: the
+    // next-word list loses its space and the strip goes back to the word's
+    // own candidates, so the pick replaces the word instead of appending
+    // into it ("xin chaochào").
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    suggest_keys(&mut e, "xin chao ");
+    let erased = e.backspace().unwrap_or_default();
+    let items = candidates_of(&erased).expect("the word's own list re-opens");
+    assert_eq!(items.first().map(String::as_str), Some("chào"));
+    // Flow's per-key batch lands the word and empties the wrapper while the
+    // word stays on screen: the list must stay the word's own, and the pick
+    // must still replace it.
+    e.wrapper.rebuild("");
+    e.reanchor_tail("chao".into());
+    let listed = e.suggest_step();
+    let items = candidates_of(&listed).expect("the held word keeps its list");
+    assert_eq!(items.first().map(String::as_str), Some("chào"));
+    let actions = e.accept_candidate(0);
+    assert_eq!(
+        replay(&actions),
+        "chào ",
+        "the candidate replaces the word: {actions:?}"
+    );
+    assert!(
+        actions.contains(&Action::InjectBackspaces(4)),
+        "the four chars of `chao` go first: {actions:?}"
+    );
+}
+
+#[test]
+fn a_pick_refuses_an_erase_whose_width_does_not_fit_the_word() {
+    // The erase width comes off the tail, which mirrors the screen. A tail
+    // that has drifted away from the word in flight (an application that
+    // edited its own text, a focus switch) must not turn a pick into a
+    // delete into the sentence before the word.
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    suggest_keys(&mut e, "chao");
+    e.wrapper.rebuild("chào");
+    e.reanchor_tail("xinchao".into());
+    assert!(
+        e.accept_candidate(0).is_empty(),
+        "seven held chars for a four-char word: refused"
+    );
+}
+
+#[test]
+fn suggestions_off_leaves_the_erase_path_untouched() {
+    // The shared word decision sits behind the suggestion gate: with the
+    // strip off, the same keys emit no candidate action at all.
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, false);
+    e.set_uinput_available(true);
+    let keys = suggest_keys(&mut e, "xin chao ");
+    let erased = e.backspace().unwrap_or_default();
+    let strip = |actions: &[Action]| {
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::UpdateCandidates { .. } | Action::HideCandidates))
+    };
+    assert!(!keys.iter().any(|a| strip(a)), "no list while off");
+    assert!(!strip(&erased), "no list on the erase: {erased:?}");
+    assert!(e.accept_candidate(0).is_empty(), "and no pick either");
+}
+
+#[test]
+fn a_pick_uses_the_on_screen_word_when_the_wrapper_is_empty() {
+    let mut e = suggest_engine(Method::Telex, Mode::Flow, true);
+    e.set_uinput_available(true);
+    let keys = suggest_keys(&mut e, "th");
+    assert!(
+        candidates_of(keys.last().unwrap()).is_some(),
+        "the strip opens on the word"
+    );
+    // The per-key batch landed: the word sits on screen while the wrapper
+    // holds nothing. A pick must erase that word, not append behind it
+    // ("xin" plus a pick of "xinh đẹp" gave "xinxinh đẹp").
+    e.wrapper.rebuild("");
+    e.reanchor_tail("th".into());
+    assert!(e.wrapper.output().is_empty() && e.suggest_open);
+    let actions = e.accept_candidate(0);
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::InjectBackspaces(2))),
+        "the on-screen word is erased before the candidate commits: {actions:?}"
+    );
+}
+
+#[test]
+fn a_picked_vietnamese_word_moves_up_inside_its_band() {
+    // The lift is relative (5% a pick), so it reorders near-ties the way a
+    // real model's rows sit — never outvoting a word the model sees far more
+    // often. The fixture's only VN pair under `h` is học 24 / họ 2, a ratio
+    // no realistic pick count crosses, so the loop below is long by design:
+    // it proves the wiring reads the picks, and the first assertion pins
+    // that one pick is not a wall-breaker.
+    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let pos = |list: &[String], w: &str| {
+        list.iter()
+            .position(|x| x == w)
+            .unwrap_or_else(|| panic!("{w} offered in {list:?}"))
+    };
+    let before = e.state_a_candidates("h");
+    assert!(pos(&before, "học") < pos(&before, "họ"), "{before:?}");
+    e.picks
+        .as_mut()
+        .expect("learning is on")
+        .record_pick("họ", None);
+    let one = e.state_a_candidates("h");
+    assert!(
+        pos(&one, "học") < pos(&one, "họ"),
+        "one pick must not bury a more common word: {one:?}"
+    );
+    for _ in 1..300 {
+        e.picks
+            .as_mut()
+            .expect("learning is on")
+            .record_pick("họ", None);
+    }
+    let many = e.state_a_candidates("h");
+    assert!(
+        pos(&many, "họ") < pos(&many, "học"),
+        "the picks finally lift họ over học: {many:?}"
+    );
 }

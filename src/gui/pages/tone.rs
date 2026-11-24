@@ -20,10 +20,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .build();
     tones.add(&ui.modern);
     tones.add(&ui.free);
-    tones.add(&ui.backspace_tone);
-    // nav_key_while_preedit graduated from the "Thử nghiệm" tab: no badge,
-    // not gated by the master switch — the caret choice is a normal row.
-    tones.add(&ui.nav_key_while_preedit);
     page.add(&tones);
 
     let spelling = adw::PreferencesGroup::builder()
@@ -51,8 +47,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     automatic.add(&ui.auto_capitalize);
     automatic.add(&ui.double_space);
     // double_space graduated: no "Thử nghiệm" badge, not gated by the
-    // experimental master switch. The auto_capitalize_after pair moved to the
-    // dedicated "Thử nghiệm" tab.
+    // experimental master switch.
     page.add(&automatic);
 
     let special = adw::PreferencesGroup::builder()

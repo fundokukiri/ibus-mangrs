@@ -1,6 +1,6 @@
 [package]
 name = "ibus-mangrs"
-version = "1.2.6"
+version = "1.2.7"
 edition = "2021"
 authors = ["fundoku"]
 description = "MăngRS - Vietnamese IBus engine built on bamboo-core (make by fundoku with agents coding)"
@@ -24,6 +24,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dbus = "0.9.12"
 dirs = "6"
 libc = "0.2"
+# The prediction model is a read-only mmap: page-cached binary searches,
+# no RAM copy at startup (a pread fallback stays possible without this).
+memmap2 = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 signal-hook = "0.3"

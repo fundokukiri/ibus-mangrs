@@ -1,4 +1,4 @@
-//! End-to-end cases for the per-keystroke typing features: URL/email/path
+//! End-to-end cases for the per-keystroke typing features: the real-URL
 //! bypass, auto-capitalization, the em-dash and the double-space period.
 
 mod common;
@@ -7,7 +7,7 @@ use common::{run_suite, Case, CAPS_BOTH};
 
 const CASES: &[Case] = &[
     Case {
-        name: "url/email/path bypass keeps the word raw",
+        name: "a real url keeps the word raw",
         cfg: &[("mode", "\"nonpreedit\"")],
         macros: &[],
         raw: "",
@@ -43,8 +43,10 @@ const CASES: &[Case] = &[
 fn url_bypass(s: &mut common::Sess) {
     s.focus(CAPS_BOTH, "gtk4-im:test");
     s.drain();
-    let (buf, _) = s.type_reported("x.example.tieeng ");
-    assert_eq!(buf, "x.example.tieeng ", "buffer");
+    // Only a real URL keeps text raw (484394b): a bare `x.example.` no longer
+    // bypasses, so the case opens the span the `www.` way.
+    let (buf, _) = s.type_reported("www.example.tieeng ");
+    assert_eq!(buf, "www.example.tieeng ", "buffer");
 }
 
 fn auto_capitalize(s: &mut common::Sess) {

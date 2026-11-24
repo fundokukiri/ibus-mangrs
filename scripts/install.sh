@@ -16,6 +16,22 @@ bin="$here/target/release/ibus-engine-mangrs"
     exit 1
 }
 
+# Prediction model: the engine prefers the user's own copy, so the chunks in
+# data/model/ are joined straight into the invoking user's config dir. Root
+# cannot guess a home when SUDO_USER is unset (su -, a root login).
+model_dir="$here/data/model"
+model_name=mangrs-predict-v1.bin
+model_src="$model_dir/$model_name"
+model_parts=
+model_user_home=
+if [ ! -f "$model_src" ]; then
+    model_src=
+    model_parts=$(ls "$model_dir/$model_name".part* 2>/dev/null || true)
+fi
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+    model_user_home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+fi
+
 # IBus runs engines as the logged-in user, not as root, so the binary must be
 # world-readable and executable.
 install -Dm755 "$bin" "$LIBDIR/ibus-engine-mangrs"
@@ -36,6 +52,39 @@ elif command -v gtk-update-icon-cache >/dev/null; then
     gtk-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
 fi
 update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
+
+# The model ships as 7 MB parts. The join itself lives in data/model/merge_chunks.sh,
+# which deletes its inputs, so it runs on a temp copy and never touches the checkout.
+if [ -z "$model_src" ] && [ -z "$model_parts" ]; then
+    echo "no prediction model in data/model/; the strip will offer emoji only"
+elif [ -z "$model_user_home" ]; then
+    echo "model found, but no target user (run the installer with sudo); join it by hand:"
+    echo "  cp data/model/$model_name.part* /tmp/model/ && data/model/merge_chunks.sh /tmp/model"
+    echo "  cp /tmp/model/$model_name ~/.config/ibus-mangrs/"
+else
+    model_bytes=0
+    for part in $model_parts "$model_src"; do
+        [ -n "$part" ] && model_bytes=$((model_bytes + $(stat -c%s "$part")))
+    done
+    model_conf="$model_user_home/.config/ibus-mangrs"
+    model_dst="$model_conf/$model_name"
+    if [ "$(stat -c%s "$model_dst" 2>/dev/null || echo -1)" = "$model_bytes" ]; then
+        echo "prediction model already installed: $model_dst"
+    else
+        model_file="$model_src"
+        if [ -z "$model_file" ]; then
+            model_tmp=$(mktemp -d)
+            trap 'rm -rf "$model_tmp"' EXIT INT TERM
+            cp "$model_dir/$model_name".part* "$model_tmp"/
+            bash "$model_dir/merge_chunks.sh" "$model_tmp" >/dev/null
+            model_file="$model_tmp/$model_name"
+        fi
+        install -d -o "$SUDO_USER" "$model_conf"
+        install -m644 "$model_file" "$model_dst"
+        chown "$SUDO_USER" "$model_dst"
+        echo "prediction model installed: $model_dst"
+    fi
+fi
 
 # /dev/uinput access for the real-key injector. The active session's user gets
 # the device through logind's uaccess ACL (data/rules/70-uinput.rules), which ends
@@ -64,6 +113,13 @@ if [ -f "$rule_src" ]; then
     install -Dm644 "$rule_src" "$rule_dst"
     udevadm control --reload-rules ||
         echo "warning: udevadm control --reload-rules failed" >&2
+    # Distros like Arch never autoload uinput: without the module /dev/uinput
+    # cannot be opened and the trigger below matches nothing.
+    modprobe uinput 2>/dev/null ||
+        echo "warning: could not load the uinput module" >&2
+    mkdir -p /etc/modules-load.d
+    grep -qx uinput /etc/modules-load.d/uinput.conf 2>/dev/null ||
+        echo uinput > /etc/modules-load.d/uinput.conf
     udevadm trigger --name-match=/dev/uinput ||
         echo "warning: udevadm trigger /dev/uinput failed" >&2
     if [ -n "${SUDO_USER:-}" ]; then

@@ -7,8 +7,16 @@
 
 use super::*;
 
+/// The tab's one CSS block: the merged rows wrap their switch, so the class
+/// sits on the page and the rule reaches every switch inside it.
+pub(crate) const EXPERIMENTAL_CSS: &str =
+    ".experimental-page switch:checked { background-color: @warning_color; }";
+
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
+    // One class for the whole tab: the amber trough, the badge and the tab
+    // label share it.
+    page.add_css_class("experimental-page");
 
     // The gate leads its own tab: turning it off locks the rows below and
     // shows their defaults instead of hiding anything (config save goes
@@ -46,8 +54,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     typing.add(&ui.macro_valid_words);
     typing.add(&ui.keep_composed_words);
     typing.add(&ui.keep_repeats_raw);
-    typing.add(&ui.extra_url_chars_row);
-    typing.add(&ui.auto_capitalize_after_row);
+    typing.add(&ui.suggest_words);
     page.add(&typing);
 
     let tuning = adw::PreferencesGroup::builder()
@@ -63,30 +70,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.macro_valid_words);
     decorate_experimental(&ui.keep_composed_words);
     decorate_experimental(&ui.keep_repeats_raw);
-    decorate_experimental(&ui.extra_url_chars_row);
-    decorate_experimental(&ui.auto_capitalize_after_row);
+    decorate_experimental(&ui.suggest_words);
     decorate_experimental(&ui.echo_stale_row);
     decorate_experimental(&ui.idle_commit_row);
     decorate_experimental(&ui.preferred_backend);
-    // The switches themselves glow the same warning amber as the badge and
-    // the tab label: one look, one meaning.
-    for switch in [
-        ui.macro_valid_words.upcast_ref::<gtk4::Widget>(),
-        ui.keep_composed_words.upcast_ref::<gtk4::Widget>(),
-        ui.keep_repeats_raw.upcast_ref::<gtk4::Widget>(),
-        ui.extra_url_chars_switch.upcast_ref::<gtk4::Widget>(),
-        ui.auto_capitalize_after_switch.upcast_ref::<gtk4::Widget>(),
-        ui.echo_stale_switch.upcast_ref::<gtk4::Widget>(),
-        ui.idle_commit_switch.upcast_ref::<gtk4::Widget>(),
-    ] {
-        switch.add_css_class("experimental");
-    }
-
     // The amber trough cannot be expressed with built-in classes; load the
     // tab's one CSS block onto the display (a display exists whenever the
     // GUI runs).
-    const EXPERIMENTAL_CSS: &str =
-        "switch.experimental:checked { background-color: @warning_color; }";
     if let Some(display) = gtk4::gdk::Display::default() {
         let provider = gtk4::CssProvider::new();
         provider.load_from_data(EXPERIMENTAL_CSS);
@@ -100,14 +90,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     // The switch-gates-value pairs keep their lock behavior: off locks the
     // input, the typed value stays saved for when the switch returns.
     for (switch, value) in [
-        (
-            &ui.extra_url_chars_switch,
-            ui.extra_url_chars_entry.upcast_ref::<gtk4::Widget>(),
-        ),
-        (
-            &ui.auto_capitalize_after_switch,
-            ui.auto_capitalize_after_entry.upcast_ref::<gtk4::Widget>(),
-        ),
         (
             &ui.echo_stale_switch,
             ui.echo_stale_spin.upcast_ref::<gtk4::Widget>(),
@@ -124,10 +106,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
             // unlock its twin while the gate is off.
             value.set_sensitive(sw.is_active() && ui.experimental_features.is_active());
         });
-    }
-    for entry in [&ui.extra_url_chars_entry, &ui.auto_capitalize_after_entry] {
-        let ui = Rc::clone(ui);
-        entry.connect_changed(move |_| ui.fire_save());
     }
     for spin in [&ui.echo_stale_spin, &ui.idle_commit_spin] {
         let ui = Rc::clone(ui);

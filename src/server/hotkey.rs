@@ -64,7 +64,15 @@ pub(super) fn hotkey_registry(config: &Config) -> Vec<HotkeyBinding> {
             "macro_editor" => Some(HotkeyAction::OpenSettings("macros")),
             "settings" => Some(HotkeyAction::OpenSettings("general")),
             "about" => Some(HotkeyAction::OpenSettings("about")),
-            other => ibus_prop::quick_toggle(other).map(|t| HotkeyAction::QuickToggle(t.key)),
+            other => {
+                let toggle = ibus_prop::quick_toggle(other).or_else(|| {
+                    // An experimental switch only registers while the gate is
+                    // open: with it closed the feature is off anyway, so the
+                    // shortcut is inert.
+                    ibus_prop::experimental_toggle(other).filter(|_| config.experimental_features)
+                });
+                toggle.map(|t| HotkeyAction::QuickToggle(t.key))
+            }
         }) else {
             continue;
         };
@@ -222,10 +230,16 @@ impl EngineHandler {
     /// Flip one quick toggle from a hotkey: save, apply, panel update —
     /// the same round a panel click does, state read from the config.
     fn quick_toggle_key(&mut self, key: &str, out: &mut Vec<Message>) {
-        let Some(toggle) = ibus_prop::quick_toggle(key) else {
+        let experimental = ibus_prop::experimental_toggle(key);
+        let Some(toggle) = ibus_prop::quick_toggle(key).or(experimental) else {
             return;
         };
         let mut config = Config::load();
+        // The gate may have closed since the key was pressed: the switch stays
+        // saved, the press does nothing.
+        if experimental.is_some() && !config.experimental_features {
+            return;
+        }
         let checked = !(toggle.get)(&config);
         (toggle.set)(&mut config, checked);
         if config.save().is_err() {
@@ -259,12 +273,11 @@ impl EngineHandler {
         update_property_group(&config, ibus_prop::KEY_ENABLED, out);
     }
 
-    /// Cycle the visible display modes in dropdown order: save, apply,
-    /// per-item panel update. Hidden modes are skipped; a hidden current
-    /// mode lands on the first visible entry.
+    /// Cycle the display modes in dropdown order: save, apply, per-item
+    /// panel update.
     fn cycle_mode(&mut self, out: &mut Vec<Message>) {
         let mut config = Config::load();
-        config.mode = next_visible_mode(&config.visible_modes(), config.mode);
+        config.mode = next_mode(&ModeConfig::ALL, config.mode);
         if config.save().is_err() {
             return; // consumed anyway; do not type with a hotkey press
         }
@@ -432,12 +445,11 @@ pub(super) fn cycle_next<'a>(
     Some(list[(i + 1) % list.len()].0)
 }
 
-/// The next mode in the visible list, wrapping around. A current mode that
-/// is hidden lands on the first visible entry.
-pub(super) fn next_visible_mode(visible: &[ModeConfig], current: ModeConfig) -> ModeConfig {
-    match visible.iter().position(|mode| *mode == current) {
-        Some(i) => visible[(i + 1) % visible.len()],
-        None => visible.first().copied().unwrap_or(current),
+/// The next mode in the list, wrapping around.
+pub(super) fn next_mode(list: &[ModeConfig], current: ModeConfig) -> ModeConfig {
+    match list.iter().position(|mode| *mode == current) {
+        Some(i) => list[(i + 1) % list.len()],
+        None => list.first().copied().unwrap_or(current),
     }
 }
 

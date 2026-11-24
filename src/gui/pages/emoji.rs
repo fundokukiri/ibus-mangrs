@@ -14,10 +14,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let settings = adw::PreferencesGroup::new();
     // ":ten:" reads as code: markup on for this row — the text has no &.
     ui.emoji_enabled.set_use_markup(true);
-    ui.emoji_enabled.set_subtitle(&t(
-        "rows.emoji_enabled.subtitle",
-        "Gõ <tt>:ten:</tt> kèm dấu hai chấm sẽ thành emoji khi hết từ",
-    ));
+    ui.emoji_enabled
+        .set_subtitle(&t("rows.emoji_enabled.subtitle", "Gõ :tên: thành emoji"));
     settings.add(&ui.emoji_enabled);
 
     // The picker shortcut: the same keycap display as the Phím tắt page,
@@ -31,6 +29,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         ))
         .activatable(true)
         .build();
+    shortcut_row.set_tooltip_text(Some(&t(
+        "tips.hotkey_emoji",
+        "Mở menu emoji tại con trỏ. Gán tổ hợp ở trang Phím tắt.",
+    )));
     let display = ShortcutDisplay::new(&t("rows.hotkey_emoji.title", "Phím tắt mở bảng emoji"));
     shortcut_row.add_suffix(display.widget());
     shortcut_row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));

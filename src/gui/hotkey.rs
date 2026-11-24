@@ -131,6 +131,88 @@ pub(super) fn accelerator_label(spec: &str) -> Option<String> {
     Some(out)
 }
 
+/// The keycaps of a modifier-only combo ("Control+Shift"), in GTK's own
+/// order. `None` when the spec carries a real key — those go through
+/// `accelerator_label` — or cannot be parsed at all.
+fn modifier_caps(spec: &str) -> Option<Vec<&'static str>> {
+    let (mods, key) = crate::server::parse_hotkey(spec)?;
+    if key != 0 {
+        return None;
+    }
+    // Control first: that is the order GTK's own accelerator string puts
+    // them in, so a modifier-only combo reads the same as a full one.
+    let caps: Vec<&'static str> = [
+        (crate::keymap::CONTROL_MASK, "Ctrl"),
+        (crate::keymap::SHIFT_MASK, "Shift"),
+        (crate::keymap::MOD1_MASK, "Alt"),
+        (crate::keymap::MOD4_MASK, "Super"),
+    ]
+    .iter()
+    .filter(|(mask, _)| mods & mask != 0)
+    .map(|(_, label)| *label)
+    .collect();
+    (!caps.is_empty()).then_some(caps)
+}
+
+/// The right-aligned slot that draws a modifier-only combo: a ShortcutLabel
+/// cannot render one (it needs a key), and plain text lost the keycap look.
+fn caps_slot() -> gtk4::Box {
+    let slot = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    slot.set_halign(gtk4::Align::End);
+    slot.set_valign(gtk4::Align::Center);
+    slot
+}
+
+/// libadwaita styles `.keycap` only as `shortcut > .keycap` and
+/// `shortcut-label .keycap`, so a plain label needs the rule spelled out —
+/// without it the caps fell back to bare text, which is what the user saw.
+const KEYCAP_CSS: &str = "
+.modifier-keycap {
+  min-width: 20px;
+  padding: 6px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  box-shadow: inset 0 -2px var(--card-shade-color);
+  border-radius: 6px;
+  font-size: smaller;
+}
+";
+
+fn load_keycap_css() {
+    static LOADED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if LOADED.get().is_some() {
+        return;
+    }
+    let _ = LOADED.set(());
+    if let Some(display) = gtk4::gdk::Display::default() {
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_data(KEYCAP_CSS);
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
+fn fill_caps(slot: &gtk4::Box, caps: &[&str]) {
+    load_keycap_css();
+    while let Some(child) = slot.first_child() {
+        slot.remove(&child);
+    }
+    for (i, cap) in caps.iter().enumerate() {
+        let label = gtk4::Label::new(Some(cap));
+        label.add_css_class("modifier-keycap");
+        label.set_valign(gtk4::Align::Center);
+        slot.append(&label);
+        // The same "+" the accelerator keycaps put between keys.
+        if i + 1 < caps.len() {
+            let plus = gtk4::Label::new(Some("+"));
+            plus.set_valign(gtk4::Align::Center);
+            slot.append(&plus);
+        }
+    }
+}
+
 /// Do two specs name the same physical combo? Compared on the engine's own
 /// parse, so "Alt+Control+v" equals "Control+Alt+v"; unparseable specs fall
 /// back to the literal string.
@@ -152,6 +234,10 @@ pub(super) fn same_combo(a: &str, b: &str) -> bool {
 pub(super) struct ShortcutDisplay {
     stack: gtk4::Stack,
     keys: gtk4::ShortcutLabel,
+    /// The right-aligned box holding `keys`; this is the stack page.
+    keys_slot: gtk4::Box,
+    /// Keycap labels for a modifier-only combo (no ShortcutLabel possible).
+    caps_slot: gtk4::Box,
     raw: gtk4::Label,
     title: String,
 }
@@ -163,14 +249,30 @@ impl ShortcutDisplay {
         let raw = gtk4::Label::new(Some(&t("misc.unassigned", "Chưa gán")));
         raw.add_css_class("dim-label");
         raw.set_valign(gtk4::Align::Center);
+        // Right-aligned and one fixed width for every row: "Chưa gán" and the
+        // keycaps then end on the same line instead of each hugging its own
+        // text width.
+        raw.set_xalign(1.0);
+        // The slot is one fixed width, so the keycaps hug its right edge too:
+        // a bare ShortcutLabel fills the slot and lays its keys out from the
+        // left, which put an assigned shortcut far left of "Chưa gán".
+        let keys_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        keys_box.set_halign(gtk4::Align::End);
+        keys_box.append(&keys);
         let stack = gtk4::Stack::new();
+        stack.set_size_request(200, -1);
+        stack.set_halign(gtk4::Align::End);
         // No transitions: the two states swap, they do not animate.
         stack.set_transition_type(gtk4::StackTransitionType::None);
+        let caps = caps_slot();
         stack.add_named(&raw, Some("raw"));
-        stack.add_named(&keys, Some("keys"));
+        stack.add_named(&keys_box, Some("keys"));
+        stack.add_named(&caps, Some("mods"));
         let this = Self {
             stack,
             keys,
+            keys_slot: keys_box,
+            caps_slot: caps,
             raw,
             title: title.to_string(),
         };
@@ -192,12 +294,18 @@ impl ShortcutDisplay {
             match accelerator_label(value) {
                 Some(acc) => {
                     self.keys.set_accelerator(&acc);
-                    self.stack.set_visible_child(&self.keys);
+                    self.stack.set_visible_child(&self.keys_slot);
                 }
-                None => {
-                    self.raw.set_text(value);
-                    self.stack.set_visible_child(&self.raw);
-                }
+                None => match modifier_caps(value) {
+                    Some(caps) => {
+                        fill_caps(&self.caps_slot, &caps);
+                        self.stack.set_visible_child(&self.caps_slot);
+                    }
+                    None => {
+                        self.raw.set_text(value);
+                        self.stack.set_visible_child(&self.raw);
+                    }
+                },
             }
             value.to_string()
         };
@@ -218,6 +326,7 @@ pub(super) struct CapturePreview {
     stack: gtk4::Stack,
     keys: gtk4::ShortcutLabel,
     raw: gtk4::Label,
+    caps_slot: gtk4::Box,
 }
 
 impl CapturePreview {
@@ -228,9 +337,16 @@ impl CapturePreview {
         let stack = gtk4::Stack::new();
         stack.set_transition_type(gtk4::StackTransitionType::None);
         stack.set_focusable(true);
+        let caps = caps_slot();
         stack.add_named(&raw, Some("raw"));
         stack.add_named(&keys, Some("keys"));
-        let this = Self { stack, keys, raw };
+        stack.add_named(&caps, Some("mods"));
+        let this = Self {
+            stack,
+            keys,
+            raw,
+            caps_slot: caps,
+        };
         this.show("");
         this
     }
@@ -253,10 +369,16 @@ impl CapturePreview {
                 self.keys.set_accelerator(&acc);
                 self.stack.set_visible_child(&self.keys);
             }
-            None => {
-                self.raw.set_text(spec);
-                self.stack.set_visible_child(&self.raw);
-            }
+            None => match modifier_caps(spec) {
+                Some(caps) => {
+                    fill_caps(&self.caps_slot, &caps);
+                    self.stack.set_visible_child(&self.caps_slot);
+                }
+                None => {
+                    self.raw.set_text(spec);
+                    self.stack.set_visible_child(&self.raw);
+                }
+            },
         }
     }
 }
@@ -394,7 +516,7 @@ pub(super) fn open_capture_dialog(
             if crate::server::parse_hotkey(&spec).is_none() {
                 note.set_text(&t(
                     "misc.capture_bad_key",
-                    "Phím này không dùng được — thử phím khác",
+                    "Phím này không dùng được, thử phím khác",
                 ));
                 note.set_visible(true);
                 return Propagation::Stop;

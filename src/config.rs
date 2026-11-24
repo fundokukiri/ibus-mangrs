@@ -49,6 +49,19 @@ pub struct Config {
     /// timer. Off by default: today a hold stops at the composed pair
     /// (`o` → `ô`).
     pub keep_repeats_raw: bool,
+    /// Experimental: the suggestion strip — while a word is in flight, the
+    /// prediction model's two-word compounds and single words trail it,
+    /// next-word predictions follow a landed word, and a digit key picks
+    /// one. The dictionary itself is out of the strip (its future home is
+    /// spell-check). Needs the prediction model file installed; off by
+    /// default. Serves every preset: the pick keys are `Alt`+digits and
+    /// `` ` ``, leaving each preset's own digit tone keys alone.
+    pub suggest_words: bool,
+    /// Experimental: the suggestion strip's display while the strip is up —
+    /// `floating` (default) only in the box (the client's field stays clean
+    /// until the word commits), `mirror` in both places (the box's input line
+    /// and the client's inline preedit, synced per keystroke), `inline` only
+    /// the classic preedit beside the table.
     /// Experimental: the preferred injection backend — `auto` keeps the
     /// environment matrix; a named backend leads the selection walk and the
     /// matrix falls back when it cannot build. Off (`auto`) is exactly the
@@ -62,19 +75,8 @@ pub struct Config {
     /// Keep raw typing inside a real URL (`://` scheme or `www.` — the
     /// whole address until a sentence boundary) — no Vietnamese marks, no
     /// macros. No built-in character starts a bypass: prose punctuation
-    /// never blocks marks; the optional `extra_url_chars` list adds
-    /// per-word triggers.
+    /// never blocks marks.
     pub bypass_url: bool,
-    /// Extra characters that start a bypass word when typed directly before
-    /// it — the only per-word triggers; a real URL (`://`, `www.`) opens
-    /// the span regardless. `-` is rejected (it stays out of the start set
-    /// so `--` can become an em dash), so are letters, digits and
-    /// whitespace.
-    pub extra_url_chars: String,
-    /// Whether `extra_url_chars` applies at all — the switch off means the
-    /// built-in set alone. The string itself stays saved in the file and
-    /// reapplies when the switch returns.
-    pub extra_url_chars_enabled: bool,
     /// When a plain `w` turns into `ư` (`disabled` / `nonstart` / `everywhere`).
     pub w2u: W2uConfig,
     /// When `[` `]` `{` `}` type `ơ` `ư` (`disabled` / `nonstart` / `everywhere`).
@@ -83,14 +85,6 @@ pub struct Config {
     pub em_dash: bool,
     /// Capitalize the first letter after `.`, `!`, `?` and Enter.
     pub auto_capitalize: bool,
-    /// Extra characters that turn the capitalize flag on when typed directly
-    /// before a word, on top of the built-in `. ! ?` + Enter. Letters,
-    /// digits and whitespace are rejected when the string is read.
-    pub auto_capitalize_after: String,
-    /// Whether `auto_capitalize_after` applies at all — the switch off
-    /// means the built-in set alone. The string itself stays saved in the
-    /// file and reapplies when the switch returns.
-    pub auto_capitalize_after_enabled: bool,
     /// Two spaces insert `. ` (experimental).
     pub double_space_period: bool,
     /// Expand macros on word end.
@@ -133,8 +127,6 @@ pub struct Config {
     pub emoji_enabled: bool,
     /// Send preedit without the underline attribute (app support permitting).
     pub hide_underline: bool,
-    /// Uinput pacing: gap between injected text/commit steps (ms).
-    pub commit_interval_ms: u64,
     /// Uinput pacing: gap between injected Backspace keys (ms).
     pub backspace_interval_ms: u64,
     /// Uinput pacing: idle time after a rewrite before more typing (ms).
@@ -224,15 +216,6 @@ pub struct Config {
     /// in order — keys of `ibus_prop::MODES`. Same skip-unknown contract as
     /// `quick_menu`.
     pub menu_modes: Vec<String>,
-    /// Display modes the GUI, the App Rules pickers, the panel menu and the
-    /// cycle hotkey offer, in order — keys of `ibus_prop::MODES`. A mode
-    /// outside this list is hidden everywhere and the engine refuses it as a
-    /// global mode or a rule mode; engine fallbacks for client capabilities
-    /// are exempt. `None` means an old file without the key: the shipped
-    /// default plus the configured mode and every rule's mode, so an upgrade
-    /// never hides something the user already relies on.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub visible_modes: Option<Vec<String>>,
     /// The user-designed panel menu. `None` (or an empty list) means the
     /// menu is synthesized from `default_menu()` — the shape the engine
     /// shipped before the menu became editable — so an upgrade and a broken
@@ -362,9 +345,22 @@ pub const CUSTOM_HOTKEY_ACTIONS: &[&str] = &[
     "settings",
 ];
 
+/// The experimental switches a custom shortcut can flip, by action key.
+/// Separate from the panel registry: these never join the popup menu, the
+/// GUI offers only the ones currently on, and the engine ignores them while
+/// the experimental gate is closed.
+pub const EXPERIMENTAL_HOTKEY_ACTIONS: &[&str] = &[
+    "suggest_words",
+    "keep_composed_words",
+    "keep_repeats_raw",
+    "macro_expand_valid_words",
+    "echo_stale_enabled",
+    "idle_commit_enabled",
+];
+
 /// One rule pattern against one rule target (`app_name` when present, else
 /// the IBus client string, `None` when the client has neither) — the shared
-/// predicate behind `app_rule_mode` and the GUI's rule preview.
+/// predicate behind `app_rule_mode`.
 /// Case-insensitive substring on the part after the transport prefix
 /// (`wayland:Firefox` → `Firefox`); the special pattern `none` matches only
 /// a client with no name at all, the only way to target one.
@@ -769,6 +765,16 @@ impl MethodConfig {
 }
 
 impl ModeConfig {
+    /// Every display mode, in the order the pickers, the panel menu and the
+    /// cycle hotkey offer them.
+    pub const ALL: [ModeConfig; 5] = [
+        ModeConfig::Preedit,
+        ModeConfig::Surrounding,
+        ModeConfig::Flow,
+        ModeConfig::ForwardBackspace,
+        ModeConfig::Off,
+    ];
+
     pub fn key(self) -> &'static str {
         match self {
             ModeConfig::Preedit => "preedit",
@@ -841,10 +847,10 @@ fn default_quick_menu() -> Vec<String> {
         .collect()
 }
 
-/// Display modes the panel popup showed before the radio group became
-/// editable — the four main entries, not the technical ones.
+/// Display modes the panel popup shows on a fresh install: every mode, in
+/// the picker and cycle order, so the panel never hides one.
 fn default_menu_modes() -> Vec<String> {
-    ["preedit", "surrounding", "flow", "off"]
+    ["preedit", "surrounding", "flow", "forwardbackspace", "off"]
         .into_iter()
         .map(str::to_string)
         .collect()
@@ -854,9 +860,6 @@ fn default_menu_modes() -> Vec<String> {
 /// display mode; nothing ships hidden. Canonical keys only: the list is the
 /// shipped spelling every picker walks, so the old `forwardkeyevent` name
 /// must not leak back into saved files through a fresh install's save.
-pub const DEFAULT_VISIBLE_MODES: [&str; 5] =
-    ["preedit", "surrounding", "flow", "forwardbackspace", "off"];
-
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -871,18 +874,15 @@ impl Default for Config {
             extended_onsets: false,
             keep_composed_words: false,
             keep_repeats_raw: false,
+            suggest_words: false,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,
             bypass_url: true,
-            extra_url_chars: String::new(),
-            extra_url_chars_enabled: false,
             w2u: W2uConfig::Disabled,
             bracket: BracketConfig::Disabled,
             em_dash: false,
             auto_capitalize: false,
-            auto_capitalize_after: String::new(),
-            auto_capitalize_after_enabled: false,
             double_space_period: false,
             macro_enabled: true,
             capitalize_macro: true,
@@ -899,7 +899,6 @@ impl Default for Config {
             emoji_hotkey: String::new(),
             emoji_enabled: false,
             hide_underline: false,
-            commit_interval_ms: 20,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
             unicode_channel: UnicodeChannel::Commit,
@@ -921,7 +920,6 @@ impl Default for Config {
             custom_hotkeys: Vec::new(),
             quick_menu: default_quick_menu(),
             menu_modes: default_menu_modes(),
-            visible_modes: None,
             menu: None,
         }
     }
@@ -964,7 +962,22 @@ impl Config {
         let Ok(text) = std::fs::read_to_string(&path) else {
             return Self::default();
         };
-        Self::from_toml(&text)
+        let mut config = Self::from_toml(&text);
+        config.upgrade_menu_modes();
+        config
+    }
+
+    /// The panel used to ship four display modes; a file still carrying
+    /// exactly that list (never edited by the user) gains `forwardbackspace`
+    /// so an upgrade shows every mode. Any other list is the user's own and
+    /// stays untouched.
+    fn upgrade_menu_modes(&mut self) {
+        const OLD: [&str; 4] = ["preedit", "surrounding", "flow", "off"];
+        if self.menu_modes.len() == OLD.len()
+            && OLD.iter().zip(&self.menu_modes).all(|(a, b)| a == b)
+        {
+            self.menu_modes = default_menu_modes();
+        }
     }
 
     /// Parse the file. One bad value (a typo in `w2u`, say) must not discard
@@ -1061,48 +1074,6 @@ impl Config {
     pub fn engine_settings(&self) -> (Method, Mode) {
         (self.method.into(), self.mode.into())
     }
-
-    /// The display modes a user may pick, in dropdown/cycle order. An absent
-    /// key (an old file) yields the shipped default plus whatever the file
-    /// already uses — the global mode and every rule's mode — so an upgrade
-    /// never hides a mode in active use. Unknown keys are skipped; an empty
-    /// result falls back to the shipped default.
-    pub fn visible_modes(&self) -> Vec<ModeConfig> {
-        let raw: Vec<String> = match &self.visible_modes {
-            Some(list) => list.clone(),
-            None => {
-                let mut keys: Vec<String> = DEFAULT_VISIBLE_MODES
-                    .iter()
-                    .map(|k| k.to_string())
-                    .collect();
-                let mut push = |mode: ModeConfig| {
-                    if !keys.iter().any(|k| ModeConfig::from_key(k) == Some(mode)) {
-                        keys.push(mode.key().to_string());
-                    }
-                };
-                push(self.mode);
-                for rule in &self.app_rules {
-                    push(rule.mode);
-                }
-                keys
-            }
-        };
-        let mut out: Vec<ModeConfig> = Vec::new();
-        for key in raw {
-            if let Some(mode) = ModeConfig::from_key(&key) {
-                if !out.contains(&mode) {
-                    out.push(mode);
-                }
-            }
-        }
-        if out.is_empty() {
-            out = DEFAULT_VISIBLE_MODES
-                .iter()
-                .filter_map(|k| ModeConfig::from_key(k))
-                .collect();
-        }
-        out
-    }
 }
 
 /// Serialize `config` over `existing`, leaving unknown keys in place.
@@ -1119,6 +1090,26 @@ fn merge(existing: &str, config: &Config) -> Result<String, toml::ser::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_removed_experimental_keys_still_load() {
+        // Both per-word trigger lists are gone (the switches defaulted to
+        // off): a config.toml still carrying them must load, not fail.
+        let c: Config = toml::from_str(
+            "extra_url_chars = \"`\"\nextra_url_chars_enabled = true\n\
+             auto_capitalize_after = \":\"\nauto_capitalize_after_enabled = true",
+        )
+        .unwrap();
+        assert_eq!(c.bypass_url, Config::default().bypass_url);
+    }
+
+    #[test]
+    fn the_removed_display_choice_still_loads() {
+        // The strip's display picker is gone — the word always shows inline —
+        // so a config.toml still carrying its key must load, not fail.
+        let c: Config = toml::from_str("suggest_display = \"mirror\"").unwrap();
+        assert_eq!(c.suggest_words, Config::default().suggest_words);
+    }
 
     #[test]
     fn defaults_are_preedit_telex() {
@@ -1181,8 +1172,6 @@ mod tests {
         let c: Config =
             toml::from_str("[[app_rules]]\npattern = \"gedit\"\nmode = \"nonpreedit\"\n").unwrap();
         assert_eq!(c.app_rules[0].mode, ModeConfig::Surrounding);
-        let c: Config = toml::from_str("visible_modes = [\"nonpreedit\"]\n").unwrap();
-        assert_eq!(c.visible_modes(), vec![ModeConfig::Surrounding]);
     }
 
     #[test]
@@ -1198,8 +1187,6 @@ mod tests {
         let c: Config =
             toml::from_str("[[app_rules]]\npattern = \"gedit\"\nmode = \"turbo\"\n").unwrap();
         assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
-        let c: Config = toml::from_str("visible_modes = [\"turbo\"]\n").unwrap();
-        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow]);
     }
 
     #[test]
@@ -1215,8 +1202,6 @@ mod tests {
         let c: Config =
             toml::from_str("[[app_rules]]\npattern = \"gedit\"\nmode = \"select\"\n").unwrap();
         assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
-        let c: Config = toml::from_str("visible_modes = [\"select\"]\n").unwrap();
-        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow]);
     }
 
     #[test]
@@ -1290,8 +1275,6 @@ mod tests {
             Mode::from(c.app_rules[0].mode),
             crate::engine::Mode::ForwardBackspace
         );
-        let c: Config = toml::from_str("visible_modes = [\"forwardselect\"]\n").unwrap();
-        assert_eq!(c.visible_modes(), vec![ModeConfig::ForwardBackspace]);
     }
 
     #[test]
@@ -1313,19 +1296,16 @@ mod tests {
                 .unwrap();
         assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
         assert_eq!(Mode::from(c.app_rules[0].mode), crate::engine::Mode::Flow);
-        let c: Config = toml::from_str("visible_modes = [\"smooth-forward\"]\n").unwrap();
-        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow]);
     }
 
     #[test]
     fn removed_mode_keys_in_every_config_position_map_to_the_five() {
         // One old file carrying a removed spelling in every position a mode
-        // key can occupy: the global mode, two app rules, the visible list
-        // and the panel menu list. The whole file must parse, and every
-        // position must land on the five canonical modes.
+        // key can occupy: the global mode, two app rules and the panel menu
+        // list. The whole file must parse, and every position must land on
+        // the five canonical modes.
         let toml_text = r#"
 mode = "smoothforward"
-visible_modes = ["nonpreedit", "turbo", "smoothforward", "forwardkeyevent"]
 menu_modes = ["preedit", "turbo"]
 
 [[app_rules]]
@@ -1340,18 +1320,6 @@ mode = "forwardselect"
         assert_eq!(c.mode, ModeConfig::Flow);
         assert_eq!(c.app_rules[0].mode, ModeConfig::Flow);
         assert_eq!(c.app_rules[1].mode, ModeConfig::ForwardBackspace);
-        // The visible list maps entry by entry and dedups: `turbo` and
-        // `smoothforward` both land on Flow (one row), and every remaining
-        // entry sits within the five canonical modes, in first-appearance
-        // order.
-        assert_eq!(
-            c.visible_modes(),
-            vec![
-                ModeConfig::Surrounding,
-                ModeConfig::Flow,
-                ModeConfig::ForwardBackspace,
-            ]
-        );
         // The panel list parses as-is (raw strings); the submenu maps its
         // spellings through from_key — pinned by ibus_prop's display tests.
         assert_eq!(
@@ -1400,13 +1368,14 @@ mode = "forwardselect"
     }
 
     #[test]
-    fn menu_modes_round_trips_and_defaults_to_the_main_four() {
+    fn menu_modes_round_trip_and_default_to_every_mode() {
         assert_eq!(
             Config::default().menu_modes,
             vec![
                 "preedit".to_string(),
                 "surrounding".to_string(),
                 "flow".to_string(),
+                "forwardbackspace".to_string(),
                 "off".to_string(),
             ]
         );
@@ -1416,15 +1385,35 @@ mode = "forwardselect"
             vec!["flow".to_string(), "off".to_string(), "preedit".to_string()]
         );
         let c: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
-        assert_eq!(c.menu_modes.len(), 4);
+        assert_eq!(c.menu_modes.len(), 5);
+
+        // An upgraded file keeps its old four-mode list only after the load
+        // migration (from_toml is the raw parse; `load` upgrades).
+        let mut old = Config {
+            menu_modes: ["preedit", "surrounding", "flow", "off"]
+                .map(str::to_string)
+                .to_vec(),
+            ..Config::default()
+        };
+        old.upgrade_menu_modes();
+        assert_eq!(old.menu_modes.len(), 5);
+        // A list the user trimmed by hand stays as it is.
+        let mut trimmed = Config {
+            menu_modes: vec!["off".into(), "preedit".into()],
+            ..Config::default()
+        };
+        trimmed.upgrade_menu_modes();
+        assert_eq!(
+            trimmed.menu_modes,
+            vec!["off".to_string(), "preedit".into()]
+        );
     }
 
     #[test]
-    fn visible_modes_default_to_the_five_main_entries() {
-        let c = Config::default();
+    fn every_display_mode_is_offered_in_one_order() {
         assert_eq!(
-            c.visible_modes(),
-            vec![
+            ModeConfig::ALL,
+            [
                 ModeConfig::Preedit,
                 ModeConfig::Surrounding,
                 ModeConfig::Flow,
@@ -1432,56 +1421,21 @@ mode = "forwardselect"
                 ModeConfig::Off,
             ]
         );
-        // A fresh file without the key uses the default list as-is.
-        let parsed: Config = toml::from_str("mode = \"preedit\"\n").unwrap();
-        assert_eq!(parsed.visible_modes, None);
-        assert_eq!(parsed.visible_modes(), c.visible_modes());
+        // Every entry has a unique canonical key, so the pickers, the panel
+        // menu and the cycle hotkey agree on one list.
+        let keys: Vec<&str> = ModeConfig::ALL.iter().map(|m| m.key()).collect();
+        let mut unique = keys.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), keys.len());
     }
 
     #[test]
-    fn absent_visible_modes_keep_the_configured_and_rule_modes() {
-        // Upgrade path: an old file has no key. Its global mode and every
-        // rule mode must stay selectable, or an upgrade would silently
-        // change what the user types with. Every shipped mode now sits in
-        // the default list, so the appended entries dedup against it — one
-        // entry per mode, in the shipped order.
-        let c = Config {
-            mode: ModeConfig::Surrounding,
-            app_rules: vec![AppRule {
-                pattern: "game".into(),
-                mode: ModeConfig::Off,
-            }],
-            ..Config::default()
-        };
-        let visible = c.visible_modes();
-        assert!(visible.contains(&ModeConfig::Surrounding));
-        assert!(visible.contains(&ModeConfig::Off));
-        // The shipped order stands and no mode appears twice.
-        assert_eq!(visible.first(), Some(&ModeConfig::Preedit));
-        assert_eq!(visible.len(), DEFAULT_VISIBLE_MODES.len());
-    }
-
-    #[test]
-    fn explicit_visible_modes_skip_unknown_and_empty_lists() {
-        // The old SmoothForward spelling parses through the alias and dedups
-        // against Flow — one entry per mode, never a duplicate row.
-        let c = Config {
-            visible_modes: Some(vec![
-                "smoothforward".into(),
-                "not_a_mode".into(),
-                "off".into(),
-                "smooth-forward".into(),
-            ]),
-            ..Config::default()
-        };
-        assert_eq!(c.visible_modes(), vec![ModeConfig::Flow, ModeConfig::Off]);
-        // An emptied list (a hand edit) falls back to the shipped default
-        // rather than hiding every mode from the engine.
-        let c = Config {
-            visible_modes: Some(Vec::new()),
-            ..Config::default()
-        };
-        assert_eq!(c.visible_modes().len(), DEFAULT_VISIBLE_MODES.len());
+    fn the_removed_visibility_list_still_loads() {
+        // The mode-visibility switches are gone (all five modes always
+        // show), so a file still carrying their list must load, not fail.
+        let c: Config = toml::from_str("visible_modes = [\"preedit\", \"off\"]\n").unwrap();
+        assert_eq!(c.mode, Config::default().mode);
     }
 
     #[test]
@@ -1491,7 +1445,7 @@ mode = "forwardselect"
         assert_eq!(c.menu, None);
         assert!(!Config::default().default_menu().is_empty());
         // The synthesized default: full charset/method groups, the display
-        // group from `menu_modes` (so an upgrade shows the same four modes).
+        // group from `menu_modes` (every mode on a fresh install).
         let d = Config::default().default_menu();
         let radios = |g: &str| {
             d.iter().find_map(|n| match n {
@@ -1736,6 +1690,35 @@ children = ["preedit", "flow"]
         assert!(!c.keep_repeats_raw);
         let c: Config = toml::from_str("keep_repeats_raw = true").unwrap();
         assert!(c.keep_repeats_raw);
+    }
+
+    #[test]
+    fn suggest_words_defaults_off_and_round_trips() {
+        // Wrapper-level switch: no bamboo_config mapping to check — the
+        // strip lives in the engine, ahead of the word commit.
+        let c: Config = toml::from_str("").unwrap();
+        assert!(!c.suggest_words);
+        let c: Config = toml::from_str("suggest_words = true").unwrap();
+        assert!(c.suggest_words);
+    }
+
+    #[test]
+    fn retired_predict_key_parses_and_drops() {
+        // The predict switch merged into `suggest_words`: a config still
+        // carrying the retired key parses (serde ignores unknown keys) and
+        // the surviving switch keeps its own value.
+        let c: Config = toml::from_str("suggest_predict = true").unwrap();
+        assert!(!c.suggest_words);
+        let c: Config = toml::from_str("suggest_predict = true\nsuggest_words = true").unwrap();
+        assert!(c.suggest_words);
+    }
+
+    #[test]
+    fn the_retired_learn_switch_is_ignored_not_fatal() {
+        // Learning now follows the word-suggestion switch; an old config
+        // still carrying the key must load instead of erroring out.
+        let c: Config = toml::from_str("suggest_learn = true").unwrap();
+        assert!(!c.suggest_words);
     }
 
     #[test]

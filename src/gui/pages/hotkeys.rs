@@ -140,10 +140,12 @@ impl Ui {
 
 /// One built-in shortcut row: activating it opens the capture dialog with
 /// the row's title; the result lands in `value` and re-renders `display`.
+/// `tip` carries the long form of `subtitle`, which stays one short line.
 fn default_row(
     ui: &Rc<Ui>,
     title: &str,
     subtitle: &str,
+    tip: Option<(&str, &str)>,
     value: &Rc<RefCell<String>>,
     display: ShortcutDisplay,
 ) -> adw::ActionRow {
@@ -153,6 +155,9 @@ fn default_row(
         .use_markup(false)
         .activatable(true)
         .build();
+    if let Some((key, fallback)) = tip {
+        row.set_tooltip_text(Some(&t(key, fallback)));
+    }
     row.add_suffix(display.widget());
     {
         let ui = ui.clone();
@@ -193,20 +198,74 @@ fn default_row(
     row
 }
 
+/// The functions the add dialog offers: the fixed table, then the
+/// experimental switches that are on. An experimental switch only counts
+/// while the gate is open and its own row is on — the engine ignores the
+/// others, so a shortcut for them would do nothing.
+pub(crate) fn action_choices(ui: &Ui) -> Vec<(&'static str, String)> {
+    let mut out: Vec<(&'static str, String)> = CUSTOM_ACTION_KEYS
+        .iter()
+        .zip(CUSTOM_ACTION_DEFAULTS)
+        .map(|((action, content), fallback)| (*action, t(content, fallback)))
+        .collect();
+    if !ui.experimental_features.is_active() {
+        return out;
+    }
+    let experimental: [(&'static str, &str, &str, bool); 6] = [
+        (
+            "suggest_words",
+            "rows.suggest_words.title",
+            "Gợi ý từ khi gõ",
+            ui.suggest_words.is_active(),
+        ),
+        (
+            "keep_composed_words",
+            "rows.keep_composed_words.title",
+            "Giữ từ khi gõ thêm phím lạ",
+            ui.keep_composed_words.is_active(),
+        ),
+        (
+            "keep_repeats_raw",
+            "rows.keep_repeats_raw.title",
+            "Giữ phím lặp nguyên bản (Flow)",
+            ui.keep_repeats_raw.is_active(),
+        ),
+        (
+            "macro_expand_valid_words",
+            "rows.macro_valid_words.title",
+            "Gõ tắt thắng từ tiếng Việt",
+            ui.macro_valid_words.is_active(),
+        ),
+        (
+            "echo_stale_enabled",
+            "rows.echo_stale.title",
+            "Chờ phím ảo quay về (ms)",
+            ui.echo_stale_switch.is_active(),
+        ),
+        (
+            "idle_commit_enabled",
+            "rows.idle_commit.title",
+            "Tự chốt từ khi ngừng gõ (ms)",
+            ui.idle_commit_switch.is_active(),
+        ),
+    ];
+    out.extend(
+        experimental
+            .iter()
+            .filter(|(.., on)| *on)
+            .map(|(action, content, fallback, _)| (*action, t(content, fallback))),
+    );
+    out
+}
+
 /// The add dialog: a function picker plus the shared capture behavior.
 /// Committing adds `(spec, action)` to the design vector and saves.
 fn open_add_dialog(ui: &Rc<Ui>, parent: &impl IsA<gtk4::Widget>) {
-    let labels: Vec<String> = CUSTOM_ACTION_KEYS
-        .iter()
-        .zip(CUSTOM_ACTION_DEFAULTS)
-        .map(|(key, fallback)| t(key.1, fallback))
-        .collect();
-    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-    let pick = adw::ComboRow::builder()
-        .title(t("groups.hotkeys.custom.function", "Chức năng"))
-        .use_markup(false)
-        .model(&StringList::new(&refs))
-        .build();
+    let choices = action_choices(ui);
+    let refs: Vec<&str> = choices.iter().map(|(_, label)| label.as_str()).collect();
+    // The shared combo builder — the dialog picker must pick on click like
+    // every other combo popup.
+    let pick = combo_row(&t("groups.hotkeys.custom.function", "Chức năng"), "", &refs);
     let list = gtk4::ListBox::new();
     list.add_css_class("boxed-list");
     list.set_selection_mode(gtk4::SelectionMode::None);
@@ -231,11 +290,10 @@ fn open_add_dialog(ui: &Rc<Ui>, parent: &impl IsA<gtk4::Widget>) {
                 let Some(spec) = result else {
                     return;
                 };
-                let action = CUSTOM_ACTION_KEYS
+                let action = choices
                     .get(pick.selected() as usize)
-                    .map(|(k, _)| *k)
-                    .unwrap_or("mode")
-                    .to_string();
+                    .map(|(key, _)| (*key).to_string())
+                    .unwrap_or_else(|| "mode".to_string());
                 ui.custom.borrow_mut().push((spec, action));
                 ui.fill_custom();
                 ui.fire_save();
@@ -258,14 +316,19 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     group.add(&default_row(
         ui,
         &t("rows.hotkey_mode.title", "Phím tắt đổi chế độ gõ"),
-        &t("rows.hotkey_mode.subtitle", "Ví dụ: Control+Alt+v"),
+        &t("rows.hotkey_mode.subtitle", "Đổi chế độ gõ bằng phím"),
+        None,
         &ui.hotkey_value,
         ui.hotkey_display.clone(),
     ));
     group.add(&default_row(
         ui,
         &t("rows.hotkey_enabled.title", "Phím tắt bật/tắt tiếng Việt"),
-        &t("rows.hotkey_enabled.subtitle", "Ví dụ: Control+Alt+space"),
+        &t(
+            "rows.hotkey_enabled.subtitle",
+            "Bật tắt tiếng Việt bằng phím",
+        ),
+        None,
         &ui.enabled_hotkey_value,
         ui.enabled_hotkey_display.clone(),
     ));
@@ -274,18 +337,23 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         &t("rows.hotkey_app_rule.title", "Phím tắt chọn luật theo app"),
         &t(
             "rows.hotkey_app_rule.subtitle",
-            "Mở menu chọn chế độ ngay tại con trỏ (mũi tên + Enter)",
+            "Mở menu chế độ tại con trỏ",
         ),
+        Some((
+            "tips.hotkey_app_rule",
+            "Mở bảng chọn chế độ gõ ngay tại con trỏ. Gán tổ hợp ở trang Phím tắt.",
+        )),
         &ui.app_rule_hotkey_value,
         ui.app_rule_hotkey_display.clone(),
     ));
     group.add(&default_row(
         ui,
         &t("rows.hotkey_emoji.title", "Phím tắt mở bảng emoji"),
-        &t(
-            "rows.hotkey_emoji.subtitle",
-            "Mở menu chọn emoji tại con trỏ: 1-9/0 chọn, gõ chữ để tìm",
-        ),
+        &t("rows.hotkey_emoji.subtitle", "Mở menu emoji tại con trỏ"),
+        Some((
+            "tips.hotkey_emoji",
+            "Mở menu emoji tại con trỏ. Gán tổ hợp ở trang Phím tắt.",
+        )),
         &ui.emoji_hotkey_value,
         ui.emoji_hotkey_display.clone(),
     ));
@@ -302,9 +370,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     custom_group.add(&ui.custom_box);
     page.add(&custom_group);
 
-    // The mode-cycle order, data not decoration: derived from the same
-    // visible list the engine cycles, so hiding a mode updates this text.
-    let visible_modes = crate::config::Config::load().visible_modes();
+    // The mode-cycle order, data not decoration: the same list the engine
+    // cycles.
+    let visible_modes = ModeConfig::ALL;
     let order_group = adw::PreferencesGroup::new();
     let expander = adw::ExpanderRow::builder()
         .title(t("groups.hotkeys.cycle.title", "Thứ tự khi đổi chế độ"))

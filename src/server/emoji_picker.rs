@@ -195,36 +195,34 @@ impl EmojiPickerState {
         self.cursor = self.cursor.min(page_len.saturating_sub(1));
     }
 
-    /// Highlight one row down; walking off the page's end turns to the
-    /// next page, like the IBus candidate windows.
+    /// Highlight one row down; the page scrolls cyclically — the last row
+    /// rolls back to the first of the SAME page, never to another page
+    /// (the < > keys turn pages).
     pub(super) fn cursor_down(&mut self) {
         let page_len = self.page_results().len();
         if page_len == 0 {
             return;
         }
-        if self.cursor + 1 < page_len {
-            self.cursor += 1;
-        } else if self.page + 1 < self.results().len().div_ceil(EMOJI_PAGE_SIZE as usize) {
-            self.page += 1;
-            self.cursor = 0;
-        }
+        self.cursor = (self.cursor + 1) % page_len;
     }
 
-    /// Highlight one row up; walking off the page's top turns to the
-    /// previous page's last row.
+    /// Highlight one row up; wraps to the page's last row.
     pub(super) fn cursor_up(&mut self) {
-        if self.cursor > 0 {
-            self.cursor -= 1;
-        } else if self.page > 0 {
-            self.page -= 1;
-            self.cursor = self.page_results().len().saturating_sub(1);
+        let page_len = self.page_results().len();
+        if page_len == 0 {
+            return;
         }
+        self.cursor = if self.cursor == 0 {
+            page_len - 1
+        } else {
+            self.cursor - 1
+        };
     }
 
     /// Map one key event onto the picker. Digits 1..9 pick entries 1..9 and
     /// 0 picks the tenth (keypad digits included); Enter picks the
-    /// highlighted row; the arrows move the highlight and turn pages;
-    /// letters, space and underscore build the query.
+    /// highlighted row; the arrows move the highlight and wrap within the
+    /// page (< > turn pages); letters, space and underscore build the query.
     pub fn on_key(&self, keyval: u32) -> EmojiKey {
         match keyval {
             65293 | 65421 => EmojiKey::Select(self.cursor), // Return / KP_Enter

@@ -18,7 +18,9 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "backspace pops the last raw key (unikey convention)",
-        cfg: &[],
+        // The shipped default is ToneFirst (`việt` -> `viêt`); this case is
+        // the unikey walk the name promises, so it asks for it explicitly.
+        cfg: &[("backspace_tone", "\"unikeywalk\"")],
         macros: &[],
         raw: "",
         dict: "",
