@@ -139,9 +139,11 @@ fn modifier_caps(spec: &str) -> Option<Vec<&'static str>> {
     if key != 0 {
         return None;
     }
+    // Control first: that is the order GTK's own accelerator string puts
+    // them in, so a modifier-only combo reads the same as a full one.
     let caps: Vec<&'static str> = [
-        (crate::keymap::SHIFT_MASK, "Shift"),
         (crate::keymap::CONTROL_MASK, "Ctrl"),
+        (crate::keymap::SHIFT_MASK, "Shift"),
         (crate::keymap::MOD1_MASK, "Alt"),
         (crate::keymap::MOD4_MASK, "Super"),
     ]
@@ -161,13 +163,46 @@ fn caps_slot() -> gtk4::Box {
     slot
 }
 
+/// libadwaita styles `.keycap` only as `shortcut > .keycap` and
+/// `shortcut-label .keycap`, so a plain label needs the rule spelled out —
+/// without it the caps fell back to bare text, which is what the user saw.
+pub(crate) const KEYCAP_CSS: &str = "
+.modifier-keycap {
+  min-width: 20px;
+  min-height: 25px;
+  padding: 2px 6px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  box-shadow: inset 0 -2px var(--card-shade-color);
+  border-radius: 6px;
+  font-size: smaller;
+}
+";
+
+fn load_keycap_css() {
+    static LOADED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if LOADED.get().is_some() {
+        return;
+    }
+    let _ = LOADED.set(());
+    if let Some(display) = gtk4::gdk::Display::default() {
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_data(KEYCAP_CSS);
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
 fn fill_caps(slot: &gtk4::Box, caps: &[&str]) {
+    load_keycap_css();
     while let Some(child) = slot.first_child() {
         slot.remove(&child);
     }
     for cap in caps {
         let label = gtk4::Label::new(Some(cap));
-        label.add_css_class("keycap");
+        label.add_css_class("modifier-keycap");
         label.set_valign(gtk4::Align::Center);
         slot.append(&label);
     }

@@ -509,11 +509,11 @@ fn shortcut_helpers_render_and_capture() {
     let caps: Vec<(String, bool)> =
         descendants::<gtk4::Label>(stack.visible_child().unwrap().upcast_ref())
             .into_iter()
-            .map(|l| (l.text().to_string(), l.has_css_class("keycap")))
+            .map(|l| (l.text().to_string(), l.has_css_class("modifier-keycap")))
             .collect();
     assert_eq!(
         caps,
-        vec![("Shift".to_string(), true), ("Ctrl".to_string(), true)]
+        vec![("Ctrl".to_string(), true), ("Shift".to_string(), true)]
     );
     // An unparseable spec still falls back to the plain text.
     display.render("not-a-combo");
