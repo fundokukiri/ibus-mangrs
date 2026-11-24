@@ -65,6 +65,7 @@ fn gtk_widget_scenarios() {
     group_descriptions_become_title_tooltips();
     experimental_badge_sits_beside_the_title();
     experimental_css_parses();
+    experimental_gate_toggle_keeps_the_saved_values();
     popover_list_buttons_read_from_the_left();
     mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
@@ -1166,6 +1167,61 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     // Hand the sandbox file to the later scenarios the way they expect it:
     // with the gate off, read() reports the file's experimental fields, so
     // a leftover saved value would trip their refresh asserts.
+    Config::default().save().expect("reset sandbox config");
+}
+
+/// Closing the experimental gate keeps every experimental value the user
+/// set: `read()` restores the file's values for the fields the gate locks,
+/// and the suggestion and word-keeping switches were missing from that
+/// list, so a single save with the gate off overwrote them with defaults.
+fn experimental_gate_toggle_keeps_the_saved_values() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("scenario save");
+        }));
+    }
+    let saved = Config {
+        experimental_features: true,
+        suggest_words: true,
+        keep_composed_words: true,
+        keep_repeats_raw: true,
+        echo_stale_enabled: true,
+        echo_stale_ms: 250,
+        ..Config::default()
+    };
+    saved.save().expect("seed config");
+    let on = Config::load();
+    ui.refresh(&on, &macros, &dictionary);
+    assert!(ui.suggest_words.is_active());
+
+    // Gate off: the rows display the shipped defaults and save on every
+    // swap, so one save here used to wipe the file.
+    ui.experimental_features.set_active(false);
+    ui.show_experimental_defaults();
+    ui.fire_save();
+    let closed = Config::load();
+    assert!(!closed.experimental_features);
+    assert!(closed.suggest_words, "off must not wipe suggest_words");
+    assert!(
+        closed.keep_composed_words,
+        "off must not wipe keep_composed"
+    );
+    assert!(closed.keep_repeats_raw, "off must not wipe keep_repeats");
+    assert_eq!(closed.echo_stale_ms, 250, "off must not wipe the ms");
+
+    // Gate on again: the saved values come back on the rows and in the file.
+    ui.restore_experimental_saved();
+    ui.set_experimental_sensitive(true);
+    ui.fire_save();
+    assert!(ui.suggest_words.is_active(), "reopen restores the switch");
+    assert_eq!(ui.echo_stale_spin.value(), 250.0, "reopen restores the ms");
+    let reopened = Config::load();
+    assert!(reopened.suggest_words && reopened.keep_composed_words && reopened.keep_repeats_raw);
+    assert_eq!(reopened.echo_stale_ms, 250);
     Config::default().save().expect("reset sandbox config");
 }
 

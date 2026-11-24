@@ -838,6 +838,9 @@ impl Ui {
             .collect();
         if !gate_on {
             config.macro_expand_valid_words = saved_experimental.macro_expand_valid_words;
+            config.keep_composed_words = saved_experimental.keep_composed_words;
+            config.keep_repeats_raw = saved_experimental.keep_repeats_raw;
+            config.suggest_words = saved_experimental.suggest_words;
             config.echo_stale_enabled = saved_experimental.echo_stale_enabled;
             config.echo_stale_ms = saved_experimental.echo_stale_ms;
             config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
