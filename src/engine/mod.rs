@@ -1620,6 +1620,15 @@ impl Engine {
         // tracked (unikey convention: Backspace undoes the last raw key).
         if mode == Mode::Flow {
             let mut actions = self.backspace_per_key();
+            // The erased word is still on screen and still served per key, so
+            // the word-mode lock has to hold: the word end released it, and
+            // everything downstream reads it — the pick's erase transport and
+            // its Alt deferral. Left unlocked, a pick fell back to the
+            // configured mode and, on a Preedit config with a Flow rule,
+            // committed without erasing ("xin chaochào").
+            if !self.current_word().is_empty() {
+                self.word_mode = Some(Mode::Flow);
+            }
             // The Backspace changed the screen word: the strip follows it
             // down (list for the shorter word, hide once it is gone) — the
             // same contract as the other modes' Backspace arms.
@@ -2189,16 +2198,6 @@ impl Engine {
         // that ignores the letter being typed reads as a hung strip.
         let word = self.current_word();
         let state_b = word.is_empty();
-        // diag: temporary, remove after the Flow pick report is read.
-        debug_log::log_text(&format!(
-            "diag strip: word={word:?} tail={:?} wrapper={:?} state_b={state_b} landing={} preedit={} mode={:?} word_mode={:?}",
-            self.tail,
-            self.wrapper.output(),
-            self.strip_landing,
-            self.preedit_visible,
-            self.mode,
-            self.word_mode
-        ));
         // The landed-word list is the one a single space opens: after any
         // other mark with nothing in flight (`chao`, `.`, a second space) the
         // list would predict the next word of text the punctuation moved on
@@ -2332,15 +2331,6 @@ impl Engine {
             return Vec::new();
         }
         let word = self.current_word();
-        // diag: temporary, remove after the Flow pick report is read.
-        debug_log::log_text(&format!(
-            "diag pick: index={index} tail={:?} wrapper={:?} word={word:?} preedit={} mode={:?} word_mode={:?}",
-            self.tail,
-            self.wrapper.output(),
-            self.preedit_visible,
-            self.mode,
-            self.word_mode
-        ));
         if word.is_empty() {
             // State B: nothing is in flight — the strip holds the last
             // committed word's next-word list and the pick commits that
@@ -2385,10 +2375,6 @@ impl Engine {
         // last batch may still be parked: land it before the erase so the
         // Backspaces count against the screen they model.
         let held = self.tail.chars().count();
-        // diag: temporary, remove after the Flow pick report is read.
-        debug_log::log(&format!(
-            "diag pick erase: mode={mode:?} inline={inline} held={held} replaced={replaced}"
-        ));
         // The width comes off the tail, which mirrors the screen: it has to
         // be exactly the word being replaced. A stale tail (a focus switch,
         // an application that edited its own text) would otherwise erase

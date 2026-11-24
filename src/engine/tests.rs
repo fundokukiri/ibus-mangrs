@@ -6078,6 +6078,43 @@ fn erasing_the_word_closes_the_strip() {
 }
 
 #[test]
+fn a_flow_word_keeps_its_transport_through_a_backspace() {
+    // The owner's own setup, straight from their log: display mode Preedit
+    // with an app rule serving the word per key (Flow). The space ended the
+    // word and released the mode lock; the Backspace rebuilt the word on
+    // screen, but the pick then fell back to the configured Preedit and
+    // committed without erasing — `xin chao` plus a pick gave `xin chaochào`.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_client(Some("gtk4-im:editor".into()));
+    e.apply_config(&Config {
+        suggest_words: true,
+        experimental_features: true,
+        app_rules: vec![crate::config::AppRule {
+            pattern: "editor".into(),
+            mode: crate::config::ModeConfig::Flow,
+        }],
+        ..Config::default()
+    });
+    e.set_mode(Mode::Preedit);
+    e.set_uinput_available(true);
+    suggest_keys(&mut e, "xin chao ");
+    assert_eq!(e.word_mode, None, "the word end releases the lock");
+    e.backspace();
+    assert_eq!(
+        e.word_mode,
+        Some(Mode::Flow),
+        "the word is back on screen and still Flow's"
+    );
+    let actions = e.accept_candidate(0);
+    assert_eq!(replay(&actions), "chào ", "{actions:?}");
+    assert!(
+        actions.contains(&Action::InjectBackspaces(4)),
+        "the word is erased through Flow's transport: {actions:?}"
+    );
+}
+
+#[test]
 fn erasing_the_landing_space_turns_the_strip_back_into_the_word_list() {
     // `xin chao ` + Backspace leaves the caret right after the word: the
     // next-word list loses its space and the strip goes back to the word's
