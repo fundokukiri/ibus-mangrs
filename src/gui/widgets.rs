@@ -65,7 +65,7 @@ pub(super) fn switch_row(title: &str, subtitle: &str) -> adw::SwitchRow {
     row
 }
 
-/// The experimental row carries a small "[Thử nghiệm]" badge right beside its
+/// The experimental row carries a small "[Thử nghiệm]" badge in front of its
 /// title, and its switch gets a spoken name mentioning the trial status.
 /// The title label is not a public child either, so the badge is spliced into
 /// the row's internal title box: the label moves into a horizontal pair that
@@ -77,10 +77,8 @@ where
 {
     let badge_text = t("misc.experimental_badge", "Thử nghiệm");
     let badge = gtk4::Label::new(Some(&format!("[{badge_text}]")));
-    // Muted, not amber: next to the title the warning colour competed with
-    // the title itself; the amber stays on the switch below.
     badge.add_css_class("caption");
-    badge.add_css_class("dim-label");
+    badge.add_css_class("warning");
     badge.set_valign(gtk4::Align::Center);
     uniform_title_width(row);
     let (suffixes, switch) = find_suffixes_and_switch(row.upcast_ref());
@@ -98,7 +96,7 @@ where
     }
 }
 
-/// Move the row's title into a horizontal pair with `badge`, so the badge
+/// Move the row's title into a horizontal pair led by `badge`, so the tag
 /// rides the title's own line instead of a second one.
 fn badge_beside_title<W>(row: &W, badge: &gtk4::Label) -> bool
 where
@@ -112,8 +110,8 @@ where
     };
     let line = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     title.unparent();
-    line.append(&title);
     line.append(badge);
+    line.append(&title);
     title_box.prepend(&line);
     true
 }

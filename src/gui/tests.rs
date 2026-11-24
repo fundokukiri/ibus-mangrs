@@ -677,16 +677,17 @@ fn group_descriptions_become_title_tooltips() {
     );
 }
 
-/// The experimental badge is a "[Thử nghiệm]" tag on the title's own line.
+/// The experimental badge is an amber "[Thử nghiệm]" tag in front of the title.
 fn experimental_badge_sits_beside_the_title() {
     let ui = widgets();
     widgets::decorate_experimental(&ui.suggest_words);
     let title = widgets::row_title(&ui.suggest_words).expect("the title label");
     let badge = title
-        .next_sibling()
+        .prev_sibling()
         .and_downcast::<gtk4::Label>()
-        .expect("the badge follows the title");
+        .expect("the badge leads the title");
     assert_eq!(badge.text(), "[Thử nghiệm]");
+    assert!(badge.has_css_class("warning"));
     assert_eq!(badge.parent(), title.parent(), "both share one line");
 }
 
