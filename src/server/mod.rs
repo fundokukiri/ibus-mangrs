@@ -1991,9 +1991,10 @@ fn emit_with(
 }
 
 /// Page size of the suggestion strip's lookup table: five labeled slots,
-/// digits `1`-`5` pick them, `-`/`=` and PageUp/PageDown turn the page —
-/// the panel's ◀▶ buttons page the same way.
-const STRIP_PAGE_SIZE: usize = 5;
+/// `Tab` and `Alt`+`1`-`5` pick them (slots shared with the engine's page-1
+/// builder), `Ctrl+,`/`Ctrl+.` and PageUp/PageDown turn the page — the
+/// panel's ◀▶ buttons page the same way.
+use crate::suggest::STRIP_PAGE_SIZE;
 
 /// The server's view of the suggestion strip — the full candidate list the
 /// last `UpdateCandidates` carried and the page the pagers moved to (the

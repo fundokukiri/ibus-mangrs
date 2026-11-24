@@ -25,6 +25,10 @@ const FREQ_DATA: &str = include_str!("../data/vietnamese-freq.dict");
 /// emitted list and the pick path stay one list.
 pub(crate) const MAX_CANDIDATES: usize = 25;
 
+/// Slots on the strip's first page: the words and — when a keyword emoji
+/// matches — the emoji holding the last one.
+pub(crate) const STRIP_PAGE_SIZE: usize = 5;
+
 /// User-dictionary rows land at half of `u32::MAX`: above every builtin
 /// frequency in the table, with headroom left for later weighting.
 const USER_WEIGHT: u32 = u32::MAX / 2;

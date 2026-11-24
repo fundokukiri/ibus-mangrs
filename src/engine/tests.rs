@@ -5153,22 +5153,21 @@ fn suggest_strip_opens_on_the_first_char() {
 }
 
 #[test]
-fn state_a_ranks_context_followers_first() {
-    // After a landed context the very first letter of the next word
-    // refreshes the list with the context+prefix fusion: rows that follow
-    // the context lead their band even when a stranger's unigram is
-    // bigger — `hello ` then `w` keeps `world` (the pair's 6 counts) over
-    // the more frequent `want`, `sinh ` then `h` keeps `học` on top. The
-    // 1-char pick commits through the state-A path (the held letter is
-    // the word the strip replaces).
+fn state_a_ranks_by_commonness_and_context_breaks_ties() {
+    // Commonness leads the list and a landed context only breaks ties: after
+    // `hello ` the more frequent `want` stays above the context follower
+    // `world` (the pair's 6 counts), which must still be in the list. The
+    // 1-char pick commits through the state-A path (the held letter is the
+    // word the strip replaces).
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     suggest_keys(&mut e, "hello ");
     let keys = suggest_keys(&mut e, "w");
     let items = candidates_of(&keys[0]).expect("the 1-char word refreshes the list");
-    assert_eq!(items.first().map(String::as_str), Some("world"));
+    assert_eq!(items.first().map(String::as_str), Some("want"), "{items:?}");
+    assert!(items.iter().any(|w| w == "world"), "{items:?}");
     let actions = e.accept_candidate(0);
     assert!(
-        actions.contains(&Action::Commit("world ".to_string())),
+        actions.contains(&Action::Commit("want ".to_string())),
         "{actions:?}"
     );
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
@@ -5384,19 +5383,19 @@ fn suggest_digit_still_ends_the_word_and_hides() {
 // --- prediction tier (state A) ---
 
 #[test]
-fn page_one_is_three_singles_then_the_compounds() {
-    // Page 1 has the fixed shape the owner asked for, so the digits 1-5
-    // always mean the same thing: three single words, then two compounds.
-    // `h` is the full house — `học`, `họ`, the EN `hello`, then
-    // `học sinh` and `học sinh giỏi` — and the rest of the list keeps
-    // coming for the strip's pages.
+fn page_one_is_the_most_common_words() {
+    // Page 1 fills by how common each candidate is, single words and
+    // compounds ranked together: for `h` the compound `học sinh` beats the
+    // rarer single `họ`, and `họ là` closes the page ahead of the English
+    // `hello`, which follows the Vietnamese band. `h` matches no emoji, so
+    // five words take the five slots; the rest keeps coming for the pages.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "h");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on h");
     let page: Vec<&str> = items.iter().take(5).map(String::as_str).collect();
     assert_eq!(
         page,
-        ["học", "họ", "hello", "học sinh", "học sinh giỏi"],
+        ["học", "học sinh", "học sinh giỏi", "họ", "họ là"],
         "{items:?}"
     );
     assert!(items.len() > 5, "the leftovers still page: {items:?}");
@@ -5404,23 +5403,21 @@ fn page_one_is_three_singles_then_the_compounds() {
 
 #[test]
 fn page_one_gives_the_last_slot_to_a_keyword_emoji() {
-    // A keyword-matching emoji holds slot 5, and the compounds give up
-    // their second seat to it: `sinh` shows `sinh viên` at slot 4 and the
-    // glyph at slot 5. A thin prefix pads nothing — `si` has one single,
-    // so its page is shorter instead of gap-filled.
+    // A keyword-matching emoji holds slot 5, outside the commonness order
+    // of the word slots: `sinh` leads with its strongest compound and the
+    // glyph closes the page. A thin prefix pads nothing — the page is as
+    // long as the material.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "sinh");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on sinh");
     assert_eq!(items[0], "sinh viên", "{items:?}");
-    assert!(
-        !items[1].chars().any(|c| c.is_ascii_alphanumeric()),
-        "the emoji holds slot 5: {items:?}"
-    );
+    assert_eq!(items[4], "🍼", "the emoji holds slot 5: {items:?}");
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "si");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on si");
     assert_eq!(items[0], "sinh", "{items:?}");
     assert_eq!(items[1], "sinh viên", "{items:?}");
+    assert_eq!(items[4], "🇸🇮", "the emoji holds slot 5: {items:?}");
 }
 
 #[test]
@@ -5564,20 +5561,15 @@ fn state_b_without_context_stays_silent() {
 
 #[test]
 fn english_completions_on_ascii_prefix() {
-    // `hel` is pure ASCII: the EN band joins the list with the model's
-    // EN rows on that prefix, frequency-first among themselves.
+    // `hel` is pure ASCII and the Vietnamese band matches nothing: the EN
+    // rows on that prefix take the page, commonest first.
     let mut e = predict_engine(Method::Telex, Mode::Preedit);
     let keys = suggest_keys(&mut e, "hel");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on hel");
-    assert!(items.contains(&"hello".to_string()), "{items:?}");
-    let en: Vec<&String> = items
-        .iter()
-        .filter(|w| ["hello", "help", "hen"].contains(&w.as_str()))
-        .collect();
     assert_eq!(
-        en,
-        [&"hello", &"help"],
-        "EN rows on the typed prefix, frequency-first: {items:?}"
+        items.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["hello", "help"],
+        "{items:?}"
     );
 }
 
