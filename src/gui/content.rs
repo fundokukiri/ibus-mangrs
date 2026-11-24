@@ -85,7 +85,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         ),
         (
             "tone",
-            t("pages.tone", "Dấu và tự động"),
+            t("pages.tone", "Dấu & Chính tả"),
             "accessories-character-map-symbolic",
         ),
         (
@@ -106,7 +106,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         ),
         (
             "panel",
-            t("pages.panel", "Menu trên panel"),
+            t("pages.panel", "Menu panel"),
             "open-menu-symbolic",
         ),
         (

@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=MăngRS Cấu hình
+Name=MăngRS
 GenericName=Vietnamese IME settings
 Comment=Cấu hình bộ gõ tiếng Việt MăngRS
 Exec=/usr/lib/ibus-mangrs/ibus-engine-mangrs -gui

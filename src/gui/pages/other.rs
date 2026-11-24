@@ -87,7 +87,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         .build();
     ui.desktop_icon.set_tooltip_text(Some(&t(
         "tips.desktop_icon",
-        "Ẩn hay hiện dòng MăngRS Cấu hình trong lưới ứng dụng GNOME. Cần vài giây để GNOME nhận.",
+        "Ẩn hay hiện dòng MăngRS trong lưới ứng dụng GNOME. Cần vài giây để GNOME nhận.",
     )));
     interface.add(&ui.desktop_icon);
     interface.add(&ui.show_toasts);

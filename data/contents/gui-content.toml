@@ -18,12 +18,12 @@ name = "MăngRS"
 
 [pages]
 typing = "Chung"
-tone = "Dấu và tự động"
+tone = "Dấu & Chính tả"
 macros = "Gõ tắt"
 emoji = "Emoji"
 data = "Từ điển"
 rules = "Luật theo app"
-panel = "Menu trên panel"
+panel = "Menu panel"
 hotkeys = "Phím tắt"
 other = "Cài đặt nâng cao"
 about = "Giới thiệu"
@@ -438,8 +438,11 @@ kind_entry = "Mục chọn"
 
 # --- page Tinh chỉnh --------------------------------------------------------
 
+[groups.tune.marks]
+title = "Dấu &amp; điều hướng"
+
 [groups.tune.pacing]
-title = "Cấu hình uinput"
+title = "Nhịp gõ &amp; độ trễ uinput"
 description = "Chỉ áp dụng cho Flow."
 
 [groups.tune.channel]
@@ -581,6 +584,7 @@ hotkey_macro_editor = "Mở trang Gõ tắt"
 hotkey_settings = "Mở Cài đặt"
 
 [tips]
+hotkey_emoji = "Mở menu emoji tại con trỏ. Gán tổ hợp ở trang Phím tắt."
 enabled = "Bật hoặc tắt cả bộ gõ. Khi tắt, phím đi thẳng vào app như chưa cài."
 method = "Kiểu gõ quyết định cách ra chữ có dấu, ví dụ Telex gõ ss ra á, VNI gõ a1 ra á."
 mode = "Cách đưa chữ vào app. Gạch chân hiện chữ ngay trong app, cần app hỗ trợ. Surrounding sửa đuôi từ dựa vào báo cáo của chính app. Flow chèn từng phím, cần backend chèn phím. Forward Backspace chạy được ở mọi app. OFF tắt tiếng Việt."
@@ -616,7 +620,7 @@ backspace_interval = "Nhịp gửi Backspace. Giảm nếu xoá chậm, tăng n�
 post_delay = "Chờ một chút sau khi viết lại cả từ, dành cho app xử lý phím chậm."
 export = "Lưu cấu hình, gõ tắt và từ điển ra một file JSON để mang sang máy khác."
 import = "Đọc file JSON đã xuất và ghi đè cấu hình, gõ tắt, từ điển hiện tại."
-desktop_icon = "Ẩn hay hiện dòng MăngRS Cấu hình trong lưới ứng dụng GNOME. Cần vài giây để GNOME nhận."
+desktop_icon = "Ẩn hay hiện dòng MăngRS trong lưới ứng dụng GNOME. Cần vài giây để GNOME nhận."
 focus_extension = "Extension báo tên cửa sổ đang focus cho engine, để luật theo app chạy được với app Wayland như Chrome, Firefox."
 extension_logout = "Đăng xuất rồi đăng nhập lại để GNOME tải extension mới."
 reset_defaults = "Ghi đè config.toml bằng giá trị mặc định, kể cả menu panel, luật theo app và phím tắt. Gõ tắt và từ điển vẫn giữ."
@@ -632,3 +636,12 @@ hotkey_app_rule = "Mở bảng chọn chế độ gõ ngay tại con trỏ. Gán
 show_toasts = "Bong bóng nhỏ khi thêm, xoá, xuất, nhập hoặc cài extension. Tắt để im lặng, lỗi vẫn hiện hộp thoại."
 learn_clear = "Chỉ ghi lại gợi ý anh chọn, không ghi phím gõ. Xoá xong bộ gõ học lại từ đầu."
 backspace_tone = "Xoá dấu trước: hạ thành ha rồi h. Xoá cả dấu và chữ: hạ thành h, mỗi Backspace xoá đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."
+
+[groups.experimental.gate]
+title = "Bật thử nghiệm"
+
+[learn_clear]
+heading = "Xoá dữ liệu đã học?"
+body = "Hai tệp dữ liệu đã học sẽ bị xoá. Bộ gõ học lại từ đầu."
+cancel = "Huỷ"
+delete = "Xoá"

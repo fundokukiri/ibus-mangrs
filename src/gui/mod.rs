@@ -257,7 +257,7 @@ struct Ui {
     w2u: adw::ComboRow,
     backspace_tone: adw::ComboRow,
     /// What the first navigation key does while a preedit commit is
-    /// pending (the "Dấu và tự động" tab).
+    /// pending (the "Dấu & Chính tả" tab).
     nav_key_while_preedit: adw::ComboRow,
     bracket: adw::ComboRow,
     em_dash: adw::SwitchRow,
@@ -1222,7 +1222,7 @@ fn system_desktop_entry_exists() -> bool {
         })
 }
 
-/// Hide/show "MăngRS Cấu hình" in the application grid by writing or
+/// Hide/show "MăngRS" in the application grid by writing or
 /// removing a user-level override of the installed desktop entry. The
 /// override is a full copy plus `Hidden=true` — the highest-priority entry
 /// file replaces the system one, the spec does not merge keys.

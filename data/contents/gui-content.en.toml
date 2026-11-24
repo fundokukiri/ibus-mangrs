@@ -16,7 +16,7 @@ name = "MăngRS"
 
 [pages]
 typing = "General"
-tone = "Tones & automation"
+tone = "Tones & spelling"
 macros = "Shorthand"
 emoji = "Emoji"
 data = "Dictionary"
@@ -436,8 +436,11 @@ kind_entry = "Entry"
 
 # --- page Tuning -------------------------------------------------------------
 
+[groups.tune.marks]
+title = "Marks & navigation"
+
 [groups.tune.pacing]
-title = "uinput tuning"
+title = "Key pace & uinput delay"
 description = "Applies only to Flow."
 
 [groups.tune.channel]
@@ -578,6 +581,7 @@ hotkey_macro_editor = "Open the Shorthand page"
 hotkey_settings = "Open Settings"
 
 [tips]
+hotkey_emoji = "Opens the emoji menu at the caret. Assign the combo on the Shortcuts page."
 enabled = "Turns the whole IME on or off. Off sends keys straight to the app as if MăngRS were not installed."
 method = "The typing method decides how accented letters are built, e.g. Telex types ss for á and VNI types a1 for á."
 mode = "How text reaches the app. Underline shows the word in the app and needs preedit support. Surrounding repairs the word tail through the app's own text reports. Flow injects every key, so it needs an injection backend. Forward Backspace works in every app. OFF turns Vietnamese typing off."
@@ -613,7 +617,7 @@ backspace_interval = "The Backspace pace. Lower it if deletion lags, raise it if
 post_delay = "A small wait after rewriting a whole word, for apps with slow key handling."
 export = "Saves the configuration, shorthand and dictionary to one JSON file for another machine."
 import = "Reads an exported JSON file and overwrites the configuration, shorthand and dictionary."
-desktop_icon = "Shows or hides the MăngRS Settings entry in the GNOME app grid. GNOME takes a few seconds to notice."
+desktop_icon = "Shows or hides the MăngRS entry in the GNOME app grid. GNOME takes a few seconds to notice."
 focus_extension = "The extension reports the focused window to the engine, so per-app rules work with native Wayland apps such as Chrome and Firefox."
 extension_logout = "Log out and back in so GNOME loads the new extension."
 reset_defaults = "Overwrites config.toml with the defaults, including the panel menu, per-app rules and shortcuts. Shorthand and the dictionary stay."
@@ -629,3 +633,12 @@ hotkey_app_rule = "Opens the mode picker right at the caret. Assign the combo on
 show_toasts = "Small bubbles on add, delete, export, import or extension install. Off stays silent, errors still show a dialog."
 learn_clear = "Only the suggestions you pick are recorded, never the keys you type. Erasing makes the engine learn from zero."
 backspace_tone = "Tone first: hạ becomes ha, then h. Whole char: hạ becomes h, one character per press. Unikey: walks back through the keys as typed."
+
+[groups.experimental.gate]
+title = "Turn on experimental"
+
+[learn_clear]
+heading = "Clear the learned data?"
+body = "Both learned-data files are deleted. The engine starts learning from zero."
+cancel = "Cancel"
+delete = "Delete"
