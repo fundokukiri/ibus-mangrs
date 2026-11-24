@@ -157,7 +157,7 @@ fn modifier_caps(spec: &str) -> Option<Vec<&'static str>> {
 /// The right-aligned slot that draws a modifier-only combo: a ShortcutLabel
 /// cannot render one (it needs a key), and plain text lost the keycap look.
 fn caps_slot() -> gtk4::Box {
-    let slot = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    let slot = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
     slot.set_halign(gtk4::Align::End);
     slot.set_valign(gtk4::Align::Center);
     slot
@@ -166,11 +166,10 @@ fn caps_slot() -> gtk4::Box {
 /// libadwaita styles `.keycap` only as `shortcut > .keycap` and
 /// `shortcut-label .keycap`, so a plain label needs the rule spelled out —
 /// without it the caps fell back to bare text, which is what the user saw.
-pub(crate) const KEYCAP_CSS: &str = "
+const KEYCAP_CSS: &str = "
 .modifier-keycap {
   min-width: 20px;
-  min-height: 25px;
-  padding: 2px 6px;
+  padding: 6px;
   background: color-mix(in srgb, currentColor 10%, transparent);
   box-shadow: inset 0 -2px var(--card-shade-color);
   border-radius: 6px;
