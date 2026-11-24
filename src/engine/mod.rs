@@ -614,7 +614,7 @@ impl Engine {
             // The builtin rows stand in until apply_config merges the user
             // dictionary below; on a machine without dictionary.txt this
             // stays the whole table.
-            suggest_table: SuggestTable::from_rows(crate::suggest::builtin_rows_with(None)),
+            suggest_table: SuggestTable::from_rows(crate::suggest::cached_builtin_rows(None)),
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -719,7 +719,7 @@ impl Engine {
         // the strip legacy-only. Rebuilt on every config apply, so a new
         // model or dictionary needs no engine restart.
         let model = crate::predict::locate_shared();
-        let mut rows = crate::suggest::builtin_rows_with(model.as_deref());
+        let mut rows = crate::suggest::cached_builtin_rows(model.as_ref());
         rows.extend(merge_user_entries(
             Dictionary::load()
                 .words()
