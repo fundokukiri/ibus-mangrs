@@ -266,14 +266,15 @@ title = "Điều hướng khi còn từ"
 subtitle = "Phím mũi tên đầu tiên khi còn từ gõ dở"
 
 [rows.flow_per_key_delay]
-title = "Hiện dấu từng bước (ms)"
+title = "Hiện dấu"
 subtitle = "Thấp là dấu hiện sớm"
 
 [rows.flow_backspace_restore_delay]
-title = "Hoàn dấu sau Backspace (ms)"
+title = "Hoàn dấu sau Backspace"
 subtitle = "Chờ rồi mới sửa màn hình"
 
 [rows.flow_delay]
+title = "Độ trễ Flow"
 subtitle = "Mặc định: {n}"
 
 [rows.macro_enabled]
@@ -438,7 +439,7 @@ title = "Dấu &amp; điều hướng"
 
 [groups.tune.pacing]
 title = "Nhịp gõ &amp; độ trễ uinput"
-description = "Chỉ áp dụng cho Flow."
+description = "Chỉ áp dụng cho Flow, đơn vị ms."
 
 [groups.tune.channel]
 title = "Kênh gửi chữ"
@@ -531,18 +532,18 @@ title = "Preedit cho app XIM"
 subtitle = "Cửa sổ preedit riêng cho XIM"
 
 [rows.pacing]
-title = "Nhịp gõ phím ảo (ms)"
-subtitle = "Nghỉ giữa các phím: {n}"
+title = "Nhịp gõ phím ảo"
+subtitle = "Mặc định: {n}"
 
 [rows.backspace_interval]
-title = "Nhịp xoá lùi"
+title = "Xoá lùi"
 subtitle = "Giảm nếu xoá chậm"
 
 [rows.post_delay]
-title = "Chờ sau khi viết lại từ"
+title = "Chờ viết lại từ"
+subtitle = "Cho app xử lý phím chậm"
 
 # --- page Giới thiệu --------------------------------------------------------
-subtitle = "Cho app xử lý phím chậm"
 
 [about]
 name = "MăngRS IBus"

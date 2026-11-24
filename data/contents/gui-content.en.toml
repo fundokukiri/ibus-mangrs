@@ -264,15 +264,16 @@ title = "Navigation while a word is open"
 subtitle = "The first arrow key while a word is open"
 
 [rows.flow_per_key_delay]
-title = "Show marks per step (ms)"
+title = "Marks per step"
 subtitle = "Lower shows marks sooner"
 
 [rows.flow_backspace_restore_delay]
-title = "Mark restore after Backspace (ms)"
+title = "Restore after Backspace"
 subtitle = "Waits before rewriting the screen"
 
 [rows.flow_delay]
-subtitle = "Defaults: {n}"
+title = "Flow delays"
+subtitle = "Default: {n}"
 
 [rows.macro_enabled]
 title = "Enable shorthand"
@@ -436,7 +437,7 @@ title = "Marks & navigation"
 
 [groups.tune.pacing]
 title = "Key pace & uinput delay"
-description = "Applies only to Flow."
+description = "Flow only, in milliseconds."
 
 [groups.tune.channel]
 title = "Text channel"
@@ -528,18 +529,18 @@ title = "Preedit for XIM apps"
 subtitle = "Separate preedit window for XIM"
 
 [rows.pacing]
-title = "Virtual key pace (ms)"
-subtitle = "Pause between keys: {n}"
+title = "Virtual key pace"
+subtitle = "Default: {n}"
 
 [rows.backspace_interval]
-title = "Backspace pace"
+title = "Eraser pace"
 subtitle = "Lower it if deletion lags"
 
 [rows.post_delay]
-title = "Wait after rewriting a word"
+title = "Wait after rewriting"
+subtitle = "For apps with slow key handling"
 
 # --- page About ---------------------------------------------------------------
-subtitle = "For apps with slow key handling"
 
 [about]
 name = "MăngRS IBus"

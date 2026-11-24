@@ -420,8 +420,8 @@ pub(super) fn widgets() -> Rc<Ui> {
     let post_delay = spin_button(0.0, 500.0, 1.0);
     let pacing_defaults = crate::config::Config::default();
     let pacing_row = action_row(
-        &t("rows.pacing.title", "Nhịp gõ phím ảo (ms)"),
-        &t("rows.pacing.subtitle", "Nghỉ giữa các phím: {n}").replace(
+        &t("rows.pacing.title", "Nhịp gõ phím ảo"),
+        &t("rows.pacing.subtitle", "Mặc định: {n}").replace(
             "{n}",
             &format!(
                 "{} · {}",
@@ -433,23 +433,22 @@ pub(super) fn widgets() -> Rc<Ui> {
     // caption+input clusters start at the same x instead of each row
     // sizing itself.
     let mut merged_columns = Vec::new();
+    // The caption is one short word: the full name and the advice ride as
+    // the column tooltip, and "ms" lives in the group description so it is
+    // not repeated on every column.
     for (key, fallback, spin) in [
-        (
-            "rows.backspace_interval.title",
-            "Nhịp xoá lùi",
-            &backspace_interval,
-        ),
-        (
-            "rows.post_delay.title",
-            "Chờ sau khi viết lại từ",
-            &post_delay,
-        ),
+        ("rows.backspace_interval", "Xoá lùi", &backspace_interval),
+        ("rows.post_delay", "Chờ viết lại từ", &post_delay),
     ] {
         if !merged_columns.is_empty() {
             pacing_row.add_suffix(&pacing_divider());
         }
-        let caption_text = t(key, fallback);
+        let caption_text = t(&format!("{key}.title"), fallback);
         let column = pacing_column(&caption_text, spin);
+        column.set_tooltip_text(Some(&t(
+            &format!("{key}.subtitle"),
+            "Nghỉ giữa các phím ảo",
+        )));
         pacing_row.add_suffix(&column);
         merged_columns.push(column);
         let spoken = format!("{} (ms)", caption_text);
@@ -477,7 +476,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     // subtitle the shipped defaults; both knobs stay outside the
     // experimental gate like the pacing knobs they pace with.
     let flow_delay_row = action_row(
-        "",
+        &t("rows.flow_delay.title", "Độ trễ Flow"),
         &t("rows.flow_delay.subtitle", "Mặc định: {n}").replace(
             "{n}",
             &format!(
@@ -488,16 +487,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         ),
     );
     let mut first_flow_column = true;
-    for (caption, spin) in [
+    for (key, fallback, spin) in [
+        ("rows.flow_per_key_delay", "Hiện dấu", &flow_per_key_spin),
         (
-            t("rows.flow_per_key_delay.title", "Hiện dấu từng bước (ms)"),
-            &flow_per_key_spin,
-        ),
-        (
-            t(
-                "rows.flow_backspace_restore_delay.title",
-                "Hoàn dấu sau Backspace (ms)",
-            ),
+            "rows.flow_backspace_restore_delay",
+            "Hoàn dấu sau Backspace",
             &flow_backspace_restore_spin,
         ),
     ] {
@@ -505,15 +499,21 @@ pub(super) fn widgets() -> Rc<Ui> {
             flow_delay_row.add_suffix(&pacing_divider());
         }
         first_flow_column = false;
+        let caption = t(&format!("{key}.title"), fallback);
         let column = pacing_column(&caption, spin);
+        column.set_tooltip_text(Some(&t(
+            &format!("{key}.subtitle"),
+            "Chờ rồi mới sửa màn hình",
+        )));
         // Center the column vertically: the default Fill stretches it to
         // the row's height and top-packs the caption, leaving all the
         // slack below the input.
         column.set_valign(gtk4::Align::Center);
         flow_delay_row.add_suffix(&column);
         merged_columns.push(column);
-        // The caption already carries (ms): the spoken label is the caption.
-        spin.update_property(&[gtk4::accessible::Property::Label(&caption)]);
+        // "ms" left the caption, so the spoken label adds the unit back.
+        let spoken = format!("{caption} (ms)");
+        spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
     }
     equalize_columns(&merged_columns);
     // The caption column is the row's tallest child: an exact-fit row pins
