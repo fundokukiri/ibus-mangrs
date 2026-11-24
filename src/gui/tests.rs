@@ -504,14 +504,26 @@ fn shortcut_helpers_render_and_capture() {
         .next()
         .expect("a shortcut label");
     assert_eq!(keys.accelerator().as_deref(), Some("<Control><Alt>v"));
+    // A modifier-only combo draws keycaps, not the raw spec text.
     display.render("Shift+Control");
+    let caps: Vec<(String, bool)> =
+        descendants::<gtk4::Label>(stack.visible_child().unwrap().upcast_ref())
+            .into_iter()
+            .map(|l| (l.text().to_string(), l.has_css_class("keycap")))
+            .collect();
+    assert_eq!(
+        caps,
+        vec![("Shift".to_string(), true), ("Ctrl".to_string(), true)]
+    );
+    // An unparseable spec still falls back to the plain text.
+    display.render("not-a-combo");
     let label = stack
         .visible_child()
         .unwrap()
         .downcast_ref::<gtk4::Label>()
         .unwrap()
         .clone();
-    assert_eq!(label.text(), "Shift+Control");
+    assert_eq!(label.text(), "not-a-combo");
     // The capture dialog: only the Hủy response, no rejection note yet.
     let (dialog, _preview, note) = build_capture_dialog(
         "Phím tắt đổi chế độ gõ",

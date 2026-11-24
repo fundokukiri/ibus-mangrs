@@ -131,6 +131,48 @@ pub(super) fn accelerator_label(spec: &str) -> Option<String> {
     Some(out)
 }
 
+/// The keycaps of a modifier-only combo ("Control+Shift"), in GTK's own
+/// order. `None` when the spec carries a real key — those go through
+/// `accelerator_label` — or cannot be parsed at all.
+fn modifier_caps(spec: &str) -> Option<Vec<&'static str>> {
+    let (mods, key) = crate::server::parse_hotkey(spec)?;
+    if key != 0 {
+        return None;
+    }
+    let caps: Vec<&'static str> = [
+        (crate::keymap::SHIFT_MASK, "Shift"),
+        (crate::keymap::CONTROL_MASK, "Ctrl"),
+        (crate::keymap::MOD1_MASK, "Alt"),
+        (crate::keymap::MOD4_MASK, "Super"),
+    ]
+    .iter()
+    .filter(|(mask, _)| mods & mask != 0)
+    .map(|(_, label)| *label)
+    .collect();
+    (!caps.is_empty()).then_some(caps)
+}
+
+/// The right-aligned slot that draws a modifier-only combo: a ShortcutLabel
+/// cannot render one (it needs a key), and plain text lost the keycap look.
+fn caps_slot() -> gtk4::Box {
+    let slot = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    slot.set_halign(gtk4::Align::End);
+    slot.set_valign(gtk4::Align::Center);
+    slot
+}
+
+fn fill_caps(slot: &gtk4::Box, caps: &[&str]) {
+    while let Some(child) = slot.first_child() {
+        slot.remove(&child);
+    }
+    for cap in caps {
+        let label = gtk4::Label::new(Some(cap));
+        label.add_css_class("keycap");
+        label.set_valign(gtk4::Align::Center);
+        slot.append(&label);
+    }
+}
+
 /// Do two specs name the same physical combo? Compared on the engine's own
 /// parse, so "Alt+Control+v" equals "Control+Alt+v"; unparseable specs fall
 /// back to the literal string.
@@ -154,6 +196,8 @@ pub(super) struct ShortcutDisplay {
     keys: gtk4::ShortcutLabel,
     /// The right-aligned box holding `keys`; this is the stack page.
     keys_slot: gtk4::Box,
+    /// Keycap labels for a modifier-only combo (no ShortcutLabel possible).
+    caps_slot: gtk4::Box,
     raw: gtk4::Label,
     title: String,
 }
@@ -180,12 +224,15 @@ impl ShortcutDisplay {
         stack.set_halign(gtk4::Align::End);
         // No transitions: the two states swap, they do not animate.
         stack.set_transition_type(gtk4::StackTransitionType::None);
+        let caps = caps_slot();
         stack.add_named(&raw, Some("raw"));
         stack.add_named(&keys_box, Some("keys"));
+        stack.add_named(&caps, Some("mods"));
         let this = Self {
             stack,
             keys,
             keys_slot: keys_box,
+            caps_slot: caps,
             raw,
             title: title.to_string(),
         };
@@ -209,10 +256,16 @@ impl ShortcutDisplay {
                     self.keys.set_accelerator(&acc);
                     self.stack.set_visible_child(&self.keys_slot);
                 }
-                None => {
-                    self.raw.set_text(value);
-                    self.stack.set_visible_child(&self.raw);
-                }
+                None => match modifier_caps(value) {
+                    Some(caps) => {
+                        fill_caps(&self.caps_slot, &caps);
+                        self.stack.set_visible_child(&self.caps_slot);
+                    }
+                    None => {
+                        self.raw.set_text(value);
+                        self.stack.set_visible_child(&self.raw);
+                    }
+                },
             }
             value.to_string()
         };
@@ -233,6 +286,7 @@ pub(super) struct CapturePreview {
     stack: gtk4::Stack,
     keys: gtk4::ShortcutLabel,
     raw: gtk4::Label,
+    caps_slot: gtk4::Box,
 }
 
 impl CapturePreview {
@@ -243,9 +297,16 @@ impl CapturePreview {
         let stack = gtk4::Stack::new();
         stack.set_transition_type(gtk4::StackTransitionType::None);
         stack.set_focusable(true);
+        let caps = caps_slot();
         stack.add_named(&raw, Some("raw"));
         stack.add_named(&keys, Some("keys"));
-        let this = Self { stack, keys, raw };
+        stack.add_named(&caps, Some("mods"));
+        let this = Self {
+            stack,
+            keys,
+            raw,
+            caps_slot: caps,
+        };
         this.show("");
         this
     }
@@ -268,10 +329,16 @@ impl CapturePreview {
                 self.keys.set_accelerator(&acc);
                 self.stack.set_visible_child(&self.keys);
             }
-            None => {
-                self.raw.set_text(spec);
-                self.stack.set_visible_child(&self.raw);
-            }
+            None => match modifier_caps(spec) {
+                Some(caps) => {
+                    fill_caps(&self.caps_slot, &caps);
+                    self.stack.set_visible_child(&self.caps_slot);
+                }
+                None => {
+                    self.raw.set_text(spec);
+                    self.stack.set_visible_child(&self.raw);
+                }
+            },
         }
     }
 }
