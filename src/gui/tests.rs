@@ -64,6 +64,7 @@ fn gtk_widget_scenarios() {
     debug_mode_switch_keeps_the_dialog_choice();
     group_descriptions_become_title_tooltips();
     experimental_badge_sits_beside_the_title();
+    popover_list_buttons_read_from_the_left();
     mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
     close_test_windows();
@@ -687,6 +688,16 @@ fn experimental_badge_sits_beside_the_title() {
         .expect("the badge follows the title");
     assert_eq!(badge.text(), "[Thử nghiệm]");
     assert_eq!(badge.parent(), title.parent(), "both share one line");
+}
+
+/// The seen-apps and add-item popover lists read from the left edge: the
+/// stock button centers its label.
+fn popover_list_buttons_read_from_the_left() {
+    let btn = widgets::list_button("firefox");
+    let label = btn.child().and_downcast::<gtk4::Label>().expect("a label");
+    assert_eq!(label.xalign(), 0.0);
+    assert_eq!(label.halign(), gtk4::Align::Start);
+    assert!(btn.has_css_class("flat"));
 }
 
 /// B3 regression: the import path pushes a config into every widget through

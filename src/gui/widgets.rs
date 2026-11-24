@@ -116,6 +116,20 @@ where
     true
 }
 
+/// A flat popover-list button whose label starts at the left edge. The stock
+/// button centers its label, which makes a list of app names or menu items
+/// read as a column of pills instead of a list.
+pub(super) fn list_button(label: &str) -> gtk4::Button {
+    let text = gtk4::Label::new(Some(label));
+    text.set_xalign(0.0);
+    text.set_halign(gtk4::Align::Start);
+    text.set_margin_start(6);
+    let btn = gtk4::Button::new();
+    btn.add_css_class("flat");
+    btn.set_child(Some(&text));
+    btn
+}
+
 /// A boxed-list choice row; `selected` indexes into `items`. Every combo in
 /// the app goes through here so the popup interaction stays uniform: click
 /// picks, hover only highlights (see `combo_popup_factory`).

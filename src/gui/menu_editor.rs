@@ -614,8 +614,7 @@ impl Ui {
     ) -> gtk4::Widget {
         let list = gtk4::Box::new(Orientation::Vertical, 0);
         for (id, label) in self.menu_addable_items(scope) {
-            let btn = gtk4::Button::with_label(&label);
-            btn.add_css_class("flat");
+            let btn = widgets::list_button(&label);
             {
                 let ui = self.clone();
                 let scope = scope.clone();

@@ -100,8 +100,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let pick_list = gtk4::Box::new(Orientation::Vertical, 0);
     let pick_popover = gtk4::Popover::new();
     for (label, target) in &app_targets {
-        let btn = gtk4::Button::with_label(label);
-        btn.add_css_class("flat");
+        let btn = list_button(label);
         {
             let entry = ui.rule_name_entry.clone();
             let popover = pick_popover.clone();
