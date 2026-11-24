@@ -102,12 +102,12 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         (
             "rules",
             t("pages.rules", "Luật theo app"),
-            "view-app-grid-symbolic",
+            "focus-windows-symbolic",
         ),
         (
             "panel",
             t("pages.panel", "Menu panel"),
-            "open-menu-symbolic",
+            "view-list-symbolic",
         ),
         (
             "hotkeys",
@@ -122,7 +122,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         (
             "other",
             t("pages.other", "Cài đặt nâng cao"),
-            "view-more-horizontal-symbolic",
+            "emblem-system-symbolic",
         ),
         (
             "tune",
