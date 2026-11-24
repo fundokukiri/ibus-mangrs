@@ -381,27 +381,15 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     // The debug-log path reads as a path: markup is on so the subtitle can
     // wrap it in <tt> (the text carries no & — markup is safe here).
+    // One switch; the two optional log tiers are picked in its confirmation
+    // dialog and have no rows of their own.
     let debug_log = adw::SwitchRow::new();
     debug_log.set_use_markup(true);
-    debug_log.set_title(&t("rows.debug_log.title", "Ghi log gỡ lỗi"));
+    debug_log.set_title(&t("rows.debug_log.title", "Chế độ gỡ lỗi"));
     debug_log.set_subtitle(&t(
         "rows.debug_log.subtitle_markup",
         "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangrs/debug.log</tt>",
     ));
-    let debug_log_text = switch_row(
-        &t("rows.debug_log_text.title", "Log cả nội dung đang gõ"),
-        &t(
-            "rows.debug_log_text.subtitle",
-            "Ghi cả nội dung đang gõ vào log — chỉ bật khi tái hiện lỗi mất chữ/sai ký tự, và không đính kèm log này lên issue",
-        ),
-    );
-    let debug_log_keys = switch_row(
-        &t("rows.debug_log_keys.title", "Log từng phím nhấn"),
-        &t(
-            "rows.debug_log_keys.subtitle",
-            "Mỗi phím một dòng keyval/state — chỉ bật khi gỡ lỗi đường phím (keymap, modifier, hotkey); mặc định tắt để log không đầy rác",
-        ),
-    );
     let x11_delete = switch_row(
         &t("rows.x11_delete.title", "Xoá đuôi từ ở app X11"),
         &t(
@@ -827,8 +815,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         rule_focus_value,
         hide_underline,
         debug_log,
-        debug_log_text,
-        debug_log_keys,
+        debug_tiers: Rc::new(RefCell::new((false, false))),
+        debug_log_loading: Rc::new(Cell::new(false)),
         x11_delete,
         preedit_xim,
         pacing_row,

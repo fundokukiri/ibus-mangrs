@@ -359,11 +359,12 @@ struct Ui {
     rule_focus_value: Rc<RefCell<String>>,
     hide_underline: adw::SwitchRow,
     debug_log: adw::SwitchRow,
-    /// Second log tier: typed-text lines (verify diffs, surrounding content).
-    /// Only effective while `debug_log` is on — see `Config::debug_log_text`.
-    debug_log_text: adw::SwitchRow,
-    /// Only effective while `debug_log` is on — see `Config::debug_log_keys`.
-    debug_log_keys: adw::SwitchRow,
+    /// The two optional log tiers (text, keys) the debug dialog picked. They
+    /// have no rows; they stay saved while the switch is off, so the dialog
+    /// reopens with the last choice.
+    debug_tiers: Rc<RefCell<(bool, bool)>>,
+    /// Guards the programmatic switch update in `refresh`.
+    debug_log_loading: Rc<Cell<bool>>,
     /// App-grid icon visibility ("Cài đặt khác"). Filesystem state, not a
     /// config key: the override file under ~/.local/share/applications.
     desktop_icon: adw::SwitchRow,
@@ -496,6 +497,33 @@ pub(crate) fn format_selected(row: &adw::ComboRow) -> String {
 }
 
 impl Ui {
+    /// The debug row's subtitle: the log path, and what it records while on.
+    pub(super) fn update_debug_subtitle(&self) {
+        let subtitle = if !self.debug_log.is_active() {
+            t(
+                "rows.debug_log.subtitle_markup",
+                "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangrs/debug.log</tt>",
+            )
+        } else {
+            let (text, keys) = *self.debug_tiers.borrow();
+            let tiers = match (text, keys) {
+                (true, true) => t(
+                    "rows.debug_log.tiers_both",
+                    ": nội dung đang gõ + từng phím",
+                ),
+                (true, false) => t("rows.debug_log.tiers_text", ": nội dung đang gõ"),
+                (false, true) => t("rows.debug_log.tiers_keys", ": từng phím"),
+                (false, false) => String::new(),
+            };
+            t(
+                "rows.debug_log.subtitle_on_markup",
+                "Đang bật{tiers} → <tt>~/.cache/ibus-mangrs/debug.log</tt>",
+            )
+            .replace("{tiers}", &tiers)
+        };
+        self.debug_log.set_subtitle(&subtitle);
+    }
+
     /// Rebuild every mode dropdown's model from `mode_choices`, keeping the
     /// selected mode when it is still visible. The mode row and the add-rule
     /// picker share the list, so hiding a mode updates both at once.
@@ -603,9 +631,11 @@ impl Ui {
         self.emoji_hotkey_display.render(&config.emoji_hotkey);
         self.dictionary_enabled
             .set_active(config.dictionary_enabled);
+        self.debug_log_loading.set(true);
         self.debug_log.set_active(config.debug_log);
-        self.debug_log_text.set_active(config.debug_log_text);
-        self.debug_log_keys.set_active(config.debug_log_keys);
+        self.debug_log_loading.set(false);
+        *self.debug_tiers.borrow_mut() = (config.debug_log_text, config.debug_log_keys);
+        self.update_debug_subtitle();
         // Not a config key: the app-grid override file on disk decides.
         *self.desktop_icon_loading.borrow_mut() = true;
         self.desktop_icon.set_active(!desktop_icon_hidden());
@@ -718,8 +748,9 @@ impl Ui {
         config.enabled_hotkey = self.enabled_hotkey_value.borrow().clone();
         config.app_rule_hotkey = self.app_rule_hotkey_value.borrow().clone();
         config.debug_log = self.debug_log.is_active();
-        config.debug_log_text = self.debug_log_text.is_active();
-        config.debug_log_keys = self.debug_log_keys.is_active();
+        let (debug_text, debug_keys) = *self.debug_tiers.borrow();
+        config.debug_log_text = debug_text;
+        config.debug_log_keys = debug_keys;
         config.x11_delete_without_report = self.x11_delete.is_active();
         config.preedit_for_xim = self.preedit_xim.is_active();
         config.modern_tone_style = self.modern.is_active();

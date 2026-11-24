@@ -204,8 +204,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         .title(t("groups.other.advanced.title", "Nâng cao"))
         .build();
     advanced.add(&ui.debug_log);
-    advanced.add(&ui.debug_log_text);
-    advanced.add(&ui.debug_log_keys);
     // Learned picks are behavioral data the user may want gone; the switch
     // that turns learning on lives with the strip, so the eraser sits here.
     let learn_clear_row = action_row(

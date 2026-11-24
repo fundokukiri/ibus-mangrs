@@ -717,6 +717,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         // handle instead of a closure captured at build time.
         *ui.save_cb.borrow_mut() = Some(Rc::new(save.clone()));
         wire_switch_saves(&ui, Rc::new(save.clone()));
+        wire_debug_mode(&ui);
         {
             let s = save.clone();
             ui.method.connect_selected_notify(move |_| s());
@@ -904,11 +905,83 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.emoji_enabled);
     on_change!(ui.dictionary_enabled);
     on_change!(ui.hide_underline);
-    on_change!(ui.debug_log);
-    on_change!(ui.debug_log_text);
-    on_change!(ui.debug_log_keys);
     on_change!(ui.x11_delete);
     on_change!(ui.preedit_xim);
+}
+
+/// "Chế độ gỡ lỗi": turning it on asks first — the dialog carries the two
+/// optional log tiers (typed text, per-key), remembered between sessions.
+/// Off is immediate: the switch is a kill switch, and the tiers stay saved
+/// so the next dialog opens with the last choice.
+pub(super) fn wire_debug_mode(ui: &Rc<Ui>) {
+    let ui_for_switch = ui.clone();
+    ui.debug_log.connect_active_notify(move |switch| {
+        if ui_for_switch.debug_log_loading.get() {
+            return;
+        }
+        if !switch.is_active() {
+            ui_for_switch.update_debug_subtitle();
+            ui_for_switch.fire_save();
+            return;
+        }
+        // No parent window (a widget test): nothing to show the dialog on,
+        // so the saved choice applies.
+        let Some(window) = switch.root().and_downcast::<gtk4::Window>() else {
+            let (text, keys) = *ui_for_switch.debug_tiers.borrow();
+            debug_choice(&ui_for_switch, text, keys);
+            return;
+        };
+        ask_debug_mode(&ui_for_switch, &window);
+    });
+}
+
+/// The dialog's verdict: store the picked tiers, refresh the row, save.
+pub(super) fn debug_choice(ui: &Rc<Ui>, text: bool, keys: bool) {
+    *ui.debug_tiers.borrow_mut() = (text, keys);
+    ui.update_debug_subtitle();
+    ui.fire_save();
+}
+
+/// The enable confirmation: what the log holds, plus the two tier
+/// checkboxes prefilled with the saved choice.
+fn ask_debug_mode(ui: &Rc<Ui>, window: &gtk4::Window) {
+    let text_check = gtk4::CheckButton::with_label(&t("other.debug_text_check", "Log nội dung"));
+    let keys_check = gtk4::CheckButton::with_label(&t("other.debug_keys_check", "Keyloger"));
+    let (text, keys) = *ui.debug_tiers.borrow();
+    text_check.set_active(text);
+    keys_check.set_active(keys);
+    let extra = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    extra.append(&text_check);
+    extra.append(&keys_check);
+    let dialog = adw::AlertDialog::builder()
+        .heading(t("other.debug_heading", "Bật chế độ gỡ lỗi?"))
+        .body(t(
+            "other.debug_body",
+            "Engine sẽ ghi quyết định của nó vào ~/.cache/ibus-mangrs/debug.log. Chọn thêm nếu cần chẩn đoán sâu — hai mục này ghi cả nội dung riêng tư, đừng đính kèm log lên issue khi chưa xem lại.",
+        ))
+        .extra_child(&extra)
+        .build();
+    dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
+    dialog.add_response("apply", &t("other.debug_apply", "Bật gỡ lỗi"));
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("apply"));
+    dialog.set_close_response("cancel");
+    {
+        let ui = ui.clone();
+        let switch = ui.debug_log.clone();
+        dialog.connect_response(None, move |_, response| {
+            if response == "apply" {
+                debug_choice(&ui, text_check.is_active(), keys_check.is_active());
+                return;
+            }
+            // Cancelled: the switch goes back to off without saving.
+            ui.debug_log_loading.set(true);
+            switch.set_active(false);
+            ui.debug_log_loading.set(false);
+            ui.update_debug_subtitle();
+        });
+    }
+    dialog.present(Some(window));
 }
 
 /// mtime of config.toml, `None` while it does not exist yet — the watch

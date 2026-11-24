@@ -482,6 +482,11 @@ json_filter = "JSON file"
 reset_heading = "Restore defaults?"
 reset_apply = "Restore"
 reset_body = "The configuration returns to defaults. Shorthand and the dictionary are kept."
+debug_heading = "Turn debug mode on?"
+debug_body = "The engine will log its decisions to ~/.cache/ibus-mangrs/debug.log. Pick the extras below only for deep diagnosis — both record private text, so do not attach that log to an issue before reading it."
+debug_text_check = "Log the text"
+debug_keys_check = "Keylogger"
+debug_apply = "Turn on"
 
 [groups.other.advanced]
 title = "Advanced"
@@ -504,16 +509,12 @@ title = "Restore defaults"
 subtitle = "Configuration returns to defaults; shorthand and dictionary are kept"
 
 [rows.debug_log]
-title = "Debug logging"
+title = "Debug mode"
 subtitle_markup = "Logs the engine's decisions to <tt>~/.cache/ibus-mangrs/debug.log</tt>"
-
-[rows.debug_log_text]
-title = "Log the in-flight text too"
-subtitle = "Logs the text being typed as well — enable only when reproducing lost-text/wrong-character bugs, and do not attach this log to an issue"
-
-[rows.debug_log_keys]
-title = "Log every key press"
-subtitle = "One keyval/state line per key — only for debugging the input path; off by default so the log stays clean"
+subtitle_on_markup = "On{tiers} → <tt>~/.cache/ibus-mangrs/debug.log</tt>"
+tiers_text = ": in-flight text"
+tiers_keys = ": every key"
+tiers_both = ": in-flight text + every key"
 
 [rows.x11_delete]
 title = "Delete word tails on X11 apps"
@@ -601,8 +602,7 @@ capitalize_macro = "An uppercase key (Gs) capitalizes the expansion too."
 macro_in_off_mode = "Shorthand keeps working while Vietnamese typing is off."
 emoji_enabled = "Typing :smile: becomes an emoji. A word after the colon types tones normally; when the closing colon arrives, the name is looked up by the raw keys — a match becomes the emoji, a miss keeps the text as typed."
 dictionary_enabled = "Enables my dictionary: words in the list are never restored to raw keys."
-debug_log = "Logs the engine's decisions to ~/.cache/ibus-mangrs/debug.log for bug reports."
-debug_log_keys = "Logs one keyval/state line per key press — only needed when debugging the input path (keymaps, modifiers, hotkeys). Off by default so the log stays clean; the log also rotates at 5 MB per file (the previous one is kept as debug.log.old)."
+debug_log = "Debug mode: the engine logs its decisions to ~/.cache/ibus-mangrs/debug.log. Turning it on asks about two optional extras (in-flight text, every key) and remembers the choice. The log rotates at 5 MB per file (the previous one is kept as debug.log.old)."
 x11_delete = "How words are deleted on direct X11 apps: delete the word tail like ibus-bamboo, or delete only as reported by the app."
 preedit_xim = "Uses a separate preedit window for XIM apps (Java/JetBrains) that lack IBus preedit support."
 backspace_interval = "The Backspace send pace in uinput modes — lower it if deletion lags, raise it if the app cannot keep up."

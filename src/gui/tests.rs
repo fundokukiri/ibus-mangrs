@@ -61,6 +61,7 @@ fn gtk_widget_scenarios() {
     toggling_off_releases_the_editor_caret();
     close_test_windows();
     every_switch_triggers_save();
+    debug_mode_switch_keeps_the_dialog_choice();
     mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
     close_test_windows();
@@ -579,6 +580,57 @@ fn rule_rows_round_trip_through_read() {
     assert_eq!(row.title().as_str(), "kate");
 }
 
+/// "Chế độ gỡ lỗi" is one switch: the two log tiers come from its dialog,
+/// stay saved while it is off, and the row says what it is recording.
+fn debug_mode_switch_keeps_the_dialog_choice() {
+    use crate::gui::content::{debug_choice, wire_debug_mode};
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    ui.refresh(&Config::default(), &macros, &dictionary);
+    assert!(!ui.debug_log.is_active(), "off by default");
+    assert_eq!(*ui.debug_tiers.borrow(), (false, false));
+    *ui.save_cb.borrow_mut() = Some(Rc::new({
+        let ui = ui.clone();
+        move || ui.save_all().expect("debug save")
+    }));
+    wire_debug_mode(&ui);
+
+    // The dialog's verdict lands in the three config keys and the row says
+    // what it records.
+    ui.debug_log.set_active(true); // no parent window: the saved choice applies
+    debug_choice(&ui, true, true);
+    assert_eq!(*ui.debug_tiers.borrow(), (true, true));
+    assert!(
+        ui.debug_log
+            .subtitle()
+            .is_some_and(|s| s.contains("nội dung đang gõ + từng phím")),
+        "the row reports the tiers: {:?}",
+        ui.debug_log.subtitle()
+    );
+    let saved = Config::load();
+    assert!(saved.debug_log && saved.debug_log_text && saved.debug_log_keys);
+
+    // Off is immediate and keeps the tiers for next time.
+    ui.debug_log.set_active(false);
+    let off = Config::load();
+    assert!(!off.debug_log, "the switch is a kill switch");
+    assert!(off.debug_log_text && off.debug_log_keys, "tiers remembered");
+    assert_eq!(*ui.debug_tiers.borrow(), (true, true));
+    assert!(ui
+        .debug_log
+        .subtitle()
+        .is_some_and(|s| !s.contains("Đang bật")));
+
+    // Reopening the window shows the switch off with the tiers still known;
+    // turning it on re-applies them without asking again in this harness.
+    ui.refresh(&off, &macros, &dictionary);
+    assert_eq!(*ui.debug_tiers.borrow(), (true, true));
+    ui.debug_log.set_active(true);
+    let back_on = Config::load();
+    assert!(back_on.debug_log && back_on.debug_log_text && back_on.debug_log_keys);
+}
+
 /// B3 regression: the import path pushes a config into every widget through
 /// `refresh`, so a widget `refresh` forgets keeps its old value and the next
 /// save writes that stale value back over the imported settings.
@@ -901,7 +953,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 24] = [
+    let rows: [&adw::SwitchRow; 21] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -921,9 +973,8 @@ fn every_switch_triggers_save() {
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,
-        &ui.debug_log,
-        &ui.debug_log_text,
-        &ui.debug_log_keys,
+        // `debug_log` has its own confirmation dialog and is covered by
+        // `debug_mode_switch_keeps_the_dialog_choice` instead.
         &ui.x11_delete,
         &ui.preedit_xim,
     ];

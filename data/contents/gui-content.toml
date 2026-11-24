@@ -484,6 +484,11 @@ json_filter = "Tệp JSON"
 reset_heading = "Khôi phục mặc định?"
 reset_apply = "Khôi phục"
 reset_body = "Cấu hình sẽ về mặc định. Gõ tắt và từ điển được giữ nguyên."
+debug_heading = "Bật chế độ gỡ lỗi?"
+debug_body = "Engine sẽ ghi quyết định của nó vào ~/.cache/ibus-mangrs/debug.log. Chọn thêm nếu cần chẩn đoán sâu — hai mục này ghi cả nội dung riêng tư, đừng đính kèm log lên issue khi chưa xem lại."
+debug_text_check = "Log nội dung"
+debug_keys_check = "Keyloger"
+debug_apply = "Bật gỡ lỗi"
 
 [groups.other.advanced]
 title = "Nâng cao"
@@ -507,16 +512,12 @@ title = "Khôi phục mặc định"
 subtitle = "Cấu hình về mặc định; gõ tắt và từ điển giữ nguyên"
 
 [rows.debug_log]
-title = "Ghi log gỡ lỗi"
+title = "Chế độ gỡ lỗi"
 subtitle_markup = "Ghi quyết định của engine vào <tt>~/.cache/ibus-mangrs/debug.log</tt>"
-
-[rows.debug_log_text]
-title = "Log cả nội dung đang gõ"
-subtitle = "Ghi cả nội dung đang gõ vào log — chỉ bật khi tái hiện lỗi mất chữ/sai ký tự, và không đính kèm log này lên issue"
-
-[rows.debug_log_keys]
-title = "Log từng phím nhấn"
-subtitle = "Mỗi phím một dòng keyval/state — chỉ bật khi gỡ lỗi đường phím; mặc định tắt để log không đầy rác"
+subtitle_on_markup = "Đang bật{tiers} → <tt>~/.cache/ibus-mangrs/debug.log</tt>"
+tiers_text = ": nội dung đang gõ"
+tiers_keys = ": từng phím"
+tiers_both = ": nội dung đang gõ + từng phím"
 
 [rows.x11_delete]
 title = "Xoá đuôi từ ở app X11"
@@ -604,8 +605,7 @@ capitalize_macro = "Khóa viết hoa (Gs) thì nội dung cũng viết hoa theo.
 macro_in_off_mode = "Gõ tắt vẫn hoạt động khi tiếng Việt đang tắt."
 emoji_enabled = "Gõ :smile: thành emoji. Từ sau dấu hai chấm vẫn gõ dấu bình thường; khi gõ dấu hai chấm đóng, tên được tra theo phím gốc — khớp thì thành emoji, không khớp thì giữ nguyên văn."
 dictionary_enabled = "Bật từ điển cá nhân: các từ trong danh sách không bị trả về chuỗi phím gốc."
-debug_log = "Ghi lại quyết định của engine vào ~/.cache/ibus-mangrs/debug.log để báo lỗi."
-debug_log_keys = "Ghi từng phím nhấn (keyval/state) vào log — chỉ cần khi gỡ lỗi đường phím (keymap, modifier, hotkey). Mặc định tắt để log không đầy rác; log cũng tự xoay 5 MB một file (bản cũ giữ ở debug.log.old)."
+debug_log = "Bật chế độ gỡ lỗi: engine ghi quyết định của nó vào ~/.cache/ibus-mangrs/debug.log. Khi bật sẽ hỏi thêm hai mục tùy chọn (ghi nội dung đang gõ, ghi từng phím) — lựa chọn được nhớ cho lần sau. Log tự xoay 5 MB một file (bản cũ giữ ở debug.log.old)."
 x11_delete = "Cách xoá từ ở app X11 trực tiếp: xoá đuôi từ như ibus-bamboo, hoặc chỉ xoá theo báo cáo của app."
 preedit_xim = "Dùng cửa sổ preedit riêng cho app XIM (Java/JetBrains) vốn không hỗ trợ preedit của IBus."
 backspace_interval = "Nhịp gửi Backspace ở mode uinput — giảm nếu xoá chậm, tăng nếu app xử lý không kịp."
