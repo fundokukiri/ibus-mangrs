@@ -65,33 +65,26 @@ pub(super) fn switch_row(title: &str, subtitle: &str) -> adw::SwitchRow {
     row
 }
 
-/// The experimental row carries a small "Thử nghiệm" badge UNDER its
-/// subtitle — the description's own line, out of the control area — and the
-/// switch (its own or the merged row's) gets a spoken name mentioning the
-/// trial status. The subtitle label's parent is the row's internal vertical
-/// title box, reached through the same private-child walk as `row_subtitle`;
-/// a row without a subtitle falls back to the internal suffixes box. Works
-/// for every row type: they all render a title box.
+/// The experimental row carries a small "[Thử nghiệm]" badge right beside its
+/// title, and its switch gets a spoken name mentioning the trial status.
+/// The title label is not a public child either, so the badge is spliced into
+/// the row's internal title box: the label moves into a horizontal pair that
+/// replaces it. Every row type renders a title box; a row without one keeps
+/// the badge in its suffixes area.
 pub(super) fn decorate_experimental<W>(row: &W)
 where
     W: IsA<gtk4::Widget> + IsA<adw::PreferencesRow>,
 {
     let badge_text = t("misc.experimental_badge", "Thử nghiệm");
-    let badge = gtk4::Label::new(Some(&badge_text));
+    let badge = gtk4::Label::new(Some(&format!("[{badge_text}]")));
     badge.add_css_class("caption");
     badge.add_css_class("warning");
-    badge.set_xalign(0.0);
+    badge.set_valign(gtk4::Align::Center);
     uniform_title_width(row);
-    let subtitle_box = row_subtitle(row).and_then(|l| l.parent().and_downcast::<gtk4::Box>());
     let (suffixes, switch) = find_suffixes_and_switch(row.upcast_ref());
-    match subtitle_box {
-        Some(b) => b.append(&badge),
-        // No subtitle to sit under: keep the badge inside the control area.
-        None => {
-            if let Some(suffixes) = suffixes {
-                suffixes.prepend(&badge);
-                badge.set_valign(gtk4::Align::Center);
-            }
+    if !badge_beside_title(row, &badge) {
+        if let Some(suffixes) = suffixes {
+            suffixes.prepend(&badge);
         }
     }
     let spoken = format!("{}, {}", row.title(), badge_text);
@@ -101,6 +94,26 @@ where
             .upcast_ref::<gtk4::Widget>()
             .update_property(&[gtk4::accessible::Property::Label(&spoken)]),
     }
+}
+
+/// Move the row's title into a horizontal pair with `badge`, so the badge
+/// rides the title's own line instead of a second one.
+fn badge_beside_title<W>(row: &W, badge: &gtk4::Label) -> bool
+where
+    W: IsA<gtk4::Widget> + IsA<adw::PreferencesRow>,
+{
+    let (Some(title), Some(title_box)) = (
+        row_title(row),
+        row_title(row).and_then(|l| l.parent().and_downcast::<gtk4::Box>()),
+    ) else {
+        return false;
+    };
+    let line = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    title.unparent();
+    line.append(&title);
+    line.append(badge);
+    title_box.prepend(&line);
+    true
 }
 
 /// A boxed-list choice row; `selected` indexes into `items`. Every combo in

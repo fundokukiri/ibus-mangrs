@@ -63,6 +63,7 @@ fn gtk_widget_scenarios() {
     every_switch_triggers_save();
     debug_mode_switch_keeps_the_dialog_choice();
     group_descriptions_become_title_tooltips();
+    experimental_badge_sits_beside_the_title();
     mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
     close_test_windows();
@@ -673,6 +674,19 @@ fn group_descriptions_become_title_tooltips() {
         marked_title.tooltip_text().as_deref(),
         Some("Một tệp JSON chứa cấu hình, gõ tắt và từ điển.")
     );
+}
+
+/// The experimental badge is a "[Thử nghiệm]" tag on the title's own line.
+fn experimental_badge_sits_beside_the_title() {
+    let ui = widgets();
+    widgets::decorate_experimental(&ui.suggest_words);
+    let title = widgets::row_title(&ui.suggest_words).expect("the title label");
+    let badge = title
+        .next_sibling()
+        .and_downcast::<gtk4::Label>()
+        .expect("the badge follows the title");
+    assert_eq!(badge.text(), "[Thử nghiệm]");
+    assert_eq!(badge.parent(), title.parent(), "both share one line");
 }
 
 /// B3 regression: the import path pushes a config into every widget through
