@@ -54,9 +54,8 @@ pub struct Config {
     /// next-word predictions follow a landed word, and a digit key picks
     /// one. The dictionary itself is out of the strip (its future home is
     /// spell-check). Needs the prediction model file installed; off by
-    /// default, and off entirely on digit-tone presets
-    /// (`Method::uses_digit_tone_keys`): their digits are tone keys, so the
-    /// strip must not claim them.
+    /// default. Serves every preset: the pick keys are `Alt`+digits and
+    /// `` ` ``, leaving each preset's own digit tone keys alone.
     pub suggest_words: bool,
     /// Experimental: the suggestion strip's display while the strip is up —
     /// `floating` (default) only in the box (the client's field stays clean

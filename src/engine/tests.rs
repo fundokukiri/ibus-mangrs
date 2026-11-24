@@ -5035,8 +5035,8 @@ fn keep_repeats_raw_a_mark_key_after_a_hold_keeps_screen_and_word_in_sync() {
 // --- suggestion strip ---
 
 /// Engine with the strip switch applied; unlike `engine` above this picks
-/// the input method too — the digit-tone presets must prove the strip's
-/// silence on their digits. The switch rides the experimental master gate
+/// the input method too — every preset serves the strip now that the pick
+/// keys are `Alt`+digits and `` ` ``. The switch rides the experimental gate
 /// (the engine bakes `experimental && suggest_words`), so a strip-on test
 /// turns the gate on with it.
 fn suggest_engine(method: Method, mode: Mode, suggest_words: bool) -> Engine {
@@ -5619,15 +5619,24 @@ fn emoji_reach_the_strip_tail() {
 }
 
 #[test]
-fn suggest_digit_tone_presets_stay_silent() {
-    // The presets whose digits are tone keys never run the strip: the
-    // selection digits would fight the method's own marks. Zero candidate
-    // actions for any key run, marks and literal digits included.
-    for method in [Method::Vni, Method::TelexVni] {
+fn digit_tone_presets_serve_the_strip_too() {
+    // The pick keys are `Alt`+digits and `` ` ``, so a preset whose digits
+    // are tone keys no longer has to stay silent: the digits stay in the
+    // word and the strip follows it like any other preset.
+    for method in [Method::Vni, Method::TelexVni, Method::VniFrench] {
         let mut e = suggest_engine(method, Mode::Preedit, true);
-        let keys = suggest_keys(&mut e, "viet6 1");
-        let all: Vec<Action> = keys.into_iter().flatten().collect();
-        assert!(strip_actions(&all).is_empty(), "{method:?}: {all:?}");
+        let keys = suggest_keys(&mut e, "vie");
+        assert!(
+            keys.iter().any(|batch| candidates_of(batch).is_some()),
+            "{method:?} opens the strip: {keys:?}"
+        );
+        // A digit is the preset's own mark or a terminator, never a pick:
+        // the strip keeps following the word through it.
+        let keys = suggest_keys(&mut e, "t6");
+        assert!(
+            keys.iter().any(|batch| candidates_of(batch).is_some()),
+            "{method:?} the strip follows the word through a digit: {keys:?}"
+        );
     }
 }
 

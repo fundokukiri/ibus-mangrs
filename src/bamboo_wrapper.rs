@@ -65,14 +65,6 @@ impl Method {
             Method::TelexW => InputMethod::telex_w(),
         }
     }
-
-    /// Whether the preset types tones with digit keys: the suggestion
-    /// strip's number selection must not fight tone keys for the same
-    /// keystrokes. Derived from the `tone_keys` table so the two lists
-    /// cannot drift apart.
-    pub fn uses_digit_tone_keys(self) -> bool {
-        tone_keys(self).iter().any(|&k| ('1'..='5').contains(&k))
-    }
 }
 
 /// Output charset for committed text. `bamboo-core` ships all of these;
@@ -1381,24 +1373,6 @@ mod tests {
         let mut w = wrapper(Method::Telex);
         type_str(&mut w, "tieengs");
         assert_eq!(w.output(), "tiếng");
-    }
-
-    #[test]
-    fn uses_digit_tone_keys_follows_the_tone_key_table() {
-        // The suggestion strip's number selection must stay off exactly when
-        // a digit would act as a tone key of the preset.
-        for m in [
-            Method::Vni,
-            Method::VniFrench,
-            Method::MsLayout,
-            Method::TelexVni,
-            Method::TelexVniViqr,
-        ] {
-            assert!(m.uses_digit_tone_keys(), "{m:?} types tones with digits");
-        }
-        for m in [Method::Telex, Method::Telex2, Method::TelexW, Method::Viqr] {
-            assert!(!m.uses_digit_tone_keys(), "{m:?} has no digit tone keys");
-        }
     }
 
     #[test]

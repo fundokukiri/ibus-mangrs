@@ -856,9 +856,9 @@ impl Engine {
         }
         self.set_mode(mode);
         self.set_charset(config.charset.into());
-        // A reload can close the strip's gate (switch off, digit-tone
-        // preset, a mode without a pick transport): a strip left open would
-        // accept selections the gate no longer allows.
+        // A reload can close the strip's gate (switch off, a mode without a
+        // pick transport): a strip left open would accept selections the gate
+        // no longer allows.
         if !self.suggest_active() && std::mem::take(&mut self.suggest_open) {
             actions.push(Action::HideCandidates);
         }
@@ -1821,10 +1821,10 @@ impl Engine {
         }
     }
 
-    /// The single gate every strip branch consults: Preedit mode (the strip
-    /// is a preedit-mode feature), the switch on, and a preset whose digit
-    /// keys are not tone keys — the server's selection digits must not
-    /// fight the method's own marks.
+    /// The single gate every strip branch consults: the switch on and a mode
+    /// whose delete transport can rewrite the held word. The pick keys are
+    /// `Alt`+digits and `` ` ``, so no preset's digit tone keys are in the
+    /// way.
     /// Whether the strip may open for a word served in `mode`: preedit owns
     /// its display (the client holds nothing on the wire — the pick commits
     /// over it), the inline modes hold the composed text in the application
@@ -1844,9 +1844,7 @@ impl Engine {
     }
 
     fn suggest_active(&self) -> bool {
-        self.suggest_words
-            && !self.wrapper.method().uses_digit_tone_keys()
-            && self.strip_possible(self.word_mode.unwrap_or(self.mode))
+        self.suggest_words && self.strip_possible(self.word_mode.unwrap_or(self.mode))
     }
 
     /// The context bonus for the in-flight word's prefix range: the last
