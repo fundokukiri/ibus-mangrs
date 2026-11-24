@@ -365,7 +365,7 @@ struct Ui {
     debug_tiers: Rc<RefCell<(bool, bool)>>,
     /// Guards the programmatic switch update in `refresh`.
     debug_log_loading: Rc<Cell<bool>>,
-    /// App-grid icon visibility ("Cài đặt khác"). Filesystem state, not a
+    /// App-grid icon visibility ("Cài đặt nâng cao"). Filesystem state, not a
     /// config key: the override file under ~/.local/share/applications.
     desktop_icon: adw::SwitchRow,
     /// Guards the programmatic `desktop_icon` state set in `refresh`.

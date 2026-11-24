@@ -653,6 +653,26 @@ fn group_descriptions_become_title_tooltips() {
         title.tooltip_text().as_deref(),
         Some("Kiểu đặt dấu trên nguyên âm")
     );
+
+    // Titles are Pango markup: the escaped "&amp;" must still match the label
+    // showing "&", or that one group keeps its line (the "Sao lưu" bug).
+    let marked = adw::PreferencesGroup::builder()
+        .title("Sao lưu &amp; khôi phục")
+        .description("Một tệp JSON chứa cấu hình, gõ tắt và từ điển.")
+        .build();
+    page.append(&marked);
+    crate::gui::build::descriptions_into_tooltips(&page);
+    assert!(
+        marked.description().is_none_or(|d| d.is_empty()),
+        "an escaped title must not keep its description"
+    );
+    let marked_title =
+        crate::gui::build::find_label(marked.upcast_ref(), "Sao lưu &amp; khôi phục")
+            .expect("the escaped title label is found");
+    assert_eq!(
+        marked_title.tooltip_text().as_deref(),
+        Some("Một tệp JSON chứa cấu hình, gõ tắt và từ điển.")
+    );
 }
 
 /// B3 regression: the import path pushes a config into every widget through
@@ -1365,7 +1385,7 @@ fn language_switch_rebuilds_the_window() {
             .expect("tooltip")
     };
     let win1 = crate::gui::content::build(&app, Some("typing"));
-    assert_eq!(nav_tip(&win1, "other"), "Cài đặt khác", "vi by default");
+    assert_eq!(nav_tip(&win1, "other"), "Cài đặt nâng cao", "vi by default");
     let picked = |w: &adw::ApplicationWindow, name: &str| {
         descendants::<gtk4::ListBoxRow>(w.upcast_ref())
             .into_iter()
@@ -1379,7 +1399,7 @@ fn language_switch_rebuilds_the_window() {
     let win2 = crate::gui::content::build(&app, Some("other"));
     assert_eq!(
         nav_tip(&win2, "other"),
-        "Other settings",
+        "Advanced settings",
         "rebuild re-resolves texts"
     );
     assert!(
@@ -1435,7 +1455,7 @@ fn language_handler_rebuilds_both_ways() {
         .application_id("org.freedesktop.IBus.mangrs.test-lang")
         .build();
     let win1 = crate::gui::content::build(&app, Some("typing"));
-    assert_eq!(nav_tip(&win1, "other"), "Cài đặt khác");
+    assert_eq!(nav_tip(&win1, "other"), "Cài đặt nâng cao");
 
     // VI → EN through the real handler.
     language_combo(&win1).set_selected(1);
@@ -1443,7 +1463,7 @@ fn language_handler_rebuilds_both_ways() {
     let en = app_windows();
     assert_eq!(en.len(), 1, "exactly one window after VI→EN: {en:?}");
     let win2 = en.first().expect("the EN window");
-    assert_eq!(nav_tip(win2, "other"), "Other settings", "VI→EN rebuilt");
+    assert_eq!(nav_tip(win2, "other"), "Advanced settings", "VI→EN rebuilt");
 
     // EN → VI through the same handler.
     language_combo(win2).set_selected(0);
@@ -1451,7 +1471,7 @@ fn language_handler_rebuilds_both_ways() {
     let vi = app_windows();
     assert_eq!(vi.len(), 1, "exactly one window after EN→VI: {vi:?}");
     let win3 = vi.first().expect("the VI window");
-    assert_eq!(nav_tip(win3, "other"), "Cài đặt khác", "EN→VI rebuilt");
+    assert_eq!(nav_tip(win3, "other"), "Cài đặt nâng cao", "EN→VI rebuilt");
 
     win3.close();
     close_test_windows();

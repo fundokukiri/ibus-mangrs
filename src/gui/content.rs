@@ -58,7 +58,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     // ===== Page 5: Luật — chip, quick-add, list editor, preview.
     let rules_page = pages::rules::build(&ui);
 
-    // ===== Page 6: Cài đặt khác — icon, extension, backup, reset.
+    // ===== Page 6: Cài đặt nâng cao — icon, extension, backup, reset.
     let other_page = pages::other::build(&ui);
 
     // ===== Page 7: Thử nghiệm — every gated feature on one tab.
@@ -121,7 +121,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         ),
         (
             "other",
-            t("pages.other", "Cài đặt khác"),
+            t("pages.other", "Cài đặt nâng cao"),
             "view-more-horizontal-symbolic",
         ),
         (
@@ -336,7 +336,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
 
     // Programmatic page jump for the non-widget code paths: the experimental
     // gate closes its tab while the user may be standing on it and lands
-    // them on "Cài đặt khác". select_row drives the same row_selected
+    // them on "Cài đặt nâng cao". select_row drives the same row_selected
     // handler the clicks use, so the stack, the title and the single
     // selection all stay in sync.
     {

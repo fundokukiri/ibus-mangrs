@@ -63,7 +63,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let raw = adw::PreferencesGroup::builder()
         .title(t("groups.macros.raw.title", "Nội dung gõ tắt"))
         // Markup description: the $TIME/$DATE tokens read as code, like
-        // the monospace paths on "Cài đặt khác".
+        // the monospace paths on "Cài đặt nâng cao".
         .description(t(
             "groups.macros.raw.description",
             "Mỗi dòng một cặp khóa=nội dung. Dùng <tt>$TIME</tt> và <tt>$DATE</tt> để chèn giờ và ngày.",

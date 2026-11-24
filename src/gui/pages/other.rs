@@ -1,4 +1,4 @@
-//! Page "Cài đặt khác": everything that is neither everyday typing nor a
+//! Page "Cài đặt nâng cao": everything that is neither everyday typing nor a
 //! per-feature page — the app-grid icon, the focus extension installer
 //! (GNOME sessions only), the JSON backup and the restore-defaults action
 //! next to the debug-log switch. The page owns its action buttons, their

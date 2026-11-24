@@ -93,12 +93,12 @@ mod tests {
     fn t_respects_the_language_and_falls_back_to_vi() {
         let _g = LANG_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         set_language("en");
-        assert_eq!(t("pages.other", ""), "Other settings");
+        assert_eq!(t("pages.other", ""), "Advanced settings");
         set_language("vi");
-        assert_eq!(t("pages.other", ""), "Cài đặt khác");
+        assert_eq!(t("pages.other", ""), "Cài đặt nâng cao");
         // Anything unknown ("fr", "", garbage) behaves as Vietnamese.
         set_language("fr");
-        assert_eq!(t("pages.other", ""), "Cài đặt khác");
+        assert_eq!(t("pages.other", ""), "Cài đặt nâng cao");
         set_language("vi"); // restore for other tests; global state
     }
 
