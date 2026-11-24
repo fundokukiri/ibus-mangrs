@@ -89,6 +89,24 @@ mod tests {
     use super::*;
     use crate::config::Config;
 
+    /// A row subtitle must stay one short line: anything longer wraps on a
+    /// narrow window and pushes the switch down. The long form belongs in the
+    /// row's tooltip (`tips.*`).
+    #[test]
+    fn every_row_subtitle_fits_one_line() {
+        for content in [CONTENT, CONTENT_EN] {
+            let parsed: toml::Table = toml::from_str(content).expect("content parses");
+            let rows = parsed["rows"].as_table().expect("a rows table");
+            for (key, row) in rows {
+                let Some(subtitle) = row.get("subtitle").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let len = subtitle.chars().count();
+                assert!(len <= 40, "{key}: {len} chars — {subtitle}");
+            }
+        }
+    }
+
     #[test]
     fn t_respects_the_language_and_falls_back_to_vi() {
         let _g = LANG_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());

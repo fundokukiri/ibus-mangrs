@@ -878,7 +878,7 @@ fn row_texts_render_as_plain_text() {
     }
     assert_eq!(
         ui.bypass_url.subtitle().as_deref(),
-        Some("URL thật (https://, www.) giữ nguyên cả vùng tới dấu cách hoặc dấu câu")
+        Some("URL giữ nguyên tới dấu cách")
     );
 }
 

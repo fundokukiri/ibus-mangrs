@@ -54,11 +54,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.enabled.title", "Bật tiếng Việt"),
         // {page} is the macros page's real sidebar label, so the sentence
         // cannot drift from the sidebar.
-        &t(
-            "rows.enabled.subtitle",
-            "Tắt để gõ thẳng mọi phím. Gõ tắt vẫn chạy nếu bật ở trang Gõ tắt.",
-        )
-        .replace("{page}", &t("pages.macros", "Gõ tắt")),
+        &t("rows.enabled.subtitle", "Tắt là mọi phím đi thẳng vào app")
+            .replace("{page}", &t("pages.macros", "Gõ tắt")),
     );
     let method = combo_row(
         &t("rows.method.title", "Kiểu gõ"),
@@ -100,52 +97,34 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     let free = switch_row(
         &t("rows.free.title", "Dấu tự do"),
-        &t(
-            "rows.free.subtitle",
-            "Dấu đặt anywhere trong từ: hoangf → hoàng",
-        ),
+        &t("rows.free.subtitle", "Dấu ở đâu trong từ cũng được"),
     );
     let auto_correct = switch_row(
         &t("rows.auto_correct.title", "Từ sai trả phím gốc"),
-        &t(
-            "rows.auto_correct.subtitle",
-            "Âm tiết không hợp lệ trả về đúng phím đã bấm",
-        ),
+        &t("rows.auto_correct.subtitle", "Sửa âm tiết gõ sai"),
     );
     let auto_restore = switch_row(
         &t("rows.auto_restore.title", "Khôi phục từ nước ngoài"),
-        &t(
-            "rows.auto_restore.subtitle",
-            "Từ không phải âm tiết Việt trả về chuỗi phím gốc",
-        ),
+        &t("rows.auto_restore.subtitle", "Từ ngoại lai trả về phím gốc"),
     );
     let extended_finals = switch_row(
         &t("rows.extended_finals.title", "Âm cuối mở rộng"),
         &t(
             "rows.extended_finals.subtitle",
-            "g, k, h, nk thay ng, c, nh: nhuwgx → nhữg",
+            "g, k, h, nk thay ng, c, nh",
         ),
     );
     let extended_onsets = switch_row(
         &t("rows.extended_onsets.title", "Âm đầu mở rộng"),
-        &t(
-            "rows.extended_onsets.subtitle",
-            "f, j, w làm âm đầu được ghi dấu: fos → fó",
-        ),
+        &t("rows.extended_onsets.subtitle", "f, j, w làm âm đầu"),
     );
     let abbrev = switch_row(
         &t("rows.abbrev.title", "Viết tắt"),
-        &t(
-            "rows.abbrev.subtitle",
-            "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt",
-        ),
+        &t("rows.abbrev.subtitle", "Giữ đ trong từ viết tắt"),
     );
     let bypass_url = switch_row(
         &t("rows.bypass_url.title", "Không dấu sau URL"),
-        &t(
-            "rows.bypass_url.subtitle",
-            "Từ gõ ngay sau / : @ . _ ~ = # & % ? giữ nguyên",
-        ),
+        &t("rows.bypass_url.subtitle", "Sau ký tự URL thì giữ nguyên"),
     );
     let w2u = combo_row(
         &t("rows.w2u.title", "W thành ư"),
@@ -159,10 +138,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     let backspace_tone = combo_row(
         &t("rows.backspace_tone.title", "Xóa dấu bằng Backspace"),
-        &t(
-            "rows.backspace_tone.subtitle",
-            "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành ha). Hoặc xóa cả dấu và chữ (hạ thành h), hoặc lùi từng phím như unikey.",
-        ),
+        &t("rows.backspace_tone.subtitle", "Cách xoá dấu khi Backspace"),
         &labels(BACKSPACE_TONE_MODES),
     );
     let nav_key_while_preedit = combo_row(
@@ -178,10 +154,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     let em_dash = switch_row(
         &t("rows.em_dash.title", "Gạch ngang dài"),
-        &t(
-            "rows.em_dash.subtitle",
-            "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)",
-        ),
+        &t("rows.em_dash.subtitle", "Hai dấu trừ thành gạch dài"),
     );
     let auto_capitalize = switch_row(
         &t("rows.auto_capitalize.title", "Tự viết hoa"),
@@ -244,16 +217,13 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     let suggest_words = switch_row(
         &t("rows.suggest_words.title", "Gợi ý từ (n-gram)"),
-        &t(
-            "rows.suggest_words.subtitle",
-            "Từ ghép khi đang gõ, từ kế tiếp sau dấu cách — cần file mô hình dự đoán",
-        ),
+        &t("rows.suggest_words.subtitle", "Gợi ý từ khi đang gõ"),
     );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Backend ưu tiên"),
         &t(
             "rows.preferred_backend.subtitle",
-            "Backend tiêm phím được ưu tiên; không dựng được thì tự rơi về tự động",
+            "Backend tiêm phím ưu tiên",
         ),
         // Order pinned by preferred_backend_index: auto, uinput, xtest,
         // wlr-virtual-keyboard, libei.
@@ -284,10 +254,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     let macros_text = text_view("");
     let emoji_enabled = switch_row(
         &t("rows.emoji_enabled.title", "Gõ tắt emoji"),
-        &t(
-            "rows.emoji_enabled.subtitle",
-            "Gõ :ten: kèm dấu hai chấm sẽ thành emoji khi hết từ",
-        ),
+        &t("rows.emoji_enabled.subtitle", "Gõ :tên: thành emoji"),
     );
     let emoji_hotkey_display =
         ShortcutDisplay::new(&t("rows.hotkey_emoji.title", "Phím tắt mở bảng emoji"));
@@ -403,7 +370,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.desktop_icon.title", "Hiện trong menu ứng dụng"),
         &t(
             "rows.desktop_icon.subtitle",
-            "Icon MăngRS Cấu hình trong lưới ứng dụng của GNOME",
+            "Biểu tượng trong lưới ứng dụng",
         ),
     );
     let show_toasts = switch_row(
@@ -456,11 +423,7 @@ pub(super) fn widgets() -> Rc<Ui> {
     let pacing_defaults = crate::config::Config::default();
     let pacing_row = action_row(
         &t("rows.pacing.title", "Nhịp uinput (ms)"),
-        &t(
-            "rows.pacing.subtitle",
-            "Khoảng nghỉ giữa các phím ảo. Mặc định: {n}",
-        )
-        .replace(
+        &t("rows.pacing.subtitle", "Nghỉ giữa các phím: {n}").replace(
             "{n}",
             &format!(
                 "{} · {}",
@@ -660,6 +623,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         "tips.bracket",
         "Gõ [ và ] nhận ơ và ư theo vị trí trong từ."
     );
+    tip!(show_toasts, "tips.show_toasts", "Bong bóng báo thao tác");
     tip!(
         backspace_tone,
         "tips.backspace_tone",

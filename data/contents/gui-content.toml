@@ -90,7 +90,7 @@ subtitle = "{n} chế độ, xoay vòng"
 
 [rows.enabled]
 title = "Bật tiếng Việt"
-subtitle = "Tắt để gõ thẳng mọi phím. Gõ tắt vẫn chạy nếu bật ở trang {page}."
+subtitle = "Tắt là mọi phím đi thẳng vào app"
 
 [rows.method]
 title = "Kiểu gõ"
@@ -114,7 +114,7 @@ subtitle = "Ví dụ: Control+Alt+space"
 
 [rows.hotkey_app_rule]
 title = "Phím tắt chọn luật theo app"
-subtitle = "Mở menu chọn chế độ ngay tại con trỏ (mũi tên + Enter)"
+subtitle = "Mở menu chế độ tại con trỏ"
 
 [rows.hide_underline]
 title = "Ẩn gạch chân"
@@ -148,27 +148,27 @@ subtitle = "Đặt dấu tự do trong từ: hoangf → hoàng"
 
 [rows.auto_correct]
 title = "Khôi phục phím với từ sai"
-subtitle = "Âm tiết không hợp lệ trả về đúng phím đã bấm"
+subtitle = "Sửa âm tiết gõ sai"
 
 [rows.auto_restore]
 title = "Khôi phục từ nước ngoài"
-subtitle = "Từ không phải âm tiết Việt trả về chuỗi phím gốc"
+subtitle = "Từ ngoại lai trả về phím gốc"
 
 [rows.extended_finals]
 title = "Âm cuối mở rộng"
-subtitle = "g, k, h, nk thay ng, c, nh: nhuwgx → nhữg"
+subtitle = "g, k, h, nk thay ng, c, nh"
 
 [rows.extended_onsets]
 title = "Âm đầu mở rộng"
-subtitle = "f, j, w làm âm đầu được ghi dấu: fos → fó"
+subtitle = "f, j, w làm âm đầu"
 
 [rows.abbrev]
 title = "Giữ các từ được viết tắt"
-subtitle = "Giữ đ trong từ viết tắt: ddc → đc, ddk → đk, ddt → đt"
+subtitle = "Giữ đ trong từ viết tắt"
 
 [rows.bypass_url]
 title = "Không gõ dấu sau URL"
-subtitle = "URL thật (https://, www.) giữ nguyên cả vùng tới dấu cách hoặc dấu câu"
+subtitle = "URL giữ nguyên tới dấu cách"
 
 [rows.w2u]
 title = "W thành ư"
@@ -180,7 +180,7 @@ subtitle = "Chọn vị trí áp dụng"
 
 [rows.em_dash]
 title = "Gạch ngang dài"
-subtitle = "Hai dấu trừ liên tiếp thành gạch dài (-- thành —)"
+subtitle = "Hai dấu trừ thành gạch dài"
 
 [rows.auto_capitalize]
 title = "Tự viết động hoa"
@@ -200,20 +200,20 @@ subtitle = "giữ o → oooo… thay vì dừng ở ô"
 
 [rows.suggest_words]
 title = "Gợi ý từ (n-gram)"
-subtitle = "Từ ghép khi đang gõ, từ kế tiếp sau dấu cách — cần file mô hình dự đoán"
+subtitle = "Gợi ý từ khi đang gõ"
 
 [rows.suggest_learn]
 title = "Học từ khi chọn gợi ý"
-subtitle = "Ghi nhớ những từ anh đã chọn trong bảng gợi ý để ưu tiên lần sau — hai tệp nhỏ trong thư mục cấu hình"
+subtitle = "Ưu tiên từ anh đã chọn"
 
 [rows.learn_clear]
 title = "Xoá dữ liệu đã học"
-subtitle = "Xoá hai tệp học-theo-chọn trong thư mục cấu hình. Hỏi trước khi xoá."
+subtitle = "Xoá dữ liệu đã học"
 button = "Xoá"
 
 [rows.preferred_backend]
 title = "Backend ưu tiên"
-subtitle = "Backend tiêm phím được ưu tiên; không dựng được thì tự rơi về tự động"
+subtitle = "Backend tiêm phím ưu tiên"
 
 [rows.macro_valid_words]
 title = "Gõ tắt trên từ hợp lệ"
@@ -264,7 +264,7 @@ subtitle = ""
 
 [rows.backspace_tone]
 title = "Xóa dấu bằng Backspace"
-subtitle = "Mặc định: xóa dấu trước, chữ giữ lại (hạ thành ha). Hoặc xóa cả dấu và chữ (hạ thành h), hoặc lùi từng phím như unikey."
+subtitle = "Cách xoá dấu khi Backspace"
 
 [rows.nav_key_while_preedit]
 title = "Điều hướng khi còn từ"
@@ -293,14 +293,14 @@ subtitle = "Vẫn mở rộng khi tiếng Việt đang tắt"
 
 [rows.emoji_enabled]
 title = "Gõ tắt emoji"
-subtitle = "Gõ <tt>:ten:</tt> kèm dấu hai chấm sẽ thành emoji khi hết từ"
+subtitle = "Gõ :tên: thành emoji"
 
 [rows.hotkey_emoji]
 title = "Phím tắt mở bảng emoji"
-subtitle = "Mở menu chọn emoji tại con trỏ: 1-9/0 chọn, gõ chữ để tìm"
+subtitle = "Mở menu emoji tại con trỏ"
 
 [groups.emoji.shortcut]
-subtitle = "Mở menu chọn emoji tại con trỏ. Gán ở trang Phím tắt."
+subtitle = "Gán ở trang Phím tắt"
 
 [groups.emoji.raw]
 title = "Bảng emoji riêng"
@@ -495,21 +495,21 @@ title = "Nâng cao"
 
 [rows.show_toasts]
 title = "Thông báo nhanh"
-subtitle = "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại"
+subtitle = "Bong bóng báo thao tác"
 
 
 [rows.desktop_icon]
 title = "Hiện trong menu ứng dụng"
-subtitle = "Hiện biểu tượng MăngRS Cấu hình trong lưới ứng dụng của GNOME"
+subtitle = "Biểu tượng trong lưới ứng dụng"
 
 [rows.focus_extension]
 title = "Extension MăngRS Focus"
-subtitle = "Cài vào <tt>~/.local/share/gnome-shell/extensions</tt> và bật"
+subtitle = "Bật extension bắt tên cửa sổ"
 subtitle_installed = "Đã cài vào <tt>~/.local/share/gnome-shell/extensions</tt>"
 
 [rows.reset_defaults]
 title = "Khôi phục mặc định"
-subtitle = "Cấu hình về mặc định; gõ tắt và từ điển giữ nguyên"
+subtitle = "Về mặc định, giữ gõ tắt"
 
 [rows.debug_log]
 title = "Chế độ gỡ lỗi"
@@ -521,15 +521,15 @@ tiers_both = ": nội dung đang gõ + từng phím"
 
 [rows.x11_delete]
 title = "Xoá đuôi từ ở app X11"
-subtitle = "App X11 xoá đuôi từ mà không báo cáo, giống ibus-bamboo. Có thể xoá nhầm ký tự nếu con trỏ bị đổi chỗ."
+subtitle = "Cách xoá từ ở app X11"
 
 [rows.preedit_xim]
 title = "Preedit cho app XIM"
-subtitle = "Giữ gạch chân cho app XIM: chữ đang gõ hiện trong cửa sổ riêng, commit khi hết từ."
+subtitle = "Cửa sổ preedit riêng cho XIM"
 
 [rows.pacing]
 title = "Nhịp uinput (ms)"
-subtitle = "Khoảng nghỉ giữa các phím ảo. Mặc định: {n}"
+subtitle = "Nghỉ giữa các phím: {n}"
 
 [rows.backspace_interval]
 title = "Nhịp xoá lùi"
@@ -562,7 +562,7 @@ issue_url = "https://github.com/fundokukiri/ibus-mangrs/issues"
 # to each feature title.
 [actions]
 hotkey_mode = "Đổi chế độ gõ"
-hotkey_emoji = "Mở bảng emoji"
+hotkey_emoji = "Mở menu chọn emoji tại con trỏ: 1-9/0 chọn, gõ chữ để tìm. Gán tổ hợp ở trang Phím tắt."
 hotkey_charset = "Xoay bảng mã"
 hotkey_method = "Xoay kiểu gõ"
 hotkey_auto_capitalize = "Tự viết hoa"
@@ -577,7 +577,7 @@ hotkey_macro_editor = "Mở trang Gõ tắt"
 hotkey_settings = "Mở Cài đặt"
 
 [tips]
-enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS."
+enabled = "Bật/tắt cả bộ gõ. Khi tắt, mọi phím đi thẳng vào app như chưa cài MăngRS — gõ tắt vẫn chạy nếu bật ở trang Gõ tắt."
 method = "Kiểu gõ quyết định cách chữ dấu được tạo từ chuỗi phím: Telex (ss → á), VNI (a1 → á) hoặc VIQR."
 mode = "Gạch chân (preedit): chữ gạch chân inline, commit khi hết từ — cần client hỗ trợ preedit, không hỗ trợ thì tự chuyển Surrounding. Surrounding text: mỗi phím commit ngay, đuôi từ được sửa lại qua xóa-văn-bản — cần client báo surrounding-text; client không báo thì đuôi từ được xóa bằng phím chèn (backend) hoặc phím chuyển tiếp thay thế. Flow: phím raw được chuyển thẳng, dấu hiện ngay từng bước, hết từ commit — cần backend chèn phím (uinput/Wayland), không có thì tự chạy như Forward Backspace. Forward Backspace: mỗi phím commit ngay, sửa đuôi bằng phím Backspace chuyển tiếp qua IBus — không bao giờ tự chuyển mode, chạy được ở mọi client kể cả terminal/XIM. OFF: tắt xử lý tiếng Việt, macro vẫn chạy."
 charset = "Bảng mã chữ: Unicode cho mọi dùng đợp thường, các bảng VNI/TCVN3 chỉ cần khi đọc file văn bản cũ."
@@ -624,3 +624,7 @@ flow_per_key = "Flow hiện chữ có dấu ngay trong lúc gõ (ee → ê) thay
 flow_backspace_retrack = "Sửa dấu sau Backspace ở Flow: xoá một ký tự của từ đã gõ xong rồi gõ phím dấu mới, từ vẫn tiếp tục biến hoá (tùn + s → tún) thay vì rơi thành chữ thường. Luôn bật ở Flow."
 flow_backspace_restore = "Hoàn dấu sau Backspace, chuẩn ở Flow: gõ chào rồi gõ thêm f (dấu bị gỡ, màn hình thành chaof), bấm Backspace thì dấu quay lại (chào) — theo đúng cài đặt “Xóa dấu bằng Backspace”: Unikey và Xóa dấu trước trả lại dấu, Cả ký tự thì xoá một ký tự. Số ms trong ô là thời gian chờ sau Backspace rồi mới sửa màn hình (0–1000, mặc định 150)."
 nav_key_while_preedit = "Điều hướng khi còn từ: khi từ vẫn còn gạch chân, phím mũi tên đầu tiên mặc định đưa caret chạy ngay (kiểu ibus-bamboo) — commit vẫn nằm trong cùng lượt trả về, tới trước phím mũi tên. Nếu chữ bị chèn sai chỗ ở một app nào, chọn lại Nuốt phím đầu: lần nhấn đầu chỉ commit từ, lần hai mới di chuyển."
+hotkey_app_rule = "Chọn chế độ gõ ngay tại con trỏ: mũi tên di chuyển, Enter chọn. Gán tổ hợp ở trang Phím tắt."
+show_toasts = "Bong bóng nhỏ khi thêm, xóa, xuất, nhập, cài extension. Tắt để im lặng — lỗi vẫn hiện hộp thoại."
+learn_clear = "Chỉ ghi lại những gợi ý anh CHỌN — không bao giờ ghi phím gõ. Mỗi lựa chọn tăng một đơn vị đếm trong hai tệp 'user-picks.dict' và 'user-picks-pairs.dict' (quyền 0600) để ưu tiên từ đó lần sau; từ đã học chỉ được ưu tiên trong đúng nhóm ngôn ngữ của nó, không bao giờ nhảy lên trên tiếng Việt, và ô mật khẩu không học. Xoá xong bộ gõ học lại từ đầu."
+backspace_tone = "Xóa dấu trước (mặc định): hạ thành ha, rồi h. Xóa cả dấu và chữ: hạ thành h, việt thành việc rồi vi — mỗi Backspace xóa đúng một ký tự trên màn hình. Unikey: lùi qua từng phím đã gõ."

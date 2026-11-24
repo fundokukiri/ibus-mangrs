@@ -88,7 +88,7 @@ subtitle = "{n} modes, cycling"
 
 [rows.enabled]
 title = "Vietnamese typing"
-subtitle = "Turn off to send every key straight through. Shorthand still runs if enabled on the {page} page."
+subtitle = "Off sends keys straight to the app"
 
 [rows.method]
 title = "Typing method"
@@ -112,11 +112,11 @@ subtitle = "Example: Control+Alt+space"
 
 [rows.hotkey_app_rule]
 title = "Per-app rule shortcut"
-subtitle = "Opens the mode picker right at the caret (arrows + Enter)"
+subtitle = "Opens the mode menu at the caret"
 
 [rows.hide_underline]
 title = "Hide underline"
-subtitle = "The in-flight text has no underline (app-dependent)"
+subtitle = "No underline on the in-flight text"
 
 # --- page Tones & automation -------------------------------------------------
 
@@ -138,35 +138,35 @@ description = "Character shortcut conversions"
 
 [rows.modern]
 title = "New tone placement"
-subtitle = "hòa (new standard) instead of hoà (old standard)"
+subtitle = "hòa (new standard), not hoà (old)"
 
 [rows.free]
 title = "Free tone placement"
-subtitle = "Place the tone anywhere in the word: hoangf → hoàng"
+subtitle = "Tone anywhere: hoangf → hoàng"
 
 [rows.auto_correct]
 title = "Restore invalid words"
-subtitle = "Invalid syllables return the exact keys typed"
+subtitle = "Fixes mistyped syllables"
 
 [rows.auto_restore]
 title = "Restore foreign words"
-subtitle = "Non-Vietnamese-syllable words return the raw key string"
+subtitle = "Foreign words keep their raw keys"
 
 [rows.extended_finals]
 title = "Extended finals"
-subtitle = "g, k, h, nk stand for ng, c, nh: nhuwgx → nhữg"
+subtitle = "g/k/h/nk stand for ng/c/nh"
 
 [rows.extended_onsets]
 title = "Extended onsets"
-subtitle = "f, j, w act as onsets and take marks: fos → fó"
+subtitle = "f, j, w act as onsets"
 
 [rows.abbrev]
 title = "Keep abbreviated words"
-subtitle = "Keep đ in abbreviations: ddc → đc, ddk → đk, ddt → đt"
+subtitle = "Keeps đ inside abbreviations"
 
 [rows.bypass_url]
 title = "No tones after URLs"
-subtitle = "Real URLs (https://, www.) stay raw across the span, up to a space or sentence punctuation"
+subtitle = "URLs stay raw up to a space"
 
 [rows.w2u]
 title = "W to ư"
@@ -178,7 +178,7 @@ subtitle = "Choose where it applies"
 
 [rows.em_dash]
 title = "Em dash"
-subtitle = "Two hyphens in a row become an em dash (-- becomes —)"
+subtitle = "Two hyphens become an em dash"
 
 [rows.auto_capitalize]
 title = "Auto-capitalize"
@@ -198,20 +198,20 @@ subtitle = "hold o → oooo… instead of stopping at ô"
 
 [rows.suggest_words]
 title = "Word suggestions (n-gram)"
-subtitle = "Compounds while typing, next words after a space — needs the prediction model file"
+subtitle = "Suggests words while typing"
 
 [rows.suggest_learn]
 title = "Learn from picked suggestions"
-subtitle = "Remembers the words you pick from the suggestion strip and favors them next time — two small files in the config folder"
+subtitle = "Favors the words you picked"
 
 [rows.learn_clear]
 title = "Clear learned data"
-subtitle = "Deletes the two pick-learning files in the config folder. Asks first."
+subtitle = "Erases the learned data"
 button = "Clear"
 
 [rows.preferred_backend]
 title = "Preferred backend"
-subtitle = "The preferred key-injection backend; when it cannot be built, selection falls back to automatic"
+subtitle = "Preferred key-injection backend"
 
 [rows.macro_valid_words]
 title = "Shorthand: expands on real words too"
@@ -262,7 +262,7 @@ subtitle = ""
 
 [rows.backspace_tone]
 title = "Delete tones with Backspace"
-subtitle = "Default: the tone is deleted first, the word stays (hạ becomes ha). Or delete the tone and the letter (hạ becomes h), or walk back one key like Unikey."
+subtitle = "How Backspace eats a tone"
 
 [rows.nav_key_while_preedit]
 title = "Navigation while a word is open"
@@ -283,22 +283,22 @@ subtitle = "Keys expand into phrases at word end"
 
 [rows.capitalize_macro]
 title = "Capitalize shorthand"
-subtitle = "An uppercase key → the expansion is capitalized too"
+subtitle = "An uppercase key capitalizes it too"
 
 [rows.macro_in_off_mode]
 title = "Shorthand while Vietnamese is off"
-subtitle = "Still expands when Vietnamese typing is off"
+subtitle = "Also expands while Vietnamese is off"
 
 [rows.emoji_enabled]
 title = "Emoji shorthand"
-subtitle = "Typing <tt>:name:</tt> with the colons becomes an emoji at word end"
+subtitle = "Typing :name: becomes an emoji"
 
 [rows.hotkey_emoji]
 title = "Emoji picker shortcut"
-subtitle = "Opens the emoji picker at the caret: 1-9/0 pick, type to search"
+subtitle = "Opens the emoji menu at the caret"
 
 [groups.emoji.shortcut]
-subtitle = "Opens the emoji picker at the caret. Assign it on the Shortcuts page."
+subtitle = "Assign it on the Shortcuts page"
 
 [groups.emoji.raw]
 title = "Custom emoji table"
@@ -457,7 +457,7 @@ description = "One JSON file holding the configuration, shorthand and dictionary
 
 [rows.export]
 title = "Export configuration to JSON"
-subtitle = "Save to a file to carry over or keep as backup"
+subtitle = "Save to a file to carry or back up"
 
 [rows.import]
 title = "Import configuration from JSON"
@@ -493,20 +493,20 @@ title = "Advanced"
 
 [rows.show_toasts]
 title = "Quick notifications"
-subtitle = "Small bubbles for add, delete, export, import, extension install. Turn off to stay silent — errors still show a dialog"
+subtitle = "Bubbles for actions"
 
 [rows.desktop_icon]
 title = "Show in the app menu"
-subtitle = "Show the MăngRS Settings icon in GNOME's app grid"
+subtitle = "Icon in the app grid"
 
 [rows.focus_extension]
 title = "MăngRS Focus extension"
-subtitle = "Installs into <tt>~/.local/share/gnome-shell/extensions</tt> and enables it"
+subtitle = "Enables the focus extension"
 subtitle_installed = "Installed into <tt>~/.local/share/gnome-shell/extensions</tt>"
 
 [rows.reset_defaults]
 title = "Restore defaults"
-subtitle = "Configuration returns to defaults; shorthand and dictionary are kept"
+subtitle = "Back to defaults, shorthand kept"
 
 [rows.debug_log]
 title = "Debug mode"
@@ -518,15 +518,15 @@ tiers_both = ": in-flight text + every key"
 
 [rows.x11_delete]
 title = "Delete word tails on X11 apps"
-subtitle = "X11 apps delete word tails without reporting, like ibus-bamboo. May delete a wrong character if the caret was moved."
+subtitle = "How words are erased on X11"
 
 [rows.preedit_xim]
 title = "Preedit for XIM apps"
-subtitle = "Keeps the underline for XIM apps: the in-flight text shows in its own window and commits at word end."
+subtitle = "Separate preedit window for XIM"
 
 [rows.pacing]
 title = "uinput pacing (ms)"
-subtitle = "The pauses between the virtual keys. Default: {n}"
+subtitle = "Pause between keys: {n}"
 
 [rows.backspace_interval]
 title = "Backspace pace"
@@ -559,7 +559,7 @@ issue_url = "https://github.com/fundokukiri/ibus-mangrs/issues"
 # to each feature title.
 [actions]
 hotkey_mode = "Switch display mode"
-hotkey_emoji = "Open the emoji picker"
+hotkey_emoji = "Opens the emoji menu at the caret: 1-9/0 pick, type to search. Assign the combo on the Shortcuts page."
 hotkey_charset = "Cycle the charset"
 hotkey_method = "Cycle the typing method"
 hotkey_auto_capitalize = "Auto-capitalize"
@@ -574,7 +574,7 @@ hotkey_macro_editor = "Open the Shorthand page"
 hotkey_settings = "Open Settings"
 
 [tips]
-enabled = "Toggles the whole input method. When off, every key goes straight into the app as if MăngRS were not installed."
+enabled = "Turns the whole IME on or off. Off sends every key straight to the app as if MăngRS were not installed — shorthand still runs if enabled on the Shorthand page."
 method = "The typing method decides how accented text is built from the keys: Telex (ss → á), VNI (a1 → á) or VIQR."
 mode = "Underline (preedit): inline underlined text, committed at word end — needs client preedit support; without it the engine falls back to Surrounding. Surrounding text: every key commits at once, the word tail is repaired via text deletion — needs the client to report surrounding text; clients that never report get the tail erased through the injected or forwarded delete transport instead. Flow: raw keys pass straight through, marks appear per step, the word commits at word end — needs an injection backend (uinput/Wayland); without one it runs like Forward Backspace. Forward Backspace: every key commits at once, the tail is repaired with Backspace keys forwarded over IBus — never switches modes on its own, works with every client including terminals/XIM. OFF: Vietnamese processing off, macros still run."
 charset = "The character table: Unicode for every normal use; the VNI/TCVN3 tables are only needed when reading old text files."
@@ -621,3 +621,7 @@ flow_per_key = "Flow shows the accented letter as you type (ee → ê) instead o
 flow_backspace_retrack = "Mark editing after Backspace in Flow: erase one character of a finished word and type a mark key — the word keeps transforming (tùn + s → tún) instead of falling back to plain letters. Always on in Flow."
 flow_backspace_restore = "Restore the mark after Backspace, standard in Flow: type chào, press f again (the mark is undone, the screen shows chaof), then Backspace brings the mark back (chào) — following the \"Delete tones with Backspace\" setting: Unikey and Tone first restore the mark, Whole char deletes one character. The number in the box is how long to wait after Backspace before rewriting the screen (0–1000, default 150)."
 nav_key_while_preedit = "Navigation while a word is open: with a word still underlined, the first arrow key moves the caret right away by default (ibus-bamboo's sequence) — the commit rides the same reply, ahead of the key. If text lands in the wrong place in some app, go back to Swallow: the first press only commits the word, the second one moves."
+hotkey_app_rule = "Picks the input mode right at the caret: arrows move, Enter picks. Assign the combo on the Shortcuts page."
+show_toasts = "Small bubbles for add, delete, export, import and extension install. Off stays silent — errors still show a dialog."
+learn_clear = "Only the suggestions you PICK are recorded — typed keys never are. Each pick bumps a counter in 'user-picks.dict' and 'user-picks-pairs.dict' (mode 0600) so that word wins next time; a learned word is favored within its own language band only, never above Vietnamese, and password fields learn nothing. After erasing, the engine starts learning again from zero."
+backspace_tone = "Delete the tone first (default): hạ becomes ha, then h. Delete tone and letter: hạ becomes h, việt becomes việc then vi — each Backspace removes exactly one character on screen. Unikey: walk back through the keys as typed."

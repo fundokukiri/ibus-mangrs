@@ -61,7 +61,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     ));
     ui.preedit_xim.set_subtitle(&t(
         "rows.preedit_xim.subtitle",
-        "Giữ gạch chân cho app XIM: chữ đang gõ hiện trong cửa sổ riêng, commit khi hết từ.",
+        "Cửa sổ preedit riêng cho XIM",
     ));
     page.add(&xim);
 

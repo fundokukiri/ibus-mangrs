@@ -140,10 +140,12 @@ impl Ui {
 
 /// One built-in shortcut row: activating it opens the capture dialog with
 /// the row's title; the result lands in `value` and re-renders `display`.
+/// `tip` carries the long form of `subtitle`, which stays one short line.
 fn default_row(
     ui: &Rc<Ui>,
     title: &str,
     subtitle: &str,
+    tip: Option<(&str, &str)>,
     value: &Rc<RefCell<String>>,
     display: ShortcutDisplay,
 ) -> adw::ActionRow {
@@ -153,6 +155,9 @@ fn default_row(
         .use_markup(false)
         .activatable(true)
         .build();
+    if let Some((key, fallback)) = tip {
+        row.set_tooltip_text(Some(&t(key, fallback)));
+    }
     row.add_suffix(display.widget());
     {
         let ui = ui.clone();
@@ -257,6 +262,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         ui,
         &t("rows.hotkey_mode.title", "Phím tắt đổi chế độ gõ"),
         &t("rows.hotkey_mode.subtitle", "Ví dụ: Control+Alt+v"),
+        None,
         &ui.hotkey_value,
         ui.hotkey_display.clone(),
     ));
@@ -264,6 +270,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         ui,
         &t("rows.hotkey_enabled.title", "Phím tắt bật/tắt tiếng Việt"),
         &t("rows.hotkey_enabled.subtitle", "Ví dụ: Control+Alt+space"),
+        None,
         &ui.enabled_hotkey_value,
         ui.enabled_hotkey_display.clone(),
     ));
@@ -272,18 +279,23 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         &t("rows.hotkey_app_rule.title", "Phím tắt chọn luật theo app"),
         &t(
             "rows.hotkey_app_rule.subtitle",
-            "Mở menu chọn chế độ ngay tại con trỏ (mũi tên + Enter)",
+            "Mở menu chế độ tại con trỏ",
         ),
+        Some((
+            "tips.hotkey_app_rule",
+            "Chọn chế độ gõ ngay tại con trỏ: mũi tên di chuyển, Enter chọn. Gán tổ hợp ở trang Phím tắt.",
+        )),
         &ui.app_rule_hotkey_value,
         ui.app_rule_hotkey_display.clone(),
     ));
     group.add(&default_row(
         ui,
         &t("rows.hotkey_emoji.title", "Phím tắt mở bảng emoji"),
-        &t(
-            "rows.hotkey_emoji.subtitle",
-            "Mở menu chọn emoji tại con trỏ: 1-9/0 chọn, gõ chữ để tìm",
-        ),
+        &t("rows.hotkey_emoji.subtitle", "Mở menu emoji tại con trỏ"),
+        Some((
+            "tips.hotkey_emoji",
+            "Mở menu emoji tại con trỏ. Gán tổ hợp ở trang Phím tắt.",
+        )),
         &ui.emoji_hotkey_value,
         ui.emoji_hotkey_display.clone(),
     ));
