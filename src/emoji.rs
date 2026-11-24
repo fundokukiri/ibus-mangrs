@@ -200,6 +200,12 @@ pub const STRIP_EMOJI_CAP: usize = 3;
 /// not indexed. The index builds once on first strip use; the query is one
 /// fold plus a hash lookup (the engine's key path).
 pub fn glyphs_for_word(word: &str) -> Vec<&'static str> {
+    // Digits are content, not a lookup: a strip slot for them only ever held
+    // the keycap, whose glyph has no variation selector and renders as a
+    // bare combining mark in most fonts.
+    if word.chars().all(|c| c.is_ascii_digit()) {
+        return Vec::new();
+    }
     static INDEX: OnceLock<HashMap<String, Vec<&'static str>>> = OnceLock::new();
     let index = INDEX.get_or_init(|| {
         let mut map: HashMap<String, Vec<&'static str>> = HashMap::new();
@@ -485,21 +491,20 @@ mod tests {
     }
 
     #[test]
-    fn glyphs_for_word_answers_digits_only_with_the_digits_themselves() {
-        for digit in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {
-            let got = glyphs_for_word(digit);
-            assert!(
-                got.iter().all(|g| g.starts_with(digit)),
-                "{digit} reached {got:?}"
-            );
-            assert_eq!(got.len(), 1, "{digit} reached {got:?}");
+    fn glyphs_for_word_stays_out_of_numbers() {
+        // A typed number is content: no slot of the strip may answer it. The
+        // clock faces carry "1".."12" as keywords, `143` fifteen hearts, `100`
+        // a hundred points, and the keycap glyph has no variation selector so
+        // it renders as a stray combining mark.
+        for word in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {
+            assert!(glyphs_for_word(word).is_empty(), "{word}");
         }
-        // Emoji whose keyword is a number stay out of the strip: `143` is not
-        // the way to type a heart, and `12` is not a clock.
-        assert!(glyphs_for_word("143").is_empty());
-        assert!(glyphs_for_word("100").is_empty());
-        assert!(glyphs_for_word("12").is_empty());
-        assert!(glyphs_for_word("24").is_empty());
+        for word in ["143", "100", "12", "24", "01"] {
+            assert!(glyphs_for_word(word).is_empty(), "{word}");
+        }
+        // A number inside a word is still no match, and words keep theirs.
+        assert!(glyphs_for_word("a1").is_empty());
+        assert!(!glyphs_for_word("meo").is_empty());
     }
 
     #[test]
