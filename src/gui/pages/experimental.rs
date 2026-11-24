@@ -7,8 +7,16 @@
 
 use super::*;
 
+/// The tab's one CSS block: the merged rows wrap their switch, so the class
+/// sits on the page and the rule reaches every switch inside it.
+pub(crate) const EXPERIMENTAL_CSS: &str =
+    ".experimental-page switch:checked { background-color: @warning_color; }";
+
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
+    // One class for the whole tab: the amber trough, the badge and the tab
+    // label share it.
+    page.add_css_class("experimental-page");
 
     // The gate leads its own tab: turning it off locks the rows below and
     // shows their defaults instead of hiding anything (config save goes
@@ -66,24 +74,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.echo_stale_row);
     decorate_experimental(&ui.idle_commit_row);
     decorate_experimental(&ui.preferred_backend);
-    // The switches themselves glow the same warning amber as the badge and
-    // the tab label: one look, one meaning.
-    for switch in [
-        ui.macro_valid_words.upcast_ref::<gtk4::Widget>(),
-        ui.keep_composed_words.upcast_ref::<gtk4::Widget>(),
-        ui.keep_repeats_raw.upcast_ref::<gtk4::Widget>(),
-        ui.suggest_words.upcast_ref::<gtk4::Widget>(),
-        ui.echo_stale_switch.upcast_ref::<gtk4::Widget>(),
-        ui.idle_commit_switch.upcast_ref::<gtk4::Widget>(),
-    ] {
-        switch.add_css_class("experimental");
-    }
-
     // The amber trough cannot be expressed with built-in classes; load the
     // tab's one CSS block onto the display (a display exists whenever the
     // GUI runs).
-    const EXPERIMENTAL_CSS: &str =
-        "switch.experimental:checked { background-color: @warning_color; }";
     if let Some(display) = gtk4::gdk::Display::default() {
         let provider = gtk4::CssProvider::new();
         provider.load_from_data(EXPERIMENTAL_CSS);

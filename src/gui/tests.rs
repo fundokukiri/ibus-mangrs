@@ -64,6 +64,7 @@ fn gtk_widget_scenarios() {
     debug_mode_switch_keeps_the_dialog_choice();
     group_descriptions_become_title_tooltips();
     experimental_badge_sits_beside_the_title();
+    experimental_css_parses();
     popover_list_buttons_read_from_the_left();
     mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
@@ -1070,6 +1071,20 @@ fn every_switch_triggers_save() {
     );
 }
 
+/// The tab's one CSS rule must parse: an unknown colour name drops the whole
+/// rule and every switch silently stays the theme's blue.
+fn experimental_css_parses() {
+    let provider = gtk4::CssProvider::new();
+    let errors = Rc::new(std::cell::RefCell::new(Vec::new()));
+    {
+        let errors = Rc::clone(&errors);
+        provider.connect_parsing_error(move |_, _, err| errors.borrow_mut().push(err.to_string()));
+    }
+    provider.load_from_data(pages::experimental::EXPERIMENTAL_CSS);
+    let errors = errors.borrow();
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
 /// The experimental master gate lives inside the "Thử nghiệm" tab: off
 /// locks every experimental row and displays the shipped defaults, while
 /// the save funnel keeps the file's values and reopening restores them.
@@ -1078,6 +1093,10 @@ fn every_switch_triggers_save() {
 /// through a real save_cb.
 fn experimental_gate_locks_rows_and_preserves_values() {
     let ui = widgets();
+    // The tab's amber switch trough is scoped by a page class; a class on
+    // the row never reached the switch the merged rows wrap.
+    let page = pages::experimental::build(&ui);
+    assert!(page.has_css_class("experimental-page"));
     let macros = Macros::load();
     let dictionary = Dictionary::load();
     {
