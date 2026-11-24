@@ -68,6 +68,7 @@ fn gtk_widget_scenarios() {
     hotkey_action_choices_follow_the_experimental_switches();
     experimental_gate_toggle_keeps_the_saved_values();
     popover_list_buttons_read_from_the_left();
+    row_popover_items_read_from_the_left();
     mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
     close_test_windows();
@@ -704,6 +705,29 @@ fn popover_list_buttons_read_from_the_left() {
     assert_eq!(label.xalign(), 0.0);
     assert_eq!(label.halign(), gtk4::Align::Start);
     assert!(btn.has_css_class("flat"));
+}
+
+/// Both row popovers (the panel menu's ⋮ and the rules' ⋮) build their
+/// items through `list_button`: stock buttons centre the label, which made
+/// the popover read as a column of loose words.
+fn row_popover_items_read_from_the_left() {
+    let ui = widgets();
+    *ui.menu.borrow_mut() = Config::default().default_menu();
+    let menu_more = ui.menu_more_button(vec![0], "root");
+    let rule_more = widgets::list_button("Kiểm tra");
+    assert_eq!(
+        rule_more
+            .child()
+            .and_downcast::<gtk4::Label>()
+            .expect("a label")
+            .xalign(),
+        0.0
+    );
+    let labels = descendants::<gtk4::Label>(menu_more.upcast_ref());
+    assert!(!labels.is_empty(), "the row menu has items");
+    for label in labels {
+        assert_eq!(label.xalign(), 0.0, "{} centres its text", label.text());
+    }
 }
 
 /// B3 regression: the import path pushes a config into every widget through

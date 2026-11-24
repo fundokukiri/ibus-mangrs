@@ -461,7 +461,11 @@ impl Ui {
     /// The per-row menu: reorder, out, rename (root folders), add-into
     /// (root containers) and delete. Every action re-renders and saves
     /// through the funnel — row state exists only in the design vector.
-    fn menu_more_button(self: &Rc<Self>, path: Vec<usize>, kind: &str) -> gtk4::MenuButton {
+    pub(super) fn menu_more_button(
+        self: &Rc<Self>,
+        path: Vec<usize>,
+        kind: &str,
+    ) -> gtk4::MenuButton {
         let more = gtk4::MenuButton::new();
         more.set_icon_name("view-more-symbolic");
         more.add_css_class("flat");
@@ -491,9 +495,10 @@ impl Ui {
             };
             (path.last().copied().unwrap_or(0), siblings_len, parent_kind)
         };
+        // One shared left-aligned shape: the stock button centres its
+        // label, which made the popover read as a column of loose words.
         let item = |list: &gtk4::Box, label: &str, css: &str| -> gtk4::Button {
-            let btn = gtk4::Button::with_label(label);
-            btn.add_css_class("flat");
+            let btn = list_button(label);
             if !css.is_empty() {
                 btn.add_css_class(css);
             }
@@ -566,7 +571,7 @@ impl Ui {
         }
         if (kind == "folder" || kind == "radios") && path.len() == 1 {
             let add_here = gtk4::MenuButton::new();
-            add_here.set_label(&t("panel.add_here", "Thêm vào đây…"));
+            add_here.set_label(&t("panel.add_here", "Thêm"));
             add_here.add_css_class("flat");
             let add_popover = gtk4::Popover::new();
             add_popover.set_child(Some(

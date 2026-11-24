@@ -255,8 +255,8 @@ impl Ui {
         ))]);
         let pop = gtk4::Popover::new();
         let menu = gtk4::Box::new(Orientation::Vertical, 0);
-        let up_btn = gtk4::Button::with_label(&t("rows.rule_menu.up", "Lên"));
-        up_btn.add_css_class("flat");
+        // Left-aligned like every other popover list (see `list_button`).
+        let up_btn = list_button(&t("rows.rule_menu.up", "Lên"));
         up_btn.set_sensitive(idx > 0);
         {
             let ui = self.clone();
@@ -271,8 +271,7 @@ impl Ui {
             });
         }
         menu.append(&up_btn);
-        let down_btn = gtk4::Button::with_label(&t("rows.rule_menu.down", "Xuống"));
-        down_btn.add_css_class("flat");
+        let down_btn = list_button(&t("rows.rule_menu.down", "Xuống"));
         down_btn.set_sensitive(idx + 1 < total);
         {
             let ui = self.clone();
@@ -287,8 +286,7 @@ impl Ui {
             });
         }
         menu.append(&down_btn);
-        let del_btn = gtk4::Button::with_label(&t("rows.rule_menu.delete", "Xóa"));
-        del_btn.add_css_class("flat");
+        let del_btn = list_button(&t("rows.rule_menu.delete", "Xóa"));
         del_btn.add_css_class("destructive-action");
         {
             let ui = self.clone();
