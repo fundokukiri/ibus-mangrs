@@ -5849,42 +5849,6 @@ fn suggest_backspace_follows_the_word_in_inline_modes() {
 }
 
 #[test]
-fn a_tight_pick_lands_no_space_and_closes_the_strip() {
-    // The `` ` `` pick: the word lands bare, so the second `` ` `` types the
-    // character right after it. Nothing chains — without the separator the
-    // strip has no next word to predict.
-    let mut e = predict_engine(Method::Telex, Mode::Preedit);
-    let keys = suggest_keys(&mut e, "sinh");
-    let word = picked_candidate(keys.last().unwrap(), 0);
-    let actions = e.accept_candidate_tight(0);
-    assert!(
-        actions.contains(&Action::Commit(word.clone())),
-        "no trailing space: {actions:?}"
-    );
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::UpdateCandidates { .. })),
-        "no chaining without the space: {actions:?}"
-    );
-
-    let mut e = predict_engine(Method::Telex, Mode::Preedit);
-    let keys = suggest_keys(&mut e, "hello ");
-    let word = picked_candidate(keys.last().unwrap(), 0);
-    let actions = e.accept_candidate_tight(0);
-    assert!(
-        actions.contains(&Action::Commit(word.clone())),
-        "the landed-word pick lands bare too: {actions:?}"
-    );
-    assert!(
-        !actions
-            .iter()
-            .any(|a| matches!(a, Action::UpdateCandidates { .. })),
-        "the chain stays closed: {actions:?}"
-    );
-}
-
-#[test]
 fn suggest_last_committed_word_follows_the_word_end() {
     // The word a Finish commits becomes the strip's context word; focus
     // loss drops it with the rest of the word state.

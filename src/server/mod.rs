@@ -1048,7 +1048,7 @@ fn process_key(
         if strip_open() && state & keymap::MOD1_MASK != 0 {
             if let Some(digit) = strip_digit(keyval) {
                 let index = strip_page() * STRIP_PAGE_SIZE + digit - 1;
-                if strip_pick(engine, injection, burst, index, false, out) {
+                if strip_pick(engine, injection, burst, index, out) {
                     return true;
                 }
             }
@@ -2136,16 +2136,13 @@ fn strip_key(
     if !strip_open() || !matches!(keyval, keymap::GRAVE | keymap::ASCII_TILDE) {
         return false;
     }
-    // The first slot of the visible page, picked without its trailing space
-    // so the second `` ` `` types the character right after the word. A page
-    // the word moved past, or an empty slot, returns empty and the key keeps
-    // its app meaning.
+    // The first slot of the visible page. A page the word moved past, or an
+    // empty slot, returns empty and the key keeps its app meaning.
     strip_pick(
         engine,
         injection,
         burst,
         strip_page() * STRIP_PAGE_SIZE,
-        true,
         out,
     )
 }
@@ -2157,14 +2154,9 @@ fn strip_pick(
     injection: &mut Injection,
     burst: &mut BurstWatch,
     index: usize,
-    tight: bool,
     out: &mut Vec<Message>,
 ) -> bool {
-    let actions = if tight {
-        engine.accept_candidate_tight(index)
-    } else {
-        engine.accept_candidate(index)
-    };
+    let actions = engine.accept_candidate(index);
     if actions.is_empty() {
         return false;
     }
