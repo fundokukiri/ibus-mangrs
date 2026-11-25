@@ -26,8 +26,11 @@ const WINDOW_MATCH: &str = "type='signal',interface='org.a11y.atspi.Event.Window
 const DBUS_IFACE: &str = "org.freedesktop.DBus";
 const DBUS_PATH: &str = "/org/freedesktop/DBus";
 const ACTIVATE: &str = "window:activate";
-/// Older than this and the name belongs to a window the user already left.
-const FRESH: Duration = Duration::from_secs(10);
+const DEACTIVATE: &str = "window:deactivate";
+/// Safety net only: the name normally ends when the app reports that its
+/// window lost focus (`window:deactivate`). Expiring it while the user is
+/// still typing in that window closed the app-rule picker for no reason.
+const FRESH: Duration = Duration::from_secs(300);
 const CALL_TIMEOUT_MS: i32 = 200;
 const POLL_MS: i32 = 200;
 const RETRY: Duration = Duration::from_secs(2);
@@ -44,7 +47,9 @@ const SHELLS: [&str; 7] = [
 
 /// A background watcher: window activations in, one program name out.
 pub(super) struct Tracker {
-    latest: Arc<Mutex<Option<(String, Instant)>>>,
+    /// Name, the bus that reported it, and when: the sender is how a
+    /// deactivation is matched back to the activation that named it.
+    latest: Arc<Mutex<Option<(String, String, Instant)>>>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -71,7 +76,7 @@ impl Tracker {
     /// The app named by the last window activation, while it is still current.
     pub(super) fn focused_app(&self) -> Option<String> {
         let guard = self.latest.lock().ok()?;
-        let (name, at) = guard.as_ref()?;
+        let (name, _, at) = guard.as_ref()?;
         (at.elapsed() < FRESH).then(|| name.clone())
     }
 }
@@ -85,7 +90,7 @@ impl Drop for Tracker {
     }
 }
 
-fn watch(latest: &Mutex<Option<(String, Instant)>>, stop: &AtomicBool) {
+fn watch(latest: &Mutex<Option<(String, String, Instant)>>, stop: &AtomicBool) {
     while !stop.load(Ordering::Relaxed) {
         listen(latest, stop);
         if stop.load(Ordering::Relaxed) {
@@ -97,7 +102,7 @@ fn watch(latest: &Mutex<Option<(String, Instant)>>, stop: &AtomicBool) {
     }
 }
 
-fn listen(latest: &Mutex<Option<(String, Instant)>>, stop: &AtomicBool) {
+fn listen(latest: &Mutex<Option<(String, String, Instant)>>, stop: &AtomicBool) {
     let Some((events, lookup)) = connect() else {
         // Once per attempt, never per key: a session without accessibility
         // retries every RETRY seconds for its whole life.
@@ -113,20 +118,41 @@ fn listen(latest: &Mutex<Option<(String, Instant)>>, stop: &AtomicBool) {
         };
         let iface = msg.interface();
         let member = msg.member();
-        if iface.as_deref() != Some(WINDOW_IFACE) || member.as_deref() != Some("Activate") {
+        if iface.as_deref() != Some(WINDOW_IFACE) {
             continue;
         }
-        let Some(pid) = msg.sender().and_then(|sender| sender_pid(&lookup, &sender)) else {
+        let Some(sender) = msg.sender() else {
+            continue;
+        };
+        match member.as_deref() {
+            Some("Activate") => {}
+            Some("Deactivate") => {
+                // Only the app that named the entry may end it: a window of
+                // another app deactivating says nothing about ours.
+                if let Ok(mut slot) = latest.lock() {
+                    if slot.as_ref().is_some_and(|(_, who, _)| *who == *sender) {
+                        *slot = None;
+                    }
+                }
+                continue;
+            }
+            _ => continue,
+        }
+        let Some(pid) = sender_pid(&lookup, &sender) else {
             debug_log::log("atspi activate: no pid");
             continue;
         };
+        if pid == std::process::id() {
+            // Our own settings window is not an app to write rules for.
+            continue;
+        }
         let Some(name) = comm_of(pid) else {
             debug_log::log(&format!("atspi activate: pid={pid} has no app name"));
             continue;
         };
         debug_log::log(&format!("atspi activate: pid={pid} name={name}"));
         if let Ok(mut slot) = latest.lock() {
-            *slot = Some((name, Instant::now()));
+            *slot = Some((name, sender.to_string(), Instant::now()));
         }
     }
 }
@@ -165,9 +191,19 @@ fn connect() -> Option<(Connection, Connection)> {
         &Member::new("RegisterEvent").unwrap(),
     )
     .append1(ACTIVATE);
+    let deactivate = Message::method_call(
+        &BusName::new(REGISTRY).unwrap(),
+        &Path::new(REGISTRY_PATH).unwrap(),
+        &Interface::new(REGISTRY).unwrap(),
+        &Member::new("RegisterEvent").unwrap(),
+    )
+    .append1(DEACTIVATE);
     let registered = events
         .send_with_reply_and_block(msg, CALL_TIMEOUT_MS)
-        .is_ok();
+        .is_ok()
+        && events
+            .send_with_reply_and_block(deactivate, CALL_TIMEOUT_MS)
+            .is_ok();
     debug_log::log(&format!("atspi: bus ok, register={registered}"));
     registered.then_some((events, lookup))
 }
@@ -220,6 +256,26 @@ mod tests {
         let name = comm_of(std::process::id()).expect("name of the test process");
         assert!(!name.is_empty() && !name.contains('\n') && !name.contains('/'));
         assert_eq!(comm_of(0), None);
+    }
+
+    fn tracker_naming(name: &str, at: Instant) -> Tracker {
+        Tracker {
+            latest: Arc::new(Mutex::new(Some((name.to_string(), ":1.7".to_string(), at)))),
+            stop: Arc::new(AtomicBool::new(false)),
+            thread: None,
+        }
+    }
+
+    #[test]
+    fn a_name_survives_long_typing_and_expires_only_as_a_safety_net() {
+        // Minutes in the same window: the picker asks long after the
+        // activation, and must still get the app it is open in.
+        let late = tracker_naming("firefox", Instant::now());
+        assert_eq!(late.focused_app().as_deref(), Some("firefox"));
+        let stale = Instant::now()
+            .checked_sub(FRESH + Duration::from_secs(1))
+            .expect("freshness window is inside the process lifetime");
+        assert_eq!(tracker_naming("firefox", stale).focused_app(), None);
     }
 
     #[test]
