@@ -28,6 +28,7 @@ use libadwaita as adw;
 
 mod content;
 mod hotkey;
+mod log_tail;
 mod pages;
 mod text;
 mod widgets;
