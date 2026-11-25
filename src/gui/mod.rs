@@ -1233,11 +1233,16 @@ pub(super) fn enable_focus_extension() -> Result<(), String> {
     // GNOME loads a switched-off extension at once, so no logout is needed —
     // but the module needs a moment to answer. Reading the state straight
     // away reported "needs a logout" for something that never does.
-    for _ in 0..10 {
+    // A busy shell can take a second or two to evaluate the module, and a
+    // probe that lands too early reads as "enabled but silent", which the
+    // row reports as a logout. Three seconds total, deadlines rather than
+    // iterations because a probe can itself block for 300 ms.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while std::time::Instant::now() < deadline {
         if crate::server::focus_extension_answers() {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     Ok(())
 }
