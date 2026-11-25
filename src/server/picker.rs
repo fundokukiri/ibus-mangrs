@@ -110,6 +110,15 @@ impl PickerState {
     }
 }
 
+/// The warning shown instead of the mode list while no app can be named.
+fn warning_text(english: bool) -> &'static str {
+    if english {
+        "The MăngRS Focus extension is off, turn it on and press the hotkey again"
+    } else {
+        "Chưa bật extension MăngRS Focus, bật extension rồi bấm lại"
+    }
+}
+
 /// The rule target for the focused context, read at press time: the
 /// extension/xprop name, else the client's own prgname, else — only while the
 /// compositor's own UI holds the keyboard — the bare relay client.
@@ -198,22 +207,13 @@ impl EngineHandler {
         };
         let config = Config::load();
         if state.warnings_only() {
-            let (title, hint) = if config.language == "en" {
-                (
-                    "The MăngRS Focus extension is off",
-                    "Turn it on, then press the hotkey again",
-                )
-            } else {
-                (
-                    "Chưa bật extension MăngRS Focus",
-                    "Bật extension rồi bấm lại để gán chế độ",
-                )
-            };
-            let table = ibus_prop::lookup_table_variant(PICKER_PAGE_SIZE, 0, &[title.to_string()]);
-            out.push(signal("UpdateLookupTable").append2(table, true));
-            out.push(
-                signal("UpdateAuxiliaryText").append2(crate::ibus_text::plain_text(hint), true),
-            );
+            // Text only: a candidate row would be one the user can click, and
+            // there is nothing to pick.
+            out.push(signal("HideLookupTable"));
+            out.push(signal("UpdateAuxiliaryText").append2(
+                crate::ibus_text::plain_text(warning_text(config.language == "en")),
+                true,
+            ));
             return;
         }
         let current = picker_current(&config, &state.target);
@@ -360,6 +360,13 @@ mod tests {
         // A named app always wins over the client string.
         e.set_app_name(Some("wayland:Alacritty".into()));
         assert_eq!(rule_target(&e).as_deref(), Some("Alacritty"));
+    }
+
+    #[test]
+    fn the_warning_names_the_extension_in_both_languages() {
+        assert!(warning_text(false).contains("extension MăngRS Focus"));
+        assert!(warning_text(true).contains("extension is off"));
+        assert!(warning_text(false).len() <= 80 && warning_text(true).len() <= 90);
     }
 
     #[test]
