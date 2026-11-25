@@ -125,14 +125,10 @@ pub(crate) fn focus_extension_installed() -> bool {
 /// user is told which of the two causes to fix.
 fn warning_text(english: bool, installed: bool) -> &'static str {
     match (english, installed) {
-        (false, false) => "Chưa cài extension MăngRS Focus, cài trong Cài đặt nâng cao",
-        (false, true) => {
-            "Extension MăngRS Focus chưa bật, bật rồi bấm lại (mới cài thì đăng xuất trước)"
-        }
-        (true, false) => "The MăngRS Focus extension is not installed, install it in Advanced",
-        (true, true) => {
-            "The MăngRS Focus extension is off, turn it on and press again (log out if just installed)"
-        }
+        (false, false) => "Chưa cài extension MăngRS Focus",
+        (false, true) => "Extension MăngRS Focus chưa bật",
+        (true, false) => "The MăngRS Focus extension is not installed",
+        (true, true) => "The MăngRS Focus extension is off",
     }
 }
 
@@ -391,8 +387,9 @@ mod tests {
             let off = warning_text(english, true);
             assert_ne!(missing, off);
             assert!(missing.contains("MăngRS Focus") && off.contains("MăngRS Focus"));
-            let long = |text: &str| text.chars().count() > 90;
+            let long = |text: &str| text.chars().count() > 44;
             assert!(!long(missing) && !long(off), "{missing} / {off}");
+            assert!(!missing.contains(','), "{missing}");
         }
         assert!(warning_text(false, false).contains("Chưa cài"));
         assert!(warning_text(false, true).contains("chưa bật"));
