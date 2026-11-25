@@ -79,6 +79,7 @@ where
     let badge = gtk4::Label::new(Some(&format!("[{badge_text}]")));
     badge.add_css_class("caption");
     badge.add_css_class("warning");
+    badge.add_css_class("experimental-badge");
     badge.set_valign(gtk4::Align::Center);
     uniform_title_width(row);
     let (suffixes, switch) = find_suffixes_and_switch(row.upcast_ref());

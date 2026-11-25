@@ -9,8 +9,11 @@ use super::*;
 
 /// The tab's one CSS block: the merged rows wrap their switch, so the class
 /// sits on the page and the rule reaches every switch inside it.
-pub(crate) const EXPERIMENTAL_CSS: &str =
-    ".experimental-page switch:checked { background-color: @warning_color; }";
+pub(crate) const EXPERIMENTAL_CSS: &str = "
+.experimental-page switch:checked { background-color: @warning_color; }
+/* the trial badge stands apart from the row title it precedes */
+.experimental-page .experimental-badge { font-weight: 700; font-style: italic; }
+";
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
