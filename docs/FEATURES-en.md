@@ -17,6 +17,10 @@ Five modes, one contract each (config value in parentheses; the factory default 
 Switch modes from the input-source menu, the settings window's _Display mode_ row, a cycle
 hotkey, or per app with **App Rules**.
 
+All five modes are always offered: input-source menu, mode row, App Rules and the cycle
+hotkey. An old config file that still carries the `visible_modes` key loads normally and the
+key is ignored.
+
 - **Flow** needs one working injection backend (the kernel's `/dev/uinput` device by default,
   or the compositor's virtual-keyboard protocol on Hyprland/wlroots); without one,
   **Forward Backspace** serves the words and the engine re-requests a backend after a cooldown.
@@ -26,20 +30,6 @@ hotkey, or per app with **App Rules**.
   `nonpreedit` → `surrounding`, `turbo`/`select`/`smoothforward` → `flow`, `forwardselect`
   and the old `forwardkeyevent` spelling → `forwardbackspace`, `defaulttyping` → `off`,
   `auto` → `preedit`. Old files keep loading; nothing is rewritten behind the user's back.
-
-### Showing and hiding modes
-
-The _General_ page carries one switch per mode (_Displayed modes_). A hidden mode is not
-selectable anywhere: it leaves the mode row, the App Rules pickers, the panel menu and the
-cycle hotkey, and the engine ignores it as a global mode or a rule mode. All five ship
-visible. The list is saved in `config.toml`:
-
-```toml
-visible_modes = ["preedit", "surrounding", "flow", "forwardbackspace", "off"]
-```
-
-A file without the key (an upgrade) keeps every mode it already uses — the global mode and
-every App Rule mode are appended to the shipped default, so nothing changes silently.
 
 ## Input methods and charsets
 

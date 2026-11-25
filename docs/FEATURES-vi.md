@@ -18,6 +18,9 @@ tiên):
 Đổi chế độ ở menu bộ gõ, hàng _Chế độ gõ_ trong cửa sổ cài đặt, phím tắt xoay vòng, hoặc theo
 từng app qua **Luật theo app**.
 
+Cả năm chế độ luôn có mặt ở mọi nơi: menu bộ gõ, hàng chọn chế độ, luật theo app và phím tắt
+xoay vòng. File cấu hình cũ còn khoá `visible_modes` vẫn nạp bình thường và khoá đó bị bỏ qua.
+
 - **Flow** cần một backend bơm phím hoạt động (kernel `/dev/uinput` mặc định, hoặc giao thức
   virtual-keyboard của compositor trên Hyprland/wlroots); không có thì **Forward Backspace**
   gánh thay và engine tự xin lại backend sau một khoảng chờ.
@@ -27,20 +30,6 @@ từng app qua **Luật theo app**.
   `turbo`/`select`/`smoothforward` → `flow`, `forwardselect` và chính tả cũ `forwardkeyevent`
   → `forwardbackspace`, `defaulttyping` → `off`, `auto` → `preedit`. File cũ vẫn nạp, không có
   gì bị ghi đè ngầm.
-
-### Hiện/ẩn chế độ gõ
-
-Trang *Chung* của cửa sổ cài đặt có một công tắc cho từng chế độ (_Chế độ hiển thị_). Chế độ
-bị ẩn không chọn được ở đâu cả: rút khỏi hàng chế độ, bảng chọn luật theo app, menu panel và
-phím tắt xoay vòng, và engine không áp dụng nó làm chế độ chung hay chế độ luật. Cả năm chế độ
-mặc định đều hiện. Danh sách lưu trong `config.toml`:
-
-```toml
-visible_modes = ["preedit", "surrounding", "flow", "forwardbackspace", "off"]
-```
-
-File không có khoá này (nâng cấp từ bản cũ) giữ nguyên mọi chế độ đang dùng — chế độ chung và
-mọi chế độ luật được nối vào danh sách mặc định, không có gì bị ẩn ngầm.
 
 ## Kiểu gõ và bảng mã
 
