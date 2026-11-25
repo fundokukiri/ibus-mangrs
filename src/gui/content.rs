@@ -207,6 +207,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         h.set_margin_start(6);
         h.append(&gtk4::Image::from_icon_name(icon));
         let label = gtk4::Label::new(Some(title));
+        // Tab names read as headings, the way GNOME Settings letter its list.
+        label.add_css_class("heading");
         if warn {
             label.add_css_class("warning");
         }
