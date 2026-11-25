@@ -153,21 +153,17 @@ impl EngineHandler {
         } else {
             "↑↓ rồi Enter"
         };
+        let label = if state.target == crate::config::UNNAMED_PATTERN {
+            if config.language == "en" {
+                "unnamed app".to_string()
+            } else {
+                "app không tên".to_string()
+            }
+        } else {
+            crate::config::display_app_name(&state.target)
+        };
         out.push(signal("UpdateAuxiliaryText").append2(
-            crate::ibus_text::plain_text(&format!(
-                "{} · {} · {}",
-                if state.target == crate::config::UNNAMED_PATTERN {
-                    if config.language == "en" {
-                        "unnamed app"
-                    } else {
-                        "app không tên"
-                    }
-                } else {
-                    &state.target
-                },
-                current_label,
-                hint
-            )),
+            crate::ibus_text::plain_text(&format!("{label} · {current_label} · {hint}")),
             true,
         ));
     }
@@ -228,7 +224,12 @@ impl EngineHandler {
             out.push(signal("HideAuxiliaryText"));
             return;
         };
-        debug_log::log(&format!("picker: {} → {}", state.target, mode.key()));
+        debug_log::log(&format!(
+            "picker: {} [{}] → {}",
+            crate::config::display_app_name(&state.target),
+            state.target,
+            mode.key()
+        ));
         config.set_rule_mode_for_target(&state.target, mode);
         if config.save().is_err() {
             out.push(signal("HideLookupTable"));

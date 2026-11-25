@@ -374,6 +374,74 @@ pub fn strip_transport_prefix(name: &str) -> &str {
 
 pub const UNNAMED_PATTERN: &str = "none";
 
+/// The name a rule is written with, so the App Rules list reads like the app
+/// itself: a window class or flatpak id (`org.gnome.TextEditor`,
+/// `org.telegram.desktop`) becomes `Text Editor` / `Telegram Desktop`.
+/// Matching canonicalizes both sides, so a friendly pattern still fires when a
+/// source reports the raw id.
+pub fn display_app_name(name: &str) -> String {
+    let name = strip_transport_prefix(name);
+    let name = name.rsplit('/').next().unwrap_or(name);
+    const TLDS: [&str; 8] = ["org", "com", "io", "net", "dev", "app", "co", "me"];
+    const VENDORS: [&str; 3] = ["gnome", "kde", "freedesktop"];
+    let mut segments: Vec<&str> = name.split('.').filter(|s| !s.is_empty()).collect();
+    if segments.len() > 1 && TLDS.contains(&segments[0]) {
+        segments.remove(0);
+    }
+    let mut words: Vec<String> = Vec::new();
+    for segment in segments {
+        let mut word = String::new();
+        let mut was_lower = false;
+        for c in segment.chars() {
+            if !c.is_alphanumeric() {
+                if !word.is_empty() {
+                    words.push(std::mem::take(&mut word));
+                }
+                was_lower = false;
+                continue;
+            }
+            // `TextEditor` -> `Text Editor`, `sublime_text` -> `sublime text`.
+            if was_lower && c.is_uppercase() && !word.is_empty() {
+                words.push(std::mem::take(&mut word));
+            }
+            was_lower = c.is_lowercase();
+            word.push(c);
+        }
+        if !word.is_empty() {
+            words.push(word);
+        }
+    }
+    // A CamelCase product name carries the app; the lowercase segment in front
+    // of it is the vendor (`gnome.Nautilus`, `discordapp.Discord`). An id with
+    // no case at all is one name, not vendor plus product
+    // (`org.telegram.desktop` -> `Telegram Desktop`).
+    let named = words
+        .last()
+        .is_some_and(|w| w.chars().any(char::is_uppercase));
+    while words.len() > 1
+        && (VENDORS.contains(&words[0].to_lowercase().as_str())
+            || (named && words[0].chars().all(|c| !c.is_uppercase())))
+    {
+        words.remove(0);
+    }
+    let mut out = String::new();
+    for word in &words {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            out.extend(first.to_uppercase());
+            out.push_str(chars.as_str());
+        }
+    }
+    if out.is_empty() {
+        name.to_string()
+    } else {
+        out
+    }
+}
+
 /// The comparable form of an app name. Each focus source names the same app
 /// differently (`wayland:org.gnome.TextEditor`, `x11:Sublime_text`,
 /// `gtk3-im:sublime_text`), so a rule written while one source answered has
@@ -435,13 +503,13 @@ impl Config {
             rule.mode = mode;
             return;
         }
-        self.app_rules.insert(
-            0,
-            AppRule {
-                pattern: target.to_string(),
-                mode,
-            },
-        );
+        // A new rule carries the app's own name, not its window class.
+        let pattern = if target == UNNAMED_PATTERN {
+            target.to_string()
+        } else {
+            display_app_name(target)
+        };
+        self.app_rules.insert(0, AppRule { pattern, mode });
     }
 
     /// Drop every rule matching `pattern` (case-insensitive).
@@ -1597,6 +1665,43 @@ children = ["preedit", "flow"]
     }
 
     #[test]
+    fn display_name_reads_like_the_app() {
+        for (raw, want) in [
+            ("org.gnome.Nautilus", "Nautilus"),
+            ("nautilus", "Nautilus"),
+            ("wayland:org.gnome.Nautilus", "Nautilus"),
+            ("org.gnome.TextEditor", "Text Editor"),
+            ("gnome-text-editor", "Text Editor"),
+            ("org.telegram.desktop", "Telegram Desktop"),
+            ("com.discordapp.Discord", "Discord"),
+            ("Alacritty", "Alacritty"),
+            ("wayland:firefox", "Firefox"),
+            ("x11:Sublime_text", "Sublime Text"),
+        ] {
+            assert_eq!(display_app_name(raw), want, "raw: {raw}");
+        }
+    }
+
+    #[test]
+    fn a_written_rule_matches_the_raw_class_it_came_from() {
+        let mut c = Config::from_toml("");
+        c.set_rule_mode_for_target("org.gnome.TextEditor", ModeConfig::Flow);
+        assert_eq!(c.app_rules[0].pattern, "Text Editor");
+        // The same rule still updates instead of adding a second copy, and it
+        // fires when a source reports the raw class.
+        c.set_rule_mode_for_target("org.gnome.TextEditor", ModeConfig::Preedit);
+        assert_eq!(c.app_rules.len(), 1);
+        assert_eq!(
+            app_rule_mode(&c.app_rules, Some("wayland:org.gnome.TextEditor")),
+            Some(ModeConfig::Preedit)
+        );
+        assert_eq!(
+            app_rule_mode(&c.app_rules, Some("gtk4-im:gnome-text-editor")),
+            Some(ModeConfig::Preedit)
+        );
+    }
+
+    #[test]
     fn a_rule_fires_whatever_source_named_the_app() {
         let fire = |pattern: &str, target: &str| app_rule_matches(pattern, Some(target));
         // The same app seen through the extension, xprop and a toolkit name.
@@ -1994,7 +2099,9 @@ children = ["preedit", "flow"]
         let before = c.app_rules.len();
         c.set_rule_mode_for_target("e2epick", ModeConfig::Surrounding);
         assert_eq!(c.app_rules.len(), before + 1);
-        assert_eq!(c.app_rules[0].pattern, "e2epick");
+        // Written with the app's own name, which for a bare class is the class
+        // with its first letter capitalised.
+        assert_eq!(c.app_rules[0].pattern, "E2epick");
         assert_eq!(
             crate::config::app_rule_mode(&c.app_rules, Some("e2epick")),
             Some(ModeConfig::Surrounding)
