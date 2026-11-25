@@ -211,10 +211,10 @@ Những điều nên biết trước khi gửi:
 
 ## Ghi công
 
-- [**MăngRS**](https://github.com/fundokukiri/ibus-mangrs) — giấy phép [GPL-3.0](LICENSE).
 - [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Bản quyền (C) 2018 Luong Thanh Lam, giấy phép [GPL-3.0](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file).
 - [**bamboo-core (Rust):**](https://github.com/bamboo-vi/bamboo-core) thư viện thuật toán gõ tiếng Việt viết bằng Rust, giấy phép [MIT](https://github.com/bamboo-vi/bamboo-core?tab=MIT-1-ov-file).
 - [**bamboo-core (Go):**](https://github.com/BambooEngine/bamboo-core) Bản quyền (C) 2018 Luong Thanh Lam, giấy phép [MIT](https://github.com/BambooEngine/bamboo-core?tab=MIT-1-ov-file).
+- [**fcitx5-lotus:**](https://github.com/LotusInputMethod/fcitx5-lotus) Bản quyền (C) 2025 Võ Ngô Hoàng Thành, 2026 Nguyễn Hoàng Kỳ, giấy phép [GPL-3.0](https://github.com/LotusInputMethod/fcitx5-lotus?tab=GPL-3.0-1-ov-file).
 
 ## License
 

@@ -217,10 +217,10 @@ Worth knowing before you send:
 
 ## Credits
 
-- [**MăngRS**](https://github.com/fundokukiri/ibus-mangrs) — [GPL-3.0 License](../LICENSE).
 - [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Copyright (C) 2018 Luong Thanh Lam, [GPL-3.0 License](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file).
 - [**bamboo-core (Rust):**](https://github.com/bamboo-vi/bamboo-core) Vietnamese input algorithm library in Rust, [MIT License](https://github.com/bamboo-vi/bamboo-core?tab=MIT-1-ov-file).
 - [**bamboo-core (Go):**](https://github.com/BambooEngine/bamboo-core) Copyright (C) 2018 Luong Thanh Lam, [MIT License](https://github.com/BambooEngine/bamboo-core?tab=MIT-1-ov-file).
+- [**fcitx5-lotus:**](https://github.com/LotusInputMethod/fcitx5-lotus) Copyright (C) 2025 Võ Ngô Hoàng Thành, 2026 Nguyễn Hoàng Kỳ, [GPL-3.0 License](https://github.com/LotusInputMethod/fcitx5-lotus?tab=GPL-3.0-1-ov-file).
 
 ## License
 
