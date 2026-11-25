@@ -164,6 +164,10 @@ fn rule_target(engine: &Engine) -> Option<String> {
         })
 }
 
+/// Longer than the focus path's wait: the picker runs once per hotkey press,
+/// so a slow shell costs the user a moment, not a keystroke.
+pub(super) const PICKER_EXT_TIMEOUT_MS: i32 = 800;
+
 impl EngineHandler {
     /// Open the picker for the focused application. The target is the same
     /// string the rules will match against: the focus extension/xprop name
@@ -176,10 +180,38 @@ impl EngineHandler {
             out.push(signal("HideAuxiliaryText"));
             return;
         }
-        let (target, extension_answered) = {
+        let (mut target, mut extension_answered) = {
             let engine = lock_engine(&self.engine);
             (rule_target(&engine), engine.extension_answered())
         };
+        if !extension_answered {
+            // The focus path gives the extension 300 ms, and the shell answers
+            // from its own main loop: a busy frame misses that without the
+            // extension being absent, which used to be reported as "not
+            // enabled". A hotkey press can afford a longer try, and a fresh
+            // connection rules out a bus connection that died mid-session.
+            self.focus_ext = None;
+            let (answered, class) = self.focus_extension_app(PICKER_EXT_TIMEOUT_MS);
+            debug_log::log(&format!("ext picker=retry answered={}", u8::from(answered)));
+            if answered {
+                let mut engine = lock_engine(&self.engine);
+                engine.set_extension_answered(true);
+                // An empty class is the compositor's own UI holding the
+                // keyboard, the same reading the focus path uses.
+                engine.set_shell_ui_focused(class.is_none());
+                match class {
+                    Some(class) => {
+                        engine.set_app_name(Some(format!("wayland:{class}")));
+                        crate::server::x11::note_prgname(&class);
+                    }
+                    None => engine.set_app_name(None),
+                }
+                target = rule_target(&engine);
+                extension_answered = true;
+            } else {
+                debug_log::log("ext ok=0 why=timeout");
+            }
+        }
         // Nothing names this app and there is no extension to ask: with the
         // extension off no Wayland app can be named at all, so the menu warns
         // instead of offering a choice that would hit the wrong app.

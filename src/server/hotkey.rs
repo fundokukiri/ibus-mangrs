@@ -328,11 +328,14 @@ impl EngineHandler {
     /// The focused window's WM_CLASS from the focus extension. The
     /// session-bus connection is created lazily and kept for the handler's
     /// lifetime; a short timeout keeps a dead extension off the focus path.
+    /// A caller that runs off the typing path (the rule picker) passes a
+    /// longer one: the shell answers from its own main loop, and a busy frame
+    /// can outlast 300 ms without the extension being absent.
     /// Returns whether the extension answered, plus its class (empty when it
     /// names nothing). An absent extension and a shell UI holding the keyboard
     /// both mean "no class" to the caller, which falls back to the X active
     /// window — but only the second one is the compositor's own UI.
-    pub(super) fn focus_extension_app(&mut self) -> (bool, Option<String>) {
+    pub(super) fn focus_extension_app(&mut self, timeout_ms: i32) -> (bool, Option<String>) {
         if self.focus_ext.is_none() {
             // The engine inherits the session environment from ibus-daemon;
             // without a session bus there is no extension either.
@@ -350,7 +353,7 @@ impl EngineHandler {
             &Interface::new(FOCUS_EXT_IFACE).unwrap(),
             &Member::new("GetFocusedWindow").unwrap(),
         );
-        let Ok(reply) = conn.send_with_reply_and_block(msg, 300) else {
+        let Ok(reply) = conn.send_with_reply_and_block(msg, timeout_ms) else {
             return (false, None);
         };
         let Ok((class, _title)) = reply.read2::<String, String>() else {

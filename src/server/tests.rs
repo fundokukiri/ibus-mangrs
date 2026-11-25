@@ -3046,6 +3046,64 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
     );
 }
 
+/// A shell that answers late is not a shell without the extension: the picker
+/// tries once more before it says "chưa bật", and both attempts are logged so a
+/// report can tell the two apart.
+#[test]
+fn the_picker_retries_the_extension_before_blaming_it() {
+    let _guard = crate::debug_log::test_guard();
+    let dir = crate::debug_log::TempLogDir::new("picker-ext-retry");
+    let path = dir.dir().join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+    let mut handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        injection: Injection::new(),
+        last_config_check: Instant::now(),
+        last_config_mtime: None,
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
+        // No session bus in the test process: the call cannot be answered,
+        // which is the timeout path without waiting for one.
+        focus_ext: None,
+        props: Vec::new(),
+    };
+    let mut out = Vec::new();
+    handler.open_app_rule_picker(&mut out);
+
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        text.contains("ext picker=retry answered=0"),
+        "the retry is logged: {text}"
+    );
+    assert!(
+        text.contains("ext ok=0 why=timeout"),
+        "the failure is logged as one: {text}"
+    );
+    assert!(
+        text.contains("ext picker=hotkey why=no_extension"),
+        "the warning follows both attempts: {text}"
+    );
+    assert!(
+        handler
+            .picker
+            .as_ref()
+            .is_some_and(|state| state.warnings_only()),
+        "the menu offers nothing to pick"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
 #[test]
 fn picker_keys_map_onto_entries() {
     use super::picker::{picker_entries, PickerKey, PickerState};

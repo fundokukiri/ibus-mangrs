@@ -69,6 +69,10 @@ pub const FACTORY_IFACE: &str = "org.freedesktop.IBus.Factory";
 /// a mutter relay, and GNOME offers no other name source for them (Shell
 /// Introspect is denied; the wlroots protocol ibus-bamboo uses is absent).
 /// The settings window asks the same service for its focused-app chip.
+/// How long the focus path waits for the shell extension. Short enough that a
+/// missing extension costs one focus change nothing; the picker path, which is
+/// user-initiated, waits longer (`picker::PICKER_EXT_TIMEOUT_MS`).
+pub(crate) const FOCUS_EXT_TIMEOUT_MS: i32 = 300;
 pub(crate) const FOCUS_EXT_NAME: &str = "io.github.fundokukiri.Mangrs";
 pub(crate) const FOCUS_EXT_PATH: &str = "/io/github/fundokukiri/Mangrs";
 pub(crate) const FOCUS_EXT_IFACE: &str = "io.github.fundokukiri.Mangrs";
@@ -547,7 +551,7 @@ impl EngineHandler {
         // The extension round trip must not run under the engine mutex; the
         // naming step below decides whether the answer is actually used.
         let (ext_answered, ext_name) = if matches!(member, "FocusIn" | "FocusInId") {
-            self.focus_extension_app()
+            self.focus_extension_app(FOCUS_EXT_TIMEOUT_MS)
         } else {
             (false, None)
         };
