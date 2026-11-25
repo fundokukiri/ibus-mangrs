@@ -239,6 +239,9 @@ fn per_key(mode: Mode) -> (Mode, Config) {
         mode,
         Config {
             experimental_features: true,
+            // The probes model the tone-first skip; the shipped default moved
+            // to WholeChar and the sibling tests cover it.
+            backspace_tone: BackspaceToneConfig::ToneFirst,
             ..Config::default()
         },
     )

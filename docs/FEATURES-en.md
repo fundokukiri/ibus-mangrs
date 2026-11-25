@@ -61,8 +61,8 @@ tone-marked word:
 
 | Mode | Behavior | Example |
 | --- | --- | --- |
-| **Tone first** (default) | one Backspace drops the whole tone | `hạ` → `ha` → `h` |
-| **Whole screen character** | deletes the screen's last character | `việt` → `việ` → `vi` |
+| **Tone first** | one Backspace drops the whole tone | `hạ` → `ha` → `h` |
+| **Whole screen character** (default) | deletes the screen's last character | `việt` → `việ` → `vi` |
 | **Unikey walk** | undoes the last raw key | `hạ` `hã` `hả` `hà` `há` `ha` |
 
 In **Flow**, erasing into a finished word is a plain delete — **one Backspace deletes exactly

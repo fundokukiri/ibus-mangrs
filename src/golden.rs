@@ -1016,7 +1016,9 @@ mod matrix {
         // exact — there is no protocol delete to swallow yet. The FIRST
         // word typed after a report has arrived pays a one-time swallow
         // cost while the proof is collected (the report can only prove the
-        // drop by seeing one swallowed delete); from the next word on, the
+        // drop by seeing one swallowed delete). With the
+        // delete-without-report switch on by default the cost is one echoed
+        // character instead of a mangled word; from the next word on the
         // walk's terminal transport serves the client and the text is
         // exact again.
         // One arm serves the contract since NonPreedit merged into
@@ -1033,8 +1035,8 @@ mod matrix {
             "aa tieengs chaox ",
         );
         assert!(
-            got.starts_with("â tieêngếng "),
-            "the forwarded transport serves the first word: \
+            got.starts_with("aâ tiếng "),
+            "the one-time cost is one echoed character, not the word: \
              {mode:?} final {got:?}"
         );
         assert!(

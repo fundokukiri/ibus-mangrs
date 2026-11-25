@@ -918,7 +918,7 @@ impl Default for Config {
             suggest_words: false,
             dodge_inline_autocomplete: false,
             preferred_backend: PreferredBackendConfig::Auto,
-            backspace_tone: BackspaceToneConfig::ToneFirst,
+            backspace_tone: BackspaceToneConfig::WholeChar,
             auto_restore: true,
             bypass_url: true,
             w2u: W2uConfig::Disabled,
@@ -937,26 +937,26 @@ impl Default for Config {
             abbreviations: true,
             cycle_mode_hotkey: String::new(),
             enabled_hotkey: String::new(),
-            app_rule_hotkey: String::new(),
-            emoji_hotkey: String::new(),
+            app_rule_hotkey: "Shift+~".into(),
+            emoji_hotkey: "Ctrl+~".into(),
             emoji_enabled: false,
             hide_underline: false,
             backspace_interval_ms: 5,
-            post_delay_ms: 10,
+            post_delay_ms: 5,
             unicode_channel: UnicodeChannel::Commit,
             echo_stale_enabled: false,
             echo_stale_ms: 150,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             flow_per_key_delay_ms: 20,
-            flow_backspace_restore_delay_ms: 150,
+            flow_backspace_restore_delay_ms: 5,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
             debug_log_text: false,
             debug_log_keys: false,
-            x11_delete_without_report: false,
-            preedit_for_xim: false,
+            x11_delete_without_report: true,
+            preedit_for_xim: true,
             nav_key_while_preedit: "forward".into(),
             app_rules: Vec::new(),
             custom_hotkeys: Vec::new(),
@@ -1272,17 +1272,17 @@ mod tests {
             Some(ModeConfig::ForwardBackspace),
             "the short alias must keep working"
         );
-        // Both compatibility switches ship off: an old config keeps today's
-        // behaviour, and only the settings window turns them on.
+        // Both compatibility switches ship on: a fresh install gets the
+        // behaviour that keeps X11 and XIM clients working out of the box.
         let c = Config::default();
-        assert!(!c.x11_delete_without_report);
-        assert!(!c.preedit_for_xim);
+        assert!(c.x11_delete_without_report);
+        assert!(c.preedit_for_xim);
         let c: Config =
             toml::from_str("x11_delete_without_report = true\npreedit_for_xim = true\n").unwrap();
         assert!(c.x11_delete_without_report);
         assert!(c.preedit_for_xim);
         let c = Config::from_toml("mode = \"preedit\"\n");
-        assert!(!c.x11_delete_without_report && !c.preedit_for_xim);
+        assert!(c.x11_delete_without_report && c.preedit_for_xim);
     }
 
     #[test]
@@ -1919,7 +1919,7 @@ children = ["preedit", "flow"]
                 .unwrap();
         assert_eq!(c.flow_backspace_restore_delay_ms, 45);
         let c: Config = toml::from_str("flow_backspace_retrack = false").unwrap();
-        assert_eq!(c.flow_backspace_restore_delay_ms, 150);
+        assert_eq!(c.flow_backspace_restore_delay_ms, 5);
     }
 
     #[test]
@@ -1936,7 +1936,7 @@ children = ["preedit", "flow"]
                 .unwrap();
         assert_eq!(c.flow_backspace_restore_delay_ms, 0);
         let c: Config = toml::from_str("flow_backspace_restore = false").unwrap();
-        assert_eq!(c.flow_backspace_restore_delay_ms, 150);
+        assert_eq!(c.flow_backspace_restore_delay_ms, 5);
     }
 
     /// The old mode names are gone for good: an old file resets the mode to

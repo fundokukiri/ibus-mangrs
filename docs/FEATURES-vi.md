@@ -60,8 +60,8 @@ có dấu thế nào:
 
 | Kiểu | Hành vi | Ví dụ |
 | --- | --- | --- |
-| **Xóa dấu trước** (mặc định) | một Backspace bỏ cả dấu | `hạ` → `ha` → `h` |
-| **Xóa cả dấu và chữ** | xoá ký tự cuối trên màn hình | `việt` → `việ` → `vi` |
+| **Xóa dấu trước** | một Backspace bỏ cả dấu | `hạ` → `ha` → `h` |
+| **Xóa cả dấu và chữ** (mặc định) | xoá ký tự cuối trên màn hình | `việt` → `việ` → `vi` |
 | **Unikey (lùi từng phím)** | hoàn tác phím gõ cuối | `hạ` `hã` `hả` `hà` `há` `ha` |
 
 Ở **Flow**, xóa vào phần kết thúc của từ đã hoàn thành là xoá thuần — **một Backspace xoá

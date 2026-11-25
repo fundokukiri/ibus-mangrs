@@ -510,6 +510,9 @@ fn parse_hotkey_accepts_the_owner_requested_combos() {
 #[test]
 fn registry_includes_custom_shortcuts() {
     let config = Config {
+        // The two shipped shortcuts would land in this registry too.
+        app_rule_hotkey: String::new(),
+        emoji_hotkey: String::new(),
         custom_hotkeys: vec![
             crate::config::CustomHotkey {
                 spec: "Control+Shift".into(),
@@ -3018,6 +3021,8 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
         enabled_hotkey: "Control+Alt+h".into(),
         cycle_mode_hotkey: "Control+Alt+v".into(),
         app_rule_hotkey: "Control+Alt+p".into(),
+        // The shipped emoji shortcut would add a fourth entry.
+        emoji_hotkey: String::new(),
         ..Config::default()
     };
     let reg = hotkey_registry(&config);
@@ -3035,8 +3040,9 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
         3,
         "the registry does not dedupe - page order rules"
     );
-    // Unassigned or unusable specs register nothing.
-    assert!(hotkey_registry(&Config::default()).is_empty());
+    // The shipped defaults register the app-rule picker and the emoji
+    // picker; nothing else.
+    assert_eq!(hotkey_registry(&Config::default()).len(), 2);
     config.enabled_hotkey = "Control".into();
     config.cycle_mode_hotkey = "Shift+x".into();
     config.app_rule_hotkey = String::new();

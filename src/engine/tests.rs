@@ -427,6 +427,12 @@ fn backspace_then_tone_key_rewrites_correctly() {
     // unikey convention: the Backspace undoes the last KEY — here the
     // tone key "s" — and retyping it restores the word.
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    // Pinned: the shipped default is WholeChar, this case is the tone-first skip.
+    e.apply_config(&Config {
+        mode: Mode::Surrounding.into(),
+        backspace_tone: BackspaceToneConfig::ToneFirst,
+        ..Config::default()
+    });
     let mut actions = type_str(&mut e, "tieengs"); // tiếng
     actions.extend(e.backspace().expect("backspace")); // tiêng
     e.set_surrounding("tiêng".into(), 5);
@@ -457,6 +463,11 @@ fn backspace_replays_when_the_tone_moves() {
     // unikey convention: each Backspace pops the last raw KEY and the
     // word recomposes ("hoàng" -> "hoang" -> "hoan" -> "hoa").
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.apply_config(&Config {
+        mode: Mode::Surrounding.into(),
+        backspace_tone: BackspaceToneConfig::ToneFirst,
+        ..Config::default()
+    });
     let mut actions = type_str(&mut e, "hoangf");
     assert_eq!(replay(&actions), "hoàng");
     for expected in ["hoang", "hoan", "hoa"] {
@@ -494,6 +505,14 @@ fn focus_change_drops_stale_surrounding_data() {
     // context. Without the clear, the engine sent protocol
     // DeleteSurroundingText to a context whose buffer mutter never saw.
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    // Pinned: the case walks the tone-first mark rewrite on purpose.
+    e.apply_config(&Config {
+        mode: Mode::Surrounding.into(),
+        backspace_tone: BackspaceToneConfig::ToneFirst,
+        // The switch ships on now; this case documents the walk's path.
+        x11_delete_without_report: false,
+        ..Config::default()
+    });
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     for c in "tieng".chars() {
@@ -695,6 +714,13 @@ fn no_report_no_backend_backspace_rides_the_forward_transport() {
     // edit a transport: the forwarded Backspace key event erases the
     // character, like any ForwardBackspace word edit.
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    // Pinned off: the shipped default now sends the delete without a report,
+    // which is the other arm of this contract.
+    e.apply_config(&Config {
+        mode: Mode::Surrounding.into(),
+        x11_delete_without_report: false,
+        ..Config::default()
+    });
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     assert_eq!(type_replay_with_reports(&mut e, "ab", false), "ab");
@@ -1442,10 +1468,15 @@ fn legacy_charset_rewrites_the_whole_word() {
 #[test]
 fn legacy_charset_backspace_replays_correctly() {
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.apply_config(&Config {
+        mode: Mode::Surrounding.into(),
+        backspace_tone: BackspaceToneConfig::ToneFirst,
+        ..Config::default()
+    });
     e.set_charset(Charset::Vni);
     let mut actions = type_str(&mut e, "vieejt");
     actions.extend(e.backspace().expect("backspace"));
-    // The default tone-first skip: the tone goes, the letters stay.
+    // The pinned tone-first skip: the tone goes, the letters stay.
     assert_eq!(replay(&actions), encode(Charset::Vni, "viêt"));
 }
 
@@ -2859,7 +2890,16 @@ fn flow_backspace_restores_the_undone_mark_without_the_switch() {
     // deferred correction gives the mark back with the user's "Backspace
     // xóa dấu" setting — `chào` returns, like the inline modes. No
     // experimental switch involved (default config, gate closed).
-    let mut e = engine(Mode::Flow, Config::default());
+    let mut e = engine(
+        Mode::Flow,
+        // Pinned: the case exercises the deferred correction, so the window
+        // must outlast the key release it waits for.
+        Config {
+            flow_backspace_restore_delay_ms: 150,
+            backspace_tone: BackspaceToneConfig::ToneFirst,
+            ..Config::default()
+        },
+    );
     e.set_uinput_available(true);
     type_str(&mut e, "chaoff");
     flush_per_key(&mut e);
@@ -2900,7 +2940,15 @@ fn flow_per_key_tonefirst_fold_keeps_every_screen_char() {
     // screen (`tung` in the wrapper, `tùn` on screen), so the fold must
     // not apply the wrapper's delta to the screen directly: that erased
     // the leading `t` (`InjectBackspaces(3)`, screen `úng`).
-    let mut e = engine(Mode::Flow, Config::default());
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            // Same pinned window: the fold needs a fix still pending.
+            flow_backspace_restore_delay_ms: 150,
+            backspace_tone: BackspaceToneConfig::ToneFirst,
+            ..Config::default()
+        },
+    );
     e.set_uinput_available(true);
     type_str(&mut e, "tungf ");
     flush_per_key(&mut e); // "tùng " lands
@@ -5779,7 +5827,7 @@ fn suggest_accept_rewrites_through_injection_in_flow() {
             Action::HideCandidates,
             Action::CommitNow("th".into()),
             Action::InjectBackspaces(2),
-            Action::PostDelay(10),
+            Action::PostDelay(5),
             Action::Commit(format!("{} ", picked)),
         ],
         "{actions:?}"
