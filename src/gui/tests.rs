@@ -602,50 +602,49 @@ fn rule_rows_round_trip_through_read() {
     assert_eq!(row.tooltip_text().as_deref(), Some("kate"));
 }
 
-/// The extension row must name the real situation and offer the one action
-/// that fixes it — the old row said "installed" even when the shell had never
-/// loaded the extension.
+/// The extension row must name the real situation and offer only the action
+/// that fixes it: a working extension has nothing left to press.
 #[test]
 fn the_extension_row_offers_one_action_per_state() {
     use crate::gui::{extension_row_for, ExtensionAction, ExtensionState};
     let cases = [
-        (ExtensionState::Missing, ExtensionAction::Install),
-        (ExtensionState::Stale, ExtensionAction::Install),
-        (ExtensionState::Disabled, ExtensionAction::Enable),
-        (ExtensionState::NeedsLogout, ExtensionAction::Logout),
-        (ExtensionState::Running, ExtensionAction::Install),
+        (ExtensionState::Missing, Some(ExtensionAction::Install)),
+        (ExtensionState::Stale, Some(ExtensionAction::Install)),
+        (ExtensionState::Disabled, Some(ExtensionAction::Enable)),
+        (ExtensionState::NeedsLogout, Some(ExtensionAction::Logout)),
+        (ExtensionState::Running, None),
     ];
-    let mut seen = Vec::new();
+    let mut subtitles = Vec::new();
     for (state, action) in cases {
         let text = extension_row_for(state);
-        assert_eq!(text.action, action, "{state:?}");
-        assert!(!text.subtitle.1.is_empty() && !text.button.1.is_empty());
+        assert_eq!(text.button.map(|(_, action)| action), action, "{state:?}");
+        assert!(!text.subtitle.1.is_empty());
         assert!(
-            !seen.contains(&text.subtitle.1),
-            "{state:?} reuses a subtitle"
+            !subtitles.contains(&text.subtitle.1),
+            "{state:?} reuses one"
         );
-        seen.push(text.subtitle.1);
+        subtitles.push(text.subtitle.1);
     }
-    // Every state gets its own confirmation: an update or a reinstall must
-    // not ask "install?".
+    // A missing extension is installed, never "turned on" or "logged out of".
+    let label = extension_row_for(ExtensionState::Missing).button;
+    assert_eq!(label.map(|((_, text), _)| text), Some("Cài đặt"));
+
+    // Every state with a button has its own confirmation; the running one
+    // has none at all.
     let mut headings = Vec::new();
     for state in [
         ExtensionState::Missing,
         ExtensionState::Stale,
         ExtensionState::Disabled,
         ExtensionState::NeedsLogout,
-        ExtensionState::Running,
     ] {
-        let (heading, body, apply) = crate::gui::pages::other::extension_dialog(state);
+        let (heading, body, apply) = crate::gui::pages::other::extension_dialog(state)
+            .unwrap_or_else(|| panic!("{state:?} needs a confirmation"));
         assert!(!heading.is_empty() && !body.is_empty() && !apply.is_empty());
         assert!(!headings.contains(&heading), "{state:?} reuses a heading");
         headings.push(heading);
     }
-    // A missing extension is installed, never "turned on" or "logged out of".
-    assert_eq!(
-        extension_row_for(ExtensionState::Missing).button.1,
-        "Cài đặt"
-    );
+    assert!(crate::gui::pages::other::extension_dialog(ExtensionState::Running).is_none());
 }
 
 /// "Chế độ gỡ lỗi" is one switch: the two log tiers come from its dialog,

@@ -43,14 +43,20 @@ fn json_filter() -> gtk4::FileFilter {
 fn show_extension_row(row: &adw::ActionRow, btn: &gtk4::Button) {
     let text = extension_row_for(extension_state());
     row.set_subtitle(&t(text.subtitle.0, text.subtitle.1));
-    btn.set_label(&t(text.button.0, text.button.1));
+    match text.button {
+        Some((label, _)) => {
+            btn.set_label(&t(label.0, label.1));
+            btn.set_visible(true);
+        }
+        None => btn.set_visible(false),
+    }
 }
 
 /// The confirmation for a state: heading, body and button label, one wording
-/// per situation so the dialog never says "install" for an update or a
-/// reinstall.
-pub(crate) fn extension_dialog(state: ExtensionState) -> (String, String, String) {
-    match state {
+/// per situation so an update never says "install" and a working extension
+/// asks nothing at all.
+pub(crate) fn extension_dialog(state: ExtensionState) -> Option<(String, String, String)> {
+    Some(match state {
         ExtensionState::Missing => (
             t("other.extension_confirm_heading", "Cài extension MăngRS Focus?"),
             t(
@@ -92,18 +98,9 @@ pub(crate) fn extension_dialog(state: ExtensionState) -> (String, String, String
             ),
             t("other.extension_logout_apply", "Đăng xuất"),
         ),
-        ExtensionState::Running => (
-            t(
-                "other.extension_reinstall_heading",
-                "Cài lại extension MăngRS Focus?",
-            ),
-            t(
-                "other.extension_reinstall_body",
-                "Ghi đè bản đang chạy bằng bản trong app này, rồi bật. Sau đó cần đăng xuất để GNOME tải bản mới.",
-            ),
-            t("other.extension_reinstall_apply", "Cài lại"),
-        ),
-    }
+        // Nothing to confirm: the row offers no action.
+        ExtensionState::Running => return None,
+    })
 }
 
 fn window_of(btn: &gtk4::Button) -> Option<gtk4::Window> {
@@ -471,8 +468,12 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let row = extension_row.clone();
         extension_btn.connect_clicked(move |btn| {
             let state = extension_state();
-            let action = extension_row_for(state).action;
-            let (heading, body, apply) = extension_dialog(state);
+            let Some((_, action)) = extension_row_for(state).button else {
+                return;
+            };
+            let Some((heading, body, apply)) = extension_dialog(state) else {
+                return;
+            };
             let dialog = adw::AlertDialog::builder()
                 .heading(&heading)
                 .body(&body)

@@ -1089,45 +1089,51 @@ pub(super) enum ExtensionAction {
 /// fallbacks, so the mapping is unit-testable.
 pub(super) struct ExtensionRowText {
     pub subtitle: (&'static str, &'static str),
-    pub button: (&'static str, &'static str),
-    pub action: ExtensionAction,
+    /// The row's one button; `None` when there is nothing left to do and the
+    /// row only reports ("Đang chạy").
+    pub button: Option<((&'static str, &'static str), ExtensionAction)>,
 }
 
 pub(super) fn extension_row_for(state: ExtensionState) -> ExtensionRowText {
     match state {
         ExtensionState::Missing => ExtensionRowText {
             subtitle: ("rows.focus_extension.subtitle_missing", "Chưa cài"),
-            button: ("misc.extension_button", "Cài đặt"),
-            action: ExtensionAction::Install,
+            button: Some((
+                ("misc.extension_button", "Cài đặt"),
+                ExtensionAction::Install,
+            )),
         },
         ExtensionState::Stale => ExtensionRowText {
             subtitle: (
                 "rows.focus_extension.subtitle_stale",
                 "Bản trên máy cũ hơn bản trong app",
             ),
-            button: ("misc.extension_update_button", "Cập nhật"),
-            action: ExtensionAction::Install,
+            button: Some((
+                ("misc.extension_update_button", "Cập nhật"),
+                ExtensionAction::Install,
+            )),
         },
         ExtensionState::Disabled => ExtensionRowText {
             subtitle: (
                 "rows.focus_extension.subtitle_disabled",
                 "Đã cài nhưng chưa bật",
             ),
-            button: ("misc.extension_enable_button", "Bật"),
-            action: ExtensionAction::Enable,
+            button: Some((
+                ("misc.extension_enable_button", "Bật"),
+                ExtensionAction::Enable,
+            )),
         },
         ExtensionState::NeedsLogout => ExtensionRowText {
             subtitle: (
                 "rows.focus_extension.subtitle_needs_logout",
                 "Đã bật, cần đăng xuất để GNOME tải",
             ),
-            button: ("misc.logout_button", "Đăng xuất"),
-            action: ExtensionAction::Logout,
+            button: Some((("misc.logout_button", "Đăng xuất"), ExtensionAction::Logout)),
         },
+        // Nothing left to do: a reinstall repairs nothing the user can see.
         ExtensionState::Running => ExtensionRowText {
             subtitle: ("rows.focus_extension.subtitle_running", "Đang chạy"),
-            button: ("misc.reinstall_button", "Cài lại"),
-            action: ExtensionAction::Install,
+            button: None,
         },
     }
 }
