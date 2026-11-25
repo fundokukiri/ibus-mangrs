@@ -726,10 +726,6 @@ not_running_hint = "IBus chỉ khởi động engine khi bạn gõ ở một ứ
 binary = "Tệp đang chạy"
 selected = "Engine"
 version = "Phiên bản MăngRS"
-registered = "Register"
-listed = "Có component"
-unregistered = "IBus không thấy component"
-unregistered_hint = "Cài lại gói rồi khởi động lại IBus để IBus đọc lại component."
 stale_hint = "Bản cài mới hơn tiến trình đang chạy. Khởi động lại IBus để dùng bản mới."
 selected_hint = "IBus đang chạy engine khác. Chọn MăngRS trong menu bộ gõ."
 

@@ -123,33 +123,6 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
             )
             .screen_only(),
     );
-    let registered = match status.and_then(|s| s.registered) {
-        Some(true) => Cell::info(
-            &t("rows.debug_engine.registered", "Register"),
-            t("rows.debug_engine.listed", "IBus có component"),
-        )
-        .with_status(Status::Ok, ""),
-        Some(false) => Cell::info(
-            &t("rows.debug_engine.registered", "Register"),
-            t(
-                "rows.debug_engine.unregistered",
-                "IBus không thấy component",
-            ),
-        )
-        .with_status(
-            Status::Warn,
-            &t(
-                "rows.debug_engine.unregistered_hint",
-                "Cài lại gói rồi khởi động lại IBus để IBus đọc lại component.",
-            ),
-        ),
-        None => Cell::info(
-            &t("rows.debug_engine.registered", "Register"),
-            "?".to_string(),
-        ),
-    };
-    // A working install always reads the same here, so it stays off the report.
-    system.push(registered.screen_only());
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let install = match status {
         Some(s) if s.stale => {
@@ -472,8 +445,8 @@ mod tests {
         assert_eq!(titles, ["Hệ thống", "Cách chèn", "Tệp"]);
         assert_eq!(
             groups[0].rows.len(),
-            9,
-            "five install rows and four for the machine"
+            8,
+            "four install rows and four for the machine"
         );
         assert_eq!(groups[1].rows.len(), 3);
         assert_eq!(groups[2].rows.len(), 2);
@@ -481,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stale_binary_and_a_missing_component_ask_for_a_fix() {
+    fn a_stale_binary_asks_for_a_restart() {
         let missing = rows(None, None);
         let selected = missing
             .iter()
@@ -501,11 +474,10 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("Khởi động lại IBus"));
-        let unregistered = stale
-            .iter()
-            .find(|c| c.label == "Register")
-            .expect("a registration row");
-        assert_eq!(unregistered.status, Status::Warn);
+        assert!(
+            !stale.iter().any(|c| c.label == "Register"),
+            "the registration row is gone: it says the same thing on every working install"
+        );
     }
 
     #[test]

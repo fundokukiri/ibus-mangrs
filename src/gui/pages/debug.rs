@@ -23,6 +23,10 @@ const VIEW_LINES: usize = 5_000;
 /// The lines the copied report carries.
 const REPORT_LINES: usize = 50;
 
+/// A wide log is worth more than a wide window: past this the page stops
+/// growing and centres itself, like every other tab.
+const MAX_PAGE_WIDTH: i32 = 1040;
+
 /// Under this width the two columns cannot both be read, so the right one
 /// moves below the log.
 const NARROW_WIDTH: i32 = 760;
@@ -295,10 +299,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // --- The page ---------------------------------------------------------
     let page = gtk4::Box::new(Orientation::Vertical, 10);
-    page.set_margin_top(12);
-    page.set_margin_bottom(12);
-    page.set_margin_start(16);
-    page.set_margin_end(16);
+    // The same breathing room every other tab gets: their preferences page
+    // centres a column and keeps it off the window edges, and a page that runs
+    // edge to edge reads as a different application.
+    page.set_margin_top(18);
+    page.set_margin_bottom(18);
+    page.set_margin_start(24);
+    page.set_margin_end(24);
     page.set_vexpand(true);
     page.append(&status);
     page.append(&split);
@@ -306,10 +313,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // The page never scrolls while the columns fit; the stacked column below
     // `NARROW_WIDTH` is taller than the window, and this keeps it reachable.
+    let clamp = adw::Clamp::new();
+    clamp.set_maximum_size(MAX_PAGE_WIDTH);
+    clamp.set_tightening_threshold(MAX_PAGE_WIDTH);
+    clamp.set_child(Some(&page));
     let outer = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
-        .child(&page)
+        .child(&clamp)
         .build();
 
     // --- Rendering --------------------------------------------------------
@@ -512,7 +523,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let separator = separator.clone();
         let right = right.clone();
         let scroller = scroller.clone();
-        let outer_ref = outer.clone();
+        let page_ref = page.clone();
         let laid_out = Rc::new(Cell::new((false, -1i32)));
         let state = Rc::clone(&laid_out);
         // A tick callback runs on every frame and keeps the window redrawing
@@ -520,7 +531,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         // is quick enough that the columns land where they belong as the window
         // opens.
         gtk4::glib::timeout_add_local(std::time::Duration::from_millis(60), move || {
-            let width = outer_ref.width();
+            let width = page_ref.width();
             let narrow = is_narrow(width);
             let share = column_share(width);
             if (narrow, share) != state.get() {

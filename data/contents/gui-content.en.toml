@@ -722,10 +722,6 @@ not_running_hint = "IBus starts the engine only while you type in an application
 binary = "Running from"
 selected = "Engine"
 version = "MăngRS version"
-registered = "Register"
-listed = "Component listed"
-unregistered = "IBus cannot see the component"
-unregistered_hint = "Reinstall the package and restart IBus so it reads the component again."
 stale_hint = "The installed binary is newer than the running process. Restart IBus to use it."
 selected_hint = "IBus is running another engine. Pick MăngRS in the input method menu."
 
