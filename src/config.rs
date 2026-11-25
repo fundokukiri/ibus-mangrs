@@ -381,20 +381,39 @@ pub fn strip_transport_prefix(name: &str) -> &str {
 
 pub const UNNAMED_PATTERN: &str = "none";
 
+/// The comparable form of an app name. Each focus source names the same app
+/// differently — `wayland:org.gnome.TextEditor`, `atspi:gnome-text-editor`,
+/// `x11:Sublime_text`, `gtk3-im:sublime_text` — so a rule written while one
+/// source answered has to keep firing when another one does.
+pub fn canonical_app_name(name: &str) -> String {
+    let name = strip_transport_prefix(name);
+    let name = name.rsplit('/').next().unwrap_or(name).to_lowercase();
+    // A reverse-domain window class (`org.telegram.desktop`, `com.discordapp
+    // .Discord`) names the same app as the bare executable name; the leading
+    // top-level segment only gets in the way of matching it.
+    let mut segments: Vec<&str> = name.split('.').collect();
+    const TLDS: [&str; 8] = ["org", "com", "io", "net", "dev", "app", "co", "me"];
+    while segments.len() > 1 && TLDS.contains(&segments[0]) {
+        segments.remove(0);
+    }
+    segments
+        .concat()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect()
+}
+
 pub fn app_rule_matches(pattern: &str, target: Option<&str>) -> bool {
-    // A pattern may carry the transport prefix the focus extension adds
-    // (`wayland:foo` / `x11:foo`) — targets are matched bare (the prefix is
-    // stripped below), so strip it from the pattern too or such a rule can
-    // never fire.
-    let pattern = strip_transport_prefix(pattern).to_lowercase();
-    if pattern == UNNAMED_PATTERN {
+    // The special pattern is a keyword, never a name: it matches a client no
+    // source could name, which is the only way to target one.
+    if strip_transport_prefix(pattern).eq_ignore_ascii_case(UNNAMED_PATTERN) {
         return target.is_none();
     }
     let Some(name) = target else {
         return false;
     };
-    let name = name.split_once(':').map_or(name, |(_, p)| p).to_lowercase();
-    !pattern.is_empty() && name.contains(&pattern)
+    let pattern = canonical_app_name(pattern);
+    !pattern.is_empty() && canonical_app_name(name).contains(&pattern)
 }
 
 /// First `AppRule` matching the target, in config order.
@@ -1582,6 +1601,26 @@ children = ["preedit", "flow"]
         assert!(!c.debug_log_keys);
         let c = Config::from_toml("debug_log_keys = true\n");
         assert!(c.debug_log_keys);
+    }
+
+    #[test]
+    fn a_rule_fires_whatever_source_named_the_app() {
+        let fire = |pattern: &str, target: &str| app_rule_matches(pattern, Some(target));
+        // The same app seen through the extension, AT-SPI and a toolkit name.
+        assert!(fire(
+            "wayland:org.gnome.TextEditor",
+            "atspi:gnome-text-editor"
+        ));
+        assert!(fire(
+            "atspi:gnome-text-editor",
+            "wayland:org.gnome.TextEditor"
+        ));
+        assert!(fire("x11:Sublime_text", "gtk3-im:sublime_text"));
+        assert!(fire("wayland:Discord", "atspi:discord"));
+        assert!(fire("org.telegram.desktop", "atspi:telegram-desktop"));
+        // Different apps stay apart.
+        assert!(!fire("Discord", "atspi:slack"));
+        assert!(!fire("firefox", "atspi:chromium"));
     }
 
     #[test]
