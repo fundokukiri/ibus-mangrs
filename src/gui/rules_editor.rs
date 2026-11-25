@@ -24,8 +24,14 @@ impl Ui {
                 .get(idx)
                 .cloned()
                 .unwrap_or_else(|| self.mode_choices.borrow().clone());
+            let pattern = self
+                .rule_patterns
+                .borrow()
+                .get(idx)
+                .cloned()
+                .unwrap_or_else(|| row.title().trim().to_string());
             out.push(crate::config::AppRule {
-                pattern: row.title().trim().to_string(),
+                pattern,
                 // The picker is always present; the default only keeps a
                 // hand-broken row from vanishing on save.
                 mode: row_mode(row, &choices).unwrap_or(ModeConfig::Preedit),
@@ -109,6 +115,7 @@ impl Ui {
         }
         let total = rules.len();
         let visible = self.mode_choices.borrow().clone();
+        *self.rule_patterns.borrow_mut() = rules.iter().map(|rule| rule.pattern.clone()).collect();
         *self.rule_choices.borrow_mut() = rules
             .iter()
             .map(|rule| rule_choices(&visible, rule.mode))
@@ -135,9 +142,12 @@ impl Ui {
         // stored properties in declaration order, not call order): the
         // title is a user-typed app id, and a bare `&` in it would warn
         // (and blank) as Pango markup.
+        // The row reads the app's own name while the stored pattern stays the
+        // reported class, which is what matching compares against.
+        let readable = crate::appname::display_name(pattern);
         let row = adw::ActionRow::new();
         row.set_use_markup(false);
-        row.set_title(pattern);
+        row.set_title(&readable);
         row.set_activatable(false);
         // The theme ellipsize is END; a long id would hide its tail, and
         // the title label is not a public child — hence the helper.
@@ -148,7 +158,7 @@ impl Ui {
         row.update_property(&[gtk4::accessible::Property::Description(&format!(
             "{}, {}, {}",
             idx + 1,
-            pattern,
+            readable,
             mode_label(mode)
         ))]);
 

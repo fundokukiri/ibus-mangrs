@@ -596,7 +596,10 @@ fn rule_rows_round_trip_through_read() {
         .row_at_index(0)
         .and_downcast::<adw::ActionRow>()
         .expect("rule row");
-    assert_eq!(row.title().as_str(), "kate");
+    // The row reads the app's own name; the stored pattern stays the class
+    // the rule matches, which the assertion above already covers.
+    assert_eq!(row.title().as_str(), "Kate");
+    assert_eq!(row.tooltip_text().as_deref(), Some("kate"));
 }
 
 /// "Chế độ gỡ lỗi" is one switch: the two log tiers come from its dialog,

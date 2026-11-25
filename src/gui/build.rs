@@ -808,6 +808,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         dictionary_text,
         rules_box,
         rule_choices: Rc::new(RefCell::new(Vec::new())),
+        rule_patterns: Rc::new(RefCell::new(Vec::new())),
         rule_add_mode_pick,
         rules_overlay,
         rules_loading,

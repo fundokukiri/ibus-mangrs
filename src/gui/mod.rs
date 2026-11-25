@@ -317,6 +317,9 @@ struct Ui {
     /// rows `fill_rules` builds (a rule whose stored mode is hidden gets one
     /// extra entry so the value still displays).
     rule_choices: Rc<RefCell<Vec<Vec<ModeConfig>>>>,
+    /// The pattern each row was built from: the row title shows the app's own
+    /// name, so the stored, matched value cannot be read back off it.
+    rule_patterns: Rc<RefCell<Vec<String>>>,
     /// The add-rule form's mode picker; its model follows the visible list.
     rule_add_mode_pick: gtk4::DropDown,
     /// The page's toast host: add/copy confirmations and delete-undo. It is

@@ -18,7 +18,7 @@ pub fn display_name(target: &str) -> String {
         if key == "gnome-shell" {
             return "GNOME Shell".to_string();
         }
-        if let Some(name) = index().get(&key) {
+        if let Some(name) = index().names.get(&key) {
             return name.clone();
         }
     }
@@ -43,14 +43,29 @@ fn application_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-fn index() -> &'static HashMap<String, String> {
-    static INDEX: OnceLock<HashMap<String, String>> = OnceLock::new();
+fn index() -> &'static Index {
+    static INDEX: OnceLock<Index> = OnceLock::new();
     INDEX.get_or_init(|| build(&application_dirs()))
 }
 
-/// App names by every key an app can be reported under.
-fn build(dirs: &[PathBuf]) -> HashMap<String, String> {
+/// The reported names a display name stands for, for a rule written while the
+/// picker still saved the readable name (`Files` for `org.gnome.Nautilus`).
+pub fn keys_for(text: &str) -> Vec<String> {
+    let want = crate::config::canonical_app_name(text);
+    index().keys.get(&want).cloned().unwrap_or_default()
+}
+
+#[derive(Default)]
+struct Index {
+    /// Display name by every key an app can be reported under.
+    names: HashMap<String, String>,
+    /// Every such key, by the canonical display name it belongs to.
+    keys: HashMap<String, Vec<String>>,
+}
+
+fn build(dirs: &[PathBuf]) -> Index {
     let mut names: HashMap<String, String> = HashMap::new();
+    let mut keys: HashMap<String, Vec<String>> = HashMap::new();
     for dir in dirs {
         let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
@@ -70,20 +85,29 @@ fn build(dirs: &[PathBuf]) -> HashMap<String, String> {
                 continue;
             };
             let id = id.to_lowercase();
+            let mut reported = vec![id.clone()];
             // An id is a reverse-domain name: the product is the last segment,
             // which is also what a window class often reports.
             if let Some(product) = id.rsplit('.').next() {
-                names
-                    .entry(product.to_string())
-                    .or_insert_with(|| name.clone());
+                reported.push(product.to_string());
             }
-            names.entry(id).or_insert_with(|| name.clone());
             if let Some(wm_class) = wm_class {
-                names.insert(wm_class.to_lowercase(), name);
+                reported.push(wm_class.to_lowercase());
+            }
+            for key in &reported {
+                names.entry(key.clone()).or_insert_with(|| name.clone());
+            }
+            let by_name = keys
+                .entry(crate::config::canonical_app_name(&name))
+                .or_default();
+            for key in reported {
+                if !by_name.contains(&key) {
+                    by_name.push(key);
+                }
             }
         }
     }
-    names
+    Index { names, keys }
 }
 
 /// `Name` and `StartupWMClass` of the `[Desktop Entry]` group.
@@ -222,7 +246,7 @@ mod tests {
              \n[Desktop Action new]\nName=New document\n",
         )
         .expect("write entry");
-        let names = build(&[dir.path().to_path_buf()]);
+        let names = build(&[dir.path().to_path_buf()]).names;
         assert_eq!(
             names.get("onlyoffice-desktopeditors").map(String::as_str),
             Some("ONLYOFFICE")
@@ -242,7 +266,7 @@ mod tests {
             "[Desktop Entry]\nName=Files\n",
         )
         .expect("write entry");
-        let names = build(&[dir.path().to_path_buf()]);
+        let names = build(&[dir.path().to_path_buf()]).names;
         assert_eq!(names.get("nautilus").map(String::as_str), Some("Files"));
         assert_eq!(
             names.get("org.gnome.nautilus").map(String::as_str),

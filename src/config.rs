@@ -406,7 +406,18 @@ pub fn app_rule_matches(pattern: &str, target: Option<&str>) -> bool {
         return false;
     };
     let pattern = canonical_app_name(pattern);
-    !pattern.is_empty() && canonical_app_name(name).contains(&pattern)
+    let name = canonical_app_name(name);
+    if pattern.is_empty() {
+        return false;
+    }
+    if name.contains(&pattern) {
+        return true;
+    }
+    // A rule saved with the readable name (`Files`, `ONLYOFFICE`) still fires:
+    // the desktop entry it came from also reports the class.
+    crate::appname::keys_for(&pattern)
+        .iter()
+        .any(|key| canonical_app_name(key).contains(&name))
 }
 
 /// First `AppRule` matching the target, in config order.
@@ -435,13 +446,15 @@ impl Config {
             rule.mode = mode;
             return;
         }
-        // A new rule carries the app's own name, not its window class.
-        let pattern = if target == UNNAMED_PATTERN {
-            target.to_string()
-        } else {
-            crate::appname::display_name(target)
-        };
-        self.app_rules.insert(0, AppRule { pattern, mode });
+        // The pattern is what matching compares against, so it keeps the
+        // reported name; the readable one is a display concern only.
+        self.app_rules.insert(
+            0,
+            AppRule {
+                pattern: target.to_string(),
+                mode,
+            },
+        );
     }
 
     /// Drop every rule matching `pattern` (case-insensitive).
@@ -1597,6 +1610,26 @@ children = ["preedit", "flow"]
     }
 
     #[test]
+    fn a_readable_rule_still_fires_on_the_raw_class() {
+        // Rules saved while the picker wrote the readable name (`Files`,
+        // `Text Editor`) must keep firing after the picker went back to the
+        // class, which is what matching compares against.
+        let readable = vec![AppRule {
+            pattern: "Text Editor".into(),
+            mode: ModeConfig::Flow,
+        }];
+        assert_eq!(
+            app_rule_mode(&readable, Some("wayland:org.gnome.TextEditor")),
+            Some(ModeConfig::Flow)
+        );
+        assert_eq!(
+            app_rule_mode(&readable, Some("gtk4-im:gnome-text-editor")),
+            Some(ModeConfig::Flow)
+        );
+        assert_eq!(app_rule_mode(&readable, Some("wayland:Alacritty")), None);
+    }
+
+    #[test]
     fn a_shell_rule_fires_on_the_compositor_client_string() {
         // The shell's own search field reports the bare client name, so a rule
         // written from the picker's display name has to match it.
@@ -2003,9 +2036,8 @@ children = ["preedit", "flow"]
         let before = c.app_rules.len();
         c.set_rule_mode_for_target("e2epick", ModeConfig::Surrounding);
         assert_eq!(c.app_rules.len(), before + 1);
-        // Written with the app's own name, which for a bare class is the class
-        // with its first letter capitalised.
-        assert_eq!(c.app_rules[0].pattern, "E2epick");
+        // The pattern stays the reported name; the readable one is display only.
+        assert_eq!(c.app_rules[0].pattern, "e2epick");
         assert_eq!(
             crate::config::app_rule_mode(&c.app_rules, Some("e2epick")),
             Some(ModeConfig::Surrounding)
