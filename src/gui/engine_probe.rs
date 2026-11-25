@@ -20,8 +20,6 @@ pub(super) struct EngineStatus {
     pub started: Option<SystemTime>,
     /// The engine IBus reports as current, if `ibus` answered.
     pub selected: Option<String>,
-    /// Whether `ibus list-engine` lists this component at all.
-    pub registered: Option<bool>,
 }
 
 pub(super) const ENGINE_EXE: &str = "ibus-engine-mangrs";
@@ -46,11 +44,6 @@ pub(super) fn probe() -> Option<EngineStatus> {
         stale: deleted || replaced,
         started,
         selected: ibus(&["engine"]),
-        registered: ibus(&["list-engine"]).map(|list| {
-            list.lines()
-                .map(str::trim)
-                .any(|line| line == ENGINE_NAME || line.starts_with(&format!("{ENGINE_NAME} ")))
-        }),
     })
 }
 

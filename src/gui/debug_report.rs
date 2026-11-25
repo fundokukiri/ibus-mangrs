@@ -385,14 +385,13 @@ mod tests {
         raw.iter().map(|s| s.to_string()).collect()
     }
 
-    fn status(stale: bool, registered: Option<bool>) -> EngineStatus {
+    fn status(stale: bool) -> EngineStatus {
         EngineStatus {
             pid: 4242,
             exe: std::path::PathBuf::from("/usr/lib/ibus-mangrs/ibus-engine-mangrs"),
             stale,
             started: Some(std::time::SystemTime::now()),
             selected: Some("ibus-mangrs".to_string()),
-            registered,
         }
     }
 
@@ -462,7 +461,7 @@ mod tests {
             .expect("a selection row");
         assert_eq!(selected.status, Status::Warn, "no engine is a warning");
 
-        let stale = rows(Some(&status(true, Some(false))), None);
+        let stale = rows(Some(&status(true)), None);
         let install = stale
             .iter()
             .find(|c| c.label == "Phiên bản MăngRS")
@@ -482,7 +481,7 @@ mod tests {
 
     #[test]
     fn auto_landing_on_a_real_backend_is_the_one_known_warning() {
-        let boxes = rows(Some(&status(false, Some(true))), Some("uinput"));
+        let boxes = rows(Some(&status(false)), Some("uinput"));
         let actual = boxes
             .iter()
             .find(|c| c.label == "Backend thực tế")
@@ -493,7 +492,7 @@ mod tests {
 
         // A backend the user picked on purpose is not a warning.
         let explicit = flat(&sections(&facts(
-            Some(&status(false, Some(true))),
+            Some(&status(false)),
             Some("uinput"),
             crate::config::PreferredBackendConfig::Uinput,
         )))
@@ -560,7 +559,7 @@ mod tests {
     fn the_report_leaves_out_what_a_maintainer_can_infer() {
         let text = report(
             &sections(&facts(
-                Some(&status(false, Some(true))),
+                Some(&status(false)),
                 Some("uinput"),
                 crate::config::PreferredBackendConfig::Auto,
             )),
