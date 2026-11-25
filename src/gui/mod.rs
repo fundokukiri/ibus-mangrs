@@ -1152,29 +1152,30 @@ pub(super) fn extension_state() -> ExtensionState {
     if !std::fs::read_to_string(&path).is_ok_and(|text| text == FOCUS_EXTENSION_JS) {
         return ExtensionState::Stale;
     }
-    if !extension_enabled() {
-        return ExtensionState::Disabled;
-    }
+    // The bus answer is decisive: an extension that answers is running,
+    // whatever GNOME's settings say.
     if crate::server::focus_extension_answers() {
-        ExtensionState::Running
-    } else {
+        return ExtensionState::Running;
+    }
+    if extension_enabled() {
         ExtensionState::NeedsLogout
+    } else {
+        ExtensionState::Disabled
     }
 }
 
-/// Does GNOME list the extension as enabled? A missing CLI or unreadable
-/// output counts as enabled — the bus probe then decides.
+/// Is the extension in GNOME's enabled list? The GVariant text from
+/// `gsettings` is machine-readable; `gnome-extensions info` prints
+/// translated prose, and a Vietnamese locale made every extension look
+/// enabled. An unreadable answer counts as off, which only offers "Bật".
 fn extension_enabled() -> bool {
-    let Ok(out) = std::process::Command::new("gnome-extensions")
-        .args(["info", FOCUS_EXT_UUID])
+    let Ok(out) = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.shell", "enabled-extensions"])
         .output()
     else {
-        return true;
+        return false;
     };
-    let text = String::from_utf8_lossy(&out.stdout);
-    !text.contains("State: DISABLED")
-        && !text.contains("State: ERROR")
-        && !text.contains("State: OUT_OF_DATE")
+    String::from_utf8_lossy(&out.stdout).contains(FOCUS_EXT_UUID)
 }
 
 /// Switch an already-installed extension on: one CLI call, no reinstall.
