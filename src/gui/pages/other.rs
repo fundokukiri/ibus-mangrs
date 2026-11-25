@@ -153,7 +153,8 @@ fn show_extension_row(
     off: &gtk4::Button,
     remove: &gtk4::Button,
 ) {
-    let text = extension_row_for(extension_state());
+    let state = extension_state();
+    let text = extension_row_for(state);
     row.set_subtitle(&t(text.subtitle.0, text.subtitle.1));
     match text.button {
         Some((label, _)) => {
@@ -164,8 +165,13 @@ fn show_extension_row(
     }
     off.set_label(&t(RUNNING_BUTTONS[0].0 .0, RUNNING_BUTTONS[0].0 .1));
     remove.set_label(&t(RUNNING_BUTTONS[1].0 .0, RUNNING_BUTTONS[1].0 .1));
-    off.set_visible(text.button.is_none());
-    remove.set_visible(text.button.is_none());
+    // Switching off makes no sense while it is already off, but removing it
+    // does, so "Gỡ" rides along with both states.
+    off.set_visible(state == ExtensionState::Running);
+    remove.set_visible(matches!(
+        state,
+        ExtensionState::Running | ExtensionState::Disabled
+    ));
 }
 
 /// The confirmation for a request: heading, body and button label, so an
