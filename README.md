@@ -154,7 +154,36 @@ vẫn còn hiệu lực. Chi tiết đầy đủ: [SECURITY.md](SECURITY.md).
 ~/.config/ibus-mangrs/macros.toml     # gõ tắt, mỗi dòng key=nội dung, có $TIME / $DATE
 ~/.config/ibus-mangrs/emoji.toml      # emoji riêng, dạng tên = "ký tự"
 ~/.config/ibus-mangrs/dictionary.txt  # những từ không bao giờ bị tự sửa
+~/.cache/ibus-mangrs/debug.log        # nhật ký gỡ lỗi (khi bật Chế độ gỡ lỗi), tự xoay ở 5 MB
 ```
+
+## Gửi báo lỗi
+
+Có lỗi khi gõ thì gửi kèm log — người sửa không đoán được từ mô tả bằng lời. Cách nhanh nhất:
+
+1. Mở cửa sổ cài đặt, vào trang **_Gỡ lỗi_**. Chưa thấy trang này thì bật một trong ba công tắc
+   ở trang _Cài đặt nâng cao_ trước (mục đích là bật ghi nhật ký).
+2. Gõ lại đúng chỗ bị lỗi vài lần, rồi **giữ nguyên app đó** mở cửa sổ cài đặt.
+3. Bấm **_Sao chép báo cáo_** — nội dung đã là Markdown để dán thẳng vào issue GitHub: mục
+   _Cách tái hiện_ để trống cho bạn điền (ứng dụng, chế độ gõ, các bước, chữ đã gõ, mong đợi,
+   thực tế), tiếp theo là các hàng môi trường, `config.toml` đang dùng và 50 dòng nhật ký cuối.
+4. Dán vào issue tại <https://github.com/fundokukiri/ibus-mangrs/issues>.
+
+Nếu cần gửi nhiều hơn 50 dòng, đính kèm cả tệp `~/.cache/ibus-mangrs/debug.log` (và
+`debug.log.old` nếu có), thêm `journalctl --user -b | grep -i mangrs`.
+
+Những điều nên biết trước khi gửi:
+
+- Theo mặc định nhật ký **không ghi nội dung bạn gõ** — chỉ ghi quyết định: con trỏ, độ dài, kiểu
+  xoá. Công tắc _Ẩn nội dung gõ và macro khi sao chép_ (mặc định bật) thay chữ đã gõ bằng `***`
+  khi chép báo cáo.
+- Nếu bạn tự bật thêm mức ghi nội dung gõ (để tái hiện lỗi mất chữ), nhớ **đừng dán nội dung
+  nhạy cảm** — log ở mức đó ghi nguyên văn những gì đã gõ trong ô đang focus.
+- Ghi nhật ký là ghi mỗi phím, nên tắt lại khi không cần: trang _Cài đặt nâng cao_, mục
+  _Chế độ gỡ lỗi_.
+- Muốn tự đọc log: mỗi dòng mở đầu bằng `<mili-giây> <tag> <trường>=<giá trị>`; dòng lỗi mang
+  `ok=0`, nên `grep ' ok=0'` là ra mọi lỗi, `grep ' del '` là ra đường xoá chữ, `grep 'ctx focus'`
+  là ra chuyện đổi cửa sổ. Dòng lặp liên tiếp được giữ một lần kèm `rep=<số lần>`.
 
 ## Lỗi thường gặp
 

@@ -160,7 +160,38 @@ udev reads every file in the directory, so the old rule stays effective. Details
 ~/.config/ibus-mangrs/macros.toml     # one key=expansion per line, $TIME / $DATE
 ~/.config/ibus-mangrs/emoji.toml      # name = "glyph" pairs
 ~/.config/ibus-mangrs/dictionary.txt  # words never auto-restored
+~/.cache/ibus-mangrs/debug.log        # the debug log (while debug mode is on), rotates at 5 MB
 ```
+
+## Reporting a bug
+
+A typing bug needs the log — nobody can reconstruct it from a description. Quickest path:
+
+1. Open the settings window and go to the **_Gỡ lỗi_** page. If you do not see it, switch on one of
+   the three switches under _Advanced settings_ first (that is what turns logging on).
+2. Reproduce the bug a few times, then open the settings window **without closing that
+   application**.
+3. Press **_Sao chép báo cáo_**. The clipboard already holds Markdown for a GitHub issue: a
+   _Cách tái hiện_ block left blank for you (application, typing mode, steps, the text you typed,
+   what you expected, what happened), then the environment rows, the `config.toml` in force and the
+   last 50 log lines.
+4. Paste it into an issue at <https://github.com/fundokukiri/ibus-mangrs/issues>.
+
+When 50 lines are not enough, attach `~/.cache/ibus-mangrs/debug.log` (and `debug.log.old` if it
+exists), plus `journalctl --user -b | grep -i mangrs`.
+
+Worth knowing before you send:
+
+- By default the log holds **no typed text** — only decisions: cursors, lengths, delete counts. The
+  _Ẩn nội dung gõ và macro khi sao chép_ switch (on by default) replaces the text you typed with
+  `***` in the copied report.
+- If you turned on the typed-text tier yourself (to reproduce a lost character), do **not paste
+  anything sensitive** — that tier records what was typed in the focused field verbatim.
+- Logging writes a line per keystroke, so switch it off when you are done: _Advanced settings_,
+  _Chế độ gỡ lỗi_.
+- To read the log yourself: every line opens with `<epoch_ms> <tag> <key>=<value>`, failures carry
+  `ok=0`, so `grep ' ok=0'` lists every failure, `grep ' del '` the delete path and `grep 'ctx
+  focus'` the focus changes. A run of identical lines is kept once with `rep=<n>`.
 
 ## Troubleshooting
 
