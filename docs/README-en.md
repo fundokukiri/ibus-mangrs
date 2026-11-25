@@ -221,3 +221,21 @@ Worth knowing before you send:
 - [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Copyright (C) 2018 Luong Thanh Lam, [GPL-3.0 License](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file).
 - [**bamboo-core (Rust):**](https://github.com/bamboo-vi/bamboo-core) Vietnamese input algorithm library in Rust, [MIT License](https://github.com/bamboo-vi/bamboo-core?tab=MIT-1-ov-file).
 - [**bamboo-core (Go):**](https://github.com/BambooEngine/bamboo-core) Copyright (C) 2018 Luong Thanh Lam, [MIT License](https://github.com/BambooEngine/bamboo-core?tab=MIT-1-ov-file).
+
+## License
+
+MăngRS is distributed under the **GNU General Public License v3.0** — the full
+text is in [LICENSE](../LICENSE):
+
+```
+MăngRS is free software: you can redistribute it and/or modify it under the terms
+of the GNU General Public License as published by the Free Software Foundation,
+either version 3 of the License, or (at your option) any later version.
+
+MăngRS is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+MăngRS. If not, see <https://www.gnu.org/licenses/>.
+```
