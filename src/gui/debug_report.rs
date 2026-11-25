@@ -24,6 +24,9 @@ pub(super) struct Cell {
     pub hint: Option<String>,
     /// Path rows: the folder the row's button opens.
     pub open_dir: Option<std::path::PathBuf>,
+    /// Whether the copied report carries this row. A row that always says the
+    /// same thing on a working install only pads the issue.
+    pub report: bool,
 }
 
 impl Cell {
@@ -34,6 +37,7 @@ impl Cell {
             status: Status::Info,
             hint: None,
             open_dir: None,
+            report: true,
         }
     }
 
@@ -50,7 +54,14 @@ impl Cell {
             status: Status::Info,
             hint: Some(path.display().to_string()),
             open_dir: path.parent().map(|p| p.to_path_buf()),
+            report: true,
         }
+    }
+
+    /// Kept on screen, left out of the report.
+    fn screen_only(mut self) -> Cell {
+        self.report = false;
+        self
     }
 
     fn with_status(mut self, status: Status, hint: &str) -> Cell {
@@ -67,6 +78,8 @@ impl Cell {
 pub(super) struct Section {
     pub title: String,
     pub rows: Vec<Cell>,
+    /// See `Cell::report`.
+    pub report: bool,
 }
 
 /// Everything the rows read, gathered once by the page. Keeping the window out
@@ -100,22 +113,24 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
         Some(_) => Status::Info,
     };
     system.push(
-        Cell::info(&t("rows.debug_engine.selected", "IBus"), selected).with_status(
-            selected_status,
-            &t(
-                "rows.debug_engine.selected_hint",
-                "IBus đang chạy engine khác. Chọn MăngRS trong menu bộ gõ.",
-            ),
-        ),
+        Cell::info(&t("rows.debug_engine.selected", "Engine"), selected)
+            .with_status(
+                selected_status,
+                &t(
+                    "rows.debug_engine.selected_hint",
+                    "IBus đang chạy engine khác. Chọn MăngRS trong menu bộ gõ.",
+                ),
+            )
+            .screen_only(),
     );
-    system.push(match status.and_then(|s| s.registered) {
+    let registered = match status.and_then(|s| s.registered) {
         Some(true) => Cell::info(
-            &t("rows.debug_engine.registered", "Đăng ký"),
+            &t("rows.debug_engine.registered", "Register"),
             t("rows.debug_engine.listed", "IBus có component"),
         )
         .with_status(Status::Ok, ""),
         Some(false) => Cell::info(
-            &t("rows.debug_engine.registered", "Đăng ký"),
+            &t("rows.debug_engine.registered", "Register"),
             t(
                 "rows.debug_engine.unregistered",
                 "IBus không thấy component",
@@ -129,14 +144,17 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
             ),
         ),
         None => Cell::info(
-            &t("rows.debug_engine.registered", "Đăng ký"),
+            &t("rows.debug_engine.registered", "Register"),
             "?".to_string(),
         ),
-    });
+    };
+    // A working install always reads the same here, so it stays off the report.
+    system.push(registered.screen_only());
+    let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let install = match status {
         Some(s) if s.stale => Cell::info(
-            &t("rows.debug_engine.fresh", "Bản cài"),
-            t("rows.debug_engine.stale", "Mới hơn, cần khởi động lại IBus"),
+            &t("rows.debug_engine.version", "Phiên bản hiện tại"),
+            version,
         )
         .with_status(
             Status::Warn,
@@ -148,19 +166,19 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
         // The tooltip names the binary that is actually typing: the only way
         // to tell two installs apart without opening a terminal.
         Some(s) => Cell::info(
-            &t("rows.debug_engine.fresh", "Bản cài"),
-            t("rows.debug_engine.current", "Khớp bản đang chạy"),
+            &t("rows.debug_engine.version", "Phiên bản hiện tại"),
+            version,
         )
         .with_status(Status::Ok, &s.exe.display().to_string()),
         None => Cell::info(
-            &t("rows.debug_engine.fresh", "Bản cài"),
-            t("rows.debug_engine.unknown", "Không rõ, engine chưa chạy"),
+            &t("rows.debug_engine.version", "Phiên bản hiện tại"),
+            version,
         ),
     };
     system.push(install);
     let (ext_key, ext_fallback, ext_running) = facts.extension;
     let extension = Cell::info(
-        &t("rows.debug_info.extension", "Extension GNOME"),
+        &t("rows.debug_info.extension", "Extension"),
         t(ext_key, ext_fallback).to_string(),
     );
     system.push(if ext_running {
@@ -175,17 +193,44 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
         )
     });
     system.push(Cell::info(
-        &t("rows.debug_info.session", "Phiên"),
+        &t("rows.debug_info.session", "Session"),
         std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "?".to_string()),
     ));
+    // The machine's own answers belong with the install's: one group reads as
+    // "what this is running on", and the sample had them apart for no reason.
+    for (label_key, label_fallback, value) in [
+        (
+            "rows.debug_machine.os",
+            "Hệ điều hành",
+            facts.machine.os.clone(),
+        ),
+        (
+            "rows.debug_machine.kernel",
+            "Kernel",
+            facts.machine.kernel.clone(),
+        ),
+        (
+            "rows.debug_machine.desktop",
+            "DE/WM",
+            facts.machine.desktop.clone(),
+        ),
+        (
+            "rows.debug_machine.ibus",
+            "Phiên bản IBus",
+            facts.machine.ibus.clone(),
+        ),
+    ] {
+        system.push(Cell::info(&t(label_key, label_fallback), value));
+    }
     out.push(Section {
         title: t("misc.section_system", "Hệ thống"),
         rows: system,
+        report: true,
     });
 
     let mut insert = Vec::new();
     insert.push(Cell::info(
-        &t("rows.debug_info.mode", "Chế độ gõ"),
+        &t("rows.debug_info.mode", "Chế độ gõ toàn cục"),
         mode_label(facts.mode).to_string(),
     ));
     let configured = backend_name(facts.preferred);
@@ -200,7 +245,7 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
     // Both rows carry the same tint when they disagree: the pair is the
     // evidence, and one of them alone says nothing.
     let configured_cell = Cell::info(
-        &t("rows.debug_info.backend", "Cấu hình"),
+        &t("rows.debug_info.backend", "Backend"),
         configured.to_string(),
     );
     insert.push(if auto_fallback {
@@ -208,7 +253,7 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
     } else {
         configured_cell
     });
-    let actual = Cell::info(&t("rows.debug_transport.title", "Thực tế"), shown);
+    let actual = Cell::info(&t("rows.debug_transport.title", "Backend thực tế"), shown);
     insert.push(if auto_fallback {
         actual.with_status(
             Status::Warn,
@@ -228,9 +273,12 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
     } else {
         actual
     });
+    // The mode is global and the backend has per-app rules, so a pasted copy of
+    // these three rows tells a maintainer nothing they cannot infer.
     out.push(Section {
         title: t("misc.section_insert", "Cách chèn"),
         rows: insert,
+        report: false,
     });
 
     let mut files = Vec::new();
@@ -248,46 +296,12 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
             t("misc.debug_log_missing", "Không có đường dẫn log"),
         )),
     }
-    let machine = facts.machine;
-    let mut host = Vec::new();
-    for (label_key, label_fallback, value) in [
-        ("rows.debug_machine.os", "Hệ điều hành", machine.os.clone()),
-        ("rows.debug_machine.kernel", "Nhân", machine.kernel.clone()),
-        (
-            "rows.debug_machine.desktop",
-            "Màn hình nền",
-            machine.desktop.clone(),
-        ),
-        ("rows.debug_machine.ibus", "IBus", machine.ibus.clone()),
-    ] {
-        host.push(Cell::info(&t(label_key, label_fallback), value));
-    }
-    out.push(Section {
-        title: t("misc.section_machine", "Máy"),
-        rows: host,
-    });
-
     out.push(Section {
         title: t("misc.section_files", "Tệp"),
         rows: files,
+        report: false,
     });
     out
-}
-
-/// Every row of every group, in reading order.
-pub(super) fn flat(sections: &[Section]) -> Vec<Cell> {
-    sections
-        .iter()
-        .flat_map(|section| section.rows.iter().cloned())
-        .collect()
-}
-
-/// "8 ổn · 2 cần xem" — the two numbers that say whether this page is telling
-/// a story about a healthy install.
-pub(super) fn counts(cells: &[Cell]) -> (usize, usize) {
-    let ok = cells.iter().filter(|c| c.status == Status::Ok).count();
-    let warn = cells.iter().filter(|c| c.status == Status::Warn).count();
-    (ok, warn)
 }
 
 /// The backend the engine named in the log. `auto` is resolved at runtime
@@ -321,32 +335,25 @@ pub(super) fn transport_from_log(lines: &[String]) -> Option<String> {
 /// The copied report: the rows by group, the settings that were in force, then
 /// the log tail. Same order as the page reads top to bottom.
 pub(super) fn report(sections: &[Section], config: &[String], log: &[String]) -> String {
-    let all = flat(sections);
-    let (ok, warn) = counts(&all);
-    // Markdown, because the report's destination is a GitHub issue: headings,
-    // bullets and fenced blocks paste as they are instead of arriving as one
-    // grey wall of text.
+    // Markdown, because the report's destination is a GitHub issue. Only what a
+    // maintainer cannot infer travels: the title line, the engine's own name,
+    // the insertion rows (the mode is global and the backend has per-app rules)
+    // and the two paths are left out on purpose.
     let mut out = format!(
-        "### {} {} - {} {ok} · {warn} {}\n",
-        t("app.name", "MăngRS"),
-        env!("CARGO_PKG_VERSION"),
-        t("misc.diag_title", "Chẩn đoán"),
-        t("misc.diag_warn", "cần xem")
-    );
-    // The first thing a maintainer needs is how to make it happen again, so the
-    // report arrives with the questions already asked.
-    out.push_str(&format!(
-        "\n#### {}\n\n{}
-",
+        "### {}\n\n{}\n",
         t("debug_report.repro_section", "Cách tái hiện"),
         t(
             "debug_report.repro_body",
-            "- Ứng dụng:\n- Các bước:\n  1. \n  2. \n- Chữ đã gõ:\n- Mong đợi:\n- Thực tế:"
+            "- Ứng dụng:\n- Chế độ gõ:\n- Các bước:\n  1. \n  2. \n- Chữ đã gõ:\n- Mong đợi:\n- Thực tế:"
         )
-    ));
-    for section in sections {
-        out.push_str(&format!("\n#### {}\n\n", section.title));
-        for cell in &section.rows {
+    );
+    for section in sections.iter().filter(|section| section.report) {
+        let rows: Vec<&Cell> = section.rows.iter().filter(|cell| cell.report).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        out.push_str(&format!("\n### {}\n\n", section.title));
+        for cell in rows {
             // A file row carries its full path: the name alone cannot be
             // checked by whoever reads the issue.
             let value = match &cell.open_dir {
@@ -368,14 +375,14 @@ pub(super) fn report(sections: &[Section], config: &[String], log: &[String]) ->
     }
     if !config.is_empty() {
         out.push_str(&format!(
-            "\n#### {}\n\n```toml\n{}\n```\n",
+            "\n### {}\n\n```toml\n{}\n```\n",
             t("debug_report.config_section", "config.toml đang nạp"),
             config.join("\n")
         ));
     }
     if !log.is_empty() {
         out.push_str(&format!(
-            "\n#### {}\n\n```text\n{}\n```\n",
+            "\n### {}\n\n```text\n{}\n```\n",
             t("debug_report.log_section", "Dòng log cuối"),
             log.join("\n")
         ));
@@ -399,6 +406,15 @@ fn backend_name(backend: crate::config::PreferredBackendConfig) -> &'static str 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every row of every group, in reading order: the report leaves some out,
+    /// so a test that asks about rows flattens them first.
+    fn flat(sections: &[Section]) -> Vec<Cell> {
+        sections
+            .iter()
+            .flat_map(|section| section.rows.iter().cloned())
+            .collect()
+    }
 
     fn lines(raw: &[&str]) -> Vec<String> {
         raw.iter().map(|s| s.to_string()).collect()
@@ -461,11 +477,15 @@ mod tests {
             crate::config::PreferredBackendConfig::Auto,
         ));
         let titles: Vec<&str> = groups.iter().map(|s| s.title.as_str()).collect();
-        assert_eq!(titles, ["Hệ thống", "Cách chèn", "Máy", "Tệp"]);
-        assert_eq!(groups[0].rows.len(), 5, "the system rows stay five");
+        assert_eq!(titles, ["Hệ thống", "Cách chèn", "Tệp"]);
+        assert_eq!(
+            groups[0].rows.len(),
+            9,
+            "five install rows and four for the machine"
+        );
         assert_eq!(groups[1].rows.len(), 3);
-        assert_eq!(groups[2].rows.len(), 4, "os, kernel, desktop, ibus");
-        assert_eq!(groups[3].rows.len(), 2);
+        assert_eq!(groups[2].rows.len(), 2);
+        assert!(!groups[1].report && !groups[2].report, "screen only");
     }
 
     #[test]
@@ -473,15 +493,16 @@ mod tests {
         let missing = rows(None, None);
         let selected = missing
             .iter()
-            .find(|c| c.label == "IBus")
+            .find(|c| c.label == "Engine")
             .expect("a selection row");
         assert_eq!(selected.status, Status::Warn, "no engine is a warning");
 
         let stale = rows(Some(&status(true, Some(false))), None);
         let install = stale
             .iter()
-            .find(|c| c.label == "Bản cài")
+            .find(|c| c.label == "Phiên bản hiện tại")
             .expect("an install row");
+        assert_eq!(install.value, "v1.2.7", "the row names the version");
         assert_eq!(install.status, Status::Warn);
         assert!(install
             .hint
@@ -490,7 +511,7 @@ mod tests {
             .contains("Khởi động lại IBus"));
         let unregistered = stale
             .iter()
-            .find(|c| c.label == "Đăng ký")
+            .find(|c| c.label == "Register")
             .expect("a registration row");
         assert_eq!(unregistered.status, Status::Warn);
     }
@@ -500,7 +521,7 @@ mod tests {
         let boxes = rows(Some(&status(false, Some(true))), Some("uinput"));
         let actual = boxes
             .iter()
-            .find(|c| c.label == "Thực tế")
+            .find(|c| c.label == "Backend thực tế")
             .expect("a backend row");
         assert_eq!(actual.value, "uinput");
         assert_eq!(actual.status, Status::Warn, "{actual:?}");
@@ -513,7 +534,7 @@ mod tests {
             crate::config::PreferredBackendConfig::Uinput,
         )))
         .into_iter()
-        .find(|c| c.label == "Thực tế")
+        .find(|c| c.label == "Backend thực tế")
         .expect("a backend row")
         .status;
         assert_eq!(explicit, Status::Info);
@@ -566,15 +587,35 @@ mod tests {
             &[],
         );
         assert!(
-            text.contains("- **Cấu hình**: `/home/u/.config/ibus-mangrs/config.toml`"),
-            "{text}"
+            !text.contains("config.toml"),
+            "the paths stay on screen, not in the report: {text}"
         );
+    }
+
+    #[test]
+    fn the_report_leaves_out_what_a_maintainer_can_infer() {
+        let text = report(
+            &sections(&facts(
+                Some(&status(false, Some(true))),
+                Some("uinput"),
+                crate::config::PreferredBackendConfig::Auto,
+            )),
+            &[],
+            &[],
+        );
+        for absent in ["Cách chèn", "Tệp", "**Engine**", "**Register**"] {
+            assert!(!text.contains(absent), "{absent} is left out: {text}");
+        }
+        for present in ["Phiên bản hiện tại", "Kernel", "DE/WM", "Phiên bản IBus"] {
+            assert!(text.contains(present), "{present} travels: {text}");
+        }
     }
 
     #[test]
     fn the_report_carries_every_row_the_settings_and_the_log_tail() {
         let groups = vec![Section {
             title: "Hệ thống".to_string(),
+            report: true,
             rows: vec![
                 Cell::info("Engine", "đang chạy".to_string()).with_status(Status::Ok, ""),
                 Cell::info("Đăng ký", "không thấy".to_string())
@@ -582,12 +623,14 @@ mod tests {
             ],
         }];
         let text = report(&groups, &lines(&["bỏ dấu = \"old\""]), &lines(&["a", "b"]));
-        assert!(text.contains(env!("CARGO_PKG_VERSION")), "{text}");
-        assert!(text.starts_with("### MăngRS"), "{text}");
-        assert!(text.contains("Chẩn đoán 1 · 1 cần xem"), "{text}");
-        assert!(text.contains("\n#### Hệ thống\n"), "{text}");
+        assert!(text.starts_with("### Cách tái hiện"), "{text}");
         assert!(
-            text.contains("- Ứng dụng:\n- Các bước:"),
+            text.contains("- Chế độ gõ:"),
+            "the mode is asked for: {text}"
+        );
+        assert!(text.contains("\n### Hệ thống\n"), "{text}");
+        assert!(
+            text.contains("- Ứng dụng:\n- Chế độ gõ:\n- Các bước:"),
             "the report asks how to reproduce it: {text}"
         );
         assert!(text.contains("- **Engine**: `đang chạy`"), "{text}");
@@ -596,11 +639,11 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("#### config.toml đang nạp\n\n```toml\nbỏ dấu = \"old\"\n```"),
+            text.contains("### config.toml đang nạp\n\n```toml\nbỏ dấu = \"old\"\n```"),
             "{text}"
         );
         assert!(
-            text.ends_with("#### Dòng log cuối\n\n```text\na\nb\n```\n"),
+            text.ends_with("### Dòng log cuối\n\n```text\na\nb\n```\n"),
             "{text}"
         );
     }

@@ -1179,7 +1179,7 @@ fn the_debug_page_shows_the_status_the_rows_and_the_footer() {
     assert_eq!(rows.len(), 14, "the diagnostics rows");
     assert_eq!(
         descendants::<adw::PreferencesGroup>(overlay.upcast_ref()).len(),
-        5,
+        4,
         "a group per section, plus the typing test"
     );
     let dots = descendants::<gtk4::Label>(overlay.upcast_ref())
@@ -1193,7 +1193,7 @@ fn the_debug_page_shows_the_status_the_rows_and_the_footer() {
         .iter()
         .map(|l| l.text().to_string())
         .collect();
-    for wanted in ["Hệ thống", "Cách chèn", "Máy", "Tệp", "Thử gõ"] {
+    for wanted in ["Hệ thống", "Cách chèn", "Tệp", "Thử gõ"] {
         assert!(
             labels.iter().any(|l| l == wanted),
             "the page has a `{wanted}` group: {labels:?}"
