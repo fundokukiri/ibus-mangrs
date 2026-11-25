@@ -215,7 +215,7 @@ Worth knowing before you send:
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — engine architecture (for code changes).
 - [CHANGELOG.md](../CHANGELOG.md) — changes per release.
 
-## License
+## Credits
 
 - [**MăngRS**](https://github.com/fundokukiri/ibus-mangrs) — [GPL-3.0 License](../LICENSE).
 - [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Copyright (C) 2018 Luong Thanh Lam, [GPL-3.0 License](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file).

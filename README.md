@@ -209,7 +209,7 @@ Những điều nên biết trước khi gửi:
 - Phím tắt mở bằng GUI; luật cho Chrome/Firefox trên GNOME Wayland cần GNOME Shell extension
   kèm theo (`data/extension/README.md`).
 
-## Bản quyền
+## Ghi công
 
 - [**MăngRS**](https://github.com/fundokukiri/ibus-mangrs) — giấy phép [GPL-3.0](LICENSE).
 - [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Bản quyền (C) 2018 Luong Thanh Lam, giấy phép [GPL-3.0](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file).
