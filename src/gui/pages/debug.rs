@@ -196,41 +196,40 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     split.append(&right);
 
     // --- Footer -----------------------------------------------------------
-    let restart_btn = gtk4::Button::with_label(&t("misc.restart_button", "Khởi động lại IBus"));
+    let restart_btn =
+        super::widgets::action_button(None, &t("misc.restart_button", "Khởi động lại IBus"));
     restart_btn.set_tooltip_text(Some(&t(
         "tips.restart_engine",
         "Khởi động lại IBus, bộ gõ sẽ ngắt trong giây lát ở mọi ứng dụng.",
     )));
-    // Icon and words in one child: `set_label` plus `set_icon_name` keeps only
-    // the icon on this GTK version.
-    let copy_btn = gtk4::Button::new();
-    let copy_child = gtk4::Box::new(Orientation::Horizontal, 6);
-    copy_child.append(&gtk4::Image::from_icon_name("edit-copy-symbolic"));
-    copy_child.append(&gtk4::Label::new(Some(&t(
-        "misc.debug_copy_report",
-        "Sao chép báo cáo",
-    ))));
-    copy_btn.set_child(Some(&copy_child));
-    let hide_switch = gtk4::CheckButton::with_label(&t(
-        "misc.debug_hide_text",
-        "Ẩn nội dung gõ và macro khi sao chép",
-    ));
+    let copy_btn = super::widgets::action_button(
+        Some("edit-copy-symbolic"),
+        &t("misc.debug_copy_report", "Sao chép báo cáo"),
+    );
+    copy_btn.add_css_class("suggested-action");
+    // A switch rather than a checkbox: it reads as a setting, and the sentence
+    // that explains it lives in the tooltip, not in a grey line under it.
+    let hide_switch = gtk4::Switch::new();
     hide_switch.set_active(true);
-    let hide_hint = gtk4::Label::new(Some(&t(
-        "misc.debug_hide_hint",
-        "Tắt sẽ đưa cả macro và nội dung gõ vào báo cáo.",
+    hide_switch.set_valign(gtk4::Align::Center);
+    hide_switch.set_tooltip_text(Some(&t(
+        "tips.debug_hide",
+        "Bật thì báo cáo thay chữ đã gõ bằng *** và macro chỉ còn số lượng; tắt thì báo cáo mang cả hai.",
     )));
-    hide_hint.add_css_class("caption");
-    hide_hint.add_css_class("dim-label");
-    hide_hint.set_wrap(true);
-    hide_hint.set_xalign(0.0);
+    hide_switch.update_property(&[gtk4::accessible::Property::Label(&t(
+        "misc.debug_hide_text",
+        "Ẩn nội dung gõ và macro",
+    ))]);
+    let hide_label = gtk4::Label::new(Some(&t("misc.debug_hide_text", "Ẩn nội dung gõ và macro")));
+    hide_label.add_css_class("caption");
+    hide_label.add_css_class("dim-label");
     let footer = gtk4::Box::new(Orientation::Horizontal, 8);
-    let footer_text = gtk4::Box::new(Orientation::Vertical, 2);
-    footer_text.append(&hide_switch);
-    footer_text.append(&hide_hint);
+    let hide_group = gtk4::Box::new(Orientation::Horizontal, 8);
+    hide_group.append(&hide_label);
+    hide_group.append(&hide_switch);
     let footer_spacer = gtk4::Box::new(Orientation::Horizontal, 0);
     footer_spacer.set_hexpand(true);
-    footer.append(&footer_text);
+    footer.append(&hide_group);
     footer.append(&footer_spacer);
     footer.append(&restart_btn);
     footer.append(&copy_btn);
@@ -449,8 +448,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let laid_out = Rc::new(Cell::new((false, -1i32)));
         let state = Rc::clone(&laid_out);
         // A tick callback runs on every frame and keeps the window redrawing
-        // for as long as the page is open; a plain timer costs a comparison.
-        gtk4::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+        // for as long as the page is open; a plain timer costs a comparison and
+        // is quick enough that the columns land where they belong as the window
+        // opens.
+        gtk4::glib::timeout_add_local(std::time::Duration::from_millis(60), move || {
             let width = outer_ref.width();
             let narrow = is_narrow(width);
             let share = column_share(width);
