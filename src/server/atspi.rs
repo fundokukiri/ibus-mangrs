@@ -148,8 +148,14 @@ fn connect() -> Option<(Connection, Connection)> {
         .ok()?
         .read1::<String>()
         .ok()?;
-    let events = Connection::open_private(&address).ok()?;
-    let lookup = Connection::open_private(&address).ok()?;
+    // A private connection is unregistered until Hello goes out; until then
+    // every AddMatch/RegisterEvent is refused with AccessDenied.
+    let events = Connection::open_private(&address)
+        .ok()
+        .and_then(|conn| conn.register().ok().map(|_| conn))?;
+    let lookup = Connection::open_private(&address)
+        .ok()
+        .and_then(|conn| conn.register().ok().map(|_| conn))?;
     events.add_match(WINDOW_MATCH).ok()?;
     // Without this the registry emits nothing to us, whatever we match on.
     let msg = Message::method_call(
