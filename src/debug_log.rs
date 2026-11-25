@@ -30,6 +30,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
+use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -177,15 +178,23 @@ pub fn log(msg: &str) {
         (Some(_), None) => true,
         _ => false,
     };
+    // The GUI's clear button deletes the file; a handle on the unlinked inode
+    // would keep swallowing lines until the engine restarted, so a link count
+    // of zero means the log has to be created again.
+    let unlinked = handle
+        .as_ref()
+        .is_some_and(|(file, _, _)| file.metadata().is_ok_and(|m| m.nlink() == 0));
+    let stale = stale || unlinked;
     if stale {
         #[cfg(test)]
         eprintln!("debug_log: cached handle outlived its path — reopened");
         *handle = None;
+        // A rewritten count belongs to the file that was deleted.
+        *LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
     if handle.is_none() {
         // Retried per line until it succeeds, so permissions fixed
-        // mid-session are picked up; a handle on a since-deleted file keeps
-        // writing to the unlinked inode, which is fine for diagnosis.
+        // mid-session and a log deleted behind us are both picked up.
         *handle = open_log_file();
     }
     let Some(file) = handle.as_mut() else { return };
@@ -509,6 +518,28 @@ mod tests {
         // Every line is terminated: the count is written over the newline of
         // the line above, never appended after it.
         assert!(text.ends_with('\n'), "{text}");
+        set_enabled(false);
+        *LOG_FILE.lock().unwrap() = None;
+        *PATH_OVERRIDE.lock().unwrap() = None;
+        *LAST.lock().unwrap() = None;
+    }
+
+    #[test]
+    fn a_deleted_log_is_created_again() {
+        let _guard = test_guard();
+        let dir = TempLogDir::new("debug-log-cleared");
+        let path = dir.dir().join("debug.log");
+        *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+        set_enabled(true);
+        log("ctx start uinput=1");
+        std::fs::remove_file(&path).expect("the clear button removes it");
+        log("ctx focus=in");
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            text.contains("ctx focus=in"),
+            "a line after the clear lands in a fresh file: {text}"
+        );
+        assert!(!text.contains("ctx start"), "{text}");
         set_enabled(false);
         *LOG_FILE.lock().unwrap() = None;
         *PATH_OVERRIDE.lock().unwrap() = None;

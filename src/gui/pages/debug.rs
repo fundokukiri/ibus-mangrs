@@ -499,6 +499,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let path = path.clone();
         let render = Rc::clone(&render);
         let reader_clear = Rc::clone(&reader);
+        let parsed_clear = Rc::clone(&parsed);
         clear_btn.connect_clicked(move |btn| {
             let Some(path) = path.clone() else {
                 return;
@@ -519,10 +520,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 let render = Rc::clone(&render);
                 let path = path.clone();
                 let reader = Rc::clone(&reader_clear);
+                let parsed = Rc::clone(&parsed_clear);
                 dialog.connect_response(Some("delete"), move |_, _| {
-                    let _ = std::fs::remove_file(&path);
-                    reader.borrow_mut().reset();
-                    render();
+                    clear_log(&path, &reader, &parsed, &render);
                 });
             }
             dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
@@ -861,6 +861,21 @@ fn extend_tail(cache: &mut Vec<Line>, fresh: &[String], cap: usize) {
 
 /// Draw every selected line from scratch: a new filter, a new kind, a cleared
 /// log.
+/// The clear button's work: the file goes, and so does the cache the pane
+/// draws from. Emptying the file alone left the lines on screen, because the
+/// pane never reads the file twice.
+fn clear_log(
+    path: &std::path::Path,
+    reader: &Rc<RefCell<crate::gui::log_tail::Reader>>,
+    parsed: &Rc<RefCell<Vec<Line>>>,
+    render: &Rc<dyn Fn()>,
+) {
+    let _ = std::fs::remove_file(path);
+    reader.borrow_mut().reset();
+    parsed.borrow_mut().clear();
+    render();
+}
+
 fn draw_all(view: &gtk4::TextView, lines: &[&Line]) {
     let buffer = view.buffer();
     buffer.set_text("");
@@ -1034,6 +1049,30 @@ mod tests {
         assert_eq!(parsed[1].kind, Kind::Key);
         assert_eq!(parsed[4].kind, Kind::Error);
         assert_eq!(parsed[3].kind, Kind::Insert);
+    }
+
+    #[test]
+    fn clearing_the_log_empties_what_the_pane_draws_from() {
+        let dir = crate::debug_log::TempLogDir::new("debug-clear");
+        let path = dir.dir().join("debug.log");
+        std::fs::write(&path, "1795619563000 ctx start uinput=1\n").expect("a log");
+        let reader = Rc::new(RefCell::new(crate::gui::log_tail::Reader::new(
+            Some(path.clone()),
+            VIEW_LINES,
+        )));
+        reader.borrow_mut().poll();
+        let parsed = Rc::new(RefCell::new(vec![parse(
+            "1795619563000 ctx start uinput=1",
+            None,
+        )
+        .expect("a line")]));
+        let rendered = Rc::new(Cell::new(0));
+        let count = Rc::clone(&rendered);
+        let render: Rc<dyn Fn()> = Rc::new(move || count.set(count.get() + 1));
+        clear_log(&path, &reader, &parsed, &render);
+        assert!(!path.exists(), "the file is gone");
+        assert!(parsed.borrow().is_empty(), "the cache is gone");
+        assert_eq!(rendered.get(), 1, "the pane redraws once");
     }
 
     #[test]
