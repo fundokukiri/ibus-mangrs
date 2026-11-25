@@ -160,7 +160,7 @@ impl EngineHandler {
                 "app không tên".to_string()
             }
         } else {
-            crate::config::display_app_name(&state.target)
+            crate::appname::display_name(&state.target)
         };
         out.push(signal("UpdateAuxiliaryText").append2(
             crate::ibus_text::plain_text(&format!("{label} · {current_label} · {hint}")),
@@ -226,7 +226,7 @@ impl EngineHandler {
         };
         debug_log::log(&format!(
             "picker: {} [{}] → {}",
-            crate::config::display_app_name(&state.target),
+            crate::appname::display_name(&state.target),
             state.target,
             mode.key()
         ));
