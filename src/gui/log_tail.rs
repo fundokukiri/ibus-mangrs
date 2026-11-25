@@ -81,46 +81,46 @@ impl Reader {
         }
     }
 
-    /// Read what arrived since the last call. The first call opens at the end
-    /// of the file (a tail, not the whole history) and returns how many lines
-    /// are now held.
-    pub(super) fn poll(&mut self) -> usize {
+    /// Read what arrived since the last call and return only those lines. The
+    /// first call opens at the end of the file, a tail rather than the whole
+    /// history. Copying just the new lines keeps the per-second poll free of
+    /// work proportional to the cache.
+    pub(super) fn poll(&mut self) -> Vec<String> {
         let Some(path) = self.path.clone() else {
-            return 0;
+            return Vec::new();
         };
         let path = path.as_path();
         let Ok(meta) = std::fs::metadata(path) else {
             // The log may not exist yet; when it appears, start over.
             self.reset();
-            return 0;
+            return Vec::new();
         };
         let len = meta.len();
         if !self.started || len < self.offset {
             // First look, or the file was cleared or rotated under us.
             self.reset();
-            let tail_lines = tail(path, self.max_lines, TAIL_BYTES);
-            let fresh = tail_lines.len();
-            self.lines = tail_lines.into();
+            let fresh = tail(path, self.max_lines, TAIL_BYTES);
+            self.lines = fresh.iter().cloned().collect();
             self.offset = len;
             self.started = true;
             return fresh;
         }
         if len == self.offset {
-            return 0;
+            return Vec::new();
         }
         let Ok(mut file) = std::fs::File::open(path) else {
-            return 0;
+            return Vec::new();
         };
         if file.seek(SeekFrom::Start(self.offset)).is_err() {
-            return 0;
+            return Vec::new();
         }
         let mut buf = Vec::new();
         if file.read_to_end(&mut buf).is_err() {
-            return 0;
+            return Vec::new();
         }
         self.offset = len;
         let text = String::from_utf8_lossy(&buf);
-        let mut added = 0;
+        let mut added: Vec<String> = Vec::new();
         let mut rest: &str = &text;
         // A previous read that ended mid-line owes that line this one.
         if !self.carry.is_empty() {
@@ -128,13 +128,12 @@ impl Reader {
                 Some(pos) => {
                     let mut line = std::mem::take(&mut self.carry);
                     line.push_str(&rest[..pos]);
-                    self.push(line);
-                    added += 1;
+                    self.push(line, &mut added);
                     rest = &rest[pos + 1..];
                 }
                 None => {
                     self.carry.push_str(rest);
-                    return 0;
+                    return Vec::new();
                 }
             }
         }
@@ -143,8 +142,7 @@ impl Reader {
         match rest.rfind('\n') {
             Some(pos) => {
                 for line in rest[..pos].split('\n') {
-                    self.push(line.to_string());
-                    added += 1;
+                    self.push(line.to_string(), &mut added);
                 }
                 self.carry = rest[pos + 1..].to_string();
             }
@@ -153,10 +151,11 @@ impl Reader {
         added
     }
 
-    fn push(&mut self, line: String) {
+    fn push(&mut self, line: String, added: &mut Vec<String>) {
         if line.is_empty() {
             return;
         }
+        added.push(line.clone());
         self.lines.push_back(line);
         while self.lines.len() > self.max_lines {
             self.lines.pop_front();
@@ -171,8 +170,15 @@ impl Reader {
         self.started = false;
     }
 
-    pub(super) fn lines(&self) -> Vec<String> {
-        self.lines.iter().cloned().collect()
+    /// The last `count` lines: the diagnostics look for the newest mention of
+    /// an insertion backend, and cloning five thousand lines for that would be
+    /// work in the same place the page is trying to stay cheap.
+    pub(super) fn recent(&self, count: usize) -> Vec<String> {
+        self.lines
+            .iter()
+            .skip(self.lines.len().saturating_sub(count))
+            .cloned()
+            .collect()
     }
 }
 
@@ -236,12 +242,12 @@ mod tests {
         let dir = TempDir::new("mangrs-reader");
         let path = write_log(&dir, 3);
         let mut reader = Reader::new(Some(path.clone()), VIEW_LINES);
-        assert_eq!(reader.poll(), 3);
-        assert_eq!(reader.poll(), 0, "nothing new, nothing read");
+        assert_eq!(reader.poll().len(), 3);
+        assert!(reader.poll().is_empty(), "nothing new, nothing read");
         append(&path, "line 0003\nline 0004\n");
-        assert_eq!(reader.poll(), 2);
-        assert_eq!(reader.lines().len(), 5);
-        assert_eq!(reader.lines().last().map(String::as_str), Some("line 0004"));
+        assert_eq!(reader.poll().len(), 2);
+        assert_eq!(reader.recent(9).len(), 5);
+        assert_eq!(reader.recent(1)[0], "line 0004");
     }
 
     #[test]
@@ -251,14 +257,22 @@ mod tests {
         let mut reader = Reader::new(Some(path.clone()), VIEW_LINES);
         reader.poll();
         append(&path, "partial");
-        assert_eq!(reader.poll(), 0, "no newline yet, so not a line");
-        assert_eq!(reader.lines().len(), 1);
+        assert!(reader.poll().is_empty(), "no newline yet, so not a line");
+        assert_eq!(reader.recent(9).len(), 1);
         append(&path, " line\n");
-        assert_eq!(reader.poll(), 1);
-        assert_eq!(
-            reader.lines().last().map(String::as_str),
-            Some("partial line")
-        );
+        assert_eq!(reader.poll().len(), 1);
+        assert_eq!(reader.recent(1)[0], "partial line");
+    }
+
+    #[test]
+    fn recent_returns_the_newest_lines_in_order() {
+        let dir = TempDir::new("mangrs-recent");
+        let path = write_log(&dir, 20);
+        let mut reader = Reader::new(Some(path), VIEW_LINES);
+        reader.poll();
+        assert_eq!(reader.recent(2), vec!["line 0018", "line 0019"]);
+        assert_eq!(reader.recent(0).len(), 0);
+        assert_eq!(reader.recent(100).len(), 20, "asking for more gives all");
     }
 
     #[test]
@@ -268,8 +282,8 @@ mod tests {
         let mut reader = Reader::new(Some(path.clone()), 3);
         reader.poll();
         append(&path, "a\nb\nc\nd\ne\n");
-        assert_eq!(reader.poll(), 5);
-        assert_eq!(reader.lines(), vec!["c", "d", "e"]);
+        assert_eq!(reader.poll().len(), 5);
+        assert_eq!(reader.recent(9), vec!["c", "d", "e"]);
     }
 
     #[test]
@@ -279,8 +293,8 @@ mod tests {
         let mut reader = Reader::new(Some(path.clone()), VIEW_LINES);
         reader.poll();
         std::fs::write(&path, "fresh\n").expect("clear log");
-        assert_eq!(reader.poll(), 1);
-        assert_eq!(reader.lines(), vec!["fresh"]);
+        assert_eq!(reader.poll().len(), 1);
+        assert_eq!(reader.recent(9), vec!["fresh"]);
     }
 
     #[test]

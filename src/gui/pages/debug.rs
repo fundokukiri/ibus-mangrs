@@ -47,6 +47,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // The log reader (it only reads what was appended), the kind on, the typed
     // filter, and how many lines arrived while paused.
     let reader = Rc::new(RefCell::new(Reader::new(path.clone(), VIEW_LINES)));
+    // The decoded log, kept between polls: re-decoding five thousand lines a
+    // second cost about 9 ms, and redrawing all of them about 105 ms.
+    let parsed: Rc<RefCell<Vec<Line>>> = Rc::new(RefCell::new(Vec::new()));
+    // How many of the shown lines are already in the buffer, and under which
+    // filter they were drawn.
+    let drawn = Rc::new(Cell::new(0usize));
+    let drawn_key: Rc<RefCell<(Option<Kind>, String)>> =
+        Rc::new(RefCell::new((None, String::new())));
     let pending = Rc::new(Cell::new(0usize));
     let kind_filter: Rc<RefCell<Option<Kind>>> = Rc::new(RefCell::new(None));
     let query: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
@@ -153,7 +161,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             let extension = extension_state();
             let (key, fallback) = extension_row_for(extension).subtitle;
             let engine = engine_probe::probe();
-            let log_lines = reader.borrow().lines();
+            let log_lines = reader.borrow().recent(200);
             sections(&Facts {
                 preferred: config.preferred_backend,
                 mode: config.mode,
@@ -248,7 +256,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // --- Rendering --------------------------------------------------------
     let render: Rc<dyn Fn()> = {
-        let reader = Rc::clone(&reader);
+        let parsed = Rc::clone(&parsed);
+        let drawn = Rc::clone(&drawn);
+        let drawn_key = Rc::clone(&drawn_key);
         let kind_filter = Rc::clone(&kind_filter);
         let query = Rc::clone(&query);
         let view = view.clone();
@@ -260,17 +270,26 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let composing_label = tools.composing.clone();
         let path = path.clone();
         Rc::new(move || {
-            let parsed = parse_all(&reader.borrow().lines());
+            let cache = parsed.borrow();
             let kind = *kind_filter.borrow();
             let needle = query.borrow().to_lowercase();
-            let shown: Vec<&Line> = parsed
+            let shown: Vec<&Line> = cache
                 .iter()
                 .filter(|line| kind.is_none_or(|k| line.kind == k))
                 .filter(|line| needle.is_empty() || line.plain().to_lowercase().contains(&needle))
                 .collect();
-            draw(&view, &shown);
+            // Appending the handful of new lines keeps this in the microsecond
+            // range; anything else (a new filter, a cleared log) starts over.
+            let same_filter = *drawn_key.borrow() == (kind, needle.clone());
+            if same_filter && shown.len() >= drawn.get() {
+                draw_more(&view, &shown[drawn.get()..]);
+            } else {
+                draw_all(&view, &shown);
+                *drawn_key.borrow_mut() = (kind, needle.clone());
+            }
+            drawn.set(shown.len());
             // The two latency numbers are measured once, from the same walk.
-            let stats = latency::measure(&parsed);
+            let stats = latency::measure(&cache);
             let pick = |f: fn(&Stats) -> u64| match stats {
                 Some(stats) => format!("{}ms", f(&stats)),
                 None => "—".to_string(),
@@ -291,7 +310,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 .map(|m| size_label(m.len()))
                 .unwrap_or_else(|| "—".to_string());
             metric_log.set_text(&format!("{} {size}", t("misc.metric_log", "Log")));
-            composing_label.set_text(&match composing(&parsed) {
+            composing_label.set_text(&match composing(&cache) {
                 Some(true) => t("misc.buffer_composing", "đang soạn"),
                 Some(false) => t("misc.buffer_empty", "trống"),
                 None => String::new(),
@@ -429,7 +448,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let outer_ref = outer.clone();
         let laid_out = Rc::new(Cell::new((false, -1i32)));
         let state = Rc::clone(&laid_out);
-        outer.add_tick_callback(move |_, _| {
+        // A tick callback runs on every frame and keeps the window redrawing
+        // for as long as the page is open; a plain timer costs a comparison.
+        gtk4::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
             let width = outer_ref.width();
             let narrow = is_narrow(width);
             let share = column_share(width);
@@ -554,6 +575,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         // toolbar until the user asks for it.
         let poll: Rc<dyn Fn(bool)> = {
             let reader = Rc::clone(&reader);
+            let parsed = Rc::clone(&parsed);
             let render = Rc::clone(&render);
             let status_refresh = Rc::clone(&status_refresh);
             let tools_refresh = Rc::clone(&tools.refresh);
@@ -563,13 +585,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             let last_probe = Rc::new(Cell::new(std::time::Instant::now()));
             Rc::new(move |first: bool| {
                 let added = reader.borrow_mut().poll();
+                extend_tail(&mut parsed.borrow_mut(), &added, VIEW_LINES);
                 if first {
                     render();
                     status_refresh();
                     tools_refresh();
                     return;
                 }
-                if added == 0 {
+                if added.is_empty() {
                     return;
                 }
                 // Typing in the test box is exactly what starts the engine, so
@@ -585,7 +608,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                     pending.set(0);
                     arrived.set_visible(false);
                 } else {
-                    pending.set(pending.get() + added);
+                    pending.set(pending.get() + added.len());
                     arrived.set_text(&format!(
                         "+{} {}",
                         pending.get(),
@@ -721,23 +744,53 @@ fn macro_block(hide: bool, entries: Vec<(String, String)>) -> Vec<String> {
     out
 }
 
-/// Parse the whole tail once, keeping the gap between neighbouring lines.
-fn parse_all(raw: &[String]) -> Vec<Line> {
-    let mut out = Vec::with_capacity(raw.len());
-    let mut prev = None;
-    for line in raw {
-        if let Some(parsed) = parse(line, prev) {
-            prev = parsed.abs_ms.or(prev);
-            out.push(parsed);
-        }
+/// Decode what the engine appended and keep the tail at `cap` lines. Line
+/// times stay relative to the line before them, so the gap is taken from the
+/// cache rather than from the batch.
+fn extend_tail(cache: &mut Vec<Line>, fresh: &[String], cap: usize) {
+    let mut prev = cache.last().and_then(|line| line.abs_ms);
+    for raw in fresh {
+        let Some(line) = parse(raw, prev) else {
+            continue;
+        };
+        prev = line.abs_ms.or(prev);
+        cache.push(line);
     }
-    out
+    let over = cache.len().saturating_sub(cap);
+    if over > 0 {
+        cache.drain(..over);
+    }
 }
 
-/// Draw the selected lines: relative time, coloured kind, decoded body.
-fn draw(view: &gtk4::TextView, lines: &[&Line]) {
+/// Draw every selected line from scratch: a new filter, a new kind, a cleared
+/// log.
+fn draw_all(view: &gtk4::TextView, lines: &[&Line]) {
     let buffer = view.buffer();
     buffer.set_text("");
+    let mut iter = buffer.start_iter();
+    write(&buffer, &mut iter, lines);
+}
+
+/// Append the lines that arrived since the last draw and drop the oldest ones
+/// the cap no longer keeps.
+fn draw_more(view: &gtk4::TextView, lines: &[&Line]) {
+    if lines.is_empty() {
+        return;
+    }
+    let buffer = view.buffer();
+    let mut iter = buffer.end_iter();
+    write(&buffer, &mut iter, lines);
+    let over = buffer.line_count() - VIEW_LINES as i32;
+    if over > 0 {
+        let mut start = buffer.start_iter();
+        let mut end = buffer.start_iter();
+        end.forward_lines(over);
+        buffer.delete(&mut start, &mut end);
+    }
+}
+
+/// One line: relative time, coloured kind, decoded body.
+fn write(buffer: &gtk4::TextBuffer, iter: &mut gtk4::TextIter, lines: &[&Line]) {
     let press = t("misc.key_press", "nhấn");
     let release = t("misc.key_release", "thả");
     let width = CHIPS
@@ -745,24 +798,20 @@ fn draw(view: &gtk4::TextView, lines: &[&Line]) {
         .map(|k| kind_label(*k).len())
         .max()
         .unwrap_or(4);
-    let mut iter = buffer.start_iter();
     for line in lines {
         let when = match line.rel_ms {
             Some(ms) => format!("+{ms}ms"),
             None => String::new(),
         };
-        buffer.insert_with_tags_by_name(&mut iter, &format!("{when:>8} "), &["log-time"]);
+        buffer.insert_with_tags_by_name(iter, &format!("{when:>8} "), &["log-time"]);
         let label = kind_label(line.kind);
         buffer.insert_with_tags_by_name(
-            &mut iter,
+            iter,
             &format!("{label:<width$} "),
             &[tag_for(line.kind), "log-label"],
         );
-        buffer.insert(&mut iter, &line.body.text(&press, &release));
-        buffer.insert(
-            &mut iter, "
-",
-        );
+        buffer.insert(iter, &line.body.text(&press, &release));
+        buffer.insert(iter, "\n");
     }
 }
 
@@ -873,11 +922,41 @@ mod tests {
 
     #[test]
     fn the_tail_parses_into_one_line_per_raw_line() {
-        let parsed = parse_all(&raw());
+        let mut parsed = Vec::new();
+        extend_tail(&mut parsed, &raw(), VIEW_LINES);
         assert_eq!(parsed.len(), 6);
         assert_eq!(parsed[1].kind, Kind::Key);
         assert_eq!(parsed[4].kind, Kind::Error);
         assert_eq!(parsed[3].kind, Kind::Insert);
+    }
+
+    #[test]
+    fn the_cache_grows_by_what_arrived_and_keeps_its_cap() {
+        let mut cache = Vec::new();
+        extend_tail(&mut cache, &raw()[..3], VIEW_LINES);
+        assert_eq!(cache.len(), 3);
+        // The next batch keeps the gap relative to the last line it saw.
+        extend_tail(&mut cache, &raw()[3..], VIEW_LINES);
+        assert_eq!(cache.len(), 6);
+        assert_eq!(cache[3].rel_ms, Some(4), "4 ms after the line before it");
+
+        let mut small = Vec::new();
+        extend_tail(&mut small, &raw(), 2);
+        assert_eq!(small.len(), 2, "the cap drops the oldest lines");
+        assert_eq!(
+            small[1].body.text("nhấn", "thả"),
+            "mode: preedit",
+            "the newest line survives"
+        );
+
+        let mut junk = Vec::new();
+        extend_tail(
+            &mut junk,
+            &["not a log line at all".to_string()],
+            VIEW_LINES,
+        );
+        assert_eq!(junk.len(), 1, "a line without a timestamp still shows");
+        assert_eq!(junk[0].rel_ms, None, "it just has no gap to report");
     }
 
     #[test]
