@@ -36,7 +36,8 @@ pub(super) fn picker_entries(visible: &[ModeConfig], current: ModeConfig, en: bo
 /// The mode a picker row resolves to right now: the rule/app mode, else the
 /// global mode.
 fn picker_current(config: &Config, target: &str) -> ModeConfig {
-    crate::config::app_rule_mode(&config.app_rules, Some(target)).unwrap_or(config.mode)
+    let probe = (target != crate::config::UNNAMED_PATTERN).then_some(target);
+    crate::config::app_rule_mode(&config.app_rules, probe).unwrap_or(config.mode)
 }
 
 /// Keys the picker consumes while open.
@@ -102,11 +103,15 @@ impl EngineHandler {
                 .map(|name| crate::config::strip_transport_prefix(name).to_string())
                 .or_else(|| engine.client().and_then(client_prgname))
         };
-        let Some(target) = target.filter(|t| !t.is_empty()) else {
-            // No name, no rule that could ever match: stay closed.
-            debug_log::log("picker hotkey: focused app unnamed, staying closed");
-            return;
-        };
+        // An app that names nothing (a terminal window under Wayland, any
+        // winit/Electron app) still needs its mode reachable: the pick writes
+        // the unnamed pattern, which matches only clients with no name.
+        let target = target
+            .filter(|target| !target.is_empty())
+            .unwrap_or_else(|| {
+                debug_log::log("picker hotkey: unnamed app, rule target none");
+                crate::config::UNNAMED_PATTERN.to_string()
+            });
         // The in-flight word ends here, before the menu shows: a pick must
         // never apply_config over a live composition (that desynced the
         // tail and the wrapper — the lost-letters/duplicated-word report).
@@ -151,7 +156,17 @@ impl EngineHandler {
         out.push(signal("UpdateAuxiliaryText").append2(
             crate::ibus_text::plain_text(&format!(
                 "{} · {} · {}",
-                state.target, current_label, hint
+                if state.target == crate::config::UNNAMED_PATTERN {
+                    if config.language == "en" {
+                        "unnamed app"
+                    } else {
+                        "app không tên"
+                    }
+                } else {
+                    &state.target
+                },
+                current_label,
+                hint
             )),
             true,
         ));

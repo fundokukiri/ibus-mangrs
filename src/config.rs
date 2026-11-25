@@ -379,13 +379,15 @@ pub fn strip_transport_prefix(name: &str) -> &str {
         .unwrap_or(name)
 }
 
+pub const UNNAMED_PATTERN: &str = "none";
+
 pub fn app_rule_matches(pattern: &str, target: Option<&str>) -> bool {
     // A pattern may carry the transport prefix the focus extension adds
     // (`wayland:foo` / `x11:foo`) — targets are matched bare (the prefix is
     // stripped below), so strip it from the pattern too or such a rule can
     // never fire.
     let pattern = strip_transport_prefix(pattern).to_lowercase();
-    if pattern == "none" {
+    if pattern == UNNAMED_PATTERN {
         return target.is_none();
     }
     let Some(name) = target else {
@@ -410,10 +412,13 @@ impl Config {
     /// change the rule it currently rides on, not pile a new one on top.
     /// Only an app no rule covers gets a fresh rule, at the top.
     pub fn set_rule_mode_for_target(&mut self, target: &str, mode: ModeConfig) {
+        // The unnamed pattern targets clients without a name at all, so it has
+        // to be matched as `None` or every pick adds another copy of it.
+        let probe = (target != UNNAMED_PATTERN).then_some(target);
         if let Some(rule) = self
             .app_rules
             .iter_mut()
-            .find(|r| app_rule_matches(&r.pattern, Some(target)))
+            .find(|r| app_rule_matches(&r.pattern, probe))
         {
             rule.mode = mode;
             return;
@@ -1577,6 +1582,16 @@ children = ["preedit", "flow"]
         assert!(!c.debug_log_keys);
         let c = Config::from_toml("debug_log_keys = true\n");
         assert!(c.debug_log_keys);
+    }
+
+    #[test]
+    fn the_unnamed_rule_is_written_once_and_only_matches_unnamed_clients() {
+        let mut c = Config::from_toml("");
+        c.set_rule_mode_for_target(UNNAMED_PATTERN, ModeConfig::Flow);
+        c.set_rule_mode_for_target(UNNAMED_PATTERN, ModeConfig::Preedit);
+        assert_eq!(c.app_rules.len(), 1, "a second pick must update, not add");
+        assert_eq!(app_rule_mode(&c.app_rules, None), Some(ModeConfig::Preedit));
+        assert_eq!(app_rule_mode(&c.app_rules, Some("firefox")), None);
     }
 
     #[test]
