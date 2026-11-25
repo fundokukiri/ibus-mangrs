@@ -19,7 +19,7 @@ path = "src/main.rs"
 # kept-composition guard now only covers the raw-revert shape) and accepts
 # f/j/w as onset consonants (the auto-restore refuses those words, which are
 # never Vietnamese syllables).
-bamboo-core = "0.6.0"
+bamboo-core = "0.6.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dbus = "0.9.12"
 dirs = "6"
