@@ -647,6 +647,7 @@ hotkey_macro_editor = "Mở trang Gõ tắt"
 hotkey_settings = "Mở Cài đặt"
 
 [tips]
+debug_buffer = "Chữ đang có trong ô thử, lấy ngay từ ô chứ không phải từ bộ gõ."
 debug_hide = "Bật: báo cáo thay chữ đã gõ bằng ***, macro chỉ còn số lượng. Tắt: báo cáo mang cả hai."
 debug_filter = "Gõ một phần nội dung để lọc, không phân biệt hoa thường."
 debug_kind = "Chỉ hiện một loại dòng. Dòng không thuộc loại nào chỉ hiện khi chọn Tất cả."

@@ -56,6 +56,12 @@ pub(super) fn build(
     let try_group = adw::PreferencesGroup::new();
     let entry_row = adw::EntryRow::new();
     entry_row.set_title(&t("misc.debug_try_label", "Gõ thử"));
+    entry_row.set_show_apply_button(false);
+    // An icon and a placeholder make the row read as a live test box rather
+    // than an empty settings field.
+    let icon = gtk4::Image::from_icon_name("input-keyboard-symbolic");
+    icon.add_css_class("dim-label");
+    entry_row.add_prefix(&icon);
     entry_row.set_tooltip_text(Some(&t(
         "tips.debug_try",
         "Gõ vào đây để xem bộ gõ có nhận phím không: dòng mới hiện bên trái nghĩa là phím đã đi qua IBus.",
@@ -66,13 +72,21 @@ pub(super) fn build(
     let composing = gtk4::Label::new(None);
     composing.add_css_class("caption");
     composing.add_css_class("dim-label");
+    let buffer_caption = gtk4::Label::new(Some(&t("misc.buffer_label", "buffer:")));
+    buffer_caption.add_css_class("caption");
+    buffer_caption.add_css_class("dim-label");
     let buffer = gtk4::Label::new(None);
     buffer.add_css_class("caption");
     buffer.add_css_class("monospace");
     buffer.set_xalign(1.0);
     buffer.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    buffer.set_max_width_chars(24);
-    buffer.set_tooltip_text(Some(&t("misc.buffer_label", "buffer:")));
+    buffer.set_max_width_chars(18);
+    buffer.set_width_chars(10);
+    buffer.set_tooltip_text(Some(&t(
+        "tips.debug_buffer",
+        "Chữ đang có trong ô thử, lấy ngay từ ô chứ không phải từ bộ gõ.",
+    )));
+    entry_row.add_suffix(&buffer_caption);
     entry_row.add_suffix(&buffer);
     entry_row.add_suffix(&composing);
     try_group.add(&entry_row);
