@@ -544,10 +544,10 @@ impl EngineHandler {
 
         // The extension round trip must not run under the engine mutex; the
         // naming step below decides whether the answer is actually used.
-        let ext_name = if matches!(member, "FocusIn" | "FocusInId") {
+        let (ext_answered, ext_name) = if matches!(member, "FocusIn" | "FocusInId") {
             self.focus_extension_app()
         } else {
-            None
+            (false, None)
         };
 
         let mut engine = lock_engine(&self.engine);
@@ -659,6 +659,7 @@ impl EngineHandler {
                 // Wayland clients arrive as `gnome-shell` and every XIM client
                 // as the hard-coded `xim`, which names no application at all —
                 // without this no App Rule can target a Java/XIM app.
+                engine.set_shell_ui_focused(ext_answered && ext_name.is_none());
                 if engine.relay_context() || engine.client_name_is_opaque() {
                     let resolved = ext_name
                         .map(|class| (class.clone(), format!("wayland:{class}")))

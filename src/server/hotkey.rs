@@ -309,9 +309,11 @@ impl EngineHandler {
     /// The focused window's WM_CLASS from the focus extension. The
     /// session-bus connection is created lazily and kept for the handler's
     /// lifetime; a short timeout keeps a dead extension off the focus path.
-    /// Returns `None` when the extension is absent or names nothing (the
-    /// caller then falls back to the X active window).
-    pub(super) fn focus_extension_app(&mut self) -> Option<String> {
+    /// Returns whether the extension answered, plus its class (empty when it
+    /// names nothing). An absent extension and a shell UI holding the keyboard
+    /// both mean "no class" to the caller, which falls back to the X active
+    /// window — but only the second one is the compositor's own UI.
+    pub(super) fn focus_extension_app(&mut self) -> (bool, Option<String>) {
         if self.focus_ext.is_none() {
             // The engine inherits the session environment from ibus-daemon;
             // without a session bus there is no extension either.
@@ -319,7 +321,9 @@ impl EngineHandler {
                 .and_then(|conn| conn.register().map(|_| conn))
                 .ok();
         }
-        let conn = self.focus_ext.as_ref()?;
+        let Some(conn) = self.focus_ext.as_ref() else {
+            return (false, None);
+        };
         // Test-only unwraps: the names are this file's own constants.
         let msg = Message::method_call(
             &BusName::new(FOCUS_EXT_NAME).unwrap(),
@@ -327,9 +331,13 @@ impl EngineHandler {
             &Interface::new(FOCUS_EXT_IFACE).unwrap(),
             &Member::new("GetFocusedWindow").unwrap(),
         );
-        let reply = conn.send_with_reply_and_block(msg, 300).ok()?;
-        let (class, _title) = reply.read2::<String, String>().ok()?;
-        (!class.is_empty()).then_some(class)
+        let Ok(reply) = conn.send_with_reply_and_block(msg, 300) else {
+            return (false, None);
+        };
+        let Ok((class, _title)) = reply.read2::<String, String>() else {
+            return (false, None);
+        };
+        (true, (!class.is_empty()).then_some(class))
     }
 
     /// Re-apply the config if the file changed since the last check.

@@ -177,6 +177,11 @@ pub struct Engine {
     /// `client`, so a relayed client keeps its mutter-safe delete handling
     /// even after it is named.
     app_name: Option<String>,
+    /// The focus extension answered this focus-in and named nothing: the
+    /// compositor's own UI holds the keyboard (its search field, Alt+F2).
+    /// Only then is the bare relay client (`gnome-shell`) an app the user can
+    /// mean — without the extension that string is every Wayland app.
+    shell_ui_focused: bool,
     /// IBus capabilities reported by the client, from `SetCapabilities`.
     caps: u32,
     /// True while a preedit string is on screen, so we only send `HidePreedit`
@@ -545,6 +550,7 @@ impl Engine {
             repair_delete: None,
             last_char: None,
             app_name: None,
+            shell_ui_focused: false,
             app_rules: Vec::new(),
             auto_restore: true,
             em_dash: false,
@@ -1304,6 +1310,16 @@ impl Engine {
     /// app-rule picker needs the same target the rules will match against).
     pub fn app_name(&self) -> Option<&str> {
         self.app_name.as_deref()
+    }
+
+    /// Whether the compositor's own UI, not an app, currently holds the
+    /// keyboard — see the field docs.
+    pub fn set_shell_ui_focused(&mut self, focused: bool) {
+        self.shell_ui_focused = focused;
+    }
+
+    pub fn shell_ui_focused(&self) -> bool {
+        self.shell_ui_focused
     }
 
     /// Mode forced by an `AppRule` matching the focused client, if any.

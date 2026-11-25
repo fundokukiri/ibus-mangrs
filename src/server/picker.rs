@@ -84,6 +84,31 @@ impl PickerState {
     }
 }
 
+/// The rule target for the focused context, read at press time: the
+/// extension/xprop name, else the client's own prgname, else — only while the
+/// compositor's own UI holds the keyboard — the bare relay client.
+/// `None` when nothing names the app.
+fn rule_target(engine: &Engine) -> Option<String> {
+    engine
+        .app_name()
+        .map(|name| crate::config::strip_transport_prefix(name).to_string())
+        .or_else(|| engine.client().and_then(client_prgname))
+        .or_else(|| {
+            // A compositor-owned context reports its own name with no toolkit
+            // prefix (`gnome-shell` while its search field or Alt+F2 box holds
+            // the keyboard), and rule matching already uses that string — so
+            // it is a target in its own right. Without the extension the same
+            // string is every relayed Wayland app, so it only counts when the
+            // extension answered with no window.
+            engine
+                .shell_ui_focused()
+                .then(|| engine.client())
+                .flatten()
+                .filter(|client| !matches!(*client, "xim" | "fake"))
+                .map(str::to_string)
+        })
+}
+
 impl EngineHandler {
     /// Open the picker for the focused application. The target is the same
     /// string the rules will match against: the focus extension/xprop name
@@ -96,23 +121,7 @@ impl EngineHandler {
             out.push(signal("HideAuxiliaryText"));
             return;
         }
-        let target = {
-            let engine = lock_engine(&self.engine);
-            engine
-                .app_name()
-                .map(|name| crate::config::strip_transport_prefix(name).to_string())
-                .or_else(|| engine.client().and_then(client_prgname))
-                .or_else(|| {
-                    // A compositor-owned context reports its own name with no
-                    // toolkit prefix (`gnome-shell` while its search field or
-                    // Alt+F2 box holds the keyboard), and rule matching already
-                    // uses that string — so it is a target in its own right.
-                    engine
-                        .client()
-                        .filter(|client| !matches!(*client, "xim" | "fake"))
-                        .map(str::to_string)
-                })
-        };
+        let target = rule_target(&lock_engine(&self.engine));
         // An app that names nothing (a terminal window under Wayland, any
         // winit/Electron app) still needs its mode reachable: the pick writes
         // the unnamed pattern, which matches only clients with no name.
@@ -265,5 +274,40 @@ impl EngineHandler {
             out.push(signal("HideLookupTable"));
             out.push(signal("HideAuxiliaryText"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{MethodConfig, ModeConfig};
+
+    fn engine(client: &str) -> Engine {
+        let mut engine = Engine::new(MethodConfig::Telex.into(), ModeConfig::Preedit.into());
+        engine.set_client(Some(client.to_string()));
+        engine
+    }
+
+    #[test]
+    fn the_shell_is_a_target_only_while_the_extension_names_no_window() {
+        // Without the extension a relayed Wayland app reports exactly this
+        // string, so it names no app.
+        let mut e = engine("gnome-shell");
+        assert_eq!(rule_target(&e), None);
+
+        // With the extension answering empty, the compositor's own UI really
+        // does hold the keyboard.
+        e.set_shell_ui_focused(true);
+        assert_eq!(rule_target(&e).as_deref(), Some("gnome-shell"));
+
+        // A named app always wins over the client string.
+        e.set_app_name(Some("wayland:Alacritty".into()));
+        assert_eq!(rule_target(&e).as_deref(), Some("Alacritty"));
+    }
+
+    #[test]
+    fn a_toolkit_client_names_its_app_without_the_extension() {
+        let e = engine("gtk3-im:sublime_text");
+        assert_eq!(rule_target(&e).as_deref(), Some("sublime_text"));
     }
 }

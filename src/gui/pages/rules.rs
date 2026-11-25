@@ -73,10 +73,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             (label, n)
         })
         .collect();
-    app_targets.push((
-        t("rules.pseudo_wayland", "gnome-shell (app Wayland)"),
-        "gnome-shell".to_string(),
-    ));
+    // Without the focus extension that string is every relayed Wayland app,
+    // so offering the shell as a target would only mislead.
+    if super::super::focus_extension_installed() {
+        app_targets.push((
+            t("rules.pseudo_wayland", "gnome-shell (app Wayland)"),
+            "gnome-shell".to_string(),
+        ));
+    }
     app_targets.push((
         t("rules.pseudo_none", "(app không báo tên)"),
         "none".to_string(),
