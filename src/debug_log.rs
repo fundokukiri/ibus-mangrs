@@ -21,15 +21,15 @@
 //!   carries user text is quoted (`err="…"`) and the text tier masks it.
 //! - `ok=0` marks a line that reports a failure; the family tag stays, so a
 //!   failure reads in its own context: `del ok=0 mode=backspace n=3`.
-//! - `rep=<n>` is appended by the writer when the same line repeated
-//!   consecutively: the line then stands for `n` occurrences. Nothing else
-//!   writes into an existing line.
+//! - `rep=<n>` closes a run: when the same line repeated consecutively, one
+//!   summary line with that count follows it. The file is append-only, so a
+//!   reader that follows it by offset never sees a byte move.
 //!
 //! A line must never carry what the user typed unless the text tier is on
 //! ([`set_text_enabled`]).
 
 use std::fs::{File, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::Write;
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,9 +61,6 @@ static LAST: Mutex<Option<Repeat>> = Mutex::new(None);
 struct Repeat {
     msg: String,
     count: u32,
-    /// Offset of the newline that ends the line: a repeat rewrites `rep=`
-    /// there, which is why no line is ever un-terminated in the file.
-    tail: u64,
 }
 
 impl Repeat {
@@ -201,41 +198,46 @@ pub fn log(msg: &str) {
     let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(repeat) = last.as_mut().filter(|r| r.continues(msg)) {
         repeat.count += 1;
-        let extra = format!(" rep={}\n", repeat.count);
-        // Count only grows, so the new text always covers the old one.
-        if write_at(&mut file.0, repeat.tail, extra.as_bytes()).is_ok() {
-            file.1 = repeat.tail + extra.len() as u64;
-        }
         return;
     }
-    *last = None;
+    // The run just ended: a line saying how often it happened goes next. It is
+    // written as a line of its own rather than back into the one above,
+    // because a reader following the file by offset would never see a byte
+    // that moved behind it.
+    let summary = last
+        .take()
+        .filter(|r| r.count > 1)
+        .map(|r| (r.msg, r.count));
     drop(last);
     let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
+    let mut body = summary
+        .map(|(text, count)| format!("{ms} {text} rep={count}\n"))
+        .unwrap_or_default();
     let line = format!("{ms} {msg}\n");
-    if file.1 + line.len() as u64 > ROTATE_SIZE {
+    body.push_str(&line);
+    if file.1 + body.len() as u64 > ROTATE_SIZE {
         // Move the full log aside (the rename overwrites a stale .old) and
         // start fresh; a failed reopen keeps writing to the renamed inode,
         // which is fine for diagnosis.
         if let Some(path) = log_path() {
             let _ = std::fs::rename(&path, path.with_extension("log.old"));
         }
-        // A tail offset from the rotated file means nothing in the new one.
+        // A count from the rotated file means nothing in the new one.
         *LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         match open_log_file() {
             Some(pair) => *file = pair,
             None => file.1 = 0,
         }
     }
-    let before = file.1;
-    let _ = write_at(&mut file.0, before, line.as_bytes());
-    file.1 = before + line.len() as u64;
+    let at = file.1;
+    let _ = write_at(&mut file.0, at, body.as_bytes());
+    file.1 = at + body.len() as u64;
     *LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Repeat {
         msg: msg.to_string(),
         count: 1,
-        tail: before + line.len() as u64 - 1,
     });
 }
 
@@ -269,9 +271,9 @@ fn open_log_file() -> Option<(File, u64, PathBuf)> {
     }
     let file = OpenOptions::new()
         .create(true)
-        // Not truncated: the handle is kept and appended to by offset.
+        // Not truncated: the handle is kept, and every line is appended.
         .truncate(false)
-        .write(true)
+        .append(true)
         // The typed-text tier writes what the user typed; the file must not be
         // readable by other local users (0666 minus the usual 022 umask).
         .mode(0o600)
@@ -283,10 +285,9 @@ fn open_log_file() -> Option<(File, u64, PathBuf)> {
     Some((file, len, path))
 }
 
-/// Write at an absolute offset: the handle is not opened with `O_APPEND`
-/// exactly so the writer can rewrite the `rep=` tail of the line above.
-fn write_at(file: &mut File, offset: u64, bytes: &[u8]) -> std::io::Result<()> {
-    file.seek(SeekFrom::Start(offset))?;
+/// Append one write. With `O_APPEND` the offset is only bookkeeping: the
+/// kernel puts these bytes at the end, which is what the reader assumes.
+fn write_at(file: &mut File, _offset: u64, bytes: &[u8]) -> std::io::Result<()> {
     file.write_all(bytes)
 }
 
@@ -505,8 +506,10 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let repeats = run("st cur=0 len=0 comp=1");
+        // Another test's line can end the run early, so the bound is a shape,
+        // not an exact count: without the collapse this would be 200 lines.
         assert!(
-            !repeats.is_empty() && repeats.len() <= 2,
+            !repeats.is_empty() && repeats.len() < 20,
             "200 copies collapse: {text}"
         );
         assert!(
@@ -514,10 +517,16 @@ mod tests {
             "the count is kept: {text}"
         );
         let flushes = run("buf flush=per-key");
-        assert!(!flushes.is_empty() && flushes.len() <= 2, "{text}");
-        // Every line is terminated: the count is written over the newline of
-        // the line above, never appended after it.
+        assert!(!flushes.is_empty() && flushes.len() < 10, "{text}");
+        // Every line is a complete line, so a reader following the file by
+        // offset never lands inside one.
         assert!(text.ends_with('\n'), "{text}");
+        assert!(
+            repeats.iter().all(|line| line.ends_with("comp=1")
+                || line.ends_with("comp=1 rep=")
+                || line.contains("comp=1 rep=")),
+            "no line carries a count instead of its own text: {text}"
+        );
         set_enabled(false);
         *LOG_FILE.lock().unwrap() = None;
         *PATH_OVERRIDE.lock().unwrap() = None;
@@ -553,7 +562,6 @@ mod tests {
         let line = Repeat {
             msg: "st comp=1".to_string(),
             count: 1,
-            tail: 0,
         };
         assert!(line.continues("st comp=1"));
         assert!(!line.continues("st comp=0"));

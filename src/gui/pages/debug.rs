@@ -721,7 +721,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         {
             let poll = Rc::clone(&poll);
             let view = view.clone();
-            gtk4::glib::timeout_add_seconds_local(1, move || {
+            // Four times a second: a poll is a stat plus the bytes that
+            // arrived, and a whole second of lag reads as a frozen log.
+            gtk4::glib::timeout_add_local(std::time::Duration::from_millis(400), move || {
                 if view.is_mapped() {
                     poll(false);
                 }

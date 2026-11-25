@@ -61,6 +61,7 @@ fn gtk_widget_scenarios() {
     close_test_windows();
     the_debug_tab_follows_the_switch();
     the_debug_tab_row_appears_only_with_debug_mode();
+    the_open_log_pane_picks_up_what_is_written();
     the_debug_page_opens_with_both_columns();
     close_test_windows();
     the_debug_page_shows_the_status_the_rows_and_the_footer();
@@ -1222,6 +1223,73 @@ fn the_debug_page_opens_with_both_columns() {
     );
     win.close();
     Config::default().save().expect("config back off");
+}
+
+/// A window the user is looking at picks up what the engine writes: the pane
+/// used to need a tab switch, because the writer rewrote the newline of the
+/// line above and the reader never saw the bytes that moved behind it.
+fn the_open_log_pane_picks_up_what_is_written() {
+    let dir = crate::debug_log::TempLogDir::new("live-log");
+    let path = dir.dir().join("debug.log");
+    std::fs::write(&path, "1795619563000 ctx start uinput=1\n").expect("a log");
+    let ui = widgets();
+    // The page captures the log path when it is built; nothing else in this
+    // binary shares the file afterwards.
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    let overlay = pages::debug::build(&ui);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = None;
+
+    let win = gtk4::Window::builder()
+        .default_width(1180)
+        .default_height(740)
+        .build();
+    win.set_child(Some(&overlay));
+    win.present();
+    let pump = |ms: u64| {
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < end {
+            while gtk4::glib::MainContext::default().iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    for _ in 0..300 {
+        while gtk4::glib::MainContext::default().iteration(false) {}
+        if win.width() > 1 && overlay.is_mapped() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    pump(700);
+
+    // Append-only, the way the engine writes: two lines in one write, then a
+    // repeat run and the line that ends it.
+    {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("the log file");
+        file.write_all(b"1795619563100 ctx step=7\n1795619563200 ctx step=7 rep=3\n")
+            .expect("a write");
+    }
+    pump(900);
+    let view = descendants::<gtk4::TextView>(overlay.upcast_ref());
+    let text = view
+        .first()
+        .map(|v| {
+            let buffer = v.buffer();
+            buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string()
+        })
+        .unwrap_or_default();
+    assert!(text.contains("ctx step=7"), "the line arrived: {text}");
+    assert!(text.contains("ctx step=7 rep=3"), "its count too: {text}");
+    assert!(
+        text.lines().all(|line| line.contains("ctx ")),
+        "no fragment lines: {text}"
+    );
+    win.close();
 }
 
 fn the_debug_page_shows_the_status_the_rows_and_the_footer() {

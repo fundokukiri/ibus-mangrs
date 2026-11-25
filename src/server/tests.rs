@@ -1376,10 +1376,12 @@ fn burst_buffer_cap_drops_the_newest_and_logs_once() {
     for i in 0..=BURST_BUFFER_CAP as u32 {
         buffer.push(0x61 + i, 30, 0);
     }
+    // The second episode says the same thing, so the writer counted it into
+    // the run instead of writing a twin; the count lands on the line that
+    // ends the run.
+    crate::debug_log::log("ctx step=closes-the-run");
     crate::debug_log::test_reset();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
-    // The second episode says the same thing, so the writer counted it into
-    // the line above instead of writing a twin.
     assert!(
         text.lines()
             .any(|l| l.contains("buf ok=0 why=burst_full") && l.ends_with("rep=2")),
