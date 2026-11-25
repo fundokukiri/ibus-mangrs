@@ -383,16 +383,25 @@ pub fn display_app_name(name: &str) -> String {
     let name = strip_transport_prefix(name);
     let name = name.rsplit('/').next().unwrap_or(name);
     const TLDS: [&str; 8] = ["org", "com", "io", "net", "dev", "app", "co", "me"];
-    const VENDORS: [&str; 3] = ["gnome", "kde", "freedesktop"];
+    const VENDORS: [&str; 5] = ["gnome", "kde", "freedesktop", "github", "gitlab"];
+    // Filler words an id carries after the app's own name.
+    const GENERIC: [&str; 7] = [
+        "client", "app", "main", "desktop", "gui", "window", "server",
+    ];
     let mut segments: Vec<&str> = name.split('.').filter(|s| !s.is_empty()).collect();
     if segments.len() > 1 && TLDS.contains(&segments[0]) {
         segments.remove(0);
     }
     let mut words: Vec<String> = Vec::new();
     for segment in segments {
+        let chars: Vec<char> = segment.chars().collect();
         let mut word = String::new();
         let mut was_lower = false;
-        for c in segment.chars() {
+        for (index, &c) in chars.iter().enumerate() {
+            // A capital that opens an acronym or ends the word belongs to the
+            // word it follows (`IDEA`, `IntelliJ`), not to a new one.
+            let next = chars.get(index + 1);
+            let keeps_word = next.is_none_or(|n| !n.is_alphanumeric() || n.is_uppercase());
             if !c.is_alphanumeric() {
                 if !word.is_empty() {
                     words.push(std::mem::take(&mut word));
@@ -400,8 +409,9 @@ pub fn display_app_name(name: &str) -> String {
                 was_lower = false;
                 continue;
             }
-            // `TextEditor` -> `Text Editor`, `sublime_text` -> `sublime text`.
-            if was_lower && c.is_uppercase() && !word.is_empty() {
+            // `TextEditor` -> `Text Editor`, but `IntelliJ` and `IDEA` stay one
+            // word: an acronym keeps its run of capitals together.
+            if was_lower && c.is_uppercase() && !word.is_empty() && !keeps_word {
                 words.push(std::mem::take(&mut word));
             }
             was_lower = c.is_lowercase();
@@ -411,10 +421,22 @@ pub fn display_app_name(name: &str) -> String {
             words.push(word);
         }
     }
+    // `com.spotify.Client` and `org.telegram.desktop` end on filler: the app is
+    // the word in front of it.
+    if words.len() > 1
+        && GENERIC.contains(
+            &words
+                .last()
+                .map(|w| w.to_lowercase())
+                .unwrap_or_default()
+                .as_str(),
+        )
+    {
+        words.pop();
+    }
     // A CamelCase product name carries the app; the lowercase segment in front
     // of it is the vendor (`gnome.Nautilus`, `discordapp.Discord`). An id with
-    // no case at all is one name, not vendor plus product
-    // (`org.telegram.desktop` -> `Telegram Desktop`).
+    // no case at all is one name, not vendor plus product (`telegram.desktop`).
     let named = words
         .last()
         .is_some_and(|w| w.chars().any(char::is_uppercase));
@@ -1672,7 +1694,15 @@ children = ["preedit", "flow"]
             ("wayland:org.gnome.Nautilus", "Nautilus"),
             ("org.gnome.TextEditor", "Text Editor"),
             ("gnome-text-editor", "Text Editor"),
-            ("org.telegram.desktop", "Telegram Desktop"),
+            ("org.telegram.desktop", "Telegram"),
+            ("com.spotify.Client", "Spotify"),
+            ("com.jetbrains.IntelliJ-IDEA", "IntelliJ IDEA"),
+            ("org.kde.kdenlive", "Kdenlive"),
+            ("gnome-terminal-server", "Terminal"),
+            ("org.gnome.Terminal", "Terminal"),
+            ("mpv", "Mpv"),
+            ("google-chrome", "Google Chrome"),
+            ("io.github.zyedidia.micro", "Zyedidia Micro"),
             ("com.discordapp.Discord", "Discord"),
             ("Alacritty", "Alacritty"),
             ("wayland:firefox", "Firefox"),
