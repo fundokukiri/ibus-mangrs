@@ -5740,7 +5740,7 @@ fn suggest_last_committed_word_follows_the_word_end() {
 /// A strip engine with pick learning on, redirected away from the real
 /// config dir: behavioral data from a test run must never touch the
 /// owner's files.
-fn learn_engine(method: Method, mode: Mode) -> Engine {
+fn learn_engine(method: Method, mode: Mode) -> (Engine, crate::test_support::TempDir) {
     let mut e = suggest_engine(method, mode, true);
     e.apply_config(&Config {
         mode: mode.into(),
@@ -5750,23 +5750,18 @@ fn learn_engine(method: Method, mode: Mode) -> Engine {
     });
     e.set_method(method);
     e.model = Some(sample_model());
-    e.learn_dir = learn_tmp("engine");
+    let dir = learn_tmp("engine");
+    e.learn_dir = dir.to_path_buf();
     e.picks = Some(crate::learn::UserPicks::load(&e.learn_dir));
-    e
+    (e, dir)
 }
 
-fn learn_tmp(tag: &str) -> std::path::PathBuf {
+fn learn_tmp(tag: &str) -> crate::test_support::TempDir {
     // A fresh dir per call: the tests run on parallel threads and a shared
     // directory would let one test's wipe/delete race another's asserts.
     static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "mangrs-learn-test-{tag}-{}-{n}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("temp learn dir");
-    dir
+    crate::test_support::TempDir::new(&format!("mangrs-learn-test-{tag}-{n}"))
 }
 
 #[test]
@@ -5776,7 +5771,7 @@ fn learning_off_writes_nothing() {
     // exist only when the owner opted in.
     let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
     let dir = learn_tmp("off");
-    e.learn_dir = dir.clone();
+    e.learn_dir = dir.to_path_buf();
     suggest_keys(&mut e, "sinh");
     e.accept_candidate(0);
     assert!(!dir.join(crate::learn::PICKS_FILE).exists());
@@ -5789,7 +5784,7 @@ fn pick_flushes_on_tick_not_on_key() {
     // tick — the key path never touches the filesystem. `sin` completes the
     // fixture's `sinh` row (single words only now — the model compound band
     // is gone).
-    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let (mut e, _dir) = learn_engine(Method::Telex, Mode::Preedit);
     let dir = e.learn_dir.clone();
     let keys = suggest_keys(&mut e, "sin");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on sin");
@@ -5812,7 +5807,7 @@ fn user_bonus_stays_inside_its_band() {
     // never over the Vietnamese rows: the sample fixture has no VN row
     // under `he`, so the band check rides the `h` prefix, whose VN
     // completions must still lead the boosted EN band.
-    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let (mut e, _dir) = learn_engine(Method::Telex, Mode::Preedit);
     e.last_committed_word = Some("world".into());
     for _ in 0..25 {
         e.picks
@@ -5847,7 +5842,7 @@ fn password_purpose_gates_strip_and_learning() {
     // PASSWORD (8) and PIN (9) quiet the strip and the learning files;
     // typing itself is untouched, and a normal field (0) re-opens the
     // strip on the in-flight word.
-    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let (mut e, _dir) = learn_engine(Method::Telex, Mode::Preedit);
     let dir = e.learn_dir.clone();
     e.set_content_purpose(PURPOSE_PASSWORD);
     let keys = suggest_keys(&mut e, "sinh");
@@ -5893,7 +5888,7 @@ fn prev_committed_word_shifts() {
 fn pick_lifts_a_state_b_candidate() {
     // Ten picks of (hello, there) triple there's context score — it
     // overtakes the stronger world inside the same list.
-    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let (mut e, _dir) = learn_engine(Method::Telex, Mode::Preedit);
     suggest_keys(&mut e, "hello ");
     for _ in 0..10 {
         e.picks
@@ -6069,7 +6064,7 @@ fn a_picked_vietnamese_word_moves_up_inside_its_band() {
     // no realistic pick count crosses, so the loop below is long by design:
     // it proves the wiring reads the picks, and the first assertion pins
     // that one pick is not a wall-breaker.
-    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let (mut e, _dir) = learn_engine(Method::Telex, Mode::Preedit);
     let pos = |list: &[String], w: &str| {
         list.iter()
             .position(|x| x == w)

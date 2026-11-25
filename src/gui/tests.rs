@@ -45,9 +45,8 @@ fn gtk_widget_scenarios() {
     // config files. Concurrent unit tests keep reading the sandboxed dir —
     // they are self-contained writers, so that stays consistent.
     let original_config_dir = std::env::var("XDG_CONFIG_HOME").ok();
-    let sandbox = std::env::temp_dir().join(format!("mangrs-gui-test-{}", std::process::id()));
-    std::fs::create_dir_all(&sandbox).expect("sandbox dir");
-    std::env::set_var("XDG_CONFIG_HOME", &sandbox);
+    let sandbox = crate::test_support::TempDir::new("mangrs-gui-test");
+    std::env::set_var("XDG_CONFIG_HOME", sandbox.path());
     refresh_round_trips_every_widget();
     shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
@@ -95,7 +94,6 @@ fn gtk_widget_scenarios() {
         Some(dir) => std::env::set_var("XDG_CONFIG_HOME", dir),
         None => std::env::remove_var("XDG_CONFIG_HOME"),
     }
-    let _ = std::fs::remove_dir_all(&sandbox);
 }
 
 /// The combo item lists (mode/charset/method/...) render in the window's

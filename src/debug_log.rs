@@ -58,19 +58,16 @@ pub(crate) fn test_reset() {
 /// suite runs hundreds of times, so a directory left behind each run litters
 /// /tmp; removing the directory alone fails while the log is still inside.
 #[cfg(test)]
-pub(crate) struct TempLogDir(std::path::PathBuf);
+pub(crate) struct TempLogDir(crate::test_support::TempDir);
 
 #[cfg(test)]
 impl TempLogDir {
     pub(crate) fn new(kind: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("ibus-mangrs-{kind}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("temp log dir");
-        Self(dir)
+        Self(crate::test_support::TempDir::new(kind))
     }
 
     pub(crate) fn dir(&self) -> &std::path::Path {
-        &self.0
+        self.0.path()
     }
 }
 
@@ -80,14 +77,13 @@ impl Drop for TempLogDir {
         let mut override_path = PATH_OVERRIDE.lock().unwrap_or_else(|p| p.into_inner());
         if override_path
             .as_ref()
-            .is_some_and(|p| p.starts_with(&self.0))
+            .is_some_and(|p| p.starts_with(self.0.path()))
         {
             *override_path = None;
         }
         drop(override_path);
         // A cached handle would keep writing to the removed file.
         *LOG_FILE.lock().unwrap_or_else(|p| p.into_inner()) = None;
-        let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 

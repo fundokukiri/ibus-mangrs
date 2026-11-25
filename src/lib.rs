@@ -27,5 +27,7 @@ pub mod macros;
 mod predict;
 pub mod server;
 mod suggest;
+#[cfg(test)]
+mod test_support;
 pub mod transport;
 pub mod uinput;
