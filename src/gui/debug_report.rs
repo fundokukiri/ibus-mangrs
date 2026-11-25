@@ -152,30 +152,27 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
     system.push(registered.screen_only());
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let install = match status {
-        Some(s) if s.stale => Cell::info(
-            &t("rows.debug_engine.version", "Phiên bản hiện tại"),
-            version,
-        )
-        .with_status(
-            Status::Warn,
-            &t(
-                "rows.debug_engine.stale_hint",
-                "Bản cài mới hơn tiến trình đang chạy. Khởi động lại IBus để dùng bản mới.",
-            ),
-        ),
+        Some(s) if s.stale => {
+            Cell::info(&t("rows.debug_engine.version", "Phiên bản MăngRS"), version).with_status(
+                Status::Warn,
+                &t(
+                    "rows.debug_engine.stale_hint",
+                    "Bản cài mới hơn tiến trình đang chạy. Khởi động lại IBus để dùng bản mới.",
+                ),
+            )
+        }
         // The tooltip names the binary that is actually typing: the only way
         // to tell two installs apart without opening a terminal.
-        Some(s) => Cell::info(
-            &t("rows.debug_engine.version", "Phiên bản hiện tại"),
-            version,
-        )
-        .with_status(Status::Ok, &s.exe.display().to_string()),
-        None => Cell::info(
-            &t("rows.debug_engine.version", "Phiên bản hiện tại"),
-            version,
-        ),
+        Some(s) => Cell::info(&t("rows.debug_engine.version", "Phiên bản MăngRS"), version)
+            .with_status(Status::Ok, &s.exe.display().to_string()),
+        None => Cell::info(&t("rows.debug_engine.version", "Phiên bản MăngRS"), version),
     };
     system.push(install);
+    // The IBus daemon's own version belongs with the two rows about IBus.
+    system.push(Cell::info(
+        &t("rows.debug_machine.ibus", "Phiên bản IBus"),
+        facts.machine.ibus.clone(),
+    ));
     let (ext_key, ext_fallback, ext_running) = facts.extension;
     let extension = Cell::info(
         &t("rows.debug_info.extension", "Extension"),
@@ -192,12 +189,8 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
             ),
         )
     });
-    system.push(Cell::info(
-        &t("rows.debug_info.session", "Session"),
-        std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "?".to_string()),
-    ));
-    // The machine's own answers belong with the install's: one group reads as
-    // "what this is running on", and the sample had them apart for no reason.
+    // From this install down to the machine it sits on, ending with the session
+    // it was typed in: the order the facts are usually asked in.
     for (label_key, label_fallback, value) in [
         (
             "rows.debug_machine.os",
@@ -214,14 +207,13 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
             "DE/WM",
             facts.machine.desktop.clone(),
         ),
-        (
-            "rows.debug_machine.ibus",
-            "Phiên bản IBus",
-            facts.machine.ibus.clone(),
-        ),
     ] {
         system.push(Cell::info(&t(label_key, label_fallback), value));
     }
+    system.push(Cell::info(
+        &t("rows.debug_info.session", "Session"),
+        std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "?".to_string()),
+    ));
     out.push(Section {
         title: t("misc.section_system", "Hệ thống"),
         rows: system,
@@ -437,7 +429,7 @@ mod tests {
         MACHINE.get_or_init(|| crate::gui::machine::Machine {
             os: "Arch Linux".to_string(),
             kernel: "6.12.1".to_string(),
-            desktop: "GNOME 47.1 · wayland".to_string(),
+            desktop: "GNOME 47.1".to_string(),
             ibus: "1.5.35".to_string(),
         })
     }
@@ -500,7 +492,7 @@ mod tests {
         let stale = rows(Some(&status(true, Some(false))), None);
         let install = stale
             .iter()
-            .find(|c| c.label == "Phiên bản hiện tại")
+            .find(|c| c.label == "Phiên bản MăngRS")
             .expect("an install row");
         assert_eq!(install.value, "v1.2.7", "the row names the version");
         assert_eq!(install.status, Status::Warn);
@@ -603,10 +595,11 @@ mod tests {
             &[],
             &[],
         );
+        // The session repeats what DE/WM used to show, but it is its own answer.
         for absent in ["Cách chèn", "Tệp", "**Engine**", "**Register**"] {
             assert!(!text.contains(absent), "{absent} is left out: {text}");
         }
-        for present in ["Phiên bản hiện tại", "Kernel", "DE/WM", "Phiên bản IBus"] {
+        for present in ["Phiên bản MăngRS", "Kernel", "DE/WM", "Phiên bản IBus"] {
             assert!(text.contains(present), "{present} travels: {text}");
         }
     }

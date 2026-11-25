@@ -55,27 +55,17 @@ fn os_from_release(text: &str) -> Option<String> {
     }
 }
 
-/// "GNOME 47.1" or "GNOME" when the desktop does not print a version. The
-/// session type rides along: on Wayland and on X11 the same desktop behaves
-/// differently, and that is the first thing a bug report needs.
+/// "GNOME 47.1", or "GNOME" when the desktop does not print a version. The
+/// session type has its own row: repeating it here made two rows say "wayland".
 fn desktop_label(current: &str, version: Option<String>) -> String {
-    let session = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
     let name = current.split(':').next().unwrap_or("").trim().to_string();
     if name.is_empty() {
-        return if session.is_empty() {
-            "?".to_string()
-        } else {
-            session
-        };
+        return "?".to_string();
     }
-    let mut label = match version {
+    match version {
         Some(version) => format!("{name} {version}"),
         None => name,
-    };
-    if !session.is_empty() {
-        label.push_str(&format!(" · {session}"));
     }
-    label
 }
 
 /// The desktop's own version, asked from the program that owns it. An unknown
@@ -140,21 +130,12 @@ mod tests {
     }
 
     #[test]
-    fn a_desktop_label_carries_the_version_and_the_session() {
-        assert_eq!(desktop_label("GNOME", Some("47.1".into())), {
-            let session = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
-            if session.is_empty() {
-                "GNOME 47.1".to_string()
-            } else {
-                format!("GNOME 47.1 · {session}")
-            }
-        });
-        assert!(
-            !desktop_label("", None).is_empty(),
-            "an unknown desktop still says something"
-        );
+    fn a_desktop_label_carries_its_version_and_nothing_else() {
+        assert_eq!(desktop_label("GNOME", Some("47.1".into())), "GNOME 47.1");
+        assert_eq!(desktop_label("KDE", None), "KDE");
+        assert_eq!(desktop_label("", None), "?", "an unknown desktop says so");
         // A colon-separated list is common: take the first name only.
-        assert!(desktop_label("ubuntu:GNOME", None).starts_with("ubuntu"));
+        assert_eq!(desktop_label("ubuntu:GNOME", None), "ubuntu");
     }
 
     #[test]
