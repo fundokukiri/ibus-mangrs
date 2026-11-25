@@ -1,14 +1,16 @@
 //! Page "Gỡ lỗi": one screen of tools that only exist while debug mode is on.
-//! A toolbar over the log file, the log itself as the main area, the
-//! diagnostics grid, and a footer that restarts IBus or copies a report.
+//! A status bar on top, the log on the left, the typing test and the
+//! diagnostics on the right, and a footer that restarts IBus or copies a
+//! report. Below `NARROW_WIDTH` the right column drops under the log.
 //!
 //! The switch that turns the log on stays in "Cài đặt nâng cao": this page is
 //! the consequence of that switch, not a second place to set it.
 
 use super::*;
-use crate::gui::debug_report::{cells, transport_from_log, Facts};
+use crate::gui::debug_report::{backend_from_log, sections, Facts, Section};
 use crate::gui::engine_probe;
-use crate::gui::log_decode::{mask_private, parse, Kind, Line, CHIPS};
+use crate::gui::latency::{self, Stats};
+use crate::gui::log_decode::{composing, mask_private, parse, Kind, Line, CHIPS};
 use crate::gui::log_tail::{size_label, tail, Reader, TAIL_BYTES};
 
 /// Lines the viewer keeps. Beyond this the file is history, and holding more
@@ -18,21 +20,21 @@ const VIEW_LINES: usize = 5_000;
 /// The lines the copied report carries.
 const REPORT_LINES: usize = 50;
 
-/// Page-local styling: a box that reads as a box, and the dot colours taken
-/// from the theme so light and dark both work.
-const DEBUG_CSS: &str = crate::gui::pages::debug_diag::DIAG_CSS;
+/// Under this width the two columns cannot both be read, so the right one
+/// moves below the log.
+const NARROW_WIDTH: i32 = 760;
+
+/// The columns split about 1.5 to 1, within a band where both stay readable.
+const SHARE_RATIO: f32 = 2.5;
+const MIN_RIGHT_WIDTH: i32 = 300;
+const MAX_RIGHT_WIDTH: i32 = 560;
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
-    let page = gtk4::Box::new(Orientation::Vertical, 10);
-    page.set_margin_top(12);
-    page.set_margin_bottom(12);
-    page.set_margin_start(16);
-    page.set_margin_end(16);
-    let toast_overlay = adw::ToastOverlay::new();
     let path = crate::debug_log::log_path();
+    let toast_overlay = adw::ToastOverlay::new();
     {
         let provider = gtk4::CssProvider::new();
-        provider.load_from_data(DEBUG_CSS);
+        provider.load_from_data(super::debug_tools::TOOLS_CSS);
         if let Some(display) = gtk4::gdk::Display::default() {
             gtk4::style_context_add_provider_for_display(
                 &display,
@@ -42,15 +44,43 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         }
     }
 
-    // The log reader (it only reads what was appended), the chips the user has
-    // on, the typed filter, and how many lines arrived while paused.
+    // The log reader (it only reads what was appended), the kind on, the typed
+    // filter, and how many lines arrived while paused.
     let reader = Rc::new(RefCell::new(Reader::new(path.clone(), VIEW_LINES)));
     let pending = Rc::new(Cell::new(0usize));
-    let picked: Rc<RefCell<Vec<Kind>>> = Rc::new(RefCell::new(Vec::new()));
+    let kind_filter: Rc<RefCell<Option<Kind>>> = Rc::new(RefCell::new(None));
     let query: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
-    let updating = Rc::new(Cell::new(false));
 
-    // --- Toolbar ----------------------------------------------------------
+    // --- Status bar -------------------------------------------------------
+    let dot = gtk4::Label::new(Some("●"));
+    dot.add_css_class("diag-dot-info");
+    let state = gtk4::Label::new(Some(&t("misc.status_unknown", "Chưa rõ engine")));
+    state.add_css_class("caption");
+    state.add_css_class("diag-group");
+    let detail = gtk4::Label::new(None);
+    detail.add_css_class("caption");
+    detail.add_css_class("dim-label");
+    detail.set_xalign(0.0);
+    detail.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    let metric_avg = gtk4::Label::new(None);
+    let metric_max = gtk4::Label::new(None);
+    let metric_log = gtk4::Label::new(None);
+    for metric in [&metric_avg, &metric_max, &metric_log] {
+        metric.add_css_class("caption");
+        metric.add_css_class("monospace");
+    }
+    let status_spacer = gtk4::Box::new(Orientation::Horizontal, 0);
+    status_spacer.set_hexpand(true);
+    let status = gtk4::Box::new(Orientation::Horizontal, 8);
+    status.append(&dot);
+    status.append(&state);
+    status.append(&detail);
+    status.append(&status_spacer);
+    status.append(&metric_avg);
+    status.append(&metric_max);
+    status.append(&metric_log);
+
+    // --- Left column: toolbar over the log --------------------------------
     let filter = gtk4::SearchEntry::new();
     filter.set_placeholder_text(Some(&t("misc.debug_filter_placeholder", "Lọc dòng")));
     filter.set_hexpand(true);
@@ -58,6 +88,20 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         "tips.debug_filter",
         "Gõ một phần nội dung để lọc, không phân biệt hoa thường.",
     )));
+    let names: Vec<String> = std::iter::once(t("misc.chip_all", "Tất cả"))
+        .chain(CHIPS.iter().map(|kind| kind_label(*kind)))
+        .collect();
+    let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let kind_pick = gtk4::DropDown::from_strings(&name_refs);
+    kind_pick.add_css_class("diag-kind");
+    kind_pick.set_tooltip_text(Some(&t(
+        "tips.debug_kind",
+        "Chỉ hiện một loại dòng. Dòng không thuộc loại nào chỉ hiện khi chọn Tất cả.",
+    )));
+    kind_pick.update_property(&[gtk4::accessible::Property::Label(&t(
+        "misc.debug_kind",
+        "Loại dòng",
+    ))]);
     let follow = gtk4::ToggleButton::new();
     follow.set_icon_name("media-playback-pause-symbolic");
     follow.set_active(true);
@@ -67,52 +111,18 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         &t("misc.debug_pause", "Tạm dừng cuộn"),
         &t("misc.debug_pause", "Tạm dừng cuộn"),
     );
-    // How many lines arrived while the view is paused.
     let arrived = gtk4::Label::new(None);
     arrived.add_css_class("caption");
     arrived.add_css_class("accent");
     arrived.set_visible(false);
-    let open_btn = icon_button(
-        "folder-open-symbolic",
-        &t("misc.debug_open_folder", "Mở thư mục"),
-    );
     let clear_btn = icon_button("user-trash-symbolic", &t("misc.debug_clear_log", "Xoá log"));
     let toolbar = gtk4::Box::new(Orientation::Horizontal, 6);
     toolbar.append(&filter);
+    toolbar.append(&kind_pick);
     toolbar.append(&follow);
     toolbar.append(&arrived);
-    toolbar.append(&open_btn);
     toolbar.append(&clear_btn);
-    page.append(&toolbar);
 
-    // --- Chips ------------------------------------------------------------
-    let chip_row = gtk4::FlowBox::builder()
-        .selection_mode(gtk4::SelectionMode::None)
-        .max_children_per_line(6)
-        .min_children_per_line(1)
-        .row_spacing(4)
-        .column_spacing(4)
-        .build();
-    let mut chips: Vec<(gtk4::ToggleButton, Option<Kind>)> = Vec::new();
-    let all_chip = gtk4::ToggleButton::with_label(&t("misc.chip_all", "Tất cả"));
-    all_chip.add_css_class("flat");
-    all_chip.add_css_class("caption");
-    all_chip.set_active(true);
-    chip_row.insert(&all_chip, -1);
-    chips.push((all_chip, None));
-    for kind in CHIPS {
-        let chip = gtk4::ToggleButton::with_label(&kind_label(kind));
-        chip.add_css_class("flat");
-        chip.add_css_class("caption");
-        if kind == Kind::Error {
-            chip.add_css_class("diag-chip-error");
-        }
-        chip_row.insert(&chip, -1);
-        chips.push((chip, Some(kind)));
-    }
-    page.append(&chip_row);
-
-    // --- Log view ---------------------------------------------------------
     let view = gtk4::TextView::new();
     view.set_editable(false);
     view.set_cursor_visible(false);
@@ -128,74 +138,208 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         .vexpand(true)
         .child(&view)
         .build();
-    page.append(&scroller);
-    let auto_scroll = Rc::new(Cell::new(false));
+    let left = gtk4::Box::new(Orientation::Vertical, 6);
+    left.set_hexpand(true);
+    left.append(&toolbar);
+    left.append(&scroller);
+
+    // --- The facts the rows and the report read ---------------------------
+    let facts: Rc<dyn Fn() -> Vec<Section>> = {
+        let ui = ui.clone();
+        let path = path.clone();
+        let reader = Rc::clone(&reader);
+        Rc::new(move || {
+            let config = ui.read();
+            let extension = extension_state();
+            let (key, fallback) = extension_row_for(extension).subtitle;
+            let engine = engine_probe::probe();
+            let log_lines = reader.borrow().lines();
+            sections(&Facts {
+                preferred: config.preferred_backend,
+                mode: config.mode,
+                extension: (key, fallback, extension == ExtensionState::Running),
+                config_path: Config::path().as_deref(),
+                log_path: path.as_deref(),
+                engine: engine.as_ref(),
+                backend: backend_from_log(&log_lines).as_deref(),
+            })
+        })
+    };
+
+    // --- Right column -----------------------------------------------------
+    let tools = super::debug_tools::build(ui, &toast_overlay, Rc::clone(&facts));
+
+    // --- The two columns --------------------------------------------------
+    let separator = gtk4::Separator::new(Orientation::Vertical);
+    let right = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .child(&tools.body)
+        .build();
+    right.set_width_request(MIN_RIGHT_WIDTH);
+    // Without this the column's natural width is its longest label, and the
+    // box would hand it half the page instead of the fixed share on the right.
+    right.set_propagate_natural_width(false);
+    right.set_hexpand(false);
+    right.set_vexpand(true);
+    let split = gtk4::Box::new(Orientation::Horizontal, 12);
+    split.append(&left);
+    split.append(&separator);
+    split.append(&right);
+
+    // --- Footer -----------------------------------------------------------
+    let restart_btn = gtk4::Button::with_label(&t("misc.restart_button", "Khởi động lại IBus"));
+    restart_btn.set_tooltip_text(Some(&t(
+        "tips.restart_engine",
+        "Khởi động lại IBus, bộ gõ sẽ ngắt trong giây lát ở mọi ứng dụng.",
+    )));
+    // Icon and words in one child: `set_label` plus `set_icon_name` keeps only
+    // the icon on this GTK version.
+    let copy_btn = gtk4::Button::new();
+    let copy_child = gtk4::Box::new(Orientation::Horizontal, 6);
+    copy_child.append(&gtk4::Image::from_icon_name("edit-copy-symbolic"));
+    copy_child.append(&gtk4::Label::new(Some(&t(
+        "misc.debug_copy_report",
+        "Sao chép báo cáo",
+    ))));
+    copy_btn.set_child(Some(&copy_child));
+    let hide_switch = gtk4::CheckButton::with_label(&t(
+        "misc.debug_hide_text",
+        "Ẩn nội dung gõ và macro khi sao chép",
+    ));
+    hide_switch.set_active(true);
+    let hide_hint = gtk4::Label::new(Some(&t(
+        "misc.debug_hide_hint",
+        "Tắt sẽ đưa cả macro và nội dung gõ vào báo cáo.",
+    )));
+    hide_hint.add_css_class("caption");
+    hide_hint.add_css_class("dim-label");
+    hide_hint.set_wrap(true);
+    hide_hint.set_xalign(0.0);
+    let footer = gtk4::Box::new(Orientation::Horizontal, 8);
+    let footer_text = gtk4::Box::new(Orientation::Vertical, 2);
+    footer_text.append(&hide_switch);
+    footer_text.append(&hide_hint);
+    let footer_spacer = gtk4::Box::new(Orientation::Horizontal, 0);
+    footer_spacer.set_hexpand(true);
+    footer.append(&footer_text);
+    footer.append(&footer_spacer);
+    footer.append(&restart_btn);
+    footer.append(&copy_btn);
+
+    // --- The page ---------------------------------------------------------
+    let page = gtk4::Box::new(Orientation::Vertical, 10);
+    page.set_margin_top(12);
+    page.set_margin_bottom(12);
+    page.set_margin_start(16);
+    page.set_margin_end(16);
+    page.set_vexpand(true);
+    page.append(&status);
+    page.append(&split);
+    page.append(&footer);
+
+    // The page never scrolls while the columns fit; the stacked column below
+    // `NARROW_WIDTH` is taller than the window, and this keeps it reachable.
+    let outer = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .child(&page)
+        .build();
+
+    // --- Rendering --------------------------------------------------------
     let render: Rc<dyn Fn()> = {
         let reader = Rc::clone(&reader);
-        let picked = Rc::clone(&picked);
+        let kind_filter = Rc::clone(&kind_filter);
         let query = Rc::clone(&query);
         let view = view.clone();
         let scroller = scroller.clone();
         let follow = follow.clone();
-        let auto_scroll = Rc::clone(&auto_scroll);
-        let chips = chips.clone();
-        let open_btn = open_btn.clone();
-        let clear_btn = clear_btn.clone();
+        let metric_avg = metric_avg.clone();
+        let metric_max = metric_max.clone();
+        let metric_log = metric_log.clone();
+        let composing_label = tools.composing.clone();
         let path = path.clone();
         Rc::new(move || {
             let parsed = parse_all(&reader.borrow().lines());
-            let mut counts = [0usize; 6];
-            for line in &parsed {
-                counts[kind_index(line.kind)] += 1;
-            }
-            let on = picked.borrow().clone();
+            let kind = *kind_filter.borrow();
             let needle = query.borrow().to_lowercase();
             let shown: Vec<&Line> = parsed
                 .iter()
-                .filter(|line| on.is_empty() || on.contains(&line.kind))
+                .filter(|line| kind.is_none_or(|k| line.kind == k))
                 .filter(|line| needle.is_empty() || line.plain().to_lowercase().contains(&needle))
                 .collect();
             draw(&view, &shown);
-            // Chip labels carry their own count, so the row doubles as a
-            // summary of what the file holds.
-            for (chip, kind) in &chips {
-                let count = match kind {
-                    None => parsed.len(),
-                    Some(kind) => counts[kind_index(*kind)],
-                };
-                let label = match kind {
-                    None => t("misc.chip_all", "Tất cả"),
-                    Some(kind) => kind_label(*kind),
-                };
-                chip.set_label(&format!("{label} {count}"));
-            }
-            if let Some((chip, _)) = chips.iter().find(|(_, k)| k.is_none()) {
-                chip.set_active(picked.borrow().is_empty());
-            }
+            // The two latency numbers are measured once, from the same walk.
+            let stats = latency::measure(&parsed);
+            let pick = |f: fn(&Stats) -> u64| match stats {
+                Some(stats) => format!("{}ms", f(&stats)),
+                None => "—".to_string(),
+            };
+            metric_avg.set_text(&format!(
+                "{} {}",
+                t("misc.metric_avg", "Trễ TB"),
+                pick(|s| s.avg_ms)
+            ));
+            metric_max.set_text(&format!(
+                "{} {}",
+                t("misc.metric_max", "Tối đa"),
+                pick(|s| s.max_ms)
+            ));
+            let size = path
+                .as_deref()
+                .and_then(|p| std::fs::metadata(p).ok())
+                .map(|m| size_label(m.len()))
+                .unwrap_or_else(|| "—".to_string());
+            metric_log.set_text(&format!("{} {size}", t("misc.metric_log", "Log")));
+            composing_label.set_text(&match composing(&parsed) {
+                Some(true) => t("misc.buffer_composing", "đang soạn"),
+                Some(false) => t("misc.buffer_empty", "trống"),
+                None => String::new(),
+            });
             if follow.is_active() {
-                auto_scroll.set(true);
                 let adj = scroller.vadjustment();
                 adj.set_value(adj.upper() - adj.page_size());
-                auto_scroll.set(false);
-            }
-            // Same values, in a tooltip: the page has no room for a row that
-            // only says where the file is.
-            if let Some(path) = path.as_deref() {
-                let size = std::fs::metadata(path)
-                    .map(|m| size_label(m.len()))
-                    .unwrap_or_else(|_| t("misc.debug_log_absent", "chưa ghi"));
-                let tip = format!("{} · {}", size, path.display());
-                open_btn.set_tooltip_text(Some(&format!(
-                    "{}\n{tip}",
-                    t("misc.debug_open_folder", "Mở thư mục")
-                )));
-                clear_btn.set_tooltip_text(Some(&format!(
-                    "{}\n{tip}",
-                    t("misc.debug_clear_log", "Xoá log")
-                )));
             }
         })
     };
+
+    // --- Engine state in the status bar -----------------------------------
+    let status_refresh: Rc<dyn Fn()> = {
+        let dot = dot.clone();
+        let state = state.clone();
+        let detail = detail.clone();
+        Rc::new(move || match engine_probe::probe() {
+            Some(engine) => {
+                set_dot(&dot, "diag-dot-ok");
+                state.set_text(&t("misc.status_running", "Engine đang chạy"));
+                let uptime = engine
+                    .started
+                    .and_then(|began| std::time::SystemTime::now().duration_since(began).ok())
+                    .map(|age| uptime_label(age.as_secs()))
+                    .unwrap_or_else(|| "?".to_string());
+                detail.set_text(&format!(
+                    "PID {} · {uptime} · {}",
+                    engine.pid,
+                    env!("CARGO_PKG_VERSION")
+                ));
+            }
+            None => {
+                set_dot(&dot, "diag-dot-warn");
+                state.set_text(&t("misc.status_stopped", "Engine không chạy"));
+                detail.set_text(&format!(
+                    "{} · {}",
+                    t(
+                        "misc.status_stopped_hint",
+                        "IBus chỉ khởi động engine khi có phím"
+                    ),
+                    env!("CARGO_PKG_VERSION")
+                ));
+            }
+        })
+    };
+    status_refresh();
+
+    // --- Wiring -----------------------------------------------------------
     {
         let render = Rc::clone(&render);
         let query = Rc::clone(&query);
@@ -205,51 +349,16 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         });
     }
     {
-        for (chip, kind) in chips.clone() {
-            let render = Rc::clone(&render);
-            let picked = Rc::clone(&picked);
-            let updating = Rc::clone(&updating);
-            let chips_inner = chips.clone();
-            chip.connect_toggled(move |chip| {
-                if updating.get() {
-                    return;
-                }
-                updating.set(true);
-                match kind {
-                    None => picked.borrow_mut().clear(),
-                    Some(kind) => {
-                        let mut on = picked.borrow_mut();
-                        if chip.is_active() {
-                            if !on.contains(&kind) {
-                                on.push(kind);
-                            }
-                        } else {
-                            on.retain(|k| *k != kind);
-                        }
-                    }
-                }
-                for (other, k) in &chips_inner {
-                    if k.is_none() {
-                        other.set_active(picked.borrow().is_empty());
-                    }
-                }
-                updating.set(false);
-                render();
-            });
-        }
-    }
-    {
-        // The pause button follows the state, not the click: scrolling up in
-        // the view turns following off, and the button has to say so.
-        let follow2 = follow.clone();
-        let auto_scroll = Rc::clone(&auto_scroll);
-        scroller.vadjustment().connect_value_changed(move |adj| {
-            if auto_scroll.get() || !follow2.is_active() {
-                return;
-            }
-            if adj.value() + adj.page_size() < adj.upper() - 4.0 {
-                follow2.set_active(false);
-            }
+        let render = Rc::clone(&render);
+        let kind_filter = Rc::clone(&kind_filter);
+        kind_pick.connect_selected_notify(move |pick| {
+            // Item 0 is "Tất cả"; the rest follow `CHIPS`.
+            let index = pick.selected();
+            *kind_filter.borrow_mut() = usize::try_from(index)
+                .ok()
+                .and_then(|i| i.checked_sub(1))
+                .and_then(|i| CHIPS.get(i).copied());
+            render();
         });
     }
     {
@@ -264,11 +373,17 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         });
     }
     {
-        // Open the folder, not the file: the file would launch an editor.
-        let path = path.clone();
-        open_btn.connect_clicked(move |_| {
-            if let Some(dir) = path.as_deref().and_then(|p| p.parent()) {
-                let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+        // The pause button follows the state, not the click: scrolling up in
+        // the view turns following off, and the button has to say so.
+        let follow2 = follow.clone();
+        let auto_scroll = Rc::new(Cell::new(false));
+        let guard = Rc::clone(&auto_scroll);
+        scroller.vadjustment().connect_value_changed(move |adj| {
+            if guard.get() || !follow2.is_active() {
+                return;
+            }
+            if adj.value() + adj.page_size() < adj.upper() - 4.0 {
+                follow2.set_active(false);
             }
         });
     }
@@ -305,86 +420,134 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
         });
     }
-
-    // --- Diagnostics ------------------------------------------------------
-    let facts: Rc<dyn Fn() -> Vec<crate::gui::debug_report::Cell>> = {
-        let ui = ui.clone();
-        let path = path.clone();
-        let reader = Rc::clone(&reader);
-        Rc::new(move || {
-            let config = ui.read();
-            let extension = extension_state();
-            let (key, fallback) = extension_row_for(extension).subtitle;
-            let engine = engine_probe::probe();
-            let config_path = Config::path();
-            let transport = transport_from_log(&reader.borrow().lines());
-            cells(&Facts {
-                preferred: config.preferred_backend,
-                mode: config.mode,
-                extension: (key, fallback, extension == ExtensionState::Running),
-                config_path: config_path.as_deref(),
-                log_path: path.as_deref(),
-                engine: engine.as_ref(),
-                transport: transport.as_deref(),
-            })
-        })
-    };
-    let (diag, refresh_diag) =
-        super::debug_diag::build(ui, &toast_overlay, &page, Rc::clone(&facts));
-    page.append(&diag);
-
-    // --- Footer -----------------------------------------------------------
-    let restart_btn = gtk4::Button::with_label(&t("misc.restart_button", "Khởi động lại IBus"));
-    restart_btn.set_tooltip_text(Some(&t(
-        "tips.restart_engine",
-        "Bộ gõ ngắt trong giây lát ở mọi ứng dụng, rồi chạy lại. Có hỏi lại trước khi làm.",
-    )));
-    // Icon and words in one child: `set_label` plus `set_icon_name` keeps only
-    // the icon on this GTK version.
-    let copy_btn = gtk4::Button::new();
-    let copy_child = gtk4::Box::new(Orientation::Horizontal, 6);
-    copy_child.append(&gtk4::Image::from_icon_name("edit-copy-symbolic"));
-    copy_child.append(&gtk4::Label::new(Some(&t(
-        "misc.debug_copy_report",
-        "Sao chép báo cáo",
-    ))));
-    copy_btn.set_child(Some(&copy_child));
-    let hide_switch =
-        gtk4::CheckButton::with_label(&t("misc.debug_hide_text", "Ẩn nội dung gõ khi sao chép"));
-    hide_switch.set_active(true);
-    let hide_hint = gtk4::Label::new(Some(&t(
-        "misc.debug_hide_hint",
-        "Tắt thì báo cáo kèm văn bản bạn đang gõ.",
-    )));
-    hide_hint.add_css_class("caption");
-    hide_hint.add_css_class("dim-label");
-    hide_hint.set_wrap(true);
-    hide_hint.set_xalign(0.0);
-    let footer = gtk4::Box::new(Orientation::Horizontal, 8);
-    let footer_text = gtk4::Box::new(Orientation::Vertical, 2);
-    footer_text.append(&hide_switch);
-    footer_text.append(&hide_hint);
-    let spacer = gtk4::Box::new(Orientation::Horizontal, 0);
-    spacer.set_hexpand(true);
-    footer.append(&restart_btn);
-    footer.append(&copy_btn);
-    footer.append(&spacer);
-    footer.append(&footer_text);
-    page.append(&footer);
-
-    // Report and restart: wired below so the layout above stays readable.
     {
-        let ui = ui.clone();
+        // A narrow window stacks the column instead of squeezing both.
+        let split = split.clone();
+        let separator = separator.clone();
+        let right = right.clone();
+        let scroller = scroller.clone();
+        let outer_ref = outer.clone();
+        let laid_out = Rc::new(Cell::new((false, -1i32)));
+        let state = Rc::clone(&laid_out);
+        outer.add_tick_callback(move |_, _| {
+            let width = outer_ref.width();
+            let narrow = is_narrow(width);
+            let share = column_share(width);
+            if (narrow, share) != state.get() {
+                state.set((narrow, share));
+                if narrow {
+                    split.set_orientation(Orientation::Vertical);
+                    separator.set_visible(false);
+                    right.set_width_request(-1);
+                    right.set_vexpand(false);
+                    // Stacked, the column takes its own height and the page
+                    // scrolls, instead of squeezing it into a few pixels.
+                    right.set_propagate_natural_height(true);
+                    scroller.set_vexpand(false);
+                } else {
+                    split.set_orientation(Orientation::Horizontal);
+                    separator.set_visible(true);
+                    right.set_width_request(share);
+                    right.set_propagate_natural_height(false);
+                    right.set_vexpand(true);
+                    scroller.set_vexpand(true);
+                }
+            }
+            gtk4::glib::ControlFlow::Continue
+        });
+    }
+
+    // --- Report and restart -----------------------------------------------
+    {
+        let ui_clone = ui.clone();
         let overlay = toast_overlay.clone();
         let path = path.clone();
         let hide_switch_copy = hide_switch.clone();
+        let facts = Rc::clone(&facts);
         copy_btn.connect_clicked(move |btn| {
-            let last = report_log_lines(path.as_deref(), hide_switch_copy.is_active());
-            let text = crate::gui::debug_report::report(&facts(), &config_lines(&ui), &last);
+            let hide = hide_switch_copy.is_active();
+            let last = report_log_lines(path.as_deref(), hide);
+            let mut config = config_lines(&ui_clone);
+            config.extend(macro_lines(hide));
+            let text = crate::gui::debug_report::report(&facts(), &config, &last);
             btn.clipboard().set_text(&text);
-            ui.fire_toast(&overlay, &t("debug_report.copied", "Đã sao chép báo cáo"));
+            ui_clone.fire_toast(&overlay, &t("debug_report.copied", "Đã sao chép báo cáo"));
         });
     }
+    {
+        let ui_clone = ui.clone();
+        let overlay = toast_overlay.clone();
+        let status_refresh = Rc::clone(&status_refresh);
+        let tools_refresh = Rc::clone(&tools.refresh);
+        restart_btn.connect_clicked(move |btn| {
+            let dialog = adw::AlertDialog::builder()
+                .heading(t("debug_restart.heading", "Khởi động lại IBus?"))
+                .body(t(
+                    "debug_restart.body",
+                    "Bộ gõ ngắt trong giây lát ở mọi ứng dụng, chữ đang gõ dở sẽ mất.",
+                ))
+                .build();
+            dialog.add_response("cancel", &t("debug_clear.cancel", "Huỷ"));
+            dialog.add_response("restart", &t("misc.restart_button", "Khởi động lại IBus"));
+            dialog.set_response_appearance("restart", adw::ResponseAppearance::Suggested);
+            dialog.set_default_response(Some("cancel"));
+            dialog.set_close_response("cancel");
+            {
+                let ui = ui_clone.clone();
+                let overlay = overlay.clone();
+                let status_refresh = Rc::clone(&status_refresh);
+                let tools_refresh = Rc::clone(&tools_refresh);
+                let btn = btn.clone();
+                dialog.connect_response(Some("restart"), move |_, _| {
+                    if let Err(e) = super::other::restart_ibus() {
+                        ui.fire_toast(
+                            &overlay,
+                            &format!("{}: {e}", t("debug_restart.failed", "Không chạy được")),
+                        );
+                        return;
+                    }
+                    btn.set_sensitive(false);
+                    btn.set_label(&t("debug_restart.running", "Đang khởi động lại…"));
+                    ui.fire_toast(
+                        &overlay,
+                        &t("debug_restart.started", "Đang khởi động lại IBus…"),
+                    );
+                    // The daemon needs a moment; report what actually happened
+                    // instead of assuming the restart worked.
+                    let ticks = Rc::new(Cell::new(0u32));
+                    let ui = ui.clone();
+                    let overlay = overlay.clone();
+                    let status_refresh = Rc::clone(&status_refresh);
+                    let tools_refresh = Rc::clone(&tools_refresh);
+                    let btn = btn.clone();
+                    gtk4::glib::timeout_add_local(
+                        std::time::Duration::from_millis(500),
+                        move || {
+                            ticks.set(ticks.get() + 1);
+                            let back = engine_probe::probe().is_some();
+                            if back || ticks.get() >= 20 {
+                                btn.set_sensitive(true);
+                                btn.set_label(&t("misc.restart_button", "Khởi động lại IBus"));
+                                status_refresh();
+                                tools_refresh();
+                                let text = if back {
+                                    t("debug_restart.done", "IBus đã chạy lại")
+                                } else {
+                                    t("debug_restart.timeout", "Chưa thấy IBus chạy lại")
+                                };
+                                ui.fire_toast(&overlay, &text);
+                                return gtk4::glib::ControlFlow::Break;
+                            }
+                            gtk4::glib::ControlFlow::Continue
+                        },
+                    );
+                });
+            }
+            dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
+        });
+    }
+
+    // --- Following the file -----------------------------------------------
     {
         // One poll reads only what the engine appended. While following, the
         // view jumps to the new lines; while paused, the number waits in the
@@ -392,19 +555,30 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let poll: Rc<dyn Fn(bool)> = {
             let reader = Rc::clone(&reader);
             let render = Rc::clone(&render);
-            let refresh_diag = Rc::clone(&refresh_diag);
+            let status_refresh = Rc::clone(&status_refresh);
+            let tools_refresh = Rc::clone(&tools.refresh);
             let follow = follow.clone();
             let arrived = arrived.clone();
             let pending = Rc::clone(&pending);
+            let last_probe = Rc::new(Cell::new(std::time::Instant::now()));
             Rc::new(move |first: bool| {
                 let added = reader.borrow_mut().poll();
                 if first {
                     render();
-                    refresh_diag();
+                    status_refresh();
+                    tools_refresh();
                     return;
                 }
                 if added == 0 {
                     return;
+                }
+                // Typing in the test box is exactly what starts the engine, so
+                // a status that said "not running" has to be re-read. Twice a
+                // second at most: the probe walks /proc.
+                if last_probe.get().elapsed() > std::time::Duration::from_millis(500) {
+                    last_probe.set(std::time::Instant::now());
+                    status_refresh();
+                    tools_refresh();
                 }
                 if follow.is_active() {
                     render();
@@ -450,80 +624,47 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         }
     }
 
-    // The restart goes through the same script as the maintenance button on
-    // "Cài đặt nâng cao": it also brings the ibus-x11 bridge back, which a bare
-    // `ibus restart` leaves dead for XIM applications.
-    {
-        let ui = ui.clone();
-        let overlay = toast_overlay.clone();
-        let refresh_diag = Rc::clone(&refresh_diag);
-        restart_btn.connect_clicked(move |btn| {
-            let dialog = adw::AlertDialog::builder()
-                .heading(t("debug_restart.heading", "Khởi động lại IBus?"))
-                .body(t(
-                    "debug_restart.body",
-                    "Bộ gõ ngắt trong giây lát ở mọi ứng dụng, chữ đang gõ dở sẽ mất.",
-                ))
-                .build();
-            dialog.add_response("cancel", &t("debug_clear.cancel", "Huỷ"));
-            dialog.add_response("restart", &t("misc.restart_button", "Khởi động lại IBus"));
-            dialog.set_response_appearance("restart", adw::ResponseAppearance::Suggested);
-            dialog.set_default_response(Some("cancel"));
-            dialog.set_close_response("cancel");
-            {
-                let ui = ui.clone();
-                let overlay = overlay.clone();
-                let refresh_diag = Rc::clone(&refresh_diag);
-                let btn = btn.clone();
-                dialog.connect_response(Some("restart"), move |_, _| {
-                    if let Err(e) = super::other::restart_ibus() {
-                        ui.fire_toast(
-                            &overlay,
-                            &format!("{}: {e}", t("debug_restart.failed", "Không chạy được")),
-                        );
-                        return;
-                    }
-                    btn.set_sensitive(false);
-                    btn.set_label(&t("debug_restart.running", "Đang khởi động lại…"));
-                    ui.fire_toast(
-                        &overlay,
-                        &t("debug_restart.started", "Đang khởi động lại IBus…"),
-                    );
-                    // The daemon needs a moment; report what actually happened
-                    // instead of assuming the restart worked.
-                    let ticks = Rc::new(std::cell::Cell::new(0u32));
-                    let ui = ui.clone();
-                    let overlay = overlay.clone();
-                    let refresh_diag = Rc::clone(&refresh_diag);
-                    let btn = btn.clone();
-                    gtk4::glib::timeout_add_local(
-                        std::time::Duration::from_millis(500),
-                        move || {
-                            ticks.set(ticks.get() + 1);
-                            let back = engine_probe::probe().is_some();
-                            if back || ticks.get() >= 20 {
-                                btn.set_sensitive(true);
-                                btn.set_label(&t("misc.restart_button", "Khởi động lại IBus"));
-                                refresh_diag();
-                                let text = if back {
-                                    t("debug_restart.done", "IBus đã chạy lại")
-                                } else {
-                                    t("debug_restart.timeout", "Chưa thấy IBus chạy lại")
-                                };
-                                ui.fire_toast(&overlay, &text);
-                                return gtk4::glib::ControlFlow::Break;
-                            }
-                            gtk4::glib::ControlFlow::Continue
-                        },
-                    );
-                });
-            }
-            dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
-        });
-    }
-
-    toast_overlay.set_child(Some(&page));
+    // One draw before the window appears, so the status bar is never blank.
+    render();
+    toast_overlay.set_child(Some(&outer));
     toast_overlay
+}
+
+/// Below `NARROW_WIDTH` the right column moves under the log.
+fn is_narrow(width: i32) -> bool {
+    width > 0 && width < NARROW_WIDTH
+}
+
+/// The right column's width: a fixed share of the page, kept in a band where
+/// the rows still read and the log keeps most of the room.
+fn column_share(width: i32) -> i32 {
+    ((width as f32 / SHARE_RATIO) as i32).clamp(MIN_RIGHT_WIDTH, MAX_RIGHT_WIDTH)
+}
+
+/// "2 giờ 14 phút": an uptime short enough for a status bar.
+fn uptime_label(secs: u64) -> String {
+    let minutes = secs / 60;
+    let hours = minutes / 60;
+    let days = hours / 24;
+    if days > 0 {
+        format!("{days} ngày {}", hours % 24)
+    } else if hours > 0 {
+        format!("{hours} giờ {}", minutes % 60)
+    } else if minutes > 0 {
+        format!("{minutes} phút")
+    } else {
+        format!("{secs} giây")
+    }
+}
+
+fn kind_label(kind: Kind) -> String {
+    match kind {
+        Kind::Key => t("misc.chip_key", "Phím"),
+        Kind::Insert => t("misc.chip_insert", "Chèn"),
+        Kind::Flush => t("misc.chip_flush", "Flush"),
+        Kind::Error => t("misc.chip_error", "Lỗi"),
+        Kind::Other => t("misc.chip_other", "Khác"),
+    }
 }
 
 /// The log tail the report carries. With hiding on, the two fields that hold
@@ -551,6 +692,35 @@ fn config_lines(ui: &Rc<Ui>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The macro table as the report carries it.
+fn macro_lines(hide: bool) -> Vec<String> {
+    let entries: Vec<(String, String)> = crate::macros::Macros::load()
+        .entries()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+    macro_block(hide, entries)
+}
+
+/// Hiding keeps the count and drops every key and expansion: a shortcut can
+/// hold a password.
+fn macro_block(hide: bool, entries: Vec<(String, String)>) -> Vec<String> {
+    if entries.is_empty() {
+        return Vec::new();
+    }
+    if hide {
+        return vec![format!(
+            "[macro] {} {}",
+            entries.len(),
+            t("debug_report.macro_hidden", "mục, đã ẩn nội dung")
+        )];
+    }
+    let mut out = vec![format!("[macro] {}", entries.len())];
+    for (key, value) in entries {
+        out.push(format!("{key} = {value:?}"));
+    }
+    out
+}
+
 /// Parse the whole tail once, keeping the gap between neighbouring lines.
 fn parse_all(raw: &[String]) -> Vec<Line> {
     let mut out = Vec::with_capacity(raw.len());
@@ -562,28 +732,6 @@ fn parse_all(raw: &[String]) -> Vec<Line> {
         }
     }
     out
-}
-
-fn kind_index(kind: Kind) -> usize {
-    match kind {
-        Kind::Key => 0,
-        Kind::Backspace => 1,
-        Kind::Insert => 2,
-        Kind::Flush => 3,
-        Kind::Error => 4,
-        Kind::Other => 5,
-    }
-}
-
-fn kind_label(kind: Kind) -> String {
-    match kind {
-        Kind::Key => t("misc.chip_key", "Phím"),
-        Kind::Backspace => t("misc.chip_backspace", "Backspace"),
-        Kind::Insert => t("misc.chip_insert", "Chèn"),
-        Kind::Flush => t("misc.chip_flush", "Flush"),
-        Kind::Error => t("misc.chip_error", "Lỗi"),
-        Kind::Other => t("misc.chip_other", "Khác"),
-    }
 }
 
 /// Draw the selected lines: relative time, coloured kind, decoded body.
@@ -611,14 +759,16 @@ fn draw(view: &gtk4::TextView, lines: &[&Line]) {
             &[tag_for(line.kind), "log-label"],
         );
         buffer.insert(&mut iter, &line.body.text(&press, &release));
-        buffer.insert(&mut iter, "\n");
+        buffer.insert(
+            &mut iter, "
+",
+        );
     }
 }
 
 fn tag_for(kind: Kind) -> &'static str {
     match kind {
         Kind::Key => "log-key",
-        Kind::Backspace => "log-backspace",
         Kind::Insert => "log-insert",
         Kind::Flush => "log-flush",
         Kind::Error => "log-error",
@@ -638,7 +788,6 @@ fn make_tags(buffer: &gtk4::TextBuffer, view: &gtk4::TextView) {
     };
     for (tag, name, alpha) in [
         ("log-key", "accent_color", 1.0),
-        ("log-backspace", "warning_color", 1.0),
         ("log-insert", "success_color", 1.0),
         ("log-flush", "view_fg_color", 0.75),
         ("log-error", "error_color", 1.0),
@@ -650,6 +799,14 @@ fn make_tags(buffer: &gtk4::TextBuffer, view: &gtk4::TextView) {
             created.set_foreground_rgba(Some(&color(name, alpha)));
         }
     }
+}
+
+/// The status dot takes exactly one of the three colours.
+fn set_dot(dot: &gtk4::Label, class: &str) {
+    for old in ["diag-dot-ok", "diag-dot-warn", "diag-dot-info"] {
+        dot.remove_css_class(old);
+    }
+    dot.add_css_class(class);
 }
 
 /// An icon-only toolbar button: tooltip and accessible label carry the words
@@ -682,15 +839,12 @@ mod tests {
     }
 
     #[test]
-    fn every_kind_has_its_own_slot_and_label() {
-        let mut seen = Vec::new();
-        for kind in CHIPS.iter().copied() {
-            let index = kind_index(kind);
-            assert!(!seen.contains(&index), "two kinds share slot {index}");
-            seen.push(index);
-            assert!(!kind_label(kind).is_empty());
+    fn every_kind_the_list_offers_has_a_label() {
+        for kind in CHIPS {
+            assert!(!kind_label(kind).is_empty(), "{kind:?}");
         }
-        assert_eq!(kind_index(Kind::Other), 5, "the other slot stays free");
+        assert_eq!(kind_label(Kind::Key), "Phím");
+        assert_eq!(kind_label(Kind::Error), "Lỗi");
     }
 
     #[test]
@@ -724,5 +878,35 @@ mod tests {
         assert_eq!(parsed[1].kind, Kind::Key);
         assert_eq!(parsed[4].kind, Kind::Error);
         assert_eq!(parsed[3].kind, Kind::Insert);
+    }
+
+    #[test]
+    fn the_two_columns_split_one_and_a_half_to_one() {
+        assert_eq!(column_share(0), MIN_RIGHT_WIDTH);
+        assert_eq!(column_share(760), 304);
+        assert_eq!(column_share(1334), 533);
+        assert_eq!(
+            column_share(3000),
+            MAX_RIGHT_WIDTH,
+            "the log keeps the room"
+        );
+    }
+
+    #[test]
+    fn a_narrow_window_stacks_the_columns() {
+        assert!(is_narrow(699));
+        assert!(
+            !is_narrow(NARROW_WIDTH),
+            "the threshold itself still splits"
+        );
+        assert!(!is_narrow(0), "an unallocated window is not narrow");
+    }
+
+    #[test]
+    fn an_uptime_reads_the_way_a_person_says_it() {
+        assert_eq!(uptime_label(5), "5 giây");
+        assert_eq!(uptime_label(90), "1 phút");
+        assert_eq!(uptime_label(3600 + 14 * 60), "1 giờ 14");
+        assert_eq!(uptime_label(86400 * 2 + 3600 * 3), "2 ngày 3");
     }
 }

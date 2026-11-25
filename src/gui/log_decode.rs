@@ -8,21 +8,15 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
     Key,
-    Backspace,
     Insert,
     Flush,
     Error,
     Other,
 }
 
-/// The kinds that get a chip, in the order the row shows them.
-pub(super) const CHIPS: [Kind; 5] = [
-    Kind::Key,
-    Kind::Backspace,
-    Kind::Insert,
-    Kind::Flush,
-    Kind::Error,
-];
+/// The kinds the type list offers, in the order it shows them. Any other kind
+/// is visible only with "Tất cả" picked.
+pub(super) const CHIPS: [Kind; 4] = [Kind::Key, Kind::Insert, Kind::Flush, Kind::Error];
 
 /// A decoded line, ready to be drawn.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,9 +124,6 @@ pub(super) fn classify(msg: &str) -> Kind {
     {
         return Kind::Error;
     }
-    if lower.contains("backspace") || lower.contains("delete-before") {
-        return Kind::Backspace;
-    }
     if msg == "key" || msg.starts_with("key ") {
         return Kind::Key;
     }
@@ -168,6 +159,20 @@ fn key_body(msg: &str) -> Option<Body> {
         release: state & RELEASE != 0,
         mods: modifier_names(state),
     })
+}
+
+/// Whether the newest report in the log says a word is being composed, which
+/// is what the typing test shows beside its buffer line. `None` when no line
+/// carries the flag.
+pub(super) fn composing(lines: &[Line]) -> Option<bool> {
+    for line in lines.iter().rev() {
+        let text = line.plain();
+        let Some(pos) = text.find("composing=") else {
+            continue;
+        };
+        return Some(text[pos + "composing=".len()..].starts_with("true"));
+    }
+    None
 }
 
 /// X11 state bit 30: the key came back up.
@@ -317,7 +322,9 @@ mod tests {
         // A failure inside a backspace line is still a failure: the red chip
         // has to count it.
         assert_eq!(classify("backspace rewrite failed"), Kind::Error);
-        assert_eq!(classify("rewrite-by-backspace n=3"), Kind::Backspace);
+        // A backspace line that did not fail is background noise, not a family
+        // the type list offers.
+        assert_eq!(classify("rewrite-by-backspace n=3"), Kind::Other);
         assert_eq!(classify("mode: preedit"), Kind::Other);
     }
 
