@@ -28,8 +28,9 @@ const REPORT_LINES: usize = 50;
 const MAX_PAGE_WIDTH: i32 = 1040;
 
 /// Under this width the two columns cannot both be read, so the right one
-/// moves below the log.
-const NARROW_WIDTH: i32 = 760;
+/// moves below the log. It sits below the page width the window opens at, so
+/// the first look is the two-column one.
+const NARROW_WIDTH: i32 = 640;
 
 /// The columns split about 1.5 to 1, within a band where both stay readable.
 const SHARE_RATIO: f32 = 2.5;
@@ -1076,7 +1077,7 @@ mod tests {
 
     #[test]
     fn a_narrow_window_stacks_the_columns() {
-        assert!(is_narrow(699));
+        assert!(is_narrow(NARROW_WIDTH - 1));
         assert!(
             !is_narrow(NARROW_WIDTH),
             "the threshold itself still splits"

@@ -61,6 +61,8 @@ fn gtk_widget_scenarios() {
     close_test_windows();
     the_debug_tab_follows_the_switch();
     the_debug_tab_row_appears_only_with_debug_mode();
+    the_debug_page_opens_with_both_columns();
+    close_test_windows();
     the_debug_page_shows_the_status_the_rows_and_the_footer();
     close_test_windows();
     close_test_windows();
@@ -1165,6 +1167,58 @@ fn the_debug_tab_row_appears_only_with_debug_mode() {
     assert!(
         nav(&win, "debugging").is_some(),
         "the tab is there with debug mode on"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// The window opens wide enough for the two columns: the stacked layout is
+/// for a window the user has narrowed, not for the first look.
+fn the_debug_page_opens_with_both_columns() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-open-width")
+        .build();
+    let saved = Config::load();
+    Config {
+        debug_log: true,
+        ..saved
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("debugging"));
+    win.present();
+    for _ in 0..300 {
+        while gtk4::glib::MainContext::default().iteration(false) {}
+        if win.width() > 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    while gtk4::glib::MainContext::default().iteration(false) {}
+
+    let split_view = descendants::<adw::NavigationSplitView>(win.upcast_ref());
+    assert!(
+        split_view.iter().all(|view| !view.is_collapsed()),
+        "the sidebar stays open at the default size"
+    );
+    // The page's own split is the box holding a separator between two halves.
+    let split = descendants::<gtk4::Box>(win.upcast_ref())
+        .into_iter()
+        .find(|b| {
+            let mut child = b.first_child();
+            let mut separator = false;
+            while let Some(w) = child {
+                separator |= w.downcast_ref::<gtk4::Separator>().is_some();
+                child = w.next_sibling();
+            }
+            separator && b.orientation() == Orientation::Horizontal
+        })
+        .expect("the two-column split");
+    assert_eq!(
+        split.orientation(),
+        Orientation::Horizontal,
+        "the log and the tools sit side by side on the first look"
     );
     win.close();
     Config::default().save().expect("config back off");

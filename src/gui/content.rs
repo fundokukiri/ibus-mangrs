@@ -613,8 +613,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(&app_name)
-        .default_width(980)
-        .default_height(720)
+        .default_width(1180)
+        .default_height(740)
         .content(&split_view)
         .build();
     // X11/XWayland reads the icon from the window; Wayland derives it from
