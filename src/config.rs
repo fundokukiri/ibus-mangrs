@@ -365,12 +365,10 @@ pub const EXPERIMENTAL_HOTKEY_ACTIONS: &[&str] = &[
 
 /// The name without the source prefix a focus source adds (`wayland:`,
 /// `x11:`). Rules are written and matched bare, so every place that writes
-/// or compares a rule pattern goes through here. `atspi:` stays in the list
-/// only so rules saved while that source existed keep firing.
+/// or compares a rule pattern goes through here.
 pub fn strip_transport_prefix(name: &str) -> &str {
     name.strip_prefix("wayland:")
         .or_else(|| name.strip_prefix("x11:"))
-        .or_else(|| name.strip_prefix("atspi:"))
         .unwrap_or(name)
 }
 
@@ -1601,21 +1599,20 @@ children = ["preedit", "flow"]
     #[test]
     fn a_rule_fires_whatever_source_named_the_app() {
         let fire = |pattern: &str, target: &str| app_rule_matches(pattern, Some(target));
-        // The same app seen through the extension, AT-SPI and a toolkit name.
+        // The same app seen through the extension, xprop and a toolkit name.
         assert!(fire(
             "wayland:org.gnome.TextEditor",
-            "atspi:gnome-text-editor"
+            "x11:gnome-text-editor"
         ));
         assert!(fire(
-            "atspi:gnome-text-editor",
+            "x11:gnome-text-editor",
             "wayland:org.gnome.TextEditor"
         ));
         assert!(fire("x11:Sublime_text", "gtk3-im:sublime_text"));
-        assert!(fire("wayland:Discord", "atspi:discord"));
-        assert!(fire("org.telegram.desktop", "atspi:telegram-desktop"));
+        assert!(fire("wayland:Discord", "gtk4-im:discord"));
         // Different apps stay apart.
-        assert!(!fire("Discord", "atspi:slack"));
-        assert!(!fire("firefox", "atspi:chromium"));
+        assert!(!fire("Discord", "gtk3-im:slack"));
+        assert!(!fire("firefox", "gtk4-im:chromium"));
     }
 
     #[test]
@@ -1658,14 +1655,14 @@ children = ["preedit", "flow"]
         assert_eq!(app_rule_mode(&rules, Some("Chromium")), None);
         assert_eq!(app_rule_mode(&rules, None), None);
 
-        // A rule may carry the AT-SPI prefix the fallback names apps with;
+        // A rule may carry the prefix the focus extension names apps with;
         // the target is matched bare, so the pattern has to be stripped too.
         let named = vec![AppRule {
-            pattern: "atspi:gnome-text-editor".into(),
+            pattern: "wayland:gnome-text-editor".into(),
             mode: ModeConfig::Flow,
         }];
         assert_eq!(
-            app_rule_mode(&named, Some("atspi:gnome-text-editor")),
+            app_rule_mode(&named, Some("wayland:gnome-text-editor")),
             Some(ModeConfig::Flow)
         );
     }
