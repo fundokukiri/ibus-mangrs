@@ -659,6 +659,7 @@ impl EngineHandler {
                 // Wayland clients arrive as `gnome-shell` and every XIM client
                 // as the hard-coded `xim`, which names no application at all —
                 // without this no App Rule can target a Java/XIM app.
+                engine.set_extension_answered(ext_answered);
                 engine.set_shell_ui_focused(ext_answered && ext_name.is_none());
                 if engine.relay_context() || engine.client_name_is_opaque() {
                     let resolved = ext_name

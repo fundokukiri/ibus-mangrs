@@ -168,6 +168,16 @@ pub enum Action {
     HideCandidates,
 }
 
+/// The last App Rule lookup, so a keystroke does not re-walk the rule list:
+/// the two name sources, the shell-UI flag they were judged with, and the
+/// mode they resolved to.
+struct RuleCache {
+    app: Option<String>,
+    client: Option<String>,
+    shell_ui: bool,
+    mode: Option<Mode>,
+}
+
 pub struct Engine {
     wrapper: BambooWrapper,
     mode: Mode,
@@ -182,6 +192,9 @@ pub struct Engine {
     /// Only then is the bare relay client (`gnome-shell`) an app the user can
     /// mean — without the extension that string is every Wayland app.
     shell_ui_focused: bool,
+    /// The focus extension answered this focus-in at all (installed, enabled
+    /// and reachable). False means nothing names Wayland-native apps.
+    extension_answered: bool,
     /// IBus capabilities reported by the client, from `SetCapabilities`.
     caps: u32,
     /// True while a preedit string is on screen, so we only send `HidePreedit`
@@ -405,7 +418,7 @@ pub struct Engine {
     /// asks for the mode more than once per keystroke; the cache turns that
     /// into two string compares. The key covers `app_name`/`client` changes
     /// by itself; `apply_config` clears it because the rules changed.
-    rule_cache: Option<(Option<String>, Option<String>, Option<Mode>)>,
+    rule_cache: Option<RuleCache>,
     /// Suggestion strip (experimental `suggest_words`): a candidate list is
     /// currently on the client's screen. Gates the hide-on-word-end paths
     /// and makes the accept path a no-op once the strip is gone.
@@ -551,6 +564,7 @@ impl Engine {
             last_char: None,
             app_name: None,
             shell_ui_focused: false,
+            extension_answered: false,
             app_rules: Vec::new(),
             auto_restore: true,
             em_dash: false,
@@ -1322,24 +1336,53 @@ impl Engine {
         self.shell_ui_focused
     }
 
+    /// Whether the focus extension answered this focus-in — see the field docs.
+    pub fn set_extension_answered(&mut self, answered: bool) {
+        self.extension_answered = answered;
+    }
+
+    pub fn extension_answered(&self) -> bool {
+        self.extension_answered
+    }
+
     /// Mode forced by an `AppRule` matching the focused client, if any.
     /// The rule target is `app_name` (the focus extension / X active window)
     /// when present, else the IBus client string. The special pattern `none`
     /// matches clients with neither — the only way to target them, since
     /// there is no name to substring-match.
     fn client_rule_mode(&mut self) -> Option<Mode> {
-        // Cache hit without cloning: both name sources compare by reference.
-        if let Some((cached_app, cached_client, mode)) = &self.rule_cache {
-            if self.app_name.as_deref() == cached_app.as_deref()
-                && self.client.as_deref() == cached_client.as_deref()
+        // Cache hit without cloning: every field compares by reference.
+        if let Some(cached) = &self.rule_cache {
+            if self.app_name.as_deref() == cached.app.as_deref()
+                && self.client.as_deref() == cached.client.as_deref()
+                && self.shell_ui_focused == cached.shell_ui
             {
-                return *mode;
+                return cached.mode;
             }
         }
-        let effective = self.app_name.as_deref().or(self.client.as_deref());
-        let resolved = crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from);
-        self.rule_cache = Some((self.app_name.clone(), self.client.clone(), resolved));
-        resolved
+        let effective = self.rule_target_name();
+        let mode = crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from);
+        self.rule_cache = Some(RuleCache {
+            app: self.app_name.clone(),
+            client: self.client.clone(),
+            shell_ui: self.shell_ui_focused,
+            mode,
+        });
+        mode
+    }
+
+    /// The name App Rules match against: the resolved app name, else the
+    /// client string — except a compositor relay, which names the shell only
+    /// while the extension says the shell's own UI holds the keyboard.
+    /// Without the extension that string is every relayed Wayland app, so a
+    /// rule for the shell would otherwise switch the whole desktop off.
+    fn rule_target_name(&self) -> Option<&str> {
+        if let Some(name) = self.app_name.as_deref() {
+            return Some(name);
+        }
+        let client = self.client.as_deref()?;
+        let relay = matches!(client, "gnome-shell" | "mutter");
+        (!relay || self.shell_ui_focused).then_some(client)
     }
 
     /// True when the focused app drops `DeleteSurroundingText`, so non-preedit

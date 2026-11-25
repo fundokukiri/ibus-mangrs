@@ -1319,6 +1319,34 @@ fn none_rule_targets_unnamed_clients_in_every_display_mode() {
 }
 
 #[test]
+fn a_shell_rule_fires_only_while_the_extension_names_no_window() {
+    // A Wayland app reaches the engine as the mutter relay client, exactly
+    // like the shell's own search field does. Without the extension the two
+    // cannot be told apart, so a rule for the shell must not fire.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_client(Some("gnome-shell".into()));
+    e.apply_config(&Config {
+        app_rules: vec![crate::config::AppRule {
+            pattern: "gnome-shell".into(),
+            mode: crate::config::ModeConfig::Off,
+        }],
+        ..Config::default()
+    });
+    assert_eq!(e.effective_mode(), Mode::Preedit, "extension off");
+    e.set_extension_answered(true);
+    e.set_shell_ui_focused(true);
+    assert_eq!(
+        e.effective_mode(),
+        Mode::Off,
+        "the shell's own search field"
+    );
+    // A named app keeps riding its own rule.
+    e.set_app_name(Some("wayland:Alacritty".into()));
+    assert_eq!(e.effective_mode(), Mode::Preedit);
+}
+
+#[test]
 fn app_name_feeds_rules_but_not_transport_decisions() {
     // A mutter-relayed client (gnome-shell) is named by the focus
     // extension: rules must now match the name, while every transport

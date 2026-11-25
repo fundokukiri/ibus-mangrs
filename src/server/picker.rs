@@ -61,17 +61,43 @@ pub(super) struct PickerState {
     /// blue hover marks the current choice), Up/Down move it, Enter picks
     /// it; digits still select their entry directly.
     pub(super) cursor: usize,
+    /// Nothing can be picked: the list is a single warning row. Without the
+    /// focus extension no Wayland app can be named, so any choice would be
+    /// written against the wrong one.
+    warn: bool,
 }
 
 impl PickerState {
     pub fn new(target: String, cursor: usize) -> Self {
-        Self { target, cursor }
+        Self {
+            target,
+            cursor,
+            warn: false,
+        }
+    }
+
+    /// The state with nothing to pick — see the field docs.
+    fn warning() -> Self {
+        Self {
+            target: String::new(),
+            cursor: 0,
+            warn: true,
+        }
+    }
+
+    pub(super) fn warnings_only(&self) -> bool {
+        self.warn
     }
 
     /// Map one key event onto the picker. Pure, so tests can drive it.
     /// Digits 1..9 pick entries 1..9 and 0 picks the last; Enter picks
     /// the highlighted entry; Up/Down move the highlight.
     pub fn on_key(&self, keyval: u32) -> PickerKey {
+        if self.warn {
+            // Enter, a digit or a click must never write a rule for an app
+            // that cannot be named: any key just closes the menu.
+            return PickerKey::Ignore;
+        }
         match keyval {
             65293 | 65421 => PickerKey::Select(self.cursor), // Return / KP_Enter
             65307 => PickerKey::Cancel,                      // Escape
@@ -121,7 +147,19 @@ impl EngineHandler {
             out.push(signal("HideAuxiliaryText"));
             return;
         }
-        let target = rule_target(&lock_engine(&self.engine));
+        let (target, extension_answered) = {
+            let engine = lock_engine(&self.engine);
+            (rule_target(&engine), engine.extension_answered())
+        };
+        // Nothing names this app and there is no extension to ask: with the
+        // extension off no Wayland app can be named at all, so the menu warns
+        // instead of offering a choice that would hit the wrong app.
+        if target.is_none() && !extension_answered {
+            debug_log::log("picker hotkey: no extension, warning only");
+            self.picker = Some(PickerState::warning());
+            self.emit_picker_table(out);
+            return;
+        }
         // An app that names nothing (a terminal window under Wayland, any
         // winit/Electron app) still needs its mode reachable: the pick writes
         // the unnamed pattern, which matches only clients with no name.
@@ -159,6 +197,25 @@ impl EngineHandler {
             return;
         };
         let config = Config::load();
+        if state.warnings_only() {
+            let (title, hint) = if config.language == "en" {
+                (
+                    "The MăngRS Focus extension is off",
+                    "Turn it on, then press the hotkey again",
+                )
+            } else {
+                (
+                    "Chưa bật extension MăngRS Focus",
+                    "Bật extension rồi bấm lại để gán chế độ",
+                )
+            };
+            let table = ibus_prop::lookup_table_variant(PICKER_PAGE_SIZE, 0, &[title.to_string()]);
+            out.push(signal("UpdateLookupTable").append2(table, true));
+            out.push(
+                signal("UpdateAuxiliaryText").append2(crate::ibus_text::plain_text(hint), true),
+            );
+            return;
+        }
         let current = picker_current(&config, &state.target);
         let entries = picker_entries(&ModeConfig::ALL, current, config.language == "en");
         let current_label = ibus_prop::mode_label(current, config.language == "en").to_string();
@@ -303,6 +360,17 @@ mod tests {
         // A named app always wins over the client string.
         e.set_app_name(Some("wayland:Alacritty".into()));
         assert_eq!(rule_target(&e).as_deref(), Some("Alacritty"));
+    }
+
+    #[test]
+    fn a_warning_only_menu_cannot_pick_anything() {
+        // Without the extension no Wayland app is named, so Enter, a digit or
+        // Escape must all just close the menu: nothing is written.
+        let state = PickerState::warning();
+        assert!(state.warnings_only());
+        for key in [65293u32, 65421, 0x31, 0x30, 65307, 65362] {
+            assert_eq!(state.on_key(key), PickerKey::Ignore, "key {key}");
+        }
     }
 
     #[test]
