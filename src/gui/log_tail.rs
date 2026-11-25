@@ -2,8 +2,9 @@
 //! (the log reaches megabytes and nothing behind it is worth the wait) and the
 //! short size label the row shows.
 
+use std::collections::VecDeque;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// How much of the file the tail reader is allowed to touch. 256 KB covers
 /// thousands of lines and reads instantly even on a log that has grown for
@@ -52,69 +53,126 @@ pub(super) fn size_label(bytes: u64) -> String {
     }
 }
 
-/// Chars before byte `byte` of `text` — GTK counts characters, not bytes.
-fn byte_to_char_offset(text: &str, byte: usize) -> i32 {
-    text.as_bytes()[..byte.min(text.len())]
-        .iter()
-        .filter(|b| (**b as i8) >= -0x40)
-        .count() as i32
+/// A log reader that only reads what was appended since the last look. The
+/// viewer polls it once a second; re-reading the whole file every second would
+/// cost memory bandwidth for nothing, and the file reaches megabytes.
+pub(super) struct Reader {
+    path: Option<PathBuf>,
+    /// Byte offset already consumed, so the next read starts where this one
+    /// stopped.
+    offset: u64,
+    /// A line that was still being written: it is completed by the next read
+    /// instead of being shown cut in half.
+    carry: String,
+    lines: VecDeque<String>,
+    max_lines: usize,
+    started: bool,
 }
 
-/// The lines the viewer shows: everything for no terms, otherwise the lines
-/// holding any one of them, case-insensitively. The typed filter is one term;
-/// the preset chips pass a whole family ("dau", "tone"), because the log has
-/// no category labels to filter on.
-pub(super) fn visible_lines(lines: &[String], terms: &[String]) -> Vec<String> {
-    let terms: Vec<String> = terms
-        .iter()
-        .map(|t| t.trim().to_lowercase())
-        .filter(|t| !t.is_empty())
-        .collect();
-    lines
-        .iter()
-        .filter(|line| {
-            terms.is_empty() || {
-                let lower = line.to_lowercase();
-                terms.iter().any(|term| lower.contains(term))
+impl Reader {
+    pub(super) fn new(path: Option<PathBuf>, max_lines: usize) -> Reader {
+        Reader {
+            path,
+            offset: 0,
+            carry: String::new(),
+            lines: VecDeque::new(),
+            max_lines,
+            started: false,
+        }
+    }
+
+    /// Read what arrived since the last call. The first call opens at the end
+    /// of the file (a tail, not the whole history) and returns how many lines
+    /// are now held.
+    pub(super) fn poll(&mut self) -> usize {
+        let Some(path) = self.path.clone() else {
+            return 0;
+        };
+        let path = path.as_path();
+        let Ok(meta) = std::fs::metadata(path) else {
+            // The log may not exist yet; when it appears, start over.
+            self.reset();
+            return 0;
+        };
+        let len = meta.len();
+        if !self.started || len < self.offset {
+            // First look, or the file was cleared or rotated under us.
+            self.reset();
+            let tail_lines = tail(path, self.max_lines, TAIL_BYTES);
+            let fresh = tail_lines.len();
+            self.lines = tail_lines.into();
+            self.offset = len;
+            self.started = true;
+            return fresh;
+        }
+        if len == self.offset {
+            return 0;
+        }
+        let Ok(mut file) = std::fs::File::open(path) else {
+            return 0;
+        };
+        if file.seek(SeekFrom::Start(self.offset)).is_err() {
+            return 0;
+        }
+        let mut buf = Vec::new();
+        if file.read_to_end(&mut buf).is_err() {
+            return 0;
+        }
+        self.offset = len;
+        let text = String::from_utf8_lossy(&buf);
+        let mut added = 0;
+        let mut rest: &str = &text;
+        // A previous read that ended mid-line owes that line this one.
+        if !self.carry.is_empty() {
+            match rest.find('\n') {
+                Some(pos) => {
+                    let mut line = std::mem::take(&mut self.carry);
+                    line.push_str(&rest[..pos]);
+                    self.push(line);
+                    added += 1;
+                    rest = &rest[pos + 1..];
+                }
+                None => {
+                    self.carry.push_str(rest);
+                    return 0;
+                }
             }
-        })
-        .cloned()
-        .collect()
-}
+        }
+        // Everything up to the last newline is complete lines; what follows it
+        // is the line the engine is still writing.
+        match rest.rfind('\n') {
+            Some(pos) => {
+                for line in rest[..pos].split('\n') {
+                    self.push(line.to_string());
+                    added += 1;
+                }
+                self.carry = rest[pos + 1..].to_string();
+            }
+            None => self.carry.push_str(rest),
+        }
+        added
+    }
 
-/// Paint every occurrence of `terms` in the buffer, reusing one tag so a
-/// re-render does not stack tags on the same text.
-pub(super) fn highlight(buffer: &gtk4::TextBuffer, terms: &[String]) {
-    use gtk4::prelude::*;
-    let tag = match buffer.tag_table().lookup("mangrs-match") {
-        Some(tag) => tag,
-        None => {
-            let tag = gtk4::TextTag::builder()
-                .name("mangrs-match")
-                .weight(700)
-                .build();
-            buffer.tag_table().add(&tag);
-            tag
+    fn push(&mut self, line: String) {
+        if line.is_empty() {
+            return;
         }
-    };
-    buffer.remove_tag(&tag, &buffer.start_iter(), &buffer.end_iter());
-    let haystack = buffer
-        .text(&buffer.start_iter(), &buffer.end_iter(), true)
-        .to_lowercase();
-    for term in terms {
-        let needle = term.trim().to_lowercase();
-        if needle.is_empty() {
-            continue;
+        self.lines.push_back(line);
+        while self.lines.len() > self.max_lines {
+            self.lines.pop_front();
         }
-        let mut from = 0;
-        while let Some(found) = haystack[from..].find(&needle) {
-            let at = from + found;
-            // GTK counts characters, the search counted bytes.
-            let begin = buffer.iter_at_offset(byte_to_char_offset(&haystack, at));
-            let last = buffer.iter_at_offset(byte_to_char_offset(&haystack, at + needle.len()));
-            buffer.apply_tag(&tag, &begin, &last);
-            from = at + needle.len();
-        }
+    }
+
+    /// Forget everything: the file is gone or was truncated.
+    pub(super) fn reset(&mut self) {
+        self.lines.clear();
+        self.carry.clear();
+        self.offset = 0;
+        self.started = false;
+    }
+
+    pub(super) fn lines(&self) -> Vec<String> {
+        self.lines.iter().cloned().collect()
     }
 }
 
@@ -122,6 +180,9 @@ pub(super) fn highlight(buffer: &gtk4::TextBuffer, terms: &[String]) {
 mod tests {
     use super::*;
     use crate::test_support::TempDir;
+
+    /// The viewer's line cap, repeated here so the tests read the same number.
+    const VIEW_LINES: usize = 5_000;
 
     fn write_log(dir: &TempDir, lines: usize) -> std::path::PathBuf {
         let path = dir.path().join("debug.log");
@@ -161,44 +222,72 @@ mod tests {
         assert!(tail(&dir.path().join("debug.log"), 50, TAIL_BYTES).is_empty());
     }
 
+    fn append(path: &Path, text: &str) {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .expect("open log");
+        file.write_all(text.as_bytes()).expect("append");
+    }
+
+    #[test]
+    fn the_reader_picks_up_only_what_was_appended() {
+        let dir = TempDir::new("mangrs-reader");
+        let path = write_log(&dir, 3);
+        let mut reader = Reader::new(Some(path.clone()), VIEW_LINES);
+        assert_eq!(reader.poll(), 3);
+        assert_eq!(reader.poll(), 0, "nothing new, nothing read");
+        append(&path, "line 0003\nline 0004\n");
+        assert_eq!(reader.poll(), 2);
+        assert_eq!(reader.lines().len(), 5);
+        assert_eq!(reader.lines().last().map(String::as_str), Some("line 0004"));
+    }
+
+    #[test]
+    fn a_half_written_line_waits_for_its_newline() {
+        let dir = TempDir::new("mangrs-reader-carry");
+        let path = write_log(&dir, 1);
+        let mut reader = Reader::new(Some(path.clone()), VIEW_LINES);
+        reader.poll();
+        append(&path, "partial");
+        assert_eq!(reader.poll(), 0, "no newline yet, so not a line");
+        assert_eq!(reader.lines().len(), 1);
+        append(&path, " line\n");
+        assert_eq!(reader.poll(), 1);
+        assert_eq!(
+            reader.lines().last().map(String::as_str),
+            Some("partial line")
+        );
+    }
+
+    #[test]
+    fn the_reader_keeps_the_last_lines_only() {
+        let dir = TempDir::new("mangrs-reader-cap");
+        let path = write_log(&dir, 1);
+        let mut reader = Reader::new(Some(path.clone()), 3);
+        reader.poll();
+        append(&path, "a\nb\nc\nd\ne\n");
+        assert_eq!(reader.poll(), 5);
+        assert_eq!(reader.lines(), vec!["c", "d", "e"]);
+    }
+
+    #[test]
+    fn a_cleared_log_starts_over() {
+        let dir = TempDir::new("mangrs-reader-cleared");
+        let path = write_log(&dir, 2);
+        let mut reader = Reader::new(Some(path.clone()), VIEW_LINES);
+        reader.poll();
+        std::fs::write(&path, "fresh\n").expect("clear log");
+        assert_eq!(reader.poll(), 1);
+        assert_eq!(reader.lines(), vec!["fresh"]);
+    }
+
     #[test]
     fn size_labels_stay_short() {
         assert_eq!(size_label(0), "0 B");
         assert_eq!(size_label(18), "18 B");
         assert_eq!(size_label(912_000), "912 KB");
         assert_eq!(size_label(4_100_000), "4.1 MB");
-    }
-
-    #[test]
-    fn the_filter_matches_any_term_case_insensitively() {
-        let all: Vec<String> = ["tone: hoà → ỏ", "Preedit → Surrounding", "backspace 1"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let none: Vec<String> = Vec::new();
-        assert_eq!(visible_lines(&all, &none).len(), 3, "no terms keeps all");
-        assert_eq!(
-            visible_lines(&all, &["  ".to_string()]).len(),
-            3,
-            "spaces are not a term"
-        );
-        assert_eq!(visible_lines(&all, &["PREEDIT".to_string()]).len(), 1);
-        assert_eq!(
-            visible_lines(&all, &["dấu".to_string(), "tone".to_string()]).len(),
-            1,
-            "a chip family ORs its terms"
-        );
-        assert!(visible_lines(&all, &["nope".to_string()]).is_empty());
-    }
-
-    #[test]
-    fn a_byte_offset_counts_chars_for_gtk() {
-        assert_eq!(byte_to_char_offset("abc", 2), 2);
-        assert_eq!(
-            byte_to_char_offset("ỏa", 3),
-            1,
-            "ỏ is three bytes, one char"
-        );
-        assert_eq!(byte_to_char_offset("ỏa", 99), 2, "never past the end");
     }
 }

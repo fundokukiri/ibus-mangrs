@@ -247,7 +247,7 @@ pub(crate) fn restart_script(session_type: Option<&str>) -> &'static str {
     }
 }
 
-fn restart_ibus() -> std::io::Result<()> {
+pub(super) fn restart_ibus() -> std::io::Result<()> {
     let script = restart_script(std::env::var("XDG_SESSION_TYPE").ok().as_deref());
     std::process::Command::new("sh")
         .arg("-c")

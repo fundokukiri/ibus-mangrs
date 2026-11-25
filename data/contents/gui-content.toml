@@ -38,19 +38,28 @@ none = "Không có kết quả"
 page_kind = "Trang"
 
 [misc]
-debug_chip_tone = "Dấu"
-debug_chip_backspace = "Backspace"
-debug_chip_mode = "Chế độ"
-debug_chip_transport = "Cách chèn"
-debug_chip_error = "Lỗi"
-debug_refresh = "Đọc lại"
 debug_open_folder = "Mở thư mục"
-debug_clear_log = "Xoá log…"
-debug_copy_report = "Sao chép"
-debug_filter_placeholder = "Lọc dòng…"
-debug_follow = "Theo dõi"
+debug_clear_log = "Xoá log"
+debug_copy_report = "Sao chép báo cáo"
+debug_filter_placeholder = "Lọc dòng"
+debug_pause = "Tạm dừng cuộn"
 debug_log_missing = "Không có đường dẫn log"
 debug_log_absent = "chưa ghi"
+debug_hide_text = "Ẩn nội dung gõ khi sao chép"
+debug_hide_hint = "Tắt thì báo cáo kèm văn bản bạn đang gõ."
+chip_all = "Tất cả"
+chip_key = "Phím"
+chip_backspace = "Backspace"
+chip_insert = "Chèn"
+chip_flush = "Flush"
+chip_error = "Lỗi"
+chip_other = "Khác"
+key_press = "nhấn"
+key_release = "thả"
+diag_title = "Chẩn đoán"
+diag_ok = "ổn"
+diag_warn = "cần xem"
+diag_copied = "Đã sao chép"
 experimental_badge = "Thử nghiệm"
 exported_toast = "Đã xuất cấu hình"
 restart_button = "Khởi động lại IBus"
@@ -625,8 +634,7 @@ hotkey_macro_editor = "Mở trang Gõ tắt"
 hotkey_settings = "Mở Cài đặt"
 
 [tips]
-debug_filter = "Gõ một từ để lọc, hoặc chọn nút bên cạnh để lọc cả nhóm dòng."
-debug_follow = "Tự cuộn xuống cuối khi log có dòng mới. Cuộn lên thì tự tạm dừng."
+debug_filter = "Gõ một phần nội dung để lọc, không phân biệt hoa thường."
 hotkey_emoji = "Mở menu emoji tại con trỏ. Gán tổ hợp ở trang Phím tắt."
 enabled = "Bật hoặc tắt cả bộ gõ. Khi tắt, phím đi thẳng vào app như chưa cài."
 method = "Kiểu gõ quyết định cách ra chữ có dấu, ví dụ Telex gõ ss ra á, VNI gõ a1 ra á."
@@ -690,17 +698,27 @@ body = "Hai tệp dữ liệu đã học sẽ bị xoá. Bộ gõ học lại t�
 cancel = "Huỷ"
 delete = "Xoá"
 
-[groups.debug.log]
-title = "Tệp log"
+[rows.debug_engine]
+title = "Engine"
+running = "đang chạy"
+not_running = "Không thấy tiến trình"
+not_running_hint = "IBus chỉ khởi động engine khi bạn gõ ở một ứng dụng. Gõ thử ở ứng dụng khác rồi mở lại trang này."
+binary = "Tệp đang chạy"
+fresh = "Bản cài"
+stale = "Mới hơn, cần khởi động lại"
+current = "Khớp bản đang chạy"
+selected = "IBus đang chọn"
+registered = "Đăng ký"
+listed = "IBus có component"
+unregistered = "IBus không thấy component"
+unregistered_hint = "Cài lại gói rồi khởi động lại IBus để IBus đọc lại component."
+stale_hint = "Bản cài mới hơn tiến trình đang chạy. Khởi động lại IBus để dùng bản mới."
 
-[groups.debug.viewer]
-title = "Xem log"
-
-[groups.debug.diag]
-title = "Chẩn đoán"
-
-[rows.debug_log_file]
-title = "Nhật ký gỡ lỗi"
+[rows.debug_transport]
+title = "Cách chèn thực tế"
+none = "chưa thấy trong log"
+auto_note = "Cách chèn auto đang rơi về"
+auto_hint = "Đặt luật theo app nếu gõ lỗi ở một ứng dụng."
 
 [rows.debug_info]
 version = "Phiên bản"
@@ -708,12 +726,9 @@ session = "Phiên"
 mode = "Chế độ gõ"
 backend = "Cách chèn"
 extension = "Extension GNOME"
+extension_hint = "Extension chưa chạy nên tên ứng dụng app tự báo có thể sai. Bật nó ở tab Cài đặt nâng cao."
 config = "Cấu hình"
 log = "Nhật ký"
-
-[rows.debug_report]
-title = "Báo cáo"
-subtitle = "Sao chép thông tin và log cuối"
 
 [debug_clear]
 heading = "Xoá nhật ký gỡ lỗi?"
@@ -722,26 +737,15 @@ cancel = "Huỷ"
 delete = "Xoá"
 
 [debug_report]
-config_section = "cấu hình khác mặc định"
+config_section = "config.toml đang nạp"
 copied = "Đã sao chép báo cáo"
 log_section = "log cuối"
 
-[rows.debug_engine]
-title = "Engine"
-not_running = "Không thấy tiến trình"
-running = "đang chạy"
-binary = "Tệp đang chạy"
-fresh = "Bản cài"
-stale = "Mới hơn, cần khởi động lại IBus"
-current = "Khớp bản đang chạy"
-selected = "IBus đang chọn"
-registered = "Đăng ký"
-listed = "IBus có component"
-unregistered = "IBus không thấy component, cài lại"
-
-[rows.debug_transport]
-title = "Cách chèn thực tế"
-
-[rows.debug_errors]
-title = "Lỗi trong log"
-unit = "dòng"
+[debug_restart]
+heading = "Khởi động lại IBus?"
+body = "Bộ gõ ngắt trong giây lát ở mọi ứng dụng, chữ đang gõ dở sẽ mất."
+running = "Đang khởi động lại…"
+started = "Đang khởi động lại IBus…"
+done = "IBus đã chạy lại"
+timeout = "Chưa thấy IBus chạy lại"
+failed = "Không chạy được"

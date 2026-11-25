@@ -36,19 +36,28 @@ none = "No results"
 page_kind = "Page"
 
 [misc]
-debug_chip_tone = "Tone"
-debug_chip_backspace = "Backspace"
-debug_chip_mode = "Mode"
-debug_chip_transport = "Transport"
-debug_chip_error = "Errors"
-debug_refresh = "Re-read"
 debug_open_folder = "Open folder"
-debug_clear_log = "Delete log…"
-debug_copy_report = "Copy"
-debug_filter_placeholder = "Filter lines…"
-debug_follow = "Follow"
+debug_clear_log = "Delete log"
+debug_copy_report = "Copy report"
+debug_filter_placeholder = "Filter lines"
+debug_pause = "Pause scrolling"
 debug_log_missing = "No log path"
 debug_log_absent = "not written yet"
+debug_hide_text = "Hide typed text when copying"
+debug_hide_hint = "Off means the report carries what you are typing."
+chip_all = "All"
+chip_key = "Keys"
+chip_backspace = "Backspace"
+chip_insert = "Insert"
+chip_flush = "Flush"
+chip_error = "Errors"
+chip_other = "Other"
+key_press = "down"
+key_release = "up"
+diag_title = "Diagnostics"
+diag_ok = "ok"
+diag_warn = "need a look"
+diag_copied = "Copied"
 experimental_badge = "Experimental"
 exported_toast = "Configuration exported"
 restart_button = "Restart IBus"
@@ -622,8 +631,7 @@ hotkey_macro_editor = "Open the Shorthand page"
 hotkey_settings = "Open Settings"
 
 [tips]
-debug_filter = "Type a word to filter, or pick a chip to filter a whole family of lines."
-debug_follow = "Scroll to the end as the log grows. Scrolling up pauses it."
+debug_filter = "Type part of a line to filter it, case does not matter."
 hotkey_emoji = "Opens the emoji menu at the caret. Assign the combo on the Shortcuts page."
 enabled = "Turns the whole IME on or off. Off sends keys straight to the app as if MăngRS were not installed."
 method = "The typing method decides how accented letters are built, e.g. Telex types ss for á and VNI types a1 for á."
@@ -687,46 +695,11 @@ body = "Both learned-data files are deleted. The engine starts learning from zer
 cancel = "Cancel"
 delete = "Delete"
 
-[groups.debug.log]
-title = "Log file"
-
-[groups.debug.viewer]
-title = "View the log"
-
-[groups.debug.diag]
-title = "Diagnostics"
-
-[rows.debug_log_file]
-title = "Debug log"
-
-[rows.debug_info]
-version = "Version"
-session = "Session"
-mode = "Typing mode"
-backend = "Insertion"
-extension = "GNOME extension"
-config = "Config"
-log = "Log"
-
-[rows.debug_report]
-title = "Report"
-subtitle = "Copy the lines above plus the log tail"
-
-[debug_clear]
-heading = "Delete the debug log?"
-body = "The file is removed. The engine starts a new one while debug mode is still on."
-cancel = "Cancel"
-delete = "Delete"
-
-[debug_report]
-config_section = "settings off their defaults"
-copied = "Report copied"
-log_section = "log tail"
-
 [rows.debug_engine]
 title = "Engine"
-not_running = "No process found"
 running = "running"
+not_running = "No process found"
+not_running_hint = "IBus starts the engine only while you type in an application. Type somewhere else, then reopen this page."
 binary = "Running from"
 fresh = "Install"
 stale = "Newer, restart IBus"
@@ -735,10 +708,41 @@ selected = "IBus selected"
 registered = "Registered"
 listed = "IBus lists the component"
 unregistered = "IBus cannot see the component"
+unregistered_hint = "Reinstall the package and restart IBus so it reads the component again."
+stale_hint = "The installed binary is newer than the running process. Restart IBus to use it."
 
 [rows.debug_transport]
 title = "Transport in use"
+none = "not in the log yet"
+auto_note = "Auto currently falls back to"
+auto_hint = "Set a per-application rule if typing misbehaves in one app."
 
-[rows.debug_errors]
-title = "Failures in the log"
-unit = "lines"
+[rows.debug_info]
+version = "Version"
+session = "Session"
+mode = "Typing mode"
+backend = "Insertion"
+extension = "GNOME extension"
+extension_hint = "The extension is not running, so the app name this window reports may be wrong. Turn it on under Advanced settings."
+config = "Config"
+log = "Log"
+
+[debug_clear]
+heading = "Delete the debug log?"
+body = "The file is removed. The engine starts a new one while debug mode is still on."
+cancel = "Cancel"
+delete = "Delete"
+
+[debug_report]
+config_section = "config.toml in force"
+copied = "Report copied"
+log_section = "log tail"
+
+[debug_restart]
+heading = "Restart IBus?"
+body = "Typing stops for a moment in every application, and unsent composition is lost."
+running = "Restarting…"
+started = "Restarting IBus…"
+done = "IBus is back"
+timeout = "IBus has not come back yet"
+failed = "Could not run"

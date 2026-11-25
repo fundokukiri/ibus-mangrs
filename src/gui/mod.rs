@@ -30,6 +30,7 @@ mod content;
 mod debug_report;
 mod engine_probe;
 mod hotkey;
+mod log_decode;
 mod log_tail;
 mod pages;
 mod text;

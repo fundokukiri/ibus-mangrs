@@ -61,7 +61,10 @@ fn gtk_widget_scenarios() {
     close_test_windows();
     the_debug_tab_follows_the_switch();
     the_debug_tab_row_appears_only_with_debug_mode();
-    the_debug_page_lists_its_rows();
+    the_debug_page_shows_the_grid_the_chips_and_the_footer();
+    close_test_windows();
+    close_test_windows();
+    the_diagnostics_grid_wraps_at_a_narrow_width();
     close_test_windows();
     every_switch_triggers_save();
     debug_mode_switch_keeps_the_dialog_choice();
@@ -1169,28 +1172,81 @@ fn the_debug_tab_row_appears_only_with_debug_mode() {
     Config::default().save().expect("config back off");
 }
 
-/// The page's rows all resolve: a missing content key would leave an empty
-/// title on a row the user cannot identify.
-fn the_debug_page_lists_its_rows() {
+/// Pump the main loop until `ready` says the window is laid out. GTK only
+/// allocates and draws on frames, so a test that measures geometry has to let
+/// some of them happen.
+fn pump_until(window: &gtk4::Window, ready: impl Fn(&gtk4::Window) -> bool) {
+    for _ in 0..200 {
+        while gtk4::glib::MainContext::default().iteration(false) {}
+        if ready(window) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// A narrow window re-flows the diagnostics grid instead of squeezing thirteen
+/// boxes into one row (the grid keeps a child's old cell unless it is removed
+/// first, which is what this guards).
+fn the_diagnostics_grid_wraps_at_a_narrow_width() {
     let ui = widgets();
     let overlay = pages::debug::build(&ui);
-    let titles: Vec<String> = descendants::<adw::ActionRow>(overlay.upcast_ref())
+    let window = gtk4::Window::new();
+    window.set_default_size(700, 720);
+    window.set_child(Some(&overlay));
+    window.present();
+    pump_until(&window, |w| w.width() > 0);
+    for _ in 0..30 {
+        while gtk4::glib::MainContext::default().iteration(false) {}
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let grid = descendants::<gtk4::Grid>(overlay.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the diagnostics grid");
+    let boxes = grid
+        .first_child()
+        .map(|_| grid.observe_children().n_items())
+        .unwrap_or(0);
+    assert!(boxes >= 9, "the boxes are in the grid: {boxes}");
+    assert!(
+        grid.height() > 60,
+        "at 700px the grid wraps onto more than one row: {}",
+        grid.height()
+    );
+    window.close();
+}
+
+fn the_debug_page_shows_the_grid_the_chips_and_the_footer() {
+    let ui = widgets();
+    let overlay = pages::debug::build(&ui);
+    let boxes = descendants::<gtk4::Button>(overlay.upcast_ref())
         .iter()
-        .map(|r| r.title().to_string())
+        .filter(|b| b.has_css_class("diag-cell"))
+        .count();
+    // Thirteen boxes when the engine is running; four of them are engine
+    // rows that collapse to one when it is not.
+    assert!(boxes >= 9, "the diagnostics boxes: {boxes}");
+    let chips = descendants::<gtk4::ToggleButton>(overlay.upcast_ref())
+        .iter()
+        .filter(|c| c.has_css_class("caption"))
+        .count();
+    assert_eq!(chips, 6, "Tất cả plus one chip per kind");
+    let labels: Vec<String> = descendants::<gtk4::Label>(overlay.upcast_ref())
+        .iter()
+        .map(|l| l.text().to_string())
         .collect();
     assert!(
-        titles.iter().any(|r| r == "Phiên bản"),
-        "the diagnostics rows are there: {titles:?}"
+        labels.iter().any(|l| l.starts_with("Chẩn đoán")),
+        "the grid has a title: {labels:?}"
     );
     assert!(
-        titles.iter().all(|r| !r.is_empty()),
-        "no row is left with an unresolved key: {titles:?}"
+        labels.iter().any(|l| l == "Khởi động lại IBus"),
+        "the footer carries the restart button"
     );
-    let chips = descendants::<gtk4::ToggleButton>(overlay.upcast_ref());
     assert!(
-        chips.iter().filter(|c| c.has_css_class("caption")).count() >= 5,
-        "the preset filter chips are there: {}",
-        chips.len()
+        labels.iter().any(|l| l.contains("Sao chép")),
+        "the footer carries the report button: {labels:?}"
     );
 }
 
