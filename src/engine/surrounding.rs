@@ -39,12 +39,12 @@ impl Engine {
                 // Caret-aligned and truthful about everything before the
                 // caret: the clamp and the delete-proof rule both read it,
                 // and the protocol delete needs a report to be allowed.
-                debug_log::log("selection right at the caret → inline completion, protocol delete");
+                debug_log::log("st anchor=caret why=inline_completion del=protocol");
                 self.surrounding = Some((text, anchor));
                 return Vec::new();
             }
             debug_log::log(&format!(
-                "st report with a selection anchor={anchor} cursor={cursor} → ignore"
+                "st anchor=selection anchor={anchor} cur={cursor} dropped=1"
             ));
             self.surrounding = None;
             return Vec::new();
@@ -56,7 +56,7 @@ impl Engine {
         // while the log is off.
         if debug_log::enabled() {
             debug_log::log(&format!(
-                "st report cursor={cursor} len={len} composing={}",
+                "st cur={cursor} len={len} comp={}",
                 self.wrapper.has_composition()
             ));
         }
@@ -70,9 +70,7 @@ impl Engine {
         if let Some((healthy, swallowed)) = self.awaiting_delete_proof.take() {
             if swallowed != healthy && cursor.min(len) == swallowed {
                 self.delete_dropped = true;
-                debug_log::log(
-                    "rewrite delete swallowed (report proof) → following words leave delete rewriting",
-                );
+                debug_log::log("del mode=swallowed why=report_proof");
             }
         }
         // The previous report (only the inline-suggestion check below still
@@ -89,9 +87,7 @@ impl Engine {
                     && text.starts_with(old_text.as_str())
                 {
                     self.suggestions = true;
-                    debug_log::log(
-                        "inline suggestion after the caret → preedit for following words",
-                    );
+                    debug_log::log("st anchor=after_caret why=preedit");
                 }
             }
         }
@@ -143,14 +139,14 @@ impl Engine {
         let gap = contains.then(|| suffix_gap(actual, tail)).flatten();
         if gap.is_some_and(|gap| gap > 2) {
             debug_log::log(&format!(
-                "verify: ignore unanchored tail_len={} gap={}",
+                "st verify=ignore why=unanchored tail_len={} gap={}",
                 tail.chars().count(),
-                gap.unwrap_or(0),
+                gap.unwrap_or(0)
             ));
             debug_log::log_text(&format!(
-                "verify: ignore unanchored tail={:?} actual={:?}",
+                "st verify=ignore tail={:?} actual={:?}",
                 brief(tail),
-                brief(actual),
+                brief(actual)
             ));
             return Vec::new();
         }
@@ -165,14 +161,14 @@ impl Engine {
             a2_starts_t2 && a2.chars().take(t2.chars().count() + 1).count() > t2.chars().count();
         if !extra_in_middle && !contains {
             debug_log::log(&format!(
-                "verify: ignore stale tail_len={} actual_bytes={}",
+                "st verify=ignore why=stale tail_len={} actual_bytes={}",
                 tail.chars().count(),
-                actual.len(),
+                actual.len()
             ));
             debug_log::log_text(&format!(
-                "verify: ignore stale tail={:?} actual={:?}",
+                "st verify=ignore why=stale tail={:?} actual={:?}",
                 brief(tail),
-                brief(actual),
+                brief(actual)
             ));
             return Vec::new();
         }
@@ -180,11 +176,11 @@ impl Engine {
             // The client holds extra characters right before the common
             // suffix — a `DeleteSurroundingText` it swallowed earlier.
             let extra = a2.chars().count() - t2.chars().count();
-            debug_log::log(&format!("verify: drift suffix={k} extra={extra}"));
+            debug_log::log(&format!("st verify=drift suffix={k} extra={extra}"));
             debug_log::log_text(&format!(
-                "verify: drift tail={:?} actual={:?}",
+                "st verify=drift tail={:?} actual={:?}",
                 brief(tail),
-                brief(actual),
+                brief(actual)
             ));
             if self.repair_delete_forbidden() {
                 // Mutter-relayed contexts: a repair delete here segfaults the
@@ -219,13 +215,10 @@ impl Engine {
         // it...). Never delete blindly: rebuild the composition from what the
         // application actually holds.
         debug_log::log(&format!(
-            "verify: sync-from-surrounding prefix_len={}",
-            actual.chars().count(),
+            "st sync=surrounding prefix_len={}",
+            actual.chars().count()
         ));
-        debug_log::log_text(&format!(
-            "verify: sync-from-surrounding actual={:?}",
-            brief(actual),
-        ));
+        debug_log::log_text(&format!("st sync=surrounding actual={:?}", brief(actual)));
         // Owned copy for the same borrow reason as above; the sync path is
         // the rare app-edited-the-text case, not the per-keystroke path.
         let prefix = actual.to_string();

@@ -21,8 +21,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ibus_mangrs::debug_log::set_keys_enabled(config.debug_log_keys);
     warn_if_in_input_group();
     ibus_mangrs::debug_log::log(&format!(
-        "engine start uinput={}",
-        ibus_mangrs::uinput::Uinput::available()
+        "ctx start uinput={} ver={}",
+        ibus_mangrs::uinput::Uinput::available(),
+        env!("CARGO_PKG_VERSION")
     ));
     let (method, mode) = config.engine_settings();
     let mut engine = Engine::new(method, mode);
@@ -78,7 +79,7 @@ fn warn_if_in_input_group() {
                    need it any more (remove with: gpasswd -d <user> input, \
                    then log in again)";
         eprintln!("{msg}");
-        ibus_mangrs::debug_log::log(msg);
+        ibus_mangrs::debug_log::log("cfg warn=input_group");
     }
 }
 

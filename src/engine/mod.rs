@@ -981,7 +981,7 @@ impl Engine {
             if let Some(t) = self.last_inject {
                 if t.elapsed() > max {
                     debug_log::log(&format!(
-                        "injection echoes stale ({}ms) → drop {} pending",
+                        "ins ok=0 why=echo_stale ms={} n={}",
                         t.elapsed().as_millis(),
                         self.pending_injected
                     ));
@@ -1016,7 +1016,7 @@ impl Engine {
     pub fn defer_commit(&mut self, n: u32, text: String) {
         let threshold = self.echoes_forwarded + n;
         debug_log::log(&format!(
-            "defer commit after {n} echoes len={}",
+            "buf commit=defer why=echoes n={n} len={}",
             text.chars().count()
         ));
         self.deferred.push((threshold, text));
@@ -1034,7 +1034,7 @@ impl Engine {
         {
             let (_, text) = self.deferred.remove(0);
             debug_log::log(&format!(
-                "flush deferred commit len={}",
+                "buf commit=defer len={} how=flush",
                 text.chars().count()
             ));
             ready.push(text);
@@ -1051,7 +1051,7 @@ impl Engine {
             .drain(..)
             .map(|(_, text)| {
                 debug_log::log(&format!(
-                    "flush deferred commit (forced) len={}",
+                    "buf commit=defer len={} how=flush forced=1",
                     text.chars().count()
                 ));
                 text
@@ -1061,14 +1061,14 @@ impl Engine {
         // and nobody will tick for it — delivering late beats never.
         all.extend(self.timed_commits.drain(..).map(|(_, text)| {
             debug_log::log(&format!(
-                "flush deferred commit (timed, forced) len={}",
+                "buf commit=defer len={} how=timed forced=1",
                 text.chars().count()
             ));
             text
         }));
         if let Some((_, text)) = self.per_key_park.take() {
             debug_log::log(&format!(
-                "flush deferred commit (per-key, forced) len={}",
+                "buf commit=defer len={} how=per_key forced=1",
                 text.chars().count()
             ));
             all.push(text);
@@ -1114,7 +1114,7 @@ impl Engine {
     /// rewrite commit waits past the deletes it depends on.
     pub fn park_commit(&mut self, text: String, delay: Duration) {
         debug_log::log(&format!(
-            "park commit for {}ms len={}",
+            "buf commit=park ms={} len={}",
             delay.as_millis(),
             text.chars().count()
         ));
@@ -1495,7 +1495,7 @@ impl Engine {
                     self.flow_needs_backend = true;
                     if !self.flow_fallback_logged {
                         self.flow_fallback_logged = true;
-                        debug_log::log("flow without a backend → forward backspace");
+                        debug_log::log("del mode=forward why=no_backend");
                     }
                     Mode::ForwardBackspace
                 }
@@ -1704,7 +1704,7 @@ impl Engine {
                     // Without a transport the screen holds the raw keys (mark
                     // keys are raw-forwarded, so no tone can move), which is
                     // exactly what the wrapper's raw-key undo models.
-                    debug_log::log("backspace forwarded (no delete transport)");
+                    debug_log::log("del mode=forward why=no_transport");
                     self.tail = replace_tail(&self.tail, 1, "");
                     self.note_backspace_forwarded();
                     // The word the strip is showing changed (or is gone): the
@@ -1774,7 +1774,7 @@ impl Engine {
         let commit_preedit = self.preedit_visible || self.effective_mode() == Mode::Preedit;
         let pending = self.wrapper.output().to_string();
         debug_log::log(&format!(
-            "reset: preedit_visible={} pending={} commit_preedit={commit_preedit}",
+            "ctx reset preedit={} pending={} commit_preedit={commit_preedit}",
             self.preedit_visible,
             !pending.is_empty()
         ));
@@ -2479,7 +2479,7 @@ impl Engine {
     /// here would duplicate it. Only the internal composition is cleared,
     /// exactly like ibus-bamboo's `Reset`.
     pub fn on_client_reset(&mut self) -> Vec<Action> {
-        debug_log::log("client reset → drop the pending word");
+        debug_log::log("buf drop why=client_reset");
         self.drop_pending_word(true)
     }
 
@@ -2495,7 +2495,7 @@ impl Engine {
         // password field would quiet every later normal field until the
         // daemon happened to resend a ContentType.
         self.password_quiet = false;
-        debug_log::log("focus-out → drop the pending word, no signals");
+        debug_log::log("buf drop why=focus_out");
         self.drop_pending_word(false)
     }
 
@@ -2518,11 +2518,11 @@ impl Engine {
         // Parked commits past their deadline become deliverable here —
         // the main loop woke for exactly this deadline (ms_until_tick).
         for text in self.take_due_commits() {
-            debug_log::log(&format!("timed commit flush len={}", text.chars().count()));
+            debug_log::log(&format!("buf flush=timed len={}", text.chars().count()));
             actions.push(Action::Commit(text));
         }
         if let Some(action) = self.take_due_per_key_commit() {
-            debug_log::log("timed commit flush (per-key)");
+            debug_log::log("buf flush=per_key");
             actions.push(action);
         }
         // The Flow Backspace's correction: by now the user's own
@@ -2537,7 +2537,7 @@ impl Engine {
                 Instant::now() >= deadline + Duration::from_millis(Self::DEFERRED_FIX_MS * 4);
             if deadline <= Instant::now() && (!self.backspace_down || overdue) {
                 self.deferred_fix = None;
-                debug_log::log("deferred backspace fix: rewrite the region");
+                debug_log::log("del mode=backspace why=deferred_fix");
                 actions.extend(self.per_key_coalesce(want));
             }
         }
@@ -2578,7 +2578,7 @@ impl Engine {
             self.repair_delete = None;
             self.release_word_mode();
             self.idle_committed = Some((raw, encode(self.charset, &pending)));
-            debug_log::log(&format!("idle commit len={}", pending.chars().count()));
+            debug_log::log(&format!("buf commit=idle len={}", pending.chars().count()));
             actions.extend(finished);
             // The in-flight word is gone: close the strip with the commit
             // (the next word's first key would hide it only one key later).

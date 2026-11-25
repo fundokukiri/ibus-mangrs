@@ -429,7 +429,7 @@ impl EngineHandler {
         };
         self.emoji_picker = None;
         RecentEmoji::push(&name);
-        debug_log::log("emoji picker: pick committed");
+        debug_log::log("ext emoji=pick committed=1");
         {
             let mut engine = lock_engine(&self.engine);
             // Nothing else may be in flight (opening ended the word and the

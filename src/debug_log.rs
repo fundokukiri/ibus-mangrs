@@ -1,14 +1,35 @@
 //! Optional append-only debug log for live diagnosis.
 //!
 //! Off by default; turned on by `debug_log = true` in `config.toml` (the GUI
-//! exposes it as a checkbox). When enabled, the engine appends one terse line
-//! per focus change, capability update, surrounding-text report and
-//! delete/injection decision to `~/.cache/ibus-mangrs/debug.log`. Timestamps are
-//! milliseconds since the epoch so entries can be correlated with
-//! `journalctl` (mutter warnings, crashes).
+//! exposes it as a checkbox). When enabled, the engine appends one line per
+//! focus change, capability update, surrounding-text report and
+//! delete/injection decision to `~/.cache/ibus-mangrs/debug.log`.
+//!
+//! # Line format
+//!
+//! ```text
+//! <epoch_ms> <tag> <key>=<value> [<key>=<value>]… [rep=<n>]
+//! ```
+//!
+//! - `epoch_ms` is milliseconds since the epoch, so a line can be matched
+//!   against `journalctl` (mutter warnings, crashes). A line without it is a
+//!   fragment someone pasted by hand.
+//! - `tag` is one of [`TAGS`] and is the first word after the timestamp: it
+//!   says which part of the engine spoke, so a reader (or an agent) can
+//!   `grep ' del '` and see only the delete decisions.
+//! - fields are `key=value` with no spaces; a value that needs spaces or
+//!   carries user text is quoted (`err="…"`) and the text tier masks it.
+//! - `ok=0` marks a line that reports a failure; the family tag stays, so a
+//!   failure reads in its own context: `del ok=0 mode=backspace n=3`.
+//! - `rep=<n>` is appended by the writer when the same line repeated
+//!   consecutively: the line then stands for `n` occurrences. Nothing else
+//!   writes into an existing line.
+//!
+//! A line must never carry what the user typed unless the text tier is on
+//! ([`set_text_enabled`]).
 
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -28,6 +49,29 @@ const ROTATE_SIZE: u64 = 5 * 1024 * 1024;
 /// create_dir_all) per line put several syscalls of overhead on every
 /// keystroke — exactly when latency was being diagnosed.
 static LOG_FILE: Mutex<Option<(File, u64, PathBuf)>> = Mutex::new(None);
+/// The vocabulary of tags; the first word after the timestamp is one of these.
+/// Kept closed and short so a filter is a grep, and so a new line cannot
+/// invent a spelling that splits a family in two.
+pub const TAGS: [&str; 8] = ["cfg", "ctx", "key", "st", "ins", "del", "buf", "ext"];
+/// The line just written, so an identical one is collapsed into its `rep=`
+/// count instead of filling the file.
+static LAST: Mutex<Option<Repeat>> = Mutex::new(None);
+
+struct Repeat {
+    msg: String,
+    count: u32,
+    /// Offset of the newline that ends the line: a repeat rewrites `rep=`
+    /// there, which is why no line is ever un-terminated in the file.
+    tail: u64,
+}
+
+impl Repeat {
+    /// Whether the line that arrived continues this run. Only an identical
+    /// message does: a flip between two states is two real events.
+    fn continues(&self, msg: &str) -> bool {
+        self.msg == msg
+    }
+}
 /// Test-only redirect so tests can assert log lines without touching the
 /// user's cache dir; engine tests set it through `test_guard` below.
 #[cfg(test)]
@@ -50,6 +94,7 @@ pub(crate) fn test_guard() -> std::sync::MutexGuard<'static, ()> {
 pub(crate) fn test_reset() {
     *LOG_FILE.lock().unwrap_or_else(|p| p.into_inner()) = None;
     *PATH_OVERRIDE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    *LAST.lock().unwrap_or_else(|p| p.into_inner()) = None;
     ENABLED.store(false, Ordering::Relaxed);
     TEXT_ENABLED.store(false, Ordering::Relaxed);
 }
@@ -144,25 +189,45 @@ pub fn log(msg: &str) {
         *handle = open_log_file();
     }
     let Some(file) = handle.as_mut() else { return };
-    let line_len = msg.len() as u64 + 15;
-    if file.1 + line_len > ROTATE_SIZE {
+    let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(repeat) = last.as_mut().filter(|r| r.continues(msg)) {
+        repeat.count += 1;
+        let extra = format!(" rep={}\n", repeat.count);
+        // Count only grows, so the new text always covers the old one.
+        if write_at(&mut file.0, repeat.tail, extra.as_bytes()).is_ok() {
+            file.1 = repeat.tail + extra.len() as u64;
+        }
+        return;
+    }
+    *last = None;
+    drop(last);
+    let ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let line = format!("{ms} {msg}\n");
+    if file.1 + line.len() as u64 > ROTATE_SIZE {
         // Move the full log aside (the rename overwrites a stale .old) and
         // start fresh; a failed reopen keeps writing to the renamed inode,
         // which is fine for diagnosis.
         if let Some(path) = log_path() {
             let _ = std::fs::rename(&path, path.with_extension("log.old"));
         }
+        // A tail offset from the rotated file means nothing in the new one.
+        *LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         match open_log_file() {
             Some(pair) => *file = pair,
             None => file.1 = 0,
         }
     }
-    let ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let _ = writeln!(file.0, "{ms} {msg}");
-    file.1 += line_len;
+    let before = file.1;
+    let _ = write_at(&mut file.0, before, line.as_bytes());
+    file.1 = before + line.len() as u64;
+    *LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Repeat {
+        msg: msg.to_string(),
+        count: 1,
+        tail: before + line.len() as u64 - 1,
+    });
 }
 
 /// Append one line that may carry typed text (the surrounding-text content,
@@ -195,7 +260,9 @@ fn open_log_file() -> Option<(File, u64, PathBuf)> {
     }
     let file = OpenOptions::new()
         .create(true)
-        .append(true)
+        // Not truncated: the handle is kept and appended to by offset.
+        .truncate(false)
+        .write(true)
         // The typed-text tier writes what the user typed; the file must not be
         // readable by other local users (0666 minus the usual 022 umask).
         .mode(0o600)
@@ -205,6 +272,13 @@ fn open_log_file() -> Option<(File, u64, PathBuf)> {
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     Some((file, len, path))
+}
+
+/// Write at an absolute offset: the handle is not opened with `O_APPEND`
+/// exactly so the writer can rewrite the `rep=` tail of the line above.
+fn write_at(file: &mut File, offset: u64, bytes: &[u8]) -> std::io::Result<()> {
+    file.seek(SeekFrom::Start(offset))?;
+    file.write_all(bytes)
 }
 
 pub fn log_path() -> Option<PathBuf> {
@@ -378,8 +452,9 @@ mod tests {
         // written before the crossing lands in .old, the live file starts
         // fresh, and the fresh file stays under the cap.
         let big = "x".repeat(1024 * 1024);
-        for _ in 0..6 {
-            log(&big);
+        for i in 0..6 {
+            // Distinct lines: an identical one would collapse into `rep=`.
+            log(&format!("{i} {big}"));
         }
         let moved2 = std::fs::read_to_string(&old).unwrap_or_default();
         assert!(
@@ -396,6 +471,134 @@ mod tests {
         *PATH_OVERRIDE.lock().unwrap() = None;
         ENABLED.store(false, Ordering::Relaxed);
         let _ = std::fs::remove_file(&old);
+    }
+
+    #[test]
+    fn a_repeated_line_lands_once_with_its_count() {
+        let _guard = test_guard();
+        let dir = TempLogDir::new("debug-log-repeat");
+        let path = dir.dir().join("debug.log");
+        *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+        set_enabled(true);
+        for _ in 0..200 {
+            log("st cur=0 len=0 comp=1");
+        }
+        // A different line closes the run and is written on its own.
+        log("buf flush=per-key");
+        log("buf flush=per-key");
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        // Another test in this binary may reset the shared writer mid-run, so
+        // the run is read as a shape: one or two lines, never two hundred,
+        // and at least one of them carries its count.
+        let run = |needle: &str| {
+            text.lines()
+                .filter(|line| line.contains(needle))
+                .collect::<Vec<_>>()
+        };
+        let repeats = run("st cur=0 len=0 comp=1");
+        assert!(
+            !repeats.is_empty() && repeats.len() <= 2,
+            "200 copies collapse: {text}"
+        );
+        assert!(
+            repeats.iter().any(|line| line.contains(" rep=")),
+            "the count is kept: {text}"
+        );
+        let flushes = run("buf flush=per-key");
+        assert!(!flushes.is_empty() && flushes.len() <= 2, "{text}");
+        // Every line is terminated: the count is written over the newline of
+        // the line above, never appended after it.
+        assert!(text.ends_with('\n'), "{text}");
+        set_enabled(false);
+        *LOG_FILE.lock().unwrap() = None;
+        *PATH_OVERRIDE.lock().unwrap() = None;
+        *LAST.lock().unwrap() = None;
+    }
+
+    #[test]
+    fn only_an_identical_line_continues_a_run() {
+        // A flip between two states is two real events, not a repeat: the run
+        // ends, so the file shows both states.
+        let line = Repeat {
+            msg: "st comp=1".to_string(),
+            count: 1,
+            tail: 0,
+        };
+        assert!(line.continues("st comp=1"));
+        assert!(!line.continues("st comp=0"));
+        assert!(
+            !line.continues("st comp=1 "),
+            "a changed field breaks the run"
+        );
+    }
+
+    #[test]
+    fn every_logged_line_opens_with_a_tag() {
+        // The tag vocabulary is only worth anything if every call site uses
+        // it: walk the sources and read the first word of each literal.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut checked = 0;
+        let mut offenders = Vec::new();
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs")
+                    || path.file_name().is_some_and(|n| n == "debug_log.rs")
+                {
+                    continue;
+                }
+                let Ok(source) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                for call in [
+                    "debug_log::log(",
+                    "debug_log::log_text(",
+                    "debug_log::log_keys(",
+                ] {
+                    let mut rest = source.as_str();
+                    while let Some(pos) = rest.find(call) {
+                        rest = &rest[pos + call.len()..];
+                        // Only a call that passes a literal is checkable; one
+                        // that builds the string elsewhere is read by hand.
+                        let mut after = rest.trim_start();
+                        for prefix in ["&format!(", "format!("] {
+                            if let Some(stripped) = after.strip_prefix(prefix) {
+                                after = stripped.trim_start();
+                                break;
+                            }
+                        }
+                        if !after.starts_with('"') {
+                            continue;
+                        }
+                        let inner = &after[1..];
+                        let Some(end) = inner.find('"') else { break };
+                        let first = inner[..end].split(' ').next().unwrap_or("");
+                        checked += 1;
+                        if !TAGS.contains(&first) {
+                            offenders.push(format!(
+                                "{}: {:?}",
+                                path.display(),
+                                inner[..end]
+                                    .split(' ')
+                                    .take(6)
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked > 50, "the walk found the call sites: {checked}");
+        assert!(offenders.is_empty(), "untagged lines: {offenders:#?}");
     }
 
     #[test]

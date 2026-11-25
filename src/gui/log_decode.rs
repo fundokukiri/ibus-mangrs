@@ -1,14 +1,15 @@
-//! Reading the debug log back. The engine writes `<epoch_ms> <text>` with no
-//! category tag, so anything that wants to show the file as a story has to
-//! work out what each line is and decode the machine words inside it. Kept out
-//! of the page so it can be tested without a window, and so a change here can
-//! never touch the way the engine writes the file.
+//! Reading the debug log back. The engine writes `<epoch_ms> <tag> <k=v>…`, so
+//! a line says which part of the engine spoke and the viewer only has to read
+//! that tag; the fields are decoded here. Kept out of the page so it can be
+//! tested without a window, and so a change here can never touch the way the
+//! engine writes the file.
 
 /// What a line is about; the chip row filters on this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
     Key,
     Insert,
+    Delete,
     Flush,
     Error,
     Other,
@@ -16,7 +17,13 @@ pub(super) enum Kind {
 
 /// The kinds the type list offers, in the order it shows them. Any other kind
 /// is visible only with "Tất cả" picked.
-pub(super) const CHIPS: [Kind; 4] = [Kind::Key, Kind::Insert, Kind::Flush, Kind::Error];
+pub(super) const CHIPS: [Kind; 5] = [
+    Kind::Key,
+    Kind::Insert,
+    Kind::Delete,
+    Kind::Flush,
+    Kind::Error,
+];
 
 /// A decoded line, ready to be drawn.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,29 +122,37 @@ fn is_ms(head: &str) -> bool {
 }
 
 /// Failure first: a line that both backspaces and fails is a failure, and the
-/// red chip has to count it. After that the prefix decides.
+/// red chip has to count it. After that the tag decides — the engine writes it
+/// as the first word of every line (see `debug_log::TAGS`).
 pub(super) fn classify(msg: &str) -> Kind {
-    let lower = msg.to_lowercase();
-    if ["error", "panic", "failed", "denied", "refused", "lỗi"]
-        .iter()
-        .any(|word| lower.contains(word))
-    {
+    if msg.split_whitespace().any(|field| field == "ok=0") {
         return Kind::Error;
     }
-    if msg == "key" || msg.starts_with("key ") {
-        return Kind::Key;
+    match msg.split(' ').next().unwrap_or("") {
+        "key" => Kind::Key,
+        "ins" | "st" => Kind::Insert,
+        "del" => Kind::Delete,
+        "buf" => Kind::Flush,
+        // A line from an engine older than the tagged format still reads: it
+        // has no tag, so the old prefixes and failure words still decide.
+        _ if lower_words(msg) => Kind::Error,
+        _ if msg.starts_with("timed commit flush") || msg.contains("commit flush") => Kind::Flush,
+        _ if msg.starts_with("st report")
+            || msg.starts_with("verify:")
+            || msg.starts_with("surrounding") =>
+        {
+            Kind::Insert
+        }
+        _ => Kind::Other,
     }
-    if msg.starts_with("surrounding")
-        || msg.starts_with("st report")
-        || msg.starts_with("verify:")
-        || lower.contains("tail=")
-    {
-        return Kind::Insert;
-    }
-    if msg.starts_with("timed commit flush") || msg.contains("commit flush") {
-        return Kind::Flush;
-    }
-    Kind::Other
+}
+
+/// The failure words an untagged line may still carry.
+fn lower_words(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    ["error", "panic", "failed", "denied", "refused", "lỗi"]
+        .iter()
+        .any(|word| lower.contains(word))
 }
 
 /// `key keyval=0x69 state=0x40000000` into its parts. The values are hex
@@ -167,10 +182,10 @@ fn key_body(msg: &str) -> Option<Body> {
 pub(super) fn composing(lines: &[Line]) -> Option<bool> {
     for line in lines.iter().rev() {
         let text = line.plain();
-        let Some(pos) = text.find("composing=") else {
+        let Some(pos) = text.find("comp=") else {
             continue;
         };
-        return Some(text[pos + "composing=".len()..].starts_with("true"));
+        return Some(text[pos + "comp=".len()..].starts_with('1'));
     }
     None
 }
@@ -304,28 +319,50 @@ mod tests {
     }
 
     #[test]
-    fn the_kind_follows_the_line_family() {
+    fn the_kind_follows_the_tag_the_engine_wrote() {
         assert_eq!(classify("key keyval=0x69 state=0x0"), Kind::Key);
+        assert_eq!(classify("st cur=3 len=5 comp=1"), Kind::Insert);
+        assert_eq!(classify("ins n=2 tail=***"), Kind::Insert);
+        assert_eq!(classify("del mode=backspace n=3"), Kind::Delete);
+        assert_eq!(classify("buf flush=per_key"), Kind::Flush);
+        // A tag the chip row has no family for stays under "Tất cả" alone.
+        assert_eq!(classify("ctx caps=0b1001"), Kind::Other);
+        assert_eq!(classify("cfg ignore=foo err=bar"), Kind::Other);
+    }
+
+    #[test]
+    fn a_failed_line_counts_as_an_error_whatever_its_family() {
+        // `ok=0` is the writer's failure mark: the family tag stays, the chip
+        // turns red, so a delete that failed is counted as a failure.
         assert_eq!(
-            classify("surrounding cursor=3 tail=\"Gia\" text=\"Gia\""),
-            Kind::Insert
+            classify("del ok=0 mode=backspace why=inject_failed n=3"),
+            Kind::Error
         );
+        assert_eq!(classify("ins ok=0 why=echo_stale ms=800 n=2"), Kind::Error);
+        assert_eq!(classify("buf ok=0 why=burst_full cap=40"), Kind::Error);
+        // A line from an engine older than the tagged format still classifies.
+        assert_eq!(classify("timed commit flush (per-key)"), Kind::Flush);
         assert_eq!(
             classify("st report cursor=3 len=5 composing=true"),
             Kind::Insert
         );
-        assert_eq!(classify("timed commit flush (per-key)"), Kind::Flush);
         assert_eq!(
             classify("delete-before inject FAILED → protocol=-1"),
             Kind::Error
         );
-        // A failure inside a backspace line is still a failure: the red chip
-        // has to count it.
-        assert_eq!(classify("backspace rewrite failed"), Kind::Error);
-        // A backspace line that did not fail is background noise, not a family
-        // the type list offers.
-        assert_eq!(classify("rewrite-by-backspace n=3"), Kind::Other);
-        assert_eq!(classify("mode: preedit"), Kind::Other);
+    }
+
+    #[test]
+    fn the_composing_flag_comes_from_the_report_field() {
+        let log = vec![
+            parse("1795619563000 st cur=0 len=0 comp=0", None).expect("a line"),
+            parse("1795619563020 st cur=2 len=2 comp=1", None).expect("a line"),
+        ];
+        assert_eq!(composing(&log), Some(true));
+        // A truncated field must not panic the page.
+        let short = vec![parse("1795619563040 st cur=2 len=2 comp=", None).expect("a line")];
+        assert_eq!(composing(&short), Some(false));
+        assert_eq!(composing(&[]), None);
     }
 
     #[test]

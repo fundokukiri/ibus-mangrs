@@ -1031,7 +1031,7 @@ impl Config {
         }
         // Slow path, only for a broken file: keep the keys that parse.
         let Ok(table) = text.parse::<toml::Table>() else {
-            crate::debug_log::log("config: unparsable TOML, using defaults");
+            crate::debug_log::log("cfg ok=0 why=unparsable using=defaults");
             return Self::default();
         };
         let mut kept = toml::Table::new();
@@ -1041,7 +1041,7 @@ impl Config {
                 Ok(_) => {
                     kept.insert(key, value);
                 }
-                Err(e) => crate::debug_log::log(&format!("config: ignoring `{key}`: {e}")),
+                Err(e) => crate::debug_log::log(&format!("cfg ignore={key} err={e:?}")),
             }
         }
         toml::Value::Table(kept).try_into().unwrap_or_default()

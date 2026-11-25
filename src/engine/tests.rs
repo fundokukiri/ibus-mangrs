@@ -3262,7 +3262,7 @@ fn flow_without_backend_serves_forward_backspace_and_logs_once() {
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
         text.lines()
-            .filter(|l| l.contains("flow without a backend"))
+            .filter(|l| l.contains("del mode=forward why=no_backend"))
             .count(),
         1,
         "one fallback line for two resolutions: {text}"

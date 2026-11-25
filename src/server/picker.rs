@@ -184,7 +184,7 @@ impl EngineHandler {
         // extension off no Wayland app can be named at all, so the menu warns
         // instead of offering a choice that would hit the wrong app.
         if target.is_none() && !extension_answered {
-            debug_log::log("picker hotkey: no extension, warning only");
+            debug_log::log("ext picker=hotkey why=no_extension");
             self.picker = Some(PickerState::warning());
             self.emit_picker_table(out);
             return;
@@ -195,7 +195,7 @@ impl EngineHandler {
         let target = target
             .filter(|target| !target.is_empty())
             .unwrap_or_else(|| {
-                debug_log::log("picker hotkey: unnamed app, rule target none");
+                debug_log::log("ext picker=hotkey target=none rule=none");
                 crate::config::UNNAMED_PATTERN.to_string()
             });
         // The in-flight word ends here, before the menu shows: a pick must
@@ -324,7 +324,7 @@ impl EngineHandler {
             return;
         };
         debug_log::log(&format!(
-            "picker: {} [{}] → {}",
+            "ext picker target={:?} class={:?} mode={}",
             crate::appname::display_name(&state.target),
             state.target,
             mode.key()

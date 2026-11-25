@@ -76,14 +76,14 @@ mod tests {
 
     const PRESS: &str = "key keyval=0x69 state=0x0";
     const PRESS_UP: &str = "key keyval=0x69 state=0x40000000";
-    const FLUSH: &str = "timed commit flush (per-key)";
-    const INSERT: &str = "surrounding cursor=3 tail=\"Gi\" text=\"Gi\"";
+    const FLUSH: &str = "buf flush=per_key";
+    const INSERT: &str = "st cur=3 len=2 comp=0";
 
     #[test]
     fn a_press_is_measured_until_the_flush_after_it() {
         let log = lines(&[
             "1795619563000 key keyval=0x69 state=0x0",
-            "1795619563012 timed commit flush (per-key)",
+            "1795619563012 buf flush=per_key",
         ]);
         assert_eq!(
             measure(&log),
@@ -99,8 +99,8 @@ mod tests {
     fn an_insert_line_closes_a_press_too() {
         let log = lines(&[
             "1795619563000 key keyval=0x69 state=0x0",
-            "1795619563040 surrounding cursor=3 tail=\"Gi\" text=\"Gi\"",
-            "1795619563050 timed commit flush (per-key)",
+            "1795619563040 st cur=3 len=2 comp=0",
+            "1795619563050 buf flush=per_key",
         ]);
         // The second line closes the sample, so the flush has nothing to pair.
         assert_eq!(measure(&log).map(|s| (s.avg_ms, s.keys)), Some((40, 1)));
@@ -111,7 +111,7 @@ mod tests {
         let log = lines(&[
             "1795619563000 key keyval=0x69 state=0x0",
             "1795619563005 key keyval=0x69 state=0x40000000",
-            "1795619563010 timed commit flush (per-key)",
+            "1795619563010 buf flush=per_key",
         ]);
         assert_eq!(measure(&log).map(|s| (s.avg_ms, s.keys)), Some((10, 1)));
     }
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn a_log_without_presses_has_no_numbers() {
         assert_eq!(measure(&[]), None);
-        let log = lines(&["1795619563000 timed commit flush (per-key)"]);
+        let log = lines(&["1795619563000 buf flush=per_key"]);
         assert_eq!(measure(&log), None);
     }
 
@@ -133,7 +133,7 @@ mod tests {
     fn a_reply_seconds_later_is_not_this_key_s_echo() {
         let log = lines(&[
             "1795619563000 key keyval=0x69 state=0x0",
-            "1795619569000 timed commit flush (per-key)",
+            "1795619569000 buf flush=per_key",
         ]);
         assert_eq!(measure(&log), None);
     }
@@ -149,7 +149,7 @@ mod tests {
             ));
             // Delays grow with i, so the average proves which window was used.
             raw.push(format!(
-                "{} timed commit flush (per-key)",
+                "{} buf flush=per_key",
                 1_700_000_000_000 + i * 1000 + i
             ));
         }
@@ -166,7 +166,7 @@ mod tests {
         let log = lines(&[
             "1795619563000 key keyval=0x69 state=0x0",
             "1795619563001 something the page has never seen",
-            "1795619563015 timed commit flush (per-key)",
+            "1795619563015 buf flush=per_key",
         ]);
         assert_eq!(measure(&log).map(|s| s.avg_ms), Some(15));
     }
@@ -175,7 +175,7 @@ mod tests {
     fn the_press_constant_is_the_one_the_engine_writes() {
         assert!(PRESS.starts_with("key keyval="));
         assert!(PRESS_UP.contains("0x40000000"));
-        assert!(FLUSH.starts_with("timed commit flush"));
-        assert!(INSERT.starts_with("surrounding"));
+        assert!(FLUSH.starts_with("buf flush="));
+        assert!(INSERT.starts_with("st "));
     }
 }

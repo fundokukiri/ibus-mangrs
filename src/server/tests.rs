@@ -934,7 +934,9 @@ fn watchdog_flushes_a_lost_burst_after_the_deadline() {
     crate::debug_log::test_reset();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
-        text.lines().filter(|l| l.contains("echo watchdog")).count(),
+        text.lines()
+            .filter(|l| l.contains("ins ok=0 why=burst_lost"))
+            .count(),
         1,
         "one watchdog line for one lost burst: {text}"
     );
@@ -1095,7 +1097,7 @@ fn bounce_pass(
     }
     if let Some(s) = stash {
         if Instant::now() >= s.deadline {
-            debug_log::log("stashed rewrite dropped: no report within the reconcile window");
+            debug_log::log("st stash=drop why=no_report");
             *stash = None;
         }
     }
@@ -1363,7 +1365,7 @@ fn burst_buffer_cap_drops_the_newest_and_logs_once() {
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
         text.lines()
-            .filter(|l| l.contains("burst buffer full"))
+            .filter(|l| l.contains("buf ok=0 why=burst_full"))
             .count(),
         1,
         "one line per overflow episode: {text}"
@@ -1376,11 +1378,11 @@ fn burst_buffer_cap_drops_the_newest_and_logs_once() {
     }
     crate::debug_log::test_reset();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
-    assert_eq!(
+    // The second episode says the same thing, so the writer counted it into
+    // the line above instead of writing a twin.
+    assert!(
         text.lines()
-            .filter(|l| l.contains("burst buffer full"))
-            .count(),
-        2,
+            .any(|l| l.contains("buf ok=0 why=burst_full") && l.ends_with("rep=2")),
         "a fresh episode logs again: {text}"
     );
     let _ = std::fs::remove_file(&path);
@@ -1984,9 +1986,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
     crate::debug_log::test_reset();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
-        text.lines()
-            .filter(|l| l.contains("stashed rewrite dropped"))
-            .count(),
+        text.lines().filter(|l| l.contains("st stash=drop")).count(),
         2,
         "one drop line per drop, mismatch and expiry: {text}"
     );
@@ -2382,9 +2382,7 @@ fn foreign_client_refuses_the_stashed_rewrite() {
     crate::debug_log::test_reset();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
-        text.lines()
-            .filter(|l| l.contains("stashed rewrite dropped"))
-            .count(),
+        text.lines().filter(|l| l.contains("st stash=drop")).count(),
         1,
         "the foreign refusal logs once: {text}"
     );
@@ -3553,19 +3551,19 @@ fn preferred_kind_maps_the_config_variants() {
 fn backend_selection_log_names_the_role() {
     assert_eq!(
         backend_selection_log(Some(Kind::Uinput), None),
-        "injection backend: uinput (matrix)"
+        "ctx backend=uinput pref=none why=matrix"
     );
     assert_eq!(
         backend_selection_log(Some(Kind::XTest), Some(Kind::XTest)),
-        "injection backend: xtest (preferred)"
+        "ctx backend=xtest pref=xtest why=preferred"
     );
     assert_eq!(
         backend_selection_log(Some(Kind::Uinput), Some(Kind::XTest)),
-        "injection backend: uinput (fallback — xtest denied)"
+        "ctx backend=uinput pref=xtest why=denied"
     );
     assert_eq!(
         backend_selection_log(None, Some(Kind::XTest)),
-        "injection backend: none (fallback — xtest denied)"
+        "ctx backend=none pref=xtest why=denied"
     );
 }
 

@@ -40,7 +40,7 @@ impl Engine {
                 && self.protocol_delete_ok()
                 && self.clamp_delete(need) == need
             {
-                debug_log::log("idle commit re-entry → un-commit and re-compose");
+                debug_log::log("buf commit=reentry");
                 self.wrapper.replay_raw(&raw);
                 reentry_delete = Some(Action::DeleteBefore(need));
             }
@@ -304,7 +304,7 @@ impl Engine {
                 &self.date_format,
             )
             .or_else(|| self.emojis.lookup(&name).map(str::to_string))?;
-        debug_log::log("emoji shortcode: matched");
+        debug_log::log("ext emoji=shortcode matched=1");
         if mode == Mode::Flow {
             // None: the closing ':' is part of the shortcode and must not
             // reach the application. Land the in-flight batch first: the
@@ -784,7 +784,7 @@ impl Engine {
                     Instant::now() + Duration::from_millis(self.flow_backspace_restore_delay_ms),
                     want,
                 ));
-                debug_log::log("per-key backspace schedules an undone-mark fix");
+                debug_log::log("del mode=per_key fix=undone_mark");
                 self.note_backspace_forwarded();
                 actions.push(Action::Forward);
                 return actions;
@@ -883,7 +883,7 @@ impl Engine {
                                 + Duration::from_millis(self.flow_backspace_restore_delay_ms),
                             want,
                         ));
-                        debug_log::log("per-key backspace schedules a tone-first fix");
+                        debug_log::log("del mode=per_key fix=tone_first");
                     }
                     if !self.wrapper.has_composition() {
                         self.release_word_mode();
@@ -899,7 +899,7 @@ impl Engine {
         // character the batch was still going to add.
         if let Some((_, text)) = self.per_key_park.take() {
             debug_log::log(&format!(
-                "per-key backspace lands the batch len={}",
+                "del mode=per_key_batch len={}",
                 text.chars().count()
             ));
             actions.push(Action::CommitNow(text));
@@ -1216,7 +1216,7 @@ impl Engine {
                     // RequireSurroundingText) unblocks rewriting.
                     if debug_log::enabled() {
                         debug_log::log(&format!(
-                            "raw-forward (no delete transport) client={:?}",
+                            "key forward=raw why=no_transport client={:?}",
                             self.client
                         ));
                     }
@@ -1253,7 +1253,7 @@ impl Engine {
                 // duplicate the word from the second keystroke on.
                 if debug_log::enabled() {
                     debug_log::log(&format!(
-                        "raw-forward (no delete transport, legacy) client={:?}",
+                        "key forward=raw why=no_transport legacy=1 client={:?}",
                         self.client
                     ));
                 }

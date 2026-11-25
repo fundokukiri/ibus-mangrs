@@ -780,7 +780,8 @@ fn kind_label(kind: Kind) -> String {
     match kind {
         Kind::Key => t("misc.chip_key", "Phím"),
         Kind::Insert => t("misc.chip_insert", "Chèn"),
-        Kind::Flush => t("misc.chip_flush", "Flush"),
+        Kind::Delete => t("misc.chip_delete", "Xoá"),
+        Kind::Flush => t("misc.chip_flush", "Bộ đệm"),
         Kind::Error => t("misc.chip_error", "Lỗi"),
         Kind::Other => t("misc.chip_other", "Khác"),
     }
@@ -915,6 +916,7 @@ fn tag_for(kind: Kind) -> &'static str {
     match kind {
         Kind::Key => "log-key",
         Kind::Insert => "log-insert",
+        Kind::Delete => "log-delete",
         Kind::Flush => "log-flush",
         Kind::Error => "log-error",
         Kind::Other => "log-other",
@@ -984,10 +986,10 @@ mod tests {
         vec![
             "1795619563084 key keyval=0x69 state=0x0".to_string(),
             "1795619563090 key keyval=0xff08 state=0x40000000".to_string(),
-            "1795619563154 timed commit flush (per-key)".to_string(),
-            "1795619563158 surrounding cursor=3 tail=\"Gia\" text=\"Gia\"".to_string(),
-            "1795619563160 delete-before inject FAILED → protocol=-1".to_string(),
-            "1795619563164 mode: preedit".to_string(),
+            "1795619563154 buf flush=per_key".to_string(),
+            "1795619563158 st cur=3 len=3 comp=0".to_string(),
+            "1795619563160 del ok=0 mode=protocol why=inject_failed n=1".to_string(),
+            "1795619563164 ctx mode=preedit".to_string(),
         ]
     }
 
@@ -1049,7 +1051,7 @@ mod tests {
         assert_eq!(small.len(), 2, "the cap drops the oldest lines");
         assert_eq!(
             small[1].body.text("nhấn", "thả"),
-            "mode: preedit",
+            "ctx mode=preedit",
             "the newest line survives"
         );
 
