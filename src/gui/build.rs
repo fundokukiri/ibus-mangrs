@@ -822,6 +822,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         saved_emoji: RefCell::new(None),
         self_saved_mtime: Cell::new(None),
         sidebar_select: RefCell::new(None),
+        debug_tab: RefCell::new(None),
         rule_pill,
         rule_name_entry,
         rule_copy_btn,

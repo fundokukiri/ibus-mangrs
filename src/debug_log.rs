@@ -207,7 +207,7 @@ fn open_log_file() -> Option<(File, u64, PathBuf)> {
     Some((file, len, path))
 }
 
-fn log_path() -> Option<PathBuf> {
+pub fn log_path() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(path) = PATH_OVERRIDE
         .lock()

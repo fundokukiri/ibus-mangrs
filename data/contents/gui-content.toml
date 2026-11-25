@@ -17,6 +17,7 @@
 name = "MăngRS"
 
 [pages]
+debugging = "Gỡ lỗi"
 typing = "Chung"
 tone = "Dấu & Chính tả"
 macros = "Gõ tắt"
@@ -37,6 +38,13 @@ none = "Không có kết quả"
 page_kind = "Trang"
 
 [misc]
+debug_open_folder = "Mở thư mục"
+debug_clear_log = "Xoá log…"
+debug_copy_report = "Sao chép"
+debug_filter_placeholder = "Lọc dòng…"
+debug_follow = "Theo dõi"
+debug_log_missing = "Không có đường dẫn log"
+debug_log_absent = "chưa ghi"
 experimental_badge = "Thử nghiệm"
 exported_toast = "Đã xuất cấu hình"
 restart_button = "Khởi động lại IBus"
@@ -673,3 +681,38 @@ heading = "Xoá dữ liệu đã học?"
 body = "Hai tệp dữ liệu đã học sẽ bị xoá. Bộ gõ học lại từ đầu."
 cancel = "Huỷ"
 delete = "Xoá"
+
+[groups.debug.log]
+title = "Tệp log"
+
+[groups.debug.viewer]
+title = "Xem log"
+
+[groups.debug.diag]
+title = "Chẩn đoán"
+
+[rows.debug_log_file]
+title = "Nhật ký gỡ lỗi"
+
+[rows.debug_info]
+version = "Phiên bản"
+session = "Phiên"
+mode = "Chế độ gõ"
+backend = "Cách chèn"
+extension = "Extension GNOME"
+config = "Cấu hình"
+log = "Nhật ký"
+
+[rows.debug_report]
+title = "Báo cáo"
+subtitle = "Sao chép thông tin và log cuối"
+
+[debug_clear]
+heading = "Xoá nhật ký gỡ lỗi?"
+body = "Tệp log bị xoá hẳn. Engine ghi lại từ đầu nếu chế độ gỡ lỗi vẫn bật."
+cancel = "Huỷ"
+delete = "Xoá"
+
+[debug_report]
+copied = "Đã sao chép báo cáo"
+log_section = "log cuối"

@@ -355,6 +355,9 @@ struct Ui {
     /// Programmatic page jump: select_row drives the same row_selected
     /// handler the clicks use. `None` headless.
     sidebar_select: RefCell<Option<PageJump>>,
+    /// Shows/removes the "Gỡ lỗi" sidebar row; wired by the window, called
+    /// from the debug switch.
+    debug_tab: RefCell<Option<TabHook>>,
     /// The merged add-rule form ("Thêm luật"): the pill (fill + tooltip),
     /// the frameless name entry whose placeholder mirrors the focused app,
     /// the copy/apply pair shown only while an app is detected, and Thêm.
@@ -418,6 +421,8 @@ type SharedSave = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
 /// lives in `content` where the sidebar rows do; the gate uses it to land
 /// the user somewhere sane after closing the tab they stood on.
 type PageJump = Rc<dyn Fn(&str)>;
+/// Shows or removes the debug row from the sidebar.
+type TabHook = Rc<dyn Fn(bool)>;
 
 /// The combo-row index for a `nav_key_while_preedit` value — shared by
 /// refresh.

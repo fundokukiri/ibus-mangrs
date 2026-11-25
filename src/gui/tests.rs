@@ -59,6 +59,10 @@ fn gtk_widget_scenarios() {
     emoji_editor_follows_the_switch();
     toggling_off_releases_the_editor_caret();
     close_test_windows();
+    the_debug_tab_follows_the_switch();
+    the_debug_tab_row_appears_only_with_debug_mode();
+    the_debug_page_lists_its_rows();
+    close_test_windows();
     every_switch_triggers_save();
     debug_mode_switch_keeps_the_dialog_choice();
     group_descriptions_become_title_tooltips();
@@ -1107,6 +1111,80 @@ fn cycle_subtitle_lists_the_five_modes() {
         sequence.subtitle().as_ref().map(|s| s.as_str()),
         Some("Gạch chân (preedit) → Surrounding text → Flow → Forward Backspace → OFF"),
         "the sequence joins the five labels in shipped order"
+    );
+}
+
+/// The "Gỡ lỗi" tab is the one conditional page: its row is in the sidebar
+/// only while debug mode is on, and the switch that turns it on lives on
+/// another page, so the removal has to happen without a rebuild.
+fn the_debug_tab_follows_the_switch() {
+    let ui = widgets();
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    {
+        let seen = seen.clone();
+        *ui.debug_tab.borrow_mut() = Some(Rc::new(move |visible: bool| {
+            seen.borrow_mut().push(visible)
+        }));
+    }
+    crate::gui::content::wire_debug_tab(&ui);
+    ui.debug_log.set_active(true);
+    ui.debug_log.set_active(false);
+    assert_eq!(
+        *seen.borrow(),
+        vec![true, false],
+        "the row follows the switch"
+    );
+}
+
+/// A window built while debug mode is on carries the row, one built while it
+/// is off does not.
+fn the_debug_tab_row_appears_only_with_debug_mode() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-debug-tab")
+        .build();
+    let nav = |w: &adw::ApplicationWindow, name: &str| {
+        descendants::<gtk4::ListBoxRow>(w.upcast_ref())
+            .into_iter()
+            .find(|r| r.widget_name() == name)
+    };
+    Config::default().save().expect("config off");
+    let win = crate::gui::content::build(&app, Some("typing"));
+    assert!(
+        nav(&win, "debugging").is_none(),
+        "no debug tab while debug mode is off"
+    );
+    win.close();
+    Config {
+        debug_log: true,
+        ..Config::default()
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("debugging"));
+    assert!(
+        nav(&win, "debugging").is_some(),
+        "the tab is there with debug mode on"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// The page's rows all resolve: a missing content key would leave an empty
+/// title on a row the user cannot identify.
+fn the_debug_page_lists_its_rows() {
+    let ui = widgets();
+    let overlay = pages::debug::build(&ui);
+    let titles: Vec<String> = descendants::<adw::ActionRow>(overlay.upcast_ref())
+        .iter()
+        .map(|r| r.title().to_string())
+        .collect();
+    assert!(
+        titles.iter().any(|r| r == "Phiên bản"),
+        "the diagnostics rows are there: {titles:?}"
+    );
+    assert!(
+        titles.iter().all(|r| !r.is_empty()),
+        "no row is left with an unresolved key: {titles:?}"
     );
 }
 

@@ -15,6 +15,7 @@
 name = "MăngRS"
 
 [pages]
+debugging = "Debugging"
 typing = "General"
 tone = "Tones & spelling"
 macros = "Shorthand"
@@ -35,6 +36,13 @@ none = "No results"
 page_kind = "Page"
 
 [misc]
+debug_open_folder = "Open folder"
+debug_clear_log = "Delete log…"
+debug_copy_report = "Copy"
+debug_filter_placeholder = "Filter lines…"
+debug_follow = "Follow"
+debug_log_missing = "No log path"
+debug_log_absent = "not written yet"
 experimental_badge = "Experimental"
 exported_toast = "Configuration exported"
 restart_button = "Restart IBus"
@@ -670,3 +678,38 @@ heading = "Clear the learned data?"
 body = "Both learned-data files are deleted. The engine starts learning from zero."
 cancel = "Cancel"
 delete = "Delete"
+
+[groups.debug.log]
+title = "Log file"
+
+[groups.debug.viewer]
+title = "View the log"
+
+[groups.debug.diag]
+title = "Diagnostics"
+
+[rows.debug_log_file]
+title = "Debug log"
+
+[rows.debug_info]
+version = "Version"
+session = "Session"
+mode = "Typing mode"
+backend = "Insertion"
+extension = "GNOME extension"
+config = "Config"
+log = "Log"
+
+[rows.debug_report]
+title = "Report"
+subtitle = "Copy the lines above plus the log tail"
+
+[debug_clear]
+heading = "Delete the debug log?"
+body = "The file is removed. The engine starts a new one while debug mode is still on."
+cancel = "Cancel"
+delete = "Delete"
+
+[debug_report]
+copied = "Report copied"
+log_section = "log tail"
