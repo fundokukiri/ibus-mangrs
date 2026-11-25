@@ -68,9 +68,16 @@ export default class MangrsFocusExtension extends Extension {
             // open (its search field) mutter keeps reporting the window
             // underneath, so a rule for that app would apply to the search
             // box. No focused window means no name — the engine falls back.
-            const shellTyping =
-                Main.overview.visible ||
-                (Main.runDialog !== undefined && Main.runDialog.visible);
+            let shellTyping = false;
+            try {
+                shellTyping =
+                    Main.overview?.visible === true ||
+                    Main.runDialog?.visible === true;
+            } catch (e) {
+                // A shell object that is not there must never cost every app
+                // its name: fall back to naming the window.
+                shellTyping = false;
+            }
             const win = shellTyping ? null : global.display.focus_window;
             const wmClass = win ? win.get_wm_class() || '' : '';
             const title = win ? win.get_title() || '' : '';
