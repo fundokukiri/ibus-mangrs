@@ -38,6 +38,7 @@ none = "Không có kết quả"
 page_kind = "Trang"
 
 [misc]
+section_machine = "Máy"
 debug_copy_path = "Sao chép đường dẫn"
 section_try = "Thử gõ"
 debug_open_folder = "Mở thư mục"
@@ -742,6 +743,12 @@ none = "chưa thấy trong log"
 auto_note = "Cách chèn auto đang rơi về"
 auto_hint = "Đặt luật theo app nếu gõ lỗi ở một ứng dụng."
 
+[rows.debug_machine]
+os = "Hệ điều hành"
+kernel = "Nhân"
+desktop = "Màn hình nền"
+ibus = "IBus"
+
 [rows.debug_info]
 backend = "Cấu hình"
 version = "Phiên bản"
@@ -760,6 +767,8 @@ cancel = "Huỷ"
 delete = "Xoá"
 
 [debug_report]
+repro_section = "Cách tái hiện"
+repro_body = "- Ứng dụng:\n- Các bước:\n  1. \n  2. \n- Chữ đã gõ:\n- Mong đợi:\n- Thực tế:"
 config_section = "config.toml đang nạp"
 copied = "Đã sao chép báo cáo"
 log_section = "Dòng log cuối"

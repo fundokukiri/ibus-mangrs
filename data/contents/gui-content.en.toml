@@ -36,6 +36,7 @@ none = "No results"
 page_kind = "Page"
 
 [misc]
+section_machine = "Machine"
 debug_copy_path = "Copy path"
 section_try = "Try typing"
 debug_open_folder = "Open folder"
@@ -738,6 +739,12 @@ none = "not in the log yet"
 auto_note = "Auto currently falls back to"
 auto_hint = "Set a per-application rule if typing misbehaves in one app."
 
+[rows.debug_machine]
+os = "OS"
+kernel = "Kernel"
+desktop = "Desktop"
+ibus = "IBus"
+
 [rows.debug_info]
 backend = "Configured"
 version = "Version"
@@ -756,6 +763,8 @@ cancel = "Cancel"
 delete = "Delete"
 
 [debug_report]
+repro_section = "Steps to reproduce"
+repro_body = "- Application:\n- Steps:\n  1. \n  2. \n- Text typed:\n- Expected:\n- Actual:"
 config_section = "config.toml in force"
 copied = "Report copied"
 log_section = "Last log lines"

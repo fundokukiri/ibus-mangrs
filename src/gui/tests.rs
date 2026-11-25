@@ -1173,26 +1173,27 @@ fn the_debug_tab_row_appears_only_with_debug_mode() {
 fn the_debug_page_shows_the_status_the_rows_and_the_footer() {
     let ui = widgets();
     let overlay = pages::debug::build(&ui);
-    // Five system rows, three for the insert path, two files.
+    // Five system rows, three for the insert path, four for the machine, two
+    // files.
     let rows = descendants::<adw::ActionRow>(overlay.upcast_ref());
-    assert_eq!(rows.len(), 10, "the diagnostics rows");
+    assert_eq!(rows.len(), 14, "the diagnostics rows");
     assert_eq!(
         descendants::<adw::PreferencesGroup>(overlay.upcast_ref()).len(),
-        4,
+        5,
         "a group per section, plus the typing test"
     );
     let dots = descendants::<gtk4::Label>(overlay.upcast_ref())
         .iter()
         .filter(|l| l.text() == "●")
         .count();
-    assert_eq!(dots, 11, "a dot per row, plus the status bar's");
+    assert_eq!(dots, 15, "a dot per row, plus the status bar's");
     let picks = descendants::<gtk4::DropDown>(overlay.upcast_ref()).len();
     assert_eq!(picks, 1, "the type list");
     let labels: Vec<String> = descendants::<gtk4::Label>(overlay.upcast_ref())
         .iter()
         .map(|l| l.text().to_string())
         .collect();
-    for wanted in ["Hệ thống", "Cách chèn", "Tệp", "Thử gõ"] {
+    for wanted in ["Hệ thống", "Cách chèn", "Máy", "Tệp", "Thử gõ"] {
         assert!(
             labels.iter().any(|l| l == wanted),
             "the page has a `{wanted}` group: {labels:?}"

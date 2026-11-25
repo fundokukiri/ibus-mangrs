@@ -72,6 +72,8 @@ pub(super) struct Section {
 /// Everything the rows read, gathered once by the page. Keeping the window out
 /// of here is what makes the rows testable.
 pub(super) struct Facts<'a> {
+    /// The machine the window runs on: the report is read on another one.
+    pub machine: &'a crate::gui::machine::Machine,
     pub preferred: crate::config::PreferredBackendConfig,
     pub mode: crate::config::ModeConfig,
     pub extension: (&'a str, &'a str, bool),
@@ -246,6 +248,25 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
             t("misc.debug_log_missing", "Không có đường dẫn log"),
         )),
     }
+    let machine = facts.machine;
+    let mut host = Vec::new();
+    for (label_key, label_fallback, value) in [
+        ("rows.debug_machine.os", "Hệ điều hành", machine.os.clone()),
+        ("rows.debug_machine.kernel", "Nhân", machine.kernel.clone()),
+        (
+            "rows.debug_machine.desktop",
+            "Màn hình nền",
+            machine.desktop.clone(),
+        ),
+        ("rows.debug_machine.ibus", "IBus", machine.ibus.clone()),
+    ] {
+        host.push(Cell::info(&t(label_key, label_fallback), value));
+    }
+    out.push(Section {
+        title: t("misc.section_machine", "Máy"),
+        rows: host,
+    });
+
     out.push(Section {
         title: t("misc.section_files", "Tệp"),
         rows: files,
@@ -312,6 +333,17 @@ pub(super) fn report(sections: &[Section], config: &[String], log: &[String]) ->
         t("misc.diag_title", "Chẩn đoán"),
         t("misc.diag_warn", "cần xem")
     );
+    // The first thing a maintainer needs is how to make it happen again, so the
+    // report arrives with the questions already asked.
+    out.push_str(&format!(
+        "\n#### {}\n\n{}
+",
+        t("debug_report.repro_section", "Cách tái hiện"),
+        t(
+            "debug_report.repro_body",
+            "- Ứng dụng:\n- Các bước:\n  1. \n  2. \n- Chữ đã gõ:\n- Mong đợi:\n- Thực tế:"
+        )
+    ));
     for section in sections {
         out.push_str(&format!("\n#### {}\n\n", section.title));
         for cell in &section.rows {
@@ -383,12 +415,24 @@ mod tests {
         }
     }
 
+    fn machine() -> &'static crate::gui::machine::Machine {
+        static MACHINE: std::sync::OnceLock<crate::gui::machine::Machine> =
+            std::sync::OnceLock::new();
+        MACHINE.get_or_init(|| crate::gui::machine::Machine {
+            os: "Arch Linux".to_string(),
+            kernel: "6.12.1".to_string(),
+            desktop: "GNOME 47.1 · wayland".to_string(),
+            ibus: "1.5.35".to_string(),
+        })
+    }
+
     fn facts<'a>(
         engine: Option<&'a EngineStatus>,
         backend: Option<&'a str>,
         preferred: crate::config::PreferredBackendConfig,
     ) -> Facts<'a> {
         Facts {
+            machine: machine(),
             preferred,
             mode: crate::config::ModeConfig::default(),
             extension: ("rows.focus_extension.subtitle_running", "Đang chạy", true),
@@ -417,10 +461,11 @@ mod tests {
             crate::config::PreferredBackendConfig::Auto,
         ));
         let titles: Vec<&str> = groups.iter().map(|s| s.title.as_str()).collect();
-        assert_eq!(titles, ["Hệ thống", "Cách chèn", "Tệp"]);
+        assert_eq!(titles, ["Hệ thống", "Cách chèn", "Máy", "Tệp"]);
         assert_eq!(groups[0].rows.len(), 5, "the system rows stay five");
         assert_eq!(groups[1].rows.len(), 3);
-        assert_eq!(groups[2].rows.len(), 2);
+        assert_eq!(groups[2].rows.len(), 4, "os, kernel, desktop, ibus");
+        assert_eq!(groups[3].rows.len(), 2);
     }
 
     #[test]
@@ -541,6 +586,10 @@ mod tests {
         assert!(text.starts_with("### MăngRS"), "{text}");
         assert!(text.contains("Chẩn đoán 1 · 1 cần xem"), "{text}");
         assert!(text.contains("\n#### Hệ thống\n"), "{text}");
+        assert!(
+            text.contains("- Ứng dụng:\n- Các bước:"),
+            "the report asks how to reproduce it: {text}"
+        );
         assert!(text.contains("- **Engine**: `đang chạy`"), "{text}");
         assert!(
             text.contains("- **Đăng ký**: `không thấy` - cần xem\n  - _cài lại_"),

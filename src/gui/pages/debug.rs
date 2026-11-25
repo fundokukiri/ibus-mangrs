@@ -32,12 +32,13 @@ const SHARE_RATIO: f32 = 2.5;
 const MIN_RIGHT_WIDTH: i32 = 300;
 const MAX_RIGHT_WIDTH: i32 = 560;
 
-/// The two facts that cost a subprocess to read, kept together so one worker
-/// thread updates both.
+/// The facts that read another process, kept together so one worker thread
+/// updates them all.
 #[derive(Clone)]
 struct Slow {
     engine: Option<engine_probe::EngineStatus>,
     extension: ExtensionState,
+    machine: crate::gui::machine::Machine,
 }
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
@@ -169,6 +170,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let slow = Arc::new(Mutex::new(Slow {
         engine: engine_probe::probe(),
         extension: extension_state(),
+        machine: crate::gui::machine::collect(),
     }));
     let busy = Arc::new(AtomicBool::new(false));
     let read_slow: Rc<dyn Fn() -> Slow> = {
@@ -192,6 +194,12 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 let fresh = Slow {
                     engine: engine_probe::probe(),
                     extension: extension_state(),
+                    // Read once per refresh: what the machine is does not
+                    // change while the page is open.
+                    machine: match slot.lock() {
+                        Ok(held) => held.machine.clone(),
+                        Err(poisoned) => poisoned.into_inner().machine.clone(),
+                    },
                 };
                 if let Ok(mut held) = slot.lock() {
                     *held = fresh;
@@ -208,7 +216,11 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let read_slow = Rc::clone(&read_slow);
         Rc::new(move || {
             let config = ui.read();
-            let Slow { engine, extension } = read_slow();
+            let Slow {
+                engine,
+                extension,
+                machine,
+            } = read_slow();
             let (key, fallback) = extension_row_for(extension).subtitle;
             let log_lines = reader.borrow().recent(200);
             sections(&Facts {
@@ -219,6 +231,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 log_path: path.as_deref(),
                 engine: engine.as_ref(),
                 backend: backend_from_log(&log_lines).as_deref(),
+                machine: &machine,
             })
         })
     };

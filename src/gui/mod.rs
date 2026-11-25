@@ -33,6 +33,7 @@ mod hotkey;
 mod latency;
 mod log_decode;
 mod log_tail;
+mod machine;
 mod pages;
 mod text;
 mod widgets;
