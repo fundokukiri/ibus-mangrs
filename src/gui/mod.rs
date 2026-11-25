@@ -1183,14 +1183,22 @@ pub(super) fn enable_focus_extension() -> Result<(), String> {
         .args(["enable", FOCUS_EXT_UUID])
         .output()
         .map_err(|e| format!("Không chạy được gnome-extensions: {e}"))?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(format!(
+    if !out.status.success() {
+        return Err(format!(
             "gnome-extensions enable thất bại: {}",
             String::from_utf8_lossy(&out.stderr).trim()
-        ))
+        ));
     }
+    // GNOME loads a switched-off extension at once, so no logout is needed —
+    // but the module needs a moment to answer. Reading the state straight
+    // away reported "needs a logout" for something that never does.
+    for _ in 0..10 {
+        if crate::server::focus_extension_answers() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Ok(())
 }
 
 /// The focus extension only makes sense inside GNOME: hide the installer
