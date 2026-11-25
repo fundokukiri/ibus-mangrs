@@ -13,6 +13,11 @@ use std::sync::OnceLock;
 pub fn display_name(target: &str) -> String {
     let key = lookup_key(target);
     if !key.is_empty() {
+        // The shell is no desktop app, but it owns the keyboard while its
+        // search field or Alt+F2 box is up, and a rule can target it.
+        if key == "gnome-shell" {
+            return "GNOME Shell".to_string();
+        }
         if let Some(name) = index().get(&key) {
             return name.clone();
         }
@@ -263,6 +268,11 @@ mod tests {
         ] {
             assert_eq!(heuristic(raw), want, "raw: {raw}");
         }
+    }
+
+    #[test]
+    fn the_shell_names_itself() {
+        assert_eq!(display_name("gnome-shell"), "GNOME Shell");
     }
 
     #[test]

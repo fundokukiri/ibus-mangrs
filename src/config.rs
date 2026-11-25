@@ -1597,6 +1597,15 @@ children = ["preedit", "flow"]
     }
 
     #[test]
+    fn a_shell_rule_fires_on_the_compositor_client_string() {
+        // The shell's own search field reports the bare client name, so a rule
+        // written from the picker's display name has to match it.
+        assert!(app_rule_matches("GNOME Shell", Some("gnome-shell")));
+        assert!(app_rule_matches("gnome-shell", Some("gnome-shell")));
+        assert!(!app_rule_matches("GNOME Shell", Some("wayland:Alacritty")));
+    }
+
+    #[test]
     fn a_rule_fires_whatever_source_named_the_app() {
         let fire = |pattern: &str, target: &str| app_rule_matches(pattern, Some(target));
         // The same app seen through the extension, xprop and a toolkit name.

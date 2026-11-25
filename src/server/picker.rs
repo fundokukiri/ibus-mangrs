@@ -102,6 +102,16 @@ impl EngineHandler {
                 .app_name()
                 .map(|name| crate::config::strip_transport_prefix(name).to_string())
                 .or_else(|| engine.client().and_then(client_prgname))
+                .or_else(|| {
+                    // A compositor-owned context reports its own name with no
+                    // toolkit prefix (`gnome-shell` while its search field or
+                    // Alt+F2 box holds the keyboard), and rule matching already
+                    // uses that string — so it is a target in its own right.
+                    engine
+                        .client()
+                        .filter(|client| !matches!(*client, "xim" | "fake"))
+                        .map(str::to_string)
+                })
         };
         // An app that names nothing (a terminal window under Wayland, any
         // winit/Electron app) still needs its mode reachable: the pick writes
