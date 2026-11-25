@@ -1186,6 +1186,12 @@ fn the_debug_page_lists_its_rows() {
         titles.iter().all(|r| !r.is_empty()),
         "no row is left with an unresolved key: {titles:?}"
     );
+    let chips = descendants::<gtk4::ToggleButton>(overlay.upcast_ref());
+    assert!(
+        chips.iter().filter(|c| c.has_css_class("caption")).count() >= 5,
+        "the preset filter chips are there: {}",
+        chips.len()
+    );
 }
 
 /// Every switch wired by `wire_switch_saves` must fire the save funnel

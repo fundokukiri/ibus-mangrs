@@ -27,6 +27,8 @@ use gtk4::{Entry, Orientation, StringList, TextView};
 use libadwaita as adw;
 
 mod content;
+mod debug_report;
+mod engine_probe;
 mod hotkey;
 mod log_tail;
 mod pages;

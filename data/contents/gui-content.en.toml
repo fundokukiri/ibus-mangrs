@@ -36,6 +36,12 @@ none = "No results"
 page_kind = "Page"
 
 [misc]
+debug_chip_tone = "Tone"
+debug_chip_backspace = "Backspace"
+debug_chip_mode = "Mode"
+debug_chip_transport = "Transport"
+debug_chip_error = "Errors"
+debug_refresh = "Re-read"
 debug_open_folder = "Open folder"
 debug_clear_log = "Delete log…"
 debug_copy_report = "Copy"
@@ -616,6 +622,8 @@ hotkey_macro_editor = "Open the Shorthand page"
 hotkey_settings = "Open Settings"
 
 [tips]
+debug_filter = "Type a word to filter, or pick a chip to filter a whole family of lines."
+debug_follow = "Scroll to the end as the log grows. Scrolling up pauses it."
 hotkey_emoji = "Opens the emoji menu at the caret. Assign the combo on the Shortcuts page."
 enabled = "Turns the whole IME on or off. Off sends keys straight to the app as if MăngRS were not installed."
 method = "The typing method decides how accented letters are built, e.g. Telex types ss for á and VNI types a1 for á."
@@ -711,5 +719,26 @@ cancel = "Cancel"
 delete = "Delete"
 
 [debug_report]
+config_section = "settings off their defaults"
 copied = "Report copied"
 log_section = "log tail"
+
+[rows.debug_engine]
+title = "Engine"
+not_running = "No process found"
+running = "running"
+binary = "Running from"
+fresh = "Install"
+stale = "Newer, restart IBus"
+current = "Matches the running one"
+selected = "IBus selected"
+registered = "Registered"
+listed = "IBus lists the component"
+unregistered = "IBus cannot see the component"
+
+[rows.debug_transport]
+title = "Transport in use"
+
+[rows.debug_errors]
+title = "Failures in the log"
+unit = "lines"

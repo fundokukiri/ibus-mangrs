@@ -38,6 +38,12 @@ none = "Không có kết quả"
 page_kind = "Trang"
 
 [misc]
+debug_chip_tone = "Dấu"
+debug_chip_backspace = "Backspace"
+debug_chip_mode = "Chế độ"
+debug_chip_transport = "Cách chèn"
+debug_chip_error = "Lỗi"
+debug_refresh = "Đọc lại"
 debug_open_folder = "Mở thư mục"
 debug_clear_log = "Xoá log…"
 debug_copy_report = "Sao chép"
@@ -619,6 +625,8 @@ hotkey_macro_editor = "Mở trang Gõ tắt"
 hotkey_settings = "Mở Cài đặt"
 
 [tips]
+debug_filter = "Gõ một từ để lọc, hoặc chọn nút bên cạnh để lọc cả nhóm dòng."
+debug_follow = "Tự cuộn xuống cuối khi log có dòng mới. Cuộn lên thì tự tạm dừng."
 hotkey_emoji = "Mở menu emoji tại con trỏ. Gán tổ hợp ở trang Phím tắt."
 enabled = "Bật hoặc tắt cả bộ gõ. Khi tắt, phím đi thẳng vào app như chưa cài."
 method = "Kiểu gõ quyết định cách ra chữ có dấu, ví dụ Telex gõ ss ra á, VNI gõ a1 ra á."
@@ -714,5 +722,26 @@ cancel = "Huỷ"
 delete = "Xoá"
 
 [debug_report]
+config_section = "cấu hình khác mặc định"
 copied = "Đã sao chép báo cáo"
 log_section = "log cuối"
+
+[rows.debug_engine]
+title = "Engine"
+not_running = "Không thấy tiến trình"
+running = "đang chạy"
+binary = "Tệp đang chạy"
+fresh = "Bản cài"
+stale = "Mới hơn, cần khởi động lại IBus"
+current = "Khớp bản đang chạy"
+selected = "IBus đang chọn"
+registered = "Đăng ký"
+listed = "IBus có component"
+unregistered = "IBus không thấy component, cài lại"
+
+[rows.debug_transport]
+title = "Cách chèn thực tế"
+
+[rows.debug_errors]
+title = "Lỗi trong log"
+unit = "dòng"

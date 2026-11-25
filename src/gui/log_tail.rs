@@ -52,6 +52,72 @@ pub(super) fn size_label(bytes: u64) -> String {
     }
 }
 
+/// Chars before byte `byte` of `text` — GTK counts characters, not bytes.
+fn byte_to_char_offset(text: &str, byte: usize) -> i32 {
+    text.as_bytes()[..byte.min(text.len())]
+        .iter()
+        .filter(|b| (**b as i8) >= -0x40)
+        .count() as i32
+}
+
+/// The lines the viewer shows: everything for no terms, otherwise the lines
+/// holding any one of them, case-insensitively. The typed filter is one term;
+/// the preset chips pass a whole family ("dau", "tone"), because the log has
+/// no category labels to filter on.
+pub(super) fn visible_lines(lines: &[String], terms: &[String]) -> Vec<String> {
+    let terms: Vec<String> = terms
+        .iter()
+        .map(|t| t.trim().to_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    lines
+        .iter()
+        .filter(|line| {
+            terms.is_empty() || {
+                let lower = line.to_lowercase();
+                terms.iter().any(|term| lower.contains(term))
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+/// Paint every occurrence of `terms` in the buffer, reusing one tag so a
+/// re-render does not stack tags on the same text.
+pub(super) fn highlight(buffer: &gtk4::TextBuffer, terms: &[String]) {
+    use gtk4::prelude::*;
+    let tag = match buffer.tag_table().lookup("mangrs-match") {
+        Some(tag) => tag,
+        None => {
+            let tag = gtk4::TextTag::builder()
+                .name("mangrs-match")
+                .weight(700)
+                .build();
+            buffer.tag_table().add(&tag);
+            tag
+        }
+    };
+    buffer.remove_tag(&tag, &buffer.start_iter(), &buffer.end_iter());
+    let haystack = buffer
+        .text(&buffer.start_iter(), &buffer.end_iter(), true)
+        .to_lowercase();
+    for term in terms {
+        let needle = term.trim().to_lowercase();
+        if needle.is_empty() {
+            continue;
+        }
+        let mut from = 0;
+        while let Some(found) = haystack[from..].find(&needle) {
+            let at = from + found;
+            // GTK counts characters, the search counted bytes.
+            let begin = buffer.iter_at_offset(byte_to_char_offset(&haystack, at));
+            let last = buffer.iter_at_offset(byte_to_char_offset(&haystack, at + needle.len()));
+            buffer.apply_tag(&tag, &begin, &last);
+            from = at + needle.len();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +167,38 @@ mod tests {
         assert_eq!(size_label(18), "18 B");
         assert_eq!(size_label(912_000), "912 KB");
         assert_eq!(size_label(4_100_000), "4.1 MB");
+    }
+
+    #[test]
+    fn the_filter_matches_any_term_case_insensitively() {
+        let all: Vec<String> = ["tone: hoà → ỏ", "Preedit → Surrounding", "backspace 1"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let none: Vec<String> = Vec::new();
+        assert_eq!(visible_lines(&all, &none).len(), 3, "no terms keeps all");
+        assert_eq!(
+            visible_lines(&all, &["  ".to_string()]).len(),
+            3,
+            "spaces are not a term"
+        );
+        assert_eq!(visible_lines(&all, &["PREEDIT".to_string()]).len(), 1);
+        assert_eq!(
+            visible_lines(&all, &["dấu".to_string(), "tone".to_string()]).len(),
+            1,
+            "a chip family ORs its terms"
+        );
+        assert!(visible_lines(&all, &["nope".to_string()]).is_empty());
+    }
+
+    #[test]
+    fn a_byte_offset_counts_chars_for_gtk() {
+        assert_eq!(byte_to_char_offset("abc", 2), 2);
+        assert_eq!(
+            byte_to_char_offset("ỏa", 3),
+            1,
+            "ỏ is three bytes, one char"
+        );
+        assert_eq!(byte_to_char_offset("ỏa", 99), 2, "never past the end");
     }
 }
