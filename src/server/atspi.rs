@@ -190,14 +190,25 @@ fn is_shell(name: &str) -> bool {
     SHELLS.contains(&name)
 }
 
-/// The program behind `pid`, as the kernel names it — what App Rules match.
+/// The program behind `pid` — what App Rules match.
+///
+/// `/proc/<pid>/comm` truncates at 15 bytes (`gnome-text-edit`), so the
+/// executable's own name is preferred and comm is only the fallback.
 fn comm_of(pid: u32) -> Option<String> {
     if pid <= 1 {
         return None;
     }
-    let name = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
-    let name = name.trim();
-    (!name.is_empty() && !is_shell(name)).then(|| name.to_string())
+    let exe = std::fs::read_link(format!("/proc/{pid}/exe")).ok();
+    let name = exe
+        .as_deref()
+        .and_then(|path| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .or_else(|| {
+            std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                .ok()
+                .map(|raw| raw.trim().to_string())
+        })?;
+    (!name.is_empty() && !is_shell(&name)).then_some(name)
 }
 
 #[cfg(test)]
@@ -206,9 +217,8 @@ mod tests {
 
     #[test]
     fn comm_names_the_process_that_owns_it() {
-        let me = std::process::id();
-        let name = comm_of(me).expect("comm of the test process");
-        assert!(!name.is_empty() && !name.contains('\n'));
+        let name = comm_of(std::process::id()).expect("name of the test process");
+        assert!(!name.is_empty() && !name.contains('\n') && !name.contains('/'));
         assert_eq!(comm_of(0), None);
     }
 
