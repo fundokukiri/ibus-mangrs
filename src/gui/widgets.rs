@@ -180,6 +180,9 @@ fn unset_hover_select(w: &gtk4::Widget) {
 /// every pooled popup item.
 fn combo_popup_factory() -> gtk4::SignalListItemFactory {
     let factory = gtk4::SignalListItemFactory::new();
+    let wired: Rc<std::cell::RefCell<std::collections::HashSet<usize>>> =
+        Rc::new(std::cell::RefCell::new(std::collections::HashSet::new()));
+    let wired_bind = Rc::clone(&wired);
     factory.connect_setup(|_, obj| {
         let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else {
             return;
@@ -209,44 +212,9 @@ fn combo_popup_factory() -> gtk4::SignalListItemFactory {
                 Some(gtk4::glib::Value::from(if selected { 1.0f64 } else { 0.0 }))
             })
             .build();
-        let weak_item = gtk4::glib::WeakRef::new();
-        weak_item.set(Some(item));
-        let click = gtk4::GestureClick::new();
-        click.set_button(gtk4::gdk::BUTTON_PRIMARY);
-        // A drag that leaves the item cancels the sequence, so released
-        // never fires for it — the pick happens only on an in-item release.
-        // GtkListItem is a plain GObject, not a widget: the widget ops go
-        // through its child box, whose ancestor chain reaches the ListView.
-        click.connect_released(move |_, n_press, _, _| {
-            if n_press != 1 {
-                return;
-            }
-            let Some(item) = weak_item.upgrade() else {
-                return;
-            };
-            let Some(box_) = item.child().and_downcast::<gtk4::Box>() else {
-                return;
-            };
-            let Some(view) = box_
-                .ancestor(gtk4::ListView::static_type())
-                .and_downcast::<gtk4::ListView>()
-            else {
-                return;
-            };
-            let Some(model) = view.model().and_downcast::<gtk4::SingleSelection>() else {
-                return;
-            };
-            let position = item.position();
-            model.select_item(position, false);
-            // The action lives on the ListView's widget class (gtklistview.c
-            // installs "list.activate-item") and view is its ancestor, so the
-            // Err is unreachable by construction and there is nothing to fall
-            // back to on an input path.
-            let _ = box_.activate_action("list.activate-item", Some(&position.to_variant()));
-        });
-        item_box.add_controller(click);
     });
-    factory.connect_bind(|_, obj| {
+    factory.connect_bind(move |_, obj| {
+        let wired = Rc::clone(&wired_bind);
         let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else {
             return;
         };
@@ -264,8 +232,68 @@ fn combo_popup_factory() -> gtk4::SignalListItemFactory {
             .map(|s| s.string().to_string())
             .unwrap_or_default();
         label.set_text(&text);
+        // The pick gesture belongs on the row widget, not on the item's
+        // content: the content box is shorter than the row, so a click near a
+        // row edge moved the popup selection (GTK's own press handler works on
+        // the whole row) and never reached the gesture — the checkmark moved,
+        // the value stayed. One gesture per row: the rows are pooled.
+        let Some(row) = item.child().and_then(|c| c.parent()) else {
+            return;
+        };
+        let key = row.as_ptr() as usize;
+        if !wired.borrow_mut().insert(key) {
+            return;
+        }
+        // The rows are pooled and destroyed with the popup: a stale entry
+        // would leave a future row at the same address without its gesture.
+        let wired_destroy = Rc::clone(&wired);
+        row.connect_destroy(move |_| {
+            wired_destroy.borrow_mut().remove(&key);
+        });
+        add_pick_gesture(&row, item);
     });
     factory
+}
+
+/// The one path that commits a pick: select the pressed row in the popup model,
+/// then fire the action upstream's handler commits from. Attached to the row
+/// widget, so it cannot miss a click the popup accepted.
+fn add_pick_gesture(row: &gtk4::Widget, item: &gtk4::ListItem) {
+    let weak_item = gtk4::glib::WeakRef::new();
+    weak_item.set(Some(item));
+    let click = gtk4::GestureClick::new();
+    click.set_button(gtk4::gdk::BUTTON_PRIMARY);
+    click.connect_released(move |_, n_press, _, _| {
+        if n_press != 1 {
+            return;
+        }
+        let Some(item) = weak_item.upgrade() else {
+            return;
+        };
+        let Some(row) = item.child().and_then(|c| c.parent()) else {
+            return;
+        };
+        let Some(view) = row
+            .ancestor(gtk4::ListView::static_type())
+            .and_downcast::<gtk4::ListView>()
+        else {
+            return;
+        };
+        let Some(model) = view.model().and_downcast::<gtk4::SingleSelection>() else {
+            return;
+        };
+        let position = item.position();
+        if position == gtk4::INVALID_LIST_POSITION {
+            return;
+        }
+        model.select_item(position, false);
+        // The action lives on the ListView's widget class (gtklistview.c
+        // installs "list.activate-item") and the row is its descendant, so the
+        // Err is unreachable by construction and there is nothing to fall back
+        // to on an input path.
+        let _ = row.activate_action("list.activate-item", Some(&position.to_variant()));
+    });
+    row.add_controller(click);
 }
 
 /// An info row for a boxed list (title + dim subtitle, no control). Not
