@@ -99,12 +99,7 @@ impl EngineHandler {
             let engine = lock_engine(&self.engine);
             engine
                 .app_name()
-                .map(|name| {
-                    name.strip_prefix("wayland:")
-                        .or_else(|| name.strip_prefix("x11:"))
-                        .unwrap_or(name)
-                        .to_string()
-                })
+                .map(|name| crate::config::strip_transport_prefix(name).to_string())
                 .or_else(|| engine.client().and_then(client_prgname))
         };
         let Some(target) = target.filter(|t| !t.is_empty()) else {

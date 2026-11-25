@@ -369,16 +369,22 @@ pub const EXPERIMENTAL_HOTKEY_ACTIONS: &[&str] = &[
 /// Case-insensitive substring on the part after the transport prefix
 /// (`wayland:Firefox` → `Firefox`); the special pattern `none` matches only
 /// a client with no name at all, the only way to target one.
+/// The name without the source prefix a focus source adds (`wayland:`,
+/// `x11:`, `atspi:`). Rules are written and matched bare, so every place
+/// that writes or compares a rule pattern goes through here.
+pub fn strip_transport_prefix(name: &str) -> &str {
+    name.strip_prefix("wayland:")
+        .or_else(|| name.strip_prefix("x11:"))
+        .or_else(|| name.strip_prefix("atspi:"))
+        .unwrap_or(name)
+}
+
 pub fn app_rule_matches(pattern: &str, target: Option<&str>) -> bool {
     // A pattern may carry the transport prefix the focus extension adds
     // (`wayland:foo` / `x11:foo`) — targets are matched bare (the prefix is
     // stripped below), so strip it from the pattern too or such a rule can
     // never fire.
-    let pattern = pattern
-        .strip_prefix("wayland:")
-        .or_else(|| pattern.strip_prefix("x11:"))
-        .unwrap_or(pattern)
-        .to_lowercase();
+    let pattern = strip_transport_prefix(pattern).to_lowercase();
     if pattern == "none" {
         return target.is_none();
     }
@@ -1602,6 +1608,17 @@ children = ["preedit", "flow"]
         );
         assert_eq!(app_rule_mode(&rules, Some("Chromium")), None);
         assert_eq!(app_rule_mode(&rules, None), None);
+
+        // A rule may carry the AT-SPI prefix the fallback names apps with;
+        // the target is matched bare, so the pattern has to be stripped too.
+        let named = vec![AppRule {
+            pattern: "atspi:gnome-text-editor".into(),
+            mode: ModeConfig::Flow,
+        }];
+        assert_eq!(
+            app_rule_mode(&named, Some("atspi:gnome-text-editor")),
+            Some(ModeConfig::Flow)
+        );
     }
 
     #[test]
