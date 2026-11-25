@@ -38,26 +38,141 @@ fn json_filter() -> gtk4::FileFilter {
 }
 
 /// The window a dialog presents on: the button's own root.
-/// Put the current situation on the row: subtitle names it, button offers
-/// the one action that fixes it.
-fn show_extension_row(row: &adw::ActionRow, btn: &gtk4::Button) {
+/// Wire one extension button: confirm, run, then let the row read the disk
+/// and the shell again. `fixed` is the request the button always makes; the
+/// primary button follows the state instead.
+fn wire_extension_button(
+    btn: &gtk4::Button,
+    fixed: Option<ExtensionRequest>,
+    ui: &Rc<Ui>,
+    overlay_toasts: &adw::ToastOverlay,
+    row: &adw::ActionRow,
+    all: &[gtk4::Button],
+) {
+    let ui = ui.clone();
+    let overlay_toasts = overlay_toasts.clone();
+    let row = row.clone();
+    let all: Vec<gtk4::Button> = all.to_vec();
+    btn.connect_clicked(move |btn| {
+        let request = match fixed {
+            Some(request) => request,
+            None => match extension_row_for(extension_state()).button {
+                Some((_, request)) => request,
+                None => return,
+            },
+        };
+        let (heading, body, apply) = extension_dialog(request);
+        let destructive = matches!(request, ExtensionRequest::Remove | ExtensionRequest::Logout);
+        let dialog = adw::AlertDialog::builder()
+            .heading(&heading)
+            .body(&body)
+            .build();
+        dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
+        dialog.add_response("apply", &apply);
+        dialog.set_response_appearance(
+            "apply",
+            if destructive {
+                adw::ResponseAppearance::Destructive
+            } else {
+                adw::ResponseAppearance::Suggested
+            },
+        );
+        dialog.set_default_response(Some("cancel"));
+        dialog.set_close_response("cancel");
+        {
+            let ui = ui.clone();
+            let overlay_toasts = overlay_toasts.clone();
+            let row = row.clone();
+            let all = all.clone();
+            let btn = btn.clone();
+            dialog.connect_response(Some("apply"), move |_, _| {
+                match request {
+                    ExtensionRequest::Logout => {
+                        let _ = std::process::Command::new("gnome-session-quit")
+                            .args(["--logout", "--no-prompt"])
+                            .status();
+                    }
+                    ExtensionRequest::Enable => match enable_focus_extension() {
+                        Ok(()) => ui.fire_toast(
+                            &overlay_toasts,
+                            &t("other.extension_enabled_toast", "Đã bật extension"),
+                        ),
+                        Err(e) => {
+                            if let Some(window) = window_of(&btn) {
+                                alert(&window, &e);
+                            }
+                        }
+                    },
+                    ExtensionRequest::Disable => match disable_focus_extension() {
+                        Ok(()) => ui.fire_toast(
+                            &overlay_toasts,
+                            &t("other.extension_disabled_toast", "Đã tắt extension"),
+                        ),
+                        Err(e) => {
+                            if let Some(window) = window_of(&btn) {
+                                alert(&window, &e);
+                            }
+                        }
+                    },
+                    ExtensionRequest::Remove => match remove_focus_extension() {
+                        Ok(()) => ui.fire_toast(
+                            &overlay_toasts,
+                            &t("other.extension_removed_toast", "Đã gỡ extension"),
+                        ),
+                        Err(e) => {
+                            if let Some(window) = window_of(&btn) {
+                                alert(&window, &e);
+                            }
+                        }
+                    },
+                    ExtensionRequest::InstallNew | ExtensionRequest::Update => {
+                        match install_focus_extension() {
+                            Ok(msg) => ui.fire_toast(&overlay_toasts, &msg),
+                            Err(e) => {
+                                if let Some(window) = window_of(&btn) {
+                                    alert(&window, &e);
+                                }
+                            }
+                        }
+                    }
+                }
+                // The disk and the shell have moved: re-read both.
+                show_extension_row(&row, &all[0], &all[1], &all[2]);
+            });
+        }
+        dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
+    });
+}
+
+/// Put the current situation on the row: the subtitle names it, and the
+/// buttons are either the one action that fixes it or, once it runs, the two
+/// actions that undo the install.
+fn show_extension_row(
+    row: &adw::ActionRow,
+    primary: &gtk4::Button,
+    off: &gtk4::Button,
+    remove: &gtk4::Button,
+) {
     let text = extension_row_for(extension_state());
     row.set_subtitle(&t(text.subtitle.0, text.subtitle.1));
     match text.button {
         Some((label, _)) => {
-            btn.set_label(&t(label.0, label.1));
-            btn.set_visible(true);
+            primary.set_label(&t(label.0, label.1));
+            primary.set_visible(true);
         }
-        None => btn.set_visible(false),
+        None => primary.set_visible(false),
     }
+    off.set_label(&t(RUNNING_BUTTONS[0].0 .0, RUNNING_BUTTONS[0].0 .1));
+    remove.set_label(&t(RUNNING_BUTTONS[1].0 .0, RUNNING_BUTTONS[1].0 .1));
+    off.set_visible(text.button.is_none());
+    remove.set_visible(text.button.is_none());
 }
 
-/// The confirmation for a state: heading, body and button label, one wording
-/// per situation so an update never says "install" and a working extension
-/// asks nothing at all.
-pub(crate) fn extension_dialog(state: ExtensionState) -> Option<(String, String, String)> {
-    Some(match state {
-        ExtensionState::Missing => (
+/// The confirmation for a request: heading, body and button label, so an
+/// update never says "install" and a removal warns about what it deletes.
+pub(crate) fn extension_dialog(request: ExtensionRequest) -> (String, String, String) {
+    match request {
+        ExtensionRequest::InstallNew => (
             t("other.extension_confirm_heading", "Cài extension MăngRS Focus?"),
             t(
                 "other.extension_confirm_body",
@@ -65,7 +180,7 @@ pub(crate) fn extension_dialog(state: ExtensionState) -> Option<(String, String,
             ),
             t("other.extension_apply", "Cài đặt"),
         ),
-        ExtensionState::Stale => (
+        ExtensionRequest::Update => (
             t(
                 "other.extension_update_heading",
                 "Cập nhật extension MăngRS Focus?",
@@ -76,7 +191,7 @@ pub(crate) fn extension_dialog(state: ExtensionState) -> Option<(String, String,
             ),
             t("other.extension_update_apply", "Cập nhật"),
         ),
-        ExtensionState::Disabled => (
+        ExtensionRequest::Enable => (
             t(
                 "other.extension_enable_heading",
                 "Bật extension MăngRS Focus?",
@@ -87,7 +202,29 @@ pub(crate) fn extension_dialog(state: ExtensionState) -> Option<(String, String,
             ),
             t("other.extension_enable_apply", "Bật"),
         ),
-        ExtensionState::NeedsLogout => (
+        ExtensionRequest::Disable => (
+            t(
+                "other.extension_disable_heading",
+                "Tắt extension MăngRS Focus?",
+            ),
+            t(
+                "other.extension_disable_body",
+                "Luật theo app sẽ không nhận được tên app Wayland cho tới khi bật lại. Bật lại được ngay.",
+            ),
+            t("other.extension_disable_apply", "Tắt"),
+        ),
+        ExtensionRequest::Remove => (
+            t(
+                "other.extension_remove_heading",
+                "Gỡ extension MăngRS Focus?",
+            ),
+            t(
+                "other.extension_remove_body",
+                "Các tệp extension bị xoá khỏi ~/.local/share/gnome-shell/extensions. Luật theo app sẽ không nhận được tên app Wayland.",
+            ),
+            t("other.extension_remove_apply", "Gỡ"),
+        ),
+        ExtensionRequest::Logout => (
             t(
                 "other.extension_logout_heading",
                 "Đăng xuất để GNOME tải extension?",
@@ -98,9 +235,7 @@ pub(crate) fn extension_dialog(state: ExtensionState) -> Option<(String, String,
             ),
             t("other.extension_logout_apply", "Đăng xuất"),
         ),
-        // Nothing to confirm: the row offers no action.
-        ExtensionState::Running => return None,
-    })
+    }
 }
 
 fn window_of(btn: &gtk4::Button) -> Option<gtk4::Window> {
@@ -179,15 +314,31 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let extension_btn = action_button(None, "");
     sizes.add_widget(&extension_btn);
     extension_row.add_suffix(&extension_btn);
-    show_extension_row(&extension_row, &extension_btn);
+    // A running extension has nothing to fix, so it offers what it asks of
+    // the user instead: switch it off, or remove it.
+    let mut running_btns = Vec::new();
+    for (label, _) in RUNNING_BUTTONS {
+        let btn = action_button(None, &t(label.0, label.1));
+        sizes.add_widget(&btn);
+        extension_row.add_suffix(&btn);
+        running_btns.push(btn);
+    }
+    show_extension_row(
+        &extension_row,
+        &extension_btn,
+        &running_btns[0],
+        &running_btns[1],
+    );
     extension.add(&extension_row);
     if session_is_gnome() {
         // Re-read the situation each time the tab is opened: the extension
         // may have been installed or switched on in the Extensions app since
         // this window was built.
         let row = extension_row.clone();
-        let btn = extension_btn.clone();
-        page.connect_map(move |_| show_extension_row(&row, &btn));
+        let btns: Vec<gtk4::Button> = std::iter::once(extension_btn.clone())
+            .chain(running_btns.iter().cloned())
+            .collect();
+        page.connect_map(move |_| show_extension_row(&row, &btns[0], &btns[1], &btns[2]));
         page.add(&extension);
     }
 
@@ -461,73 +612,32 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     }
 
     // Every action asks first: installing writes files and flips a GNOME
-    // setting, and a logout drops whatever is open.
+    // setting, and a logout drops whatever is open. A running extension has
+    // two buttons, each with its own wording.
     {
-        let ui = ui.clone();
-        let overlay_toasts = toast_overlay.clone();
-        let row = extension_row.clone();
-        extension_btn.connect_clicked(move |btn| {
-            let state = extension_state();
-            let Some((_, action)) = extension_row_for(state).button else {
-                return;
-            };
-            let Some((heading, body, apply)) = extension_dialog(state) else {
-                return;
-            };
-            let dialog = adw::AlertDialog::builder()
-                .heading(&heading)
-                .body(&body)
-                .build();
-            dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
-            dialog.add_response("apply", &apply);
-            dialog.set_response_appearance(
-                "apply",
-                if action == ExtensionAction::Logout {
-                    adw::ResponseAppearance::Destructive
-                } else {
-                    adw::ResponseAppearance::Suggested
-                },
+        let mut all_btns = vec![extension_btn.clone()];
+        all_btns.extend(running_btns.iter().cloned());
+        wire_extension_button(
+            &extension_btn,
+            None,
+            ui,
+            &toast_overlay,
+            &extension_row,
+            &all_btns,
+        );
+        for (i, request) in [ExtensionRequest::Disable, ExtensionRequest::Remove]
+            .into_iter()
+            .enumerate()
+        {
+            wire_extension_button(
+                &running_btns[i],
+                Some(request),
+                ui,
+                &toast_overlay,
+                &extension_row,
+                &all_btns,
             );
-            dialog.set_default_response(Some("cancel"));
-            dialog.set_close_response("cancel");
-            {
-                let ui = ui.clone();
-                let overlay_toasts = overlay_toasts.clone();
-                let row = row.clone();
-                let btn = btn.clone();
-                dialog.connect_response(Some("apply"), move |_, _| {
-                    match action {
-                        ExtensionAction::Logout => {
-                            let _ = std::process::Command::new("gnome-session-quit")
-                                .args(["--logout", "--no-prompt"])
-                                .status();
-                        }
-                        ExtensionAction::Enable => match enable_focus_extension() {
-                            Ok(()) => ui.fire_toast(
-                                &overlay_toasts,
-                                &t("other.extension_enabled_toast", "Đã bật extension"),
-                            ),
-                            Err(e) => {
-                                if let Some(window) = window_of(&btn) {
-                                    alert(&window, &e);
-                                }
-                            }
-                        },
-                        ExtensionAction::Install => match install_focus_extension() {
-                            Ok(msg) => ui.fire_toast(&overlay_toasts, &msg),
-                            Err(e) => {
-                                if let Some(window) = window_of(&btn) {
-                                    alert(&window, &e);
-                                }
-                            }
-                        },
-                    }
-                    // The disk and the shell have moved: re-read both.
-                    show_extension_row(&row, &btn);
-                });
-            }
-            dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
-        });
+        }
     }
 
     // Restore defaults: destructive, confirmed; macros and the dictionary

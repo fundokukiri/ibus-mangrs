@@ -1076,13 +1076,30 @@ pub(super) enum ExtensionState {
     Running,
 }
 
-/// The one action the row's button offers, per state.
+/// A confirmed action on the extension: one dialog each.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum ExtensionAction {
-    Install,
+pub(super) enum ExtensionRequest {
+    /// Nothing installed yet.
+    InstallNew,
+    /// An older copy is on disk.
+    Update,
     Enable,
+    Disable,
+    Remove,
     Logout,
 }
+
+/// The two buttons a running extension offers: switch it off, or delete it.
+pub(super) const RUNNING_BUTTONS: [((&str, &str), ExtensionRequest); 2] = [
+    (
+        ("misc.extension_disable_button", "Tắt"),
+        ExtensionRequest::Disable,
+    ),
+    (
+        ("misc.extension_remove_button", "Gỡ"),
+        ExtensionRequest::Remove,
+    ),
+];
 
 /// What the row shows for a state: the subtitle names the situation, the
 /// button offers the one action that fixes it. Keys plus their code
@@ -1091,7 +1108,7 @@ pub(super) struct ExtensionRowText {
     pub subtitle: (&'static str, &'static str),
     /// The row's one button; `None` when there is nothing left to do and the
     /// row only reports ("Đang chạy").
-    pub button: Option<((&'static str, &'static str), ExtensionAction)>,
+    pub button: Option<((&'static str, &'static str), ExtensionRequest)>,
 }
 
 pub(super) fn extension_row_for(state: ExtensionState) -> ExtensionRowText {
@@ -1100,7 +1117,7 @@ pub(super) fn extension_row_for(state: ExtensionState) -> ExtensionRowText {
             subtitle: ("rows.focus_extension.subtitle_missing", "Chưa cài"),
             button: Some((
                 ("misc.extension_button", "Cài đặt"),
-                ExtensionAction::Install,
+                ExtensionRequest::InstallNew,
             )),
         },
         ExtensionState::Stale => ExtensionRowText {
@@ -1110,7 +1127,7 @@ pub(super) fn extension_row_for(state: ExtensionState) -> ExtensionRowText {
             ),
             button: Some((
                 ("misc.extension_update_button", "Cập nhật"),
-                ExtensionAction::Install,
+                ExtensionRequest::Update,
             )),
         },
         ExtensionState::Disabled => ExtensionRowText {
@@ -1120,7 +1137,7 @@ pub(super) fn extension_row_for(state: ExtensionState) -> ExtensionRowText {
             ),
             button: Some((
                 ("misc.extension_enable_button", "Bật"),
-                ExtensionAction::Enable,
+                ExtensionRequest::Enable,
             )),
         },
         ExtensionState::NeedsLogout => ExtensionRowText {
@@ -1128,7 +1145,10 @@ pub(super) fn extension_row_for(state: ExtensionState) -> ExtensionRowText {
                 "rows.focus_extension.subtitle_needs_logout",
                 "Đã bật, cần đăng xuất để GNOME tải",
             ),
-            button: Some((("misc.logout_button", "Đăng xuất"), ExtensionAction::Logout)),
+            button: Some((
+                ("misc.logout_button", "Đăng xuất"),
+                ExtensionRequest::Logout,
+            )),
         },
         // Nothing left to do: a reinstall repairs nothing the user can see.
         ExtensionState::Running => ExtensionRowText {
@@ -1178,18 +1198,38 @@ fn extension_enabled() -> bool {
     String::from_utf8_lossy(&out.stdout).contains(FOCUS_EXT_UUID)
 }
 
-/// Switch an already-installed extension on: one CLI call, no reinstall.
-pub(super) fn enable_focus_extension() -> Result<(), String> {
+/// Switch an installed extension off. GNOME forgets the module on the next
+/// focus, so the row drops back to "Bật".
+pub(super) fn disable_focus_extension() -> Result<(), String> {
+    gnome_extensions(&["disable", FOCUS_EXT_UUID])
+}
+
+/// Delete an installed extension from disk. GNOME loads whatever is left on
+/// the next session, so the row drops back to "Chưa cài".
+pub(super) fn remove_focus_extension() -> Result<(), String> {
+    gnome_extensions(&["uninstall", FOCUS_EXT_UUID])
+}
+
+/// One `gnome-extensions <verb>` call, with the command's own error text.
+fn gnome_extensions(args: &[&str]) -> Result<(), String> {
     let out = std::process::Command::new("gnome-extensions")
-        .args(["enable", FOCUS_EXT_UUID])
+        .args(args)
         .output()
         .map_err(|e| format!("Không chạy được gnome-extensions: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "gnome-extensions enable thất bại: {}",
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "gnome-extensions {} thất bại: {}",
+            args.first().copied().unwrap_or_default(),
             String::from_utf8_lossy(&out.stderr).trim()
-        ));
+        ))
     }
+}
+
+/// Switch an already-installed extension on: one CLI call, no reinstall.
+pub(super) fn enable_focus_extension() -> Result<(), String> {
+    gnome_extensions(&["enable", FOCUS_EXT_UUID])?;
     // GNOME loads a switched-off extension at once, so no logout is needed —
     // but the module needs a moment to answer. Reading the state straight
     // away reported "needs a logout" for something that never does.
@@ -1197,7 +1237,7 @@ pub(super) fn enable_focus_extension() -> Result<(), String> {
         if crate::server::focus_extension_answers() {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
     Ok(())
 }

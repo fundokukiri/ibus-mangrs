@@ -606,12 +606,12 @@ fn rule_rows_round_trip_through_read() {
 /// that fixes it: a working extension has nothing left to press.
 #[test]
 fn the_extension_row_offers_one_action_per_state() {
-    use crate::gui::{extension_row_for, ExtensionAction, ExtensionState};
+    use crate::gui::{extension_row_for, ExtensionRequest, ExtensionState};
     let cases = [
-        (ExtensionState::Missing, Some(ExtensionAction::Install)),
-        (ExtensionState::Stale, Some(ExtensionAction::Install)),
-        (ExtensionState::Disabled, Some(ExtensionAction::Enable)),
-        (ExtensionState::NeedsLogout, Some(ExtensionAction::Logout)),
+        (ExtensionState::Missing, Some(ExtensionRequest::InstallNew)),
+        (ExtensionState::Stale, Some(ExtensionRequest::Update)),
+        (ExtensionState::Disabled, Some(ExtensionRequest::Enable)),
+        (ExtensionState::NeedsLogout, Some(ExtensionRequest::Logout)),
         (ExtensionState::Running, None),
     ];
     let mut subtitles = Vec::new();
@@ -629,22 +629,30 @@ fn the_extension_row_offers_one_action_per_state() {
     let label = extension_row_for(ExtensionState::Missing).button;
     assert_eq!(label.map(|((_, text), _)| text), Some("Cài đặt"));
 
-    // Every state with a button has its own confirmation; the running one
-    // has none at all.
+    // Every request has its own confirmation, so an update never says
+    // "install" and a removal says what it deletes.
     let mut headings = Vec::new();
-    for state in [
-        ExtensionState::Missing,
-        ExtensionState::Stale,
-        ExtensionState::Disabled,
-        ExtensionState::NeedsLogout,
+    for request in [
+        ExtensionRequest::InstallNew,
+        ExtensionRequest::Update,
+        ExtensionRequest::Enable,
+        ExtensionRequest::Disable,
+        ExtensionRequest::Remove,
+        ExtensionRequest::Logout,
     ] {
-        let (heading, body, apply) = crate::gui::pages::other::extension_dialog(state)
-            .unwrap_or_else(|| panic!("{state:?} needs a confirmation"));
+        let (heading, body, apply) = crate::gui::pages::other::extension_dialog(request);
         assert!(!heading.is_empty() && !body.is_empty() && !apply.is_empty());
-        assert!(!headings.contains(&heading), "{state:?} reuses a heading");
+        assert!(!headings.contains(&heading), "{request:?} reuses a heading");
         headings.push(heading);
     }
-    assert!(crate::gui::pages::other::extension_dialog(ExtensionState::Running).is_none());
+    // A running extension asks nothing to fix; it offers its two undo
+    // buttons instead.
+    let running = extension_row_for(ExtensionState::Running);
+    assert!(running.button.is_none());
+    assert_eq!(
+        crate::gui::RUNNING_BUTTONS.map(|(_, request)| request),
+        [ExtensionRequest::Disable, ExtensionRequest::Remove]
+    );
 }
 
 /// "Chế độ gỡ lỗi" is one switch: the two log tiers come from its dialog,
