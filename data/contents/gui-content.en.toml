@@ -758,7 +758,7 @@ delete = "Delete"
 [debug_report]
 config_section = "config.toml in force"
 copied = "Report copied"
-log_section = "log tail"
+log_section = "Last log lines"
 macro_hidden = "entries, contents hidden"
 
 [debug_restart]

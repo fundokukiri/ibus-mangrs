@@ -762,7 +762,7 @@ delete = "Xoá"
 [debug_report]
 config_section = "config.toml đang nạp"
 copied = "Đã sao chép báo cáo"
-log_section = "log cuối"
+log_section = "Dòng log cuối"
 macro_hidden = "mục, đã ẩn nội dung"
 
 [debug_restart]

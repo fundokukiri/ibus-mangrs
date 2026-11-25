@@ -60,20 +60,6 @@ impl Cell {
         }
         self
     }
-
-    /// The line the copied report prints: a path row carries its full path
-    /// there, because a report is read away from this window.
-    fn report_line(&self) -> String {
-        match &self.open_dir {
-            Some(_) => format!(
-                "{}: {} ({})",
-                self.label,
-                self.value,
-                self.hint.as_deref().unwrap_or("")
-            ),
-            None => format!("{}: {}", self.label, self.value),
-        }
-    }
 }
 
 /// One titled group of rows.
@@ -315,43 +301,52 @@ pub(super) fn transport_from_log(lines: &[String]) -> Option<String> {
 /// the log tail. Same order as the page reads top to bottom.
 pub(super) fn report(sections: &[Section], config: &[String], log: &[String]) -> String {
     let all = flat(sections);
-    let mut out = format!("{} {}", t("app.name", "MăngRS"), env!("CARGO_PKG_VERSION"));
     let (ok, warn) = counts(&all);
-    out.push_str(&format!(
-        "\n{} {ok} · {warn} {}",
+    // Markdown, because the report's destination is a GitHub issue: headings,
+    // bullets and fenced blocks paste as they are instead of arriving as one
+    // grey wall of text.
+    let mut out = format!(
+        "### {} {} - {} {ok} · {warn} {}\n",
+        t("app.name", "MăngRS"),
+        env!("CARGO_PKG_VERSION"),
         t("misc.diag_title", "Chẩn đoán"),
         t("misc.diag_warn", "cần xem")
-    ));
+    );
     for section in sections {
-        out.push_str(&format!("\n\n{}:", section.title));
+        out.push_str(&format!("\n#### {}\n\n", section.title));
         for cell in &section.rows {
-            let mark = match cell.status {
-                Status::Ok => "ok",
-                Status::Warn => "warn",
-                Status::Info => "info",
+            // A file row carries its full path: the name alone cannot be
+            // checked by whoever reads the issue.
+            let value = match &cell.open_dir {
+                Some(_) => cell.hint.as_deref().unwrap_or(&cell.value),
+                None => cell.value.as_str(),
             };
-            out.push_str(&format!("\n[{mark}] {}", cell.report_line()));
+            let look = if cell.status == Status::Warn {
+                format!(" {}", t("debug_report.needs_a_look", "- cần xem"))
+            } else {
+                String::new()
+            };
+            out.push_str(&format!("- **{}**: `{value}`{look}\n", cell.label));
+            if cell.status == Status::Warn {
+                if let Some(hint) = &cell.hint {
+                    out.push_str(&format!("  - _{hint}_\n"));
+                }
+            }
         }
     }
     if !config.is_empty() {
         out.push_str(&format!(
-            "\n\n--- {} ---",
-            t("debug_report.config_section", "config.toml đang nạp")
+            "\n#### {}\n\n```toml\n{}\n```\n",
+            t("debug_report.config_section", "config.toml đang nạp"),
+            config.join("\n")
         ));
-        for line in config {
-            out.push('\n');
-            out.push_str(line);
-        }
     }
     if !log.is_empty() {
         out.push_str(&format!(
-            "\n\n--- {} ---",
-            t("debug_report.log_section", "log cuối")
+            "\n#### {}\n\n```text\n{}\n```\n",
+            t("debug_report.log_section", "Dòng log cuối"),
+            log.join("\n")
         ));
-        for line in log {
-            out.push('\n');
-            out.push_str(line);
-        }
     }
     out
 }
@@ -526,7 +521,7 @@ mod tests {
             &[],
         );
         assert!(
-            text.contains("config.toml (/home/u/.config/ibus-mangrs/config.toml)"),
+            text.contains("- **Cấu hình**: `/home/u/.config/ibus-mangrs/config.toml`"),
             "{text}"
         );
     }
@@ -543,14 +538,21 @@ mod tests {
         }];
         let text = report(&groups, &lines(&["bỏ dấu = \"old\""]), &lines(&["a", "b"]));
         assert!(text.contains(env!("CARGO_PKG_VERSION")), "{text}");
+        assert!(text.starts_with("### MăngRS"), "{text}");
         assert!(text.contains("Chẩn đoán 1 · 1 cần xem"), "{text}");
-        assert!(text.contains("Hệ thống:"), "{text}");
-        assert!(text.contains("[ok] Engine: đang chạy"), "{text}");
-        assert!(text.contains("[warn] Đăng ký: không thấy"), "{text}");
+        assert!(text.contains("\n#### Hệ thống\n"), "{text}");
+        assert!(text.contains("- **Engine**: `đang chạy`"), "{text}");
         assert!(
-            text.contains("--- config.toml đang nạp ---\nbỏ dấu"),
+            text.contains("- **Đăng ký**: `không thấy` - cần xem\n  - _cài lại_"),
             "{text}"
         );
-        assert!(text.ends_with("--- log cuối ---\na\nb"), "{text}");
+        assert!(
+            text.contains("#### config.toml đang nạp\n\n```toml\nbỏ dấu = \"old\"\n```"),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("#### Dòng log cuối\n\n```text\na\nb\n```\n"),
+            "{text}"
+        );
     }
 }
