@@ -363,15 +363,10 @@ pub const EXPERIMENTAL_HOTKEY_ACTIONS: &[&str] = &[
     "idle_commit_enabled",
 ];
 
-/// One rule pattern against one rule target (`app_name` when present, else
-/// the IBus client string, `None` when the client has neither) — the shared
-/// predicate behind `app_rule_mode`.
-/// Case-insensitive substring on the part after the transport prefix
-/// (`wayland:Firefox` → `Firefox`); the special pattern `none` matches only
-/// a client with no name at all, the only way to target one.
 /// The name without the source prefix a focus source adds (`wayland:`,
-/// `x11:`, `atspi:`). Rules are written and matched bare, so every place
-/// that writes or compares a rule pattern goes through here.
+/// `x11:`). Rules are written and matched bare, so every place that writes
+/// or compares a rule pattern goes through here. `atspi:` stays in the list
+/// only so rules saved while that source existed keep firing.
 pub fn strip_transport_prefix(name: &str) -> &str {
     name.strip_prefix("wayland:")
         .or_else(|| name.strip_prefix("x11:"))
@@ -382,9 +377,9 @@ pub fn strip_transport_prefix(name: &str) -> &str {
 pub const UNNAMED_PATTERN: &str = "none";
 
 /// The comparable form of an app name. Each focus source names the same app
-/// differently — `wayland:org.gnome.TextEditor`, `atspi:gnome-text-editor`,
-/// `x11:Sublime_text`, `gtk3-im:sublime_text` — so a rule written while one
-/// source answered has to keep firing when another one does.
+/// differently (`wayland:org.gnome.TextEditor`, `x11:Sublime_text`,
+/// `gtk3-im:sublime_text`), so a rule written while one source answered has
+/// to keep firing when another one does.
 pub fn canonical_app_name(name: &str) -> String {
     let name = strip_transport_prefix(name);
     let name = name.rsplit('/').next().unwrap_or(name).to_lowercase();
