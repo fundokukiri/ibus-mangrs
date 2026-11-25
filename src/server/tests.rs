@@ -848,9 +848,8 @@ fn watchdog_flushes_a_lost_burst_after_the_deadline() {
     // (opened against the real cache file) would swallow every line this
     // test's machinery writes — the override is only consulted on open.
     crate::debug_log::test_reset();
-    let dir = std::env::temp_dir().join(format!("ibus-mangrs-watchdog-log-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("debug.log");
+    let dir = crate::debug_log::TempLogDir::new("watchdog-log");
+    let path = dir.dir().join("debug.log");
     let _ = std::fs::remove_file(&path);
     *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
     crate::debug_log::set_enabled(true);
@@ -1336,12 +1335,8 @@ fn burst_buffer_cap_drops_the_newest_and_logs_once() {
     // resets when the buffer drains, so a fresh episode logs again.
     let _guard = crate::debug_log::test_guard();
     crate::debug_log::test_reset();
-    let dir = std::env::temp_dir().join(format!(
-        "ibus-mangrs-burst-buffer-log-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("debug.log");
+    let dir = crate::debug_log::TempLogDir::new("burst-buffer-log");
+    let path = dir.dir().join("debug.log");
     let _ = std::fs::remove_file(&path);
     *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
     crate::debug_log::set_enabled(true);
@@ -1646,9 +1641,8 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
     // the stash anchor must span MIN_ANCHOR_CHARS to carry evidence.
     let _guard = crate::debug_log::test_guard();
     crate::debug_log::test_reset();
-    let dir = std::env::temp_dir().join(format!("ibus-mangrs-bounce-log-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("debug.log");
+    let dir = crate::debug_log::TempLogDir::new("bounce-log");
+    let path = dir.dir().join("debug.log");
     let _ = std::fs::remove_file(&path);
     *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
     crate::debug_log::set_enabled(true);
@@ -2303,9 +2297,8 @@ fn foreign_client_refuses_the_stashed_rewrite() {
     // into the wrong document. Drop, logged once.
     let _guard = crate::debug_log::test_guard();
     crate::debug_log::test_reset();
-    let dir = std::env::temp_dir().join(format!("ibus-mangrs-foreign-log-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("debug.log");
+    let dir = crate::debug_log::TempLogDir::new("foreign-log");
+    let path = dir.dir().join("debug.log");
     let _ = std::fs::remove_file(&path);
     *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
     crate::debug_log::set_enabled(true);

@@ -54,6 +54,43 @@ pub(crate) fn test_reset() {
     TEXT_ENABLED.store(false, Ordering::Relaxed);
 }
 
+/// A temp directory for one test's log, removed when the test ends. The
+/// suite runs hundreds of times, so a directory left behind each run litters
+/// /tmp; removing the directory alone fails while the log is still inside.
+#[cfg(test)]
+pub(crate) struct TempLogDir(std::path::PathBuf);
+
+#[cfg(test)]
+impl TempLogDir {
+    pub(crate) fn new(kind: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("ibus-mangrs-{kind}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp log dir");
+        Self(dir)
+    }
+
+    pub(crate) fn dir(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+impl Drop for TempLogDir {
+    fn drop(&mut self) {
+        let mut override_path = PATH_OVERRIDE.lock().unwrap_or_else(|p| p.into_inner());
+        if override_path
+            .as_ref()
+            .is_some_and(|p| p.starts_with(&self.0))
+        {
+            *override_path = None;
+        }
+        drop(override_path);
+        // A cached handle would keep writing to the removed file.
+        *LOG_FILE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Enable or disable logging (mirrors `Config::debug_log`).
 pub fn set_enabled(on: bool) {
     ENABLED.store(on, Ordering::Relaxed);
@@ -209,10 +246,8 @@ mod tests {
     #[test]
     fn enabled_log_appends_to_one_handle() {
         let _guard = test_guard();
-        let dir = std::env::temp_dir().join(format!("ibus-mangrs-log-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("debug.log");
-        let _ = std::fs::remove_file(&path);
+        let dir = TempLogDir::new("debug-log");
+        let path = dir.dir().join("debug.log");
         *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
         set_enabled(true);
         log("first");
@@ -230,17 +265,13 @@ mod tests {
         *LOG_FILE.lock().unwrap() = None;
         *PATH_OVERRIDE.lock().unwrap() = None;
         ENABLED.store(false, Ordering::Relaxed);
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_dir(&dir);
     }
 
     #[test]
     fn text_tier_needs_both_switches() {
         let _guard = test_guard();
-        let dir = std::env::temp_dir().join(format!("ibus-mangrs-logtest2-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("debug.log");
-        let _ = std::fs::remove_file(&path);
+        let dir = TempLogDir::new("debug-log-2");
+        let path = dir.dir().join("debug.log");
         *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
         set_enabled(true);
         set_text_enabled(false);
@@ -261,17 +292,13 @@ mod tests {
         *PATH_OVERRIDE.lock().unwrap() = None;
         ENABLED.store(false, Ordering::Relaxed);
         TEXT_ENABLED.store(false, Ordering::Relaxed);
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_dir(&dir);
     }
 
     #[test]
     fn keys_tier_needs_both_switches() {
         let _guard = test_guard();
-        let dir = std::env::temp_dir().join(format!("ibus-mangrs-logtest3-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("debug.log");
-        let _ = std::fs::remove_file(&path);
+        let dir = TempLogDir::new("debug-log-3");
+        let path = dir.dir().join("debug.log");
         *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
         set_enabled(true);
         set_keys_enabled(false);
@@ -292,17 +319,14 @@ mod tests {
         *PATH_OVERRIDE.lock().unwrap() = None;
         ENABLED.store(false, Ordering::Relaxed);
         KEYS_ENABLED.store(false, Ordering::Relaxed);
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_dir(&dir);
     }
 
     #[test]
     fn stale_handle_reopens_when_the_override_moves() {
         let _guard = test_guard();
-        let dir = std::env::temp_dir().join(format!("ibus-mangrs-logtest5-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let first = dir.join("one.log");
-        let second = dir.join("two.log");
+        let dir = TempLogDir::new("debug-log-5");
+        let first = dir.dir().join("one.log");
+        let second = dir.dir().join("two.log");
         let _ = std::fs::remove_file(&first);
         let _ = std::fs::remove_file(&second);
         *PATH_OVERRIDE.lock().unwrap() = Some(first.clone());
@@ -322,17 +346,14 @@ mod tests {
         ENABLED.store(false, Ordering::Relaxed);
         let _ = std::fs::remove_file(&first);
         let _ = std::fs::remove_file(&second);
-        let _ = std::fs::remove_dir(&dir);
     }
 
     #[test]
     fn oversized_log_rotates_to_old() {
         let _guard = test_guard();
-        let dir = std::env::temp_dir().join(format!("ibus-mangrs-logtest4-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("debug.log");
-        let old = dir.join("debug.log.old");
-        let _ = std::fs::remove_file(&path);
+        let dir = TempLogDir::new("debug-log-4");
+        let path = dir.dir().join("debug.log");
+        let old = dir.dir().join("debug.log.old");
         let _ = std::fs::remove_file(&old);
         *PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
         // Phase 1 — a pre-existing oversized log (the owner's real 7.4MB
@@ -378,9 +399,7 @@ mod tests {
         *LOG_FILE.lock().unwrap() = None;
         *PATH_OVERRIDE.lock().unwrap() = None;
         ENABLED.store(false, Ordering::Relaxed);
-        let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&old);
-        let _ = std::fs::remove_dir(&dir);
     }
 
     #[test]

@@ -3128,10 +3128,8 @@ fn flow_without_backend_serves_forward_backspace_and_logs_once() {
     // transport and logs the fallback once per session — two resolutions,
     // one line.
     let _guard = crate::debug_log::test_guard();
-    let dir = std::env::temp_dir().join(format!("ibus-mangrs-walk-log-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("debug.log");
-    let _ = std::fs::remove_file(&path);
+    let dir = crate::debug_log::TempLogDir::new("walk-log");
+    let path = dir.dir().join("debug.log");
     *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
     crate::debug_log::set_enabled(true);
     let mut e = Engine::new(Method::Telex, Mode::Flow);
@@ -3156,8 +3154,6 @@ fn flow_without_backend_serves_forward_backspace_and_logs_once() {
         "tiếng",
         "the downgrade serves the word"
     );
-    let _ = std::fs::remove_file(&path);
-    let _ = std::fs::remove_dir(&dir);
 }
 
 #[test]
