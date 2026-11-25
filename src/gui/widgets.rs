@@ -296,6 +296,28 @@ fn add_pick_gesture(row: &gtk4::Widget, item: &gtk4::ListItem) {
     row.add_controller(click);
 }
 
+/// One regular (bordered) action button; `icon_name: None` renders label
+/// only. A page's SizeGroup gives them all the widest button's width and
+/// their shared label rows keep the heights equal.
+pub(super) fn action_button(icon_name: Option<&str>, label: &str) -> gtk4::Button {
+    let btn = gtk4::Button::with_label(label);
+    btn.set_valign(gtk4::Align::Center);
+    if let Some(icon_name) = icon_name {
+        let icon = gtk4::Image::from_icon_name(icon_name);
+        let text = btn
+            .child()
+            .and_downcast::<gtk4::Label>()
+            .expect("with_label");
+        // Detach the label before re-parenting it into the content box.
+        btn.set_child(None::<&gtk4::Widget>);
+        let content = gtk4::Box::new(Orientation::Horizontal, 6);
+        content.append(&icon);
+        content.append(&text);
+        btn.set_child(Some(&content));
+    }
+    btn
+}
+
 /// An info row for a boxed list (title + dim subtitle, no control). Not
 /// activatable — the hover highlight on an activation-shaped row that does
 /// nothing reads as a broken button.
