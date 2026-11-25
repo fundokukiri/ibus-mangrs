@@ -227,6 +227,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        atspi: None,
         props: Vec::new(),
     };
     let press = |handler: &mut EngineHandler, keyval: u32| {
@@ -2146,6 +2147,7 @@ fn focus_out_arm_defers_the_reset_for_a_live_burst() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        atspi: None,
         props: Vec::new(),
     };
     // A live burst, constructed directly: one echo expected, one commit
@@ -3412,6 +3414,7 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        atspi: None,
         props: Vec::new(),
     };
     let mut out = Vec::new();
@@ -3677,6 +3680,7 @@ fn strip_handler(suggest_words: bool) -> (SharedEngine, EngineHandler) {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        atspi: None,
         props: Vec::new(),
     };
     (engine, handler)
@@ -4593,6 +4597,7 @@ fn content_type_set_gates_password_fields() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        atspi: None,
         props: Vec::new(),
     };
     handler.properties_call(&properties_set_msg("ContentType", 8u32, 0u32), "Set");

@@ -33,6 +33,7 @@ use crate::ibus_text::{plain_text, text_from_variant, text_variant, Attr};
 use crate::keymap;
 use crate::transport::{constructors, preference_order, Injection, Kind};
 
+mod atspi;
 mod hotkey;
 mod prop;
 mod x11;
@@ -123,6 +124,7 @@ impl Server {
             bounce_deadline: None,
             stash: None,
             focus_ext: None,
+            atspi: None,
             props: Vec::new(),
         }));
         handler.borrow_mut().last_config_mtime = Config::path()
@@ -370,6 +372,10 @@ struct EngineHandler {
     stash: Option<StashedRewrite>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
+    /// AT-SPI window watcher, created the first time neither the extension
+    /// nor xprop can name the focused app (Wayland sessions without our
+    /// extension). Feeds rule matching only, same as the other two sources.
+    atspi: Option<atspi::Tracker>,
     /// The property list pushed to the panel at the last config reload: a
     /// reload sends only what differs, so a knob no menu shows sends nothing.
     props: Vec<ibus_prop::Prop>,
@@ -650,7 +656,8 @@ impl EngineHandler {
                 // Name the focused app beyond the IBus client string: the
                 // focus extension covers Wayland-native apps (they arrive as
                 // a mutter relay or unnamed), xprop covers X11 when the
-                // extension is absent. The name feeds rule matching only —
+                // extension is absent, AT-SPI covers the Wayland sessions
+                // that have neither (Hyprland, KDE without our extension). The name feeds rule matching only —
                 // transport decisions keep using `client`, so relayed
                 // contexts keep their mutter-safe delete handling. Focus
                 // path only, never on keys.
@@ -665,6 +672,14 @@ impl EngineHandler {
                         .or_else(|| {
                             x11_active_window_name()
                                 .map(|class| (class.clone(), format!("x11:{class}")))
+                        })
+                        .or_else(|| {
+                            // Started only here: on sessions where the two
+                            // sources above answer, no watcher runs at all.
+                            self.atspi
+                                .get_or_insert_with(atspi::Tracker::start)
+                                .focused_app()
+                                .map(|name| (name.clone(), format!("atspi:{name}")))
                         });
                     match resolved {
                         Some((class, named)) => {
@@ -687,7 +702,11 @@ impl EngineHandler {
                 self.hotkeys = hotkey_registry(&config);
                 self.last_fire.clear();
                 if debug_log::enabled() {
-                    debug_log::log(&format!("focus-in client={:?}", engine.client()));
+                    debug_log::log(&format!(
+                        "focus-in client={:?} app={:?}",
+                        engine.client(),
+                        engine.app_name()
+                    ));
                 }
                 // Re-select the injection backend next to the config apply:
                 // a new focus may follow an environment change (device ACL,
