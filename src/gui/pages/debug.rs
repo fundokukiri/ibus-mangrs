@@ -256,9 +256,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         &t("misc.debug_copy_report", "Sao chép báo cáo"),
     );
     copy_btn.add_css_class("suggested-action");
-    // A switch rather than a checkbox: it reads as a setting, and the sentence
-    // that explains it lives in the tooltip, not in a grey line under it.
-    let hide_switch = gtk4::Switch::new();
+    let hide_switch = gtk4::CheckButton::with_label(&t(
+        "misc.debug_hide_text",
+        "Ẩn nội dung gõ và macro khi sao chép",
+    ));
     hide_switch.set_active(true);
     hide_switch.set_valign(gtk4::Align::Center);
     hide_switch.set_tooltip_text(Some(&t(
@@ -269,12 +270,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         "misc.debug_hide_text",
         "Ẩn nội dung gõ và macro",
     ))]);
-    let hide_label = gtk4::Label::new(Some(&t("misc.debug_hide_text", "Ẩn nội dung gõ và macro")));
-    hide_label.add_css_class("caption");
-    hide_label.add_css_class("dim-label");
     let footer = gtk4::Box::new(Orientation::Horizontal, 8);
     let hide_group = gtk4::Box::new(Orientation::Horizontal, 8);
-    hide_group.append(&hide_label);
     hide_group.append(&hide_switch);
     let footer_spacer = gtk4::Box::new(Orientation::Horizontal, 0);
     footer_spacer.set_hexpand(true);

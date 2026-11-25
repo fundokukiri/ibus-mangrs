@@ -5,7 +5,6 @@
 //! its folder. The groups are the window's own row widgets, so this column
 //! reads like every settings tab instead of a hand-drawn list.
 
-use super::widgets::row_subtitle;
 use super::*;
 use crate::gui::debug_report::{Cell, Section, Status};
 
@@ -17,18 +16,21 @@ pub(super) const TOOLS_CSS: &str = "
 /* This column answers ten short questions; the window's row height is built for
    settings rows with a subtitle, which leaves too much air here. */
 .tools-compact row {
-  min-height: 34px;
-  padding-top: 2px;
-  padding-bottom: 2px;
+  min-height: 30px;
+  padding-top: 1px;
+  padding-bottom: 1px;
 }
 .tools-compact row > box.header {
   min-height: 20px;
-  padding-top: 2px;
-  padding-bottom: 2px;
+  padding-top: 1px;
+  padding-bottom: 1px;
 }
 .tools-compact preferencesgroup > box > box.header {
   margin-top: 2px;
   margin-bottom: 2px;
+}
+.tools-compact row.diag-warn {
+  background-color: alpha(@warning_color, 0.14);
 }
 ";
 
@@ -52,53 +54,62 @@ pub(super) fn build(
     body.add_css_class("tools-compact");
 
     // --- Typing test ------------------------------------------------------
-    // No heading over the entry: the row's own title says what it is for.
     let try_group = adw::PreferencesGroup::new();
-    let entry_row = adw::EntryRow::new();
-    entry_row.set_title(&t("misc.debug_try_label", "Gõ thử"));
-    entry_row.set_show_apply_button(false);
-    // An icon and a placeholder make the row read as a live test box rather
-    // than an empty settings field.
-    let icon = gtk4::Image::from_icon_name("input-keyboard-symbolic");
-    icon.add_css_class("dim-label");
-    entry_row.add_prefix(&icon);
-    entry_row.set_tooltip_text(Some(&t(
+    try_group.set_title(&t("misc.section_try", "Thử gõ"));
+    let card = gtk4::Box::new(Orientation::Vertical, 0);
+    card.add_css_class("card");
+    let entry = gtk4::Entry::new();
+    entry.set_placeholder_text(Some(&t(
+        "misc.debug_try_placeholder",
+        "Gõ thử ở đây, log bên trái chạy theo",
+    )));
+    entry.set_margin_top(6);
+    entry.set_margin_bottom(6);
+    entry.set_margin_start(10);
+    entry.set_margin_end(10);
+    entry.set_tooltip_text(Some(&t(
         "tips.debug_try",
         "Gõ vào đây để xem bộ gõ có nhận phím không: dòng mới hiện bên trái nghĩa là phím đã đi qua IBus.",
     )));
-
-    // The buffer rides on the entry's own row: one row asking one question,
-    // instead of an entry plus a caption row under it.
-    let composing = gtk4::Label::new(None);
-    composing.add_css_class("caption");
-    composing.add_css_class("dim-label");
+    card.append(&entry);
+    card.append(&gtk4::Separator::new(Orientation::Horizontal));
+    // The buffer keeps its own line under the field, the way the sample draws
+    // it: the field is for typing, the strip is for what the engine sees.
+    let strip = gtk4::Box::new(Orientation::Horizontal, 8);
+    strip.set_margin_top(4);
+    strip.set_margin_bottom(4);
+    strip.set_margin_start(12);
+    strip.set_margin_end(12);
     let buffer_caption = gtk4::Label::new(Some(&t("misc.buffer_label", "buffer:")));
     buffer_caption.add_css_class("caption");
     buffer_caption.add_css_class("dim-label");
     let buffer = gtk4::Label::new(None);
     buffer.add_css_class("caption");
     buffer.add_css_class("monospace");
-    buffer.set_xalign(1.0);
+    buffer.set_xalign(0.0);
+    buffer.set_hexpand(true);
     buffer.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    buffer.set_max_width_chars(18);
-    buffer.set_width_chars(10);
     buffer.set_tooltip_text(Some(&t(
         "tips.debug_buffer",
         "Chữ đang có trong ô thử, lấy ngay từ ô chứ không phải từ bộ gõ.",
     )));
-    entry_row.add_suffix(&buffer_caption);
-    entry_row.add_suffix(&buffer);
-    entry_row.add_suffix(&composing);
-    try_group.add(&entry_row);
+    let composing = gtk4::Label::new(None);
+    composing.add_css_class("caption");
+    composing.add_css_class("dim-label");
+    strip.append(&buffer_caption);
+    strip.append(&buffer);
+    strip.append(&composing);
+    card.append(&strip);
+    try_group.add(&card);
     body.append(&try_group);
     {
         let buffer = buffer.clone();
-        entry_row.connect_changed(move |entry| buffer.set_markup(&buffer_markup(&entry.text())));
+        entry.connect_changed(move |entry| buffer.set_markup(&buffer_markup(&entry.text())));
     }
     buffer.set_markup(&buffer_markup(""));
 
     // --- The groups -------------------------------------------------------
-    let groups = gtk4::Box::new(Orientation::Vertical, 8);
+    let groups = gtk4::Box::new(Orientation::Vertical, 6);
     body.append(&groups);
 
     // The window is rebuilt only when a row actually changed: tearing down and
@@ -154,6 +165,22 @@ fn group_widget(section: &Section, overlay: &adw::ToastOverlay, ui: &Rc<Ui>) -> 
         group.add(&row_widget(cell, overlay, ui));
     }
     wrap.append(&group);
+    // The sentence that explains a warning sits under the card, in the theme's
+    // warning colour: inside the row it pushed the row itself apart.
+    for cell in &section.rows {
+        if cell.status != Status::Warn {
+            continue;
+        }
+        let Some(hint) = &cell.hint else { continue };
+        let line = gtk4::Label::new(Some(hint));
+        line.add_css_class("caption");
+        line.add_css_class("warning");
+        line.set_xalign(0.0);
+        line.set_wrap(true);
+        line.set_margin_start(12);
+        line.set_margin_end(12);
+        wrap.append(&line);
+    }
     wrap.upcast()
 }
 
@@ -162,14 +189,7 @@ fn row_widget(cell: &Cell, overlay: &adw::ToastOverlay, ui: &Rc<Ui>) -> gtk4::Wi
     row.set_title(&cell.label);
     row.set_activatable(true);
     if cell.status == Status::Warn {
-        if let Some(hint) = &cell.hint {
-            row.set_subtitle(hint);
-            row.set_subtitle_lines(2);
-            if let Some(line) = row_subtitle(&row) {
-                line.add_css_class("warning");
-                line.add_css_class("caption");
-            }
-        }
+        row.add_css_class("diag-warn");
     }
 
     let dot = gtk4::Label::new(Some("●"));
@@ -193,22 +213,25 @@ fn row_widget(cell: &Cell, overlay: &adw::ToastOverlay, ui: &Rc<Ui>) -> gtk4::Wi
 
     if cell.open_dir.is_some() {
         // The words stay in the tooltip and the accessible label: the button
-        // shows a folder, not a sentence.
-        let open = gtk4::Button::from_icon_name("folder-open-symbolic");
-        open.add_css_class("flat");
-        open.add_css_class("circular");
-        open.set_valign(gtk4::Align::Center);
-        open.set_tooltip_text(Some(&t("misc.debug_open_folder", "Mở thư mục chứa tệp")));
-        open.update_property(&[gtk4::accessible::Property::Label(&t(
-            "misc.debug_open_folder",
-            "Mở thư mục chứa tệp",
+        // shows an icon, not a sentence.
+        let copy = gtk4::Button::from_icon_name("edit-copy-symbolic");
+        copy.add_css_class("flat");
+        copy.add_css_class("circular");
+        copy.set_valign(gtk4::Align::Center);
+        copy.set_tooltip_text(Some(&t("misc.debug_copy_path", "Sao chép đường dẫn")));
+        copy.update_property(&[gtk4::accessible::Property::Label(&t(
+            "misc.debug_copy_path",
+            "Sao chép đường dẫn",
         ))]);
-        if let Some(dir) = cell.open_dir.clone() {
-            open.connect_clicked(move |_| {
-                let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+        if let Some(path) = cell.hint.clone() {
+            let overlay = overlay.clone();
+            let ui = ui.clone();
+            copy.connect_clicked(move |btn| {
+                btn.clipboard().set_text(&path);
+                ui.fire_toast(&overlay, &t("misc.diag_copied", "Đã sao chép"));
             });
         }
-        row.add_suffix(&open);
+        row.add_suffix(&copy);
     }
 
     let tip = cell.hint.as_deref().unwrap_or(&cell.value).to_string();
