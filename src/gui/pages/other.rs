@@ -38,6 +38,50 @@ fn json_filter() -> gtk4::FileFilter {
 }
 
 /// The window a dialog presents on: the button's own root.
+/// Put the current situation on the row: subtitle names it, button offers
+/// the one action that fixes it.
+fn show_extension_row(row: &adw::ActionRow, btn: &gtk4::Button) {
+    let text = extension_row_for(extension_state());
+    row.set_subtitle(&t(text.subtitle.0, text.subtitle.1));
+    btn.set_label(&t(text.button.0, text.button.1));
+}
+
+/// The confirmation for one action: heading, body, button label.
+fn extension_dialog(action: ExtensionAction) -> (String, String, String) {
+    match action {
+        ExtensionAction::Install => (
+            t("other.extension_confirm_heading", "Cài extension MăngRS Focus?"),
+            t(
+                "other.extension_confirm_body",
+                "Vài tệp sẽ được ghi vào ~/.local/share/gnome-shell/extensions và extension được bật. Cần cho luật theo app trên Wayland.",
+            ),
+            t("other.extension_apply", "Cài đặt"),
+        ),
+        ExtensionAction::Enable => (
+            t(
+                "other.extension_enable_heading",
+                "Bật extension MăngRS Focus?",
+            ),
+            t(
+                "other.extension_enable_body",
+                "Extension đã cài nhưng đang tắt. Bật ngay, không phải đăng xuất.",
+            ),
+            t("other.extension_enable_apply", "Bật"),
+        ),
+        ExtensionAction::Logout => (
+            t(
+                "other.extension_logout_heading",
+                "Đăng xuất để GNOME tải extension?",
+            ),
+            t(
+                "other.extension_logout_body",
+                "Chữ đang gõ dở trong các cửa sổ sẽ mất. Đăng nhập lại thì extension bắt đầu chạy.",
+            ),
+            t("other.extension_logout_apply", "Đăng xuất"),
+        ),
+    }
+}
+
 fn window_of(btn: &gtk4::Button) -> Option<gtk4::Window> {
     btn.root().and_downcast::<gtk4::Window>()
 }
@@ -104,51 +148,25 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             "Cần cho luật theo app trên Wayland.",
         ))
         .build();
-    let installed = focus_extension_installed();
-    // The subtitle carries a monospace path (markup, no CSS): the text has
-    // no & in it.
     let extension_row = adw::ActionRow::new();
-    extension_row.set_use_markup(true);
+    extension_row.set_use_markup(false);
     extension_row.set_title(&t("rows.focus_extension.title", "Extension MăngRS Focus"));
-    extension_row.set_subtitle(&if installed {
-        t(
-            "rows.focus_extension.subtitle_installed",
-            "Đã cài qua gnome-extensions",
-        )
-    } else {
-        t(
-            "rows.focus_extension.subtitle",
-            "Cài qua gnome-extensions và bật",
-        )
-    });
     extension_row.set_tooltip_text(Some(&t(
         "tips.focus_extension",
         "Extension báo tên cửa sổ đang focus cho engine, để luật theo app chạy được với app Wayland như Chrome, Firefox.",
     )));
-    let extension_btn = action_button(
-        None,
-        &if installed {
-            t("misc.reinstall_button", "Cài lại")
-        } else {
-            t("misc.extension_button", "Cài đặt")
-        },
-    );
+    let extension_btn = action_button(None, "");
     sizes.add_widget(&extension_btn);
     extension_row.add_suffix(&extension_btn);
-    // First-install logout: GNOME 45+ caches extension ES modules, so the
-    // fresh install only loads after a logout. Session-scoped on purpose —
-    // the button exists from the first successful install until the app
-    // restarts, which a real logout always sits between.
-    let logout_btn = action_button(None, &t("misc.logout_button", "Đăng xuất"));
-    logout_btn.set_tooltip_text(Some(&t(
-        "tips.extension_logout",
-        "Đăng xuất rồi đăng nhập lại để GNOME tải extension mới.",
-    )));
-    logout_btn.set_visible(false);
-    sizes.add_widget(&logout_btn);
-    extension_row.add_suffix(&logout_btn);
+    show_extension_row(&extension_row, &extension_btn);
     extension.add(&extension_row);
     if session_is_gnome() {
+        // Re-read the situation each time the tab is opened: the extension
+        // may have been installed or switched on in the Extensions app since
+        // this window was built.
+        let row = extension_row.clone();
+        let btn = extension_btn.clone();
+        page.connect_map(move |_| show_extension_row(&row, &btn));
         page.add(&extension);
     }
 
@@ -421,28 +439,29 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         });
     }
 
-    // Install: confirmed like the destructive actions — the install goes
-    // through the official gnome-extensions channel and flips a GNOME
-    // setting, so a stray click must not do it. Same dialog shape as the
-    // reset. No manager-GUI gate: the install needs only the
-    // gnome-extensions CLI that ships with GNOME Shell, and the
-    // post-install note points at the Extensions apps when enable fails.
+    // Every action asks first: installing writes files and flips a GNOME
+    // setting, and a logout drops whatever is open.
     {
         let ui = ui.clone();
         let overlay_toasts = toast_overlay.clone();
         let row = extension_row.clone();
-        let logout_btn = logout_btn.clone();
         extension_btn.connect_clicked(move |btn| {
+            let action = extension_row_for(extension_state()).action;
+            let (heading, body, apply) = extension_dialog(action);
             let dialog = adw::AlertDialog::builder()
-                .heading(t("other.extension_confirm_heading", "Cài extension MăngRS Focus?"))
-                .body(t(
-                    "other.extension_confirm_body",
-                    "Extension được cài qua gnome-extensions, kênh chính thức của GNOME, và được bật. Cần cho luật theo app trên Wayland. Lần cài đầu sẽ hiện nút Đăng xuất.",
-                ))
+                .heading(&heading)
+                .body(&body)
                 .build();
             dialog.add_response("cancel", &t("panel.rename_cancel", "Hủy"));
-            dialog.add_response("apply", &t("other.extension_apply", "Cài đặt"));
-            dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+            dialog.add_response("apply", &apply);
+            dialog.set_response_appearance(
+                "apply",
+                if action == ExtensionAction::Logout {
+                    adw::ResponseAppearance::Destructive
+                } else {
+                    adw::ResponseAppearance::Suggested
+                },
+            );
             dialog.set_default_response(Some("cancel"));
             dialog.set_close_response("cancel");
             {
@@ -450,37 +469,38 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 let overlay_toasts = overlay_toasts.clone();
                 let row = row.clone();
                 let btn = btn.clone();
-                let logout_btn = logout_btn.clone();
                 dialog.connect_response(Some("apply"), move |_, _| {
-                    match install_focus_extension() {
-                        Ok(msg) => {
-                            ui.fire_toast(&overlay_toasts, &msg);
-                            row.set_subtitle(&t(
-                                "rows.focus_extension.subtitle_installed",
-                                "Đã cài qua gnome-extensions",
-                            ));
-                            btn.set_label(&t("misc.reinstall_button", "Cài lại"));
-                            logout_btn.set_visible(true);
+                    match action {
+                        ExtensionAction::Logout => {
+                            let _ = std::process::Command::new("gnome-session-quit")
+                                .args(["--logout", "--no-prompt"])
+                                .status();
                         }
-                        Err(e) => {
-                            if let Some(window) = window_of(&btn) {
-                                alert(&window, &e);
+                        ExtensionAction::Enable => match enable_focus_extension() {
+                            Ok(()) => ui.fire_toast(
+                                &overlay_toasts,
+                                &t("other.extension_enabled_toast", "Đã bật extension"),
+                            ),
+                            Err(e) => {
+                                if let Some(window) = window_of(&btn) {
+                                    alert(&window, &e);
+                                }
                             }
-                        }
+                        },
+                        ExtensionAction::Install => match install_focus_extension() {
+                            Ok(msg) => ui.fire_toast(&overlay_toasts, &msg),
+                            Err(e) => {
+                                if let Some(window) = window_of(&btn) {
+                                    alert(&window, &e);
+                                }
+                            }
+                        },
                     }
+                    // The disk and the shell have moved: re-read both.
+                    show_extension_row(&row, &btn);
                 });
             }
             dialog.present(btn.root().and_downcast::<gtk4::Window>().as_ref());
-        });
-    }
-
-    // The logout itself: GNOME asks nothing with --no-prompt, and the
-    // button only exists because an install is waiting for a reload.
-    {
-        logout_btn.connect_clicked(|_| {
-            let _ = std::process::Command::new("gnome-session-quit")
-                .args(["--logout", "--no-prompt"])
-                .status();
         });
     }
 

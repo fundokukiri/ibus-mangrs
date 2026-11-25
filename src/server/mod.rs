@@ -44,7 +44,9 @@ mod tests;
 mod emoji_picker;
 mod picker;
 #[cfg(feature = "gui")]
-pub(crate) use picker::focus_extension_installed;
+pub(crate) use hotkey::focus_extension_answers;
+#[cfg(feature = "gui")]
+pub(crate) use picker::focus_extension_path;
 
 // the lib build resolves the name inside hotkey itself, hence the allow.
 use self::emoji_picker::EmojiPickerState;

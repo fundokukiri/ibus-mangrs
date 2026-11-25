@@ -1059,11 +1059,132 @@ const FOCUS_EXTENSION_JS: &str =
     include_str!("../../data/extension/mangrs-focus@fundokukiri/extension.js");
 const FOCUS_EXTENSION_META: &str =
     include_str!("../../data/extension/mangrs-focus@fundokukiri/metadata.json");
+const FOCUS_EXT_UUID: &str = "mangrs-focus@fundokukiri";
 
-/// Is the focus extension already installed (its directory exists)? The
-/// extension row shows the status and says "Cài lại" instead of "Cài đặt".
+/// What the settings row can say about the shipped focus extension.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum ExtensionState {
+    /// Nothing on disk: never installed.
+    Missing,
+    /// Installed, but not the copy this binary carries (an older install).
+    Stale,
+    /// Installed and current, switched off in GNOME.
+    Disabled,
+    /// Installed, enabled, and the shell has not loaded it this session.
+    NeedsLogout,
+    /// Installed, enabled and answering.
+    Running,
+}
+
+/// The one action the row's button offers, per state.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum ExtensionAction {
+    Install,
+    Enable,
+    Logout,
+}
+
+/// What the row shows for a state: the subtitle names the situation, the
+/// button offers the one action that fixes it. Keys plus their code
+/// fallbacks, so the mapping is unit-testable.
+pub(super) struct ExtensionRowText {
+    pub subtitle: (&'static str, &'static str),
+    pub button: (&'static str, &'static str),
+    pub action: ExtensionAction,
+}
+
+pub(super) fn extension_row_for(state: ExtensionState) -> ExtensionRowText {
+    match state {
+        ExtensionState::Missing => ExtensionRowText {
+            subtitle: ("rows.focus_extension.subtitle_missing", "Chưa cài"),
+            button: ("misc.extension_button", "Cài đặt"),
+            action: ExtensionAction::Install,
+        },
+        ExtensionState::Stale => ExtensionRowText {
+            subtitle: (
+                "rows.focus_extension.subtitle_stale",
+                "Bản trên máy cũ hơn bản trong app",
+            ),
+            button: ("misc.extension_update_button", "Cập nhật"),
+            action: ExtensionAction::Install,
+        },
+        ExtensionState::Disabled => ExtensionRowText {
+            subtitle: (
+                "rows.focus_extension.subtitle_disabled",
+                "Đã cài nhưng chưa bật",
+            ),
+            button: ("misc.extension_enable_button", "Bật"),
+            action: ExtensionAction::Enable,
+        },
+        ExtensionState::NeedsLogout => ExtensionRowText {
+            subtitle: (
+                "rows.focus_extension.subtitle_needs_logout",
+                "Đã bật, cần đăng xuất để GNOME tải",
+            ),
+            button: ("misc.logout_button", "Đăng xuất"),
+            action: ExtensionAction::Logout,
+        },
+        ExtensionState::Running => ExtensionRowText {
+            subtitle: ("rows.focus_extension.subtitle_running", "Đang chạy"),
+            button: ("misc.reinstall_button", "Cài lại"),
+            action: ExtensionAction::Install,
+        },
+    }
+}
+
+/// Is the extension installed at all (whatever its enabled state)?
 pub(super) fn focus_extension_installed() -> bool {
-    crate::server::focus_extension_installed()
+    crate::server::focus_extension_path().is_some()
+}
+
+/// Which of the five situations the extension is in right now. Three cheap
+/// facts, read only when the page is built or an action finishes.
+pub(super) fn extension_state() -> ExtensionState {
+    let Some(path) = crate::server::focus_extension_path() else {
+        return ExtensionState::Missing;
+    };
+    if !std::fs::read_to_string(&path).is_ok_and(|text| text == FOCUS_EXTENSION_JS) {
+        return ExtensionState::Stale;
+    }
+    if !extension_enabled() {
+        return ExtensionState::Disabled;
+    }
+    if crate::server::focus_extension_answers() {
+        ExtensionState::Running
+    } else {
+        ExtensionState::NeedsLogout
+    }
+}
+
+/// Does GNOME list the extension as enabled? A missing CLI or unreadable
+/// output counts as enabled — the bus probe then decides.
+fn extension_enabled() -> bool {
+    let Ok(out) = std::process::Command::new("gnome-extensions")
+        .args(["info", FOCUS_EXT_UUID])
+        .output()
+    else {
+        return true;
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    !text.contains("State: DISABLED")
+        && !text.contains("State: ERROR")
+        && !text.contains("State: OUT_OF_DATE")
+}
+
+/// Switch an already-installed extension on: one CLI call, no reinstall.
+pub(super) fn enable_focus_extension() -> Result<(), String> {
+    let out = std::process::Command::new("gnome-extensions")
+        .args(["enable", FOCUS_EXT_UUID])
+        .output()
+        .map_err(|e| format!("Không chạy được gnome-extensions: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "gnome-extensions enable thất bại: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
 }
 
 /// The focus extension only makes sense inside GNOME: hide the installer
@@ -1185,7 +1306,7 @@ pub(super) fn install_focus_extension() -> Result<String, String> {
     }
     let mut note = String::from("Đã cài qua gnome-extensions (kênh chính thức của GNOME). ");
     match std::process::Command::new("gnome-extensions")
-        .args(["enable", "mangrs-focus@fundokukiri"])
+        .args(["enable", FOCUS_EXT_UUID])
         .status()
     {
         Ok(s) if s.success() => {

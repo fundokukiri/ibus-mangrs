@@ -83,6 +83,25 @@ pub(super) fn hotkey_registry(config: &Config) -> Vec<HotkeyBinding> {
     out
 }
 
+/// Does the focus extension answer on the session bus right now? The settings
+/// window asks this to tell "installed and enabled" from "the shell has not
+/// loaded it yet" — GNOME caches extension modules for the whole session, so a
+/// fresh install needs a logout.
+#[cfg(feature = "gui")]
+pub(crate) fn focus_extension_answers() -> bool {
+    let Ok(conn) = Connection::get_private(BusType::Session) else {
+        return false;
+    };
+    // Test-only unwraps: this file's own constants.
+    let msg = Message::method_call(
+        &BusName::new(FOCUS_EXT_NAME).unwrap(),
+        &DbusPath::new(FOCUS_EXT_PATH).unwrap(),
+        &Interface::new(FOCUS_EXT_IFACE).unwrap(),
+        &Member::new("GetFocusedWindow").unwrap(),
+    );
+    conn.send_with_reply_and_block(msg, 300).is_ok()
+}
+
 impl EngineHandler {
     /// `ProcessKeyEvent`: hot-reload the config, check the shortcut
     /// registry, then feed the key to the engine. Signals go into `out`.

@@ -110,15 +110,22 @@ impl PickerState {
     }
 }
 
-/// Is the shipped focus extension on disk at all (installed, whatever its
-/// enabled state)? GIO's own extension directories, system ones included.
-pub(crate) fn focus_extension_installed() -> bool {
+/// Where the focus extension's own file is, when it is installed at all:
+/// GIO's extension directories, the system one included.
+pub(crate) fn focus_extension_path() -> Option<std::path::PathBuf> {
     const REL: &str = "gnome-shell/extensions/mangrs-focus@fundokukiri/extension.js";
-    dirs::data_dir().is_some_and(|dir| dir.join(REL).exists())
-        || std::path::Path::new("/usr")
-            .join("share")
-            .join(REL)
-            .exists()
+    dirs::data_dir()
+        .map(|dir| dir.join(REL))
+        .filter(|path| path.exists())
+        .or_else(|| {
+            let system = std::path::Path::new("/usr/share").join(REL);
+            system.exists().then_some(system)
+        })
+}
+
+/// Is the focus extension installed at all (whatever its enabled state)?
+pub(crate) fn focus_extension_installed() -> bool {
+    focus_extension_path().is_some()
 }
 
 /// The warning shown instead of the mode list while no app can be named: the

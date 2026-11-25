@@ -602,6 +602,37 @@ fn rule_rows_round_trip_through_read() {
     assert_eq!(row.tooltip_text().as_deref(), Some("kate"));
 }
 
+/// The extension row must name the real situation and offer the one action
+/// that fixes it — the old row said "installed" even when the shell had never
+/// loaded the extension.
+#[test]
+fn the_extension_row_offers_one_action_per_state() {
+    use crate::gui::{extension_row_for, ExtensionAction, ExtensionState};
+    let cases = [
+        (ExtensionState::Missing, ExtensionAction::Install),
+        (ExtensionState::Stale, ExtensionAction::Install),
+        (ExtensionState::Disabled, ExtensionAction::Enable),
+        (ExtensionState::NeedsLogout, ExtensionAction::Logout),
+        (ExtensionState::Running, ExtensionAction::Install),
+    ];
+    let mut seen = Vec::new();
+    for (state, action) in cases {
+        let text = extension_row_for(state);
+        assert_eq!(text.action, action, "{state:?}");
+        assert!(!text.subtitle.1.is_empty() && !text.button.1.is_empty());
+        assert!(
+            !seen.contains(&text.subtitle.1),
+            "{state:?} reuses a subtitle"
+        );
+        seen.push(text.subtitle.1);
+    }
+    // A missing extension is installed, never "turned on" or "logged out of".
+    assert_eq!(
+        extension_row_for(ExtensionState::Missing).button.1,
+        "Cài đặt"
+    );
+}
+
 /// "Chế độ gỡ lỗi" is one switch: the two log tiers come from its dialog,
 /// stay saved while it is off, and the row says what it is recording.
 fn debug_mode_switch_keeps_the_dialog_choice() {
