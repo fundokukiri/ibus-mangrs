@@ -6,6 +6,9 @@
 //! The switch that turns the log on stays in "Cài đặt nâng cao": this page is
 //! the consequence of that switch, not a second place to set it.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
 use super::*;
 use crate::gui::debug_report::{backend_from_log, sections, Facts, Section};
 use crate::gui::engine_probe;
@@ -28,6 +31,14 @@ const NARROW_WIDTH: i32 = 760;
 const SHARE_RATIO: f32 = 2.5;
 const MIN_RIGHT_WIDTH: i32 = 300;
 const MAX_RIGHT_WIDTH: i32 = 560;
+
+/// The two facts that cost a subprocess to read, kept together so one worker
+/// thread updates both.
+#[derive(Clone)]
+struct Slow {
+    engine: Option<engine_probe::EngineStatus>,
+    extension: ExtensionState,
+}
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let path = crate::debug_log::log_path();
@@ -152,15 +163,53 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     left.append(&scroller);
 
     // --- The facts the rows and the report read ---------------------------
+    // Two of them come from other processes (`ibus engine`, `gsettings get`)
+    // and take tens of milliseconds each: they are read on a worker thread, so
+    // none of that ever blocks a keystroke. The rows read the last answer.
+    let slow = Arc::new(Mutex::new(Slow {
+        engine: engine_probe::probe(),
+        extension: extension_state(),
+    }));
+    let busy = Arc::new(AtomicBool::new(false));
+    let read_slow: Rc<dyn Fn() -> Slow> = {
+        let slow = Arc::clone(&slow);
+        Rc::new(move || {
+            slow.lock()
+                .map(|slot| slot.clone())
+                .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+        })
+    };
+    let refresh_slow: Rc<dyn Fn()> = {
+        let slow = Arc::clone(&slow);
+        let busy = Arc::clone(&busy);
+        Rc::new(move || {
+            if busy.swap(true, Ordering::Relaxed) {
+                return;
+            }
+            let slot = Arc::clone(&slow);
+            let busy = Arc::clone(&busy);
+            std::thread::spawn(move || {
+                let fresh = Slow {
+                    engine: engine_probe::probe(),
+                    extension: extension_state(),
+                };
+                if let Ok(mut held) = slot.lock() {
+                    *held = fresh;
+                }
+                busy.store(false, Ordering::Relaxed);
+            });
+        })
+    };
+
     let facts: Rc<dyn Fn() -> Vec<Section>> = {
         let ui = ui.clone();
         let path = path.clone();
         let reader = Rc::clone(&reader);
+        let read_slow = Rc::clone(&read_slow);
         Rc::new(move || {
             let config = ui.read();
-            let extension = extension_state();
+            let Slow { engine, extension } = read_slow();
             let (key, fallback) = extension_row_for(extension).subtitle;
-            let engine = engine_probe::probe();
             let log_lines = reader.borrow().recent(200);
             sections(&Facts {
                 preferred: config.preferred_backend,
@@ -293,27 +342,29 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 Some(stats) => format!("{}ms", f(&stats)),
                 None => "—".to_string(),
             };
-            metric_avg.set_text(&format!(
-                "{} {}",
-                t("misc.metric_avg", "Trễ TB"),
-                pick(|s| s.avg_ms)
-            ));
-            metric_max.set_text(&format!(
-                "{} {}",
-                t("misc.metric_max", "Tối đa"),
-                pick(|s| s.max_ms)
-            ));
+            set_if_changed(
+                &metric_avg,
+                &format!("{} {}", t("misc.metric_avg", "Trễ TB"), pick(|s| s.avg_ms)),
+            );
+            set_if_changed(
+                &metric_max,
+                &format!("{} {}", t("misc.metric_max", "Tối đa"), pick(|s| s.max_ms)),
+            );
             let size = path
                 .as_deref()
                 .and_then(|p| std::fs::metadata(p).ok())
                 .map(|m| size_label(m.len()))
                 .unwrap_or_else(|| "—".to_string());
-            metric_log.set_text(&format!("{} {size}", t("misc.metric_log", "Log")));
-            composing_label.set_text(&match composing(&cache) {
+            set_if_changed(
+                &metric_log,
+                &format!("{} {size}", t("misc.metric_log", "Log")),
+            );
+            let composing_text = match composing(&cache) {
                 Some(true) => t("misc.buffer_composing", "đang soạn"),
                 Some(false) => t("misc.buffer_empty", "trống"),
                 None => String::new(),
-            });
+            };
+            set_if_changed(&composing_label, &composing_text);
             if follow.is_active() {
                 let adj = scroller.vadjustment();
                 adj.set_value(adj.upper() - adj.page_size());
@@ -326,32 +377,39 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let dot = dot.clone();
         let state = state.clone();
         let detail = detail.clone();
-        Rc::new(move || match engine_probe::probe() {
+        let read_slow = Rc::clone(&read_slow);
+        Rc::new(move || match read_slow().engine {
             Some(engine) => {
                 set_dot(&dot, "diag-dot-ok");
-                state.set_text(&t("misc.status_running", "Engine đang chạy"));
+                set_if_changed(&state, &t("misc.status_running", "Engine đang chạy"));
                 let uptime = engine
                     .started
                     .and_then(|began| std::time::SystemTime::now().duration_since(began).ok())
                     .map(|age| uptime_label(age.as_secs()))
                     .unwrap_or_else(|| "?".to_string());
-                detail.set_text(&format!(
-                    "PID {} · {uptime} · {}",
-                    engine.pid,
-                    env!("CARGO_PKG_VERSION")
-                ));
+                set_if_changed(
+                    &detail,
+                    &format!(
+                        "PID {} · {uptime} · {}",
+                        engine.pid,
+                        env!("CARGO_PKG_VERSION")
+                    ),
+                );
             }
             None => {
                 set_dot(&dot, "diag-dot-warn");
-                state.set_text(&t("misc.status_stopped", "Engine không chạy"));
-                detail.set_text(&format!(
-                    "{} · {}",
-                    t(
-                        "misc.status_stopped_hint",
-                        "IBus chỉ khởi động engine khi có phím"
+                set_if_changed(&state, &t("misc.status_stopped", "Engine không chạy"));
+                set_if_changed(
+                    &detail,
+                    &format!(
+                        "{} · {}",
+                        t(
+                            "misc.status_stopped_hint",
+                            "IBus chỉ khởi động engine khi có phím"
+                        ),
+                        env!("CARGO_PKG_VERSION")
                     ),
-                    env!("CARGO_PKG_VERSION")
-                ));
+                );
             }
         })
     };
@@ -584,6 +642,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             let arrived = arrived.clone();
             let pending = Rc::clone(&pending);
             let last_probe = Rc::new(Cell::new(std::time::Instant::now()));
+            let refresh_slow = Rc::clone(&refresh_slow);
             Rc::new(move |first: bool| {
                 let added = reader.borrow_mut().poll();
                 extend_tail(&mut parsed.borrow_mut(), &added, VIEW_LINES);
@@ -599,8 +658,12 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 // Typing in the test box is exactly what starts the engine, so
                 // a status that said "not running" has to be re-read. Twice a
                 // second at most: the probe walks /proc.
-                if last_probe.get().elapsed() > std::time::Duration::from_millis(500) {
+                if last_probe.get().elapsed() > std::time::Duration::from_millis(900) {
                     last_probe.set(std::time::Instant::now());
+                    // The subprocesses run on the worker; this only applies
+                    // what it last answered, and the rows rebuild only if a
+                    // row's text changed.
+                    refresh_slow();
                     status_refresh();
                     tools_refresh();
                 }
@@ -848,6 +911,14 @@ fn make_tags(buffer: &gtk4::TextBuffer, view: &gtk4::TextView) {
         if let Some(created) = buffer.create_tag(Some(tag), &[]) {
             created.set_foreground_rgba(Some(&color(name, alpha)));
         }
+    }
+}
+
+/// A label whose text did not change keeps its layout: writing the same string
+/// twice still costs a relayout of everything around it.
+fn set_if_changed(label: &gtk4::Label, text: &str) {
+    if label.text() != text {
+        label.set_text(text);
     }
 }
 

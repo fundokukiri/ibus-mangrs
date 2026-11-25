@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 /// The engine instance the desktop is using, or `None` when none runs.
+#[derive(Clone)]
 pub(super) struct EngineStatus {
     pub pid: u32,
     /// The binary this process was started from. `/proc/<pid>/comm` truncates

@@ -68,17 +68,27 @@ pub(super) fn build(
     let groups = gtk4::Box::new(Orientation::Vertical, 18);
     body.append(&groups);
 
+    // The window is rebuilt only when a row actually changed: tearing down and
+    // re-creating four groups twice a second made the whole page re-lay out
+    // while the user was typing in the box above.
+    let shown: Rc<RefCell<Vec<Section>>> = Rc::new(RefCell::new(Vec::new()));
     let refresh: Rc<dyn Fn()> = {
         let groups = groups.clone();
         let overlay = overlay.clone();
         let ui = ui.clone();
+        let shown = Rc::clone(&shown);
         Rc::new(move || {
+            let next = facts();
+            if next == *shown.borrow() {
+                return;
+            }
             while let Some(child) = groups.first_child() {
                 groups.remove(&child);
             }
-            for section in facts() {
-                groups.append(&group_widget(&section, &overlay, &ui));
+            for section in &next {
+                groups.append(&group_widget(section, &overlay, &ui));
             }
+            *shown.borrow_mut() = next;
         })
     };
     refresh();
