@@ -408,10 +408,20 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                     .and_then(|began| std::time::SystemTime::now().duration_since(began).ok())
                     .map(|age| uptime_label(age.as_secs()))
                     .unwrap_or_else(|| "?".to_string());
+                // With the version row gone from the column, the sentence that
+                // tells the user to restart IBus lives here.
+                let stale = if engine.stale {
+                    format!(
+                        " · {}",
+                        t("misc.status_stale", "bản cài mới hơn, khởi động lại IBus")
+                    )
+                } else {
+                    String::new()
+                };
                 set_if_changed(
                     &detail,
                     &format!(
-                        "PID {} · {uptime} · {}",
+                        "PID {} · {uptime} · {}{stale}",
                         engine.pid,
                         env!("CARGO_PKG_VERSION")
                     ),

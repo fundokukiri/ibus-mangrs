@@ -27,6 +27,9 @@ pub(super) struct Cell {
     /// Whether the copied report carries this row. A row that always says the
     /// same thing on a working install only pads the issue.
     pub report: bool,
+    /// Whether the column shows it. The version is the one fact the report
+    /// needs and the window already spells out in the status bar.
+    pub screen: bool,
 }
 
 impl Cell {
@@ -38,6 +41,7 @@ impl Cell {
             hint: None,
             open_dir: None,
             report: true,
+            screen: true,
         }
     }
 
@@ -55,12 +59,13 @@ impl Cell {
             hint: Some(path.display().to_string()),
             open_dir: path.parent().map(|p| p.to_path_buf()),
             report: true,
+            screen: true,
         }
     }
 
-    /// Kept on screen, left out of the report.
-    fn screen_only(mut self) -> Cell {
-        self.report = false;
+    /// Carried in the report, not drawn in the column.
+    fn report_only(mut self) -> Cell {
+        self.screen = false;
         self
     }
 
@@ -104,6 +109,8 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
     let mut out = Vec::new();
 
     let mut system = Vec::new();
+    // The column leaves these two to the status bar; the report keeps them,
+    // because an issue read on another machine has neither.
     let selected = status
         .and_then(|s| s.selected.clone())
         .unwrap_or_else(|| "?".to_string());
@@ -121,7 +128,7 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
                     "IBus đang chạy engine khác. Chọn MăngRS trong menu bộ gõ.",
                 ),
             )
-            .screen_only(),
+            .report_only(),
     );
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let install = match status {
@@ -140,7 +147,7 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
             .with_status(Status::Ok, &s.exe.display().to_string()),
         None => Cell::info(&t("rows.debug_engine.version", "Phiên bản MăngRS"), version),
     };
-    system.push(install);
+    system.push(install.report_only());
     // The IBus daemon's own version belongs with the two rows about IBus.
     system.push(Cell::info(
         &t("rows.debug_machine.ibus", "Phiên bản IBus"),
@@ -566,11 +573,18 @@ mod tests {
             &[],
             &[],
         );
-        // The session repeats what DE/WM used to show, but it is its own answer.
-        for absent in ["Cách chèn", "Tệp", "**Engine**", "**Register**"] {
+        for absent in ["Cách chèn", "Tệp", "**Register**"] {
             assert!(!text.contains(absent), "{absent} is left out: {text}");
         }
-        for present in ["Phiên bản MăngRS", "Kernel", "DE/WM", "Phiên bản IBus"] {
+        // Both rows the column hides still travel: an issue read on another
+        // machine needs them.
+        for present in [
+            "**Engine**",
+            "Phiên bản MăngRS",
+            "Kernel",
+            "DE/WM",
+            "Phiên bản IBus",
+        ] {
             assert!(text.contains(present), "{present} travels: {text}");
         }
     }

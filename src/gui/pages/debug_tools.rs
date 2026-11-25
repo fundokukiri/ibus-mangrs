@@ -161,13 +161,13 @@ fn group_widget(section: &Section, overlay: &adw::ToastOverlay, ui: &Rc<Ui>) -> 
     title.set_xalign(0.0);
     wrap.append(&title);
     let group = adw::PreferencesGroup::new();
-    for cell in &section.rows {
+    for cell in section.rows.iter().filter(|cell| cell.screen) {
         group.add(&row_widget(cell, overlay, ui));
     }
     wrap.append(&group);
     // The sentence that explains a warning sits under the card, in the theme's
     // warning colour: inside the row it pushed the row itself apart.
-    for cell in &section.rows {
+    for cell in section.rows.iter().filter(|cell| cell.screen) {
         if cell.status != Status::Warn {
             continue;
         }

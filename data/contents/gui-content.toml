@@ -38,6 +38,7 @@ none = "Không có kết quả"
 page_kind = "Trang"
 
 [misc]
+status_stale = "bản cài mới hơn, khởi động lại IBus"
 debug_copy_path = "Sao chép đường dẫn"
 section_try = "Thử gõ"
 debug_open_folder = "Mở thư mục"

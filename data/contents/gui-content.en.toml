@@ -36,6 +36,7 @@ none = "No results"
 page_kind = "Page"
 
 [misc]
+status_stale = "a newer build is installed, restart IBus"
 debug_copy_path = "Copy path"
 section_try = "Try typing"
 debug_open_folder = "Open folder"
