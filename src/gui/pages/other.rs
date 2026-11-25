@@ -46,10 +46,12 @@ fn show_extension_row(row: &adw::ActionRow, btn: &gtk4::Button) {
     btn.set_label(&t(text.button.0, text.button.1));
 }
 
-/// The confirmation for one action: heading, body, button label.
-fn extension_dialog(action: ExtensionAction) -> (String, String, String) {
-    match action {
-        ExtensionAction::Install => (
+/// The confirmation for a state: heading, body and button label, one wording
+/// per situation so the dialog never says "install" for an update or a
+/// reinstall.
+pub(crate) fn extension_dialog(state: ExtensionState) -> (String, String, String) {
+    match state {
+        ExtensionState::Missing => (
             t("other.extension_confirm_heading", "Cài extension MăngRS Focus?"),
             t(
                 "other.extension_confirm_body",
@@ -57,7 +59,18 @@ fn extension_dialog(action: ExtensionAction) -> (String, String, String) {
             ),
             t("other.extension_apply", "Cài đặt"),
         ),
-        ExtensionAction::Enable => (
+        ExtensionState::Stale => (
+            t(
+                "other.extension_update_heading",
+                "Cập nhật extension MăngRS Focus?",
+            ),
+            t(
+                "other.extension_update_body",
+                "Bản trên máy cũ hơn bản trong app này. Ghi đè bằng bản mới rồi bật, sau đó cần đăng xuất để GNOME tải.",
+            ),
+            t("other.extension_update_apply", "Cập nhật"),
+        ),
+        ExtensionState::Disabled => (
             t(
                 "other.extension_enable_heading",
                 "Bật extension MăngRS Focus?",
@@ -68,7 +81,7 @@ fn extension_dialog(action: ExtensionAction) -> (String, String, String) {
             ),
             t("other.extension_enable_apply", "Bật"),
         ),
-        ExtensionAction::Logout => (
+        ExtensionState::NeedsLogout => (
             t(
                 "other.extension_logout_heading",
                 "Đăng xuất để GNOME tải extension?",
@@ -78,6 +91,17 @@ fn extension_dialog(action: ExtensionAction) -> (String, String, String) {
                 "Chữ đang gõ dở trong các cửa sổ sẽ mất. Đăng nhập lại thì extension bắt đầu chạy.",
             ),
             t("other.extension_logout_apply", "Đăng xuất"),
+        ),
+        ExtensionState::Running => (
+            t(
+                "other.extension_reinstall_heading",
+                "Cài lại extension MăngRS Focus?",
+            ),
+            t(
+                "other.extension_reinstall_body",
+                "Ghi đè bản đang chạy bằng bản trong app này, rồi bật. Sau đó cần đăng xuất để GNOME tải bản mới.",
+            ),
+            t("other.extension_reinstall_apply", "Cài lại"),
         ),
     }
 }
@@ -446,8 +470,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let overlay_toasts = toast_overlay.clone();
         let row = extension_row.clone();
         extension_btn.connect_clicked(move |btn| {
-            let action = extension_row_for(extension_state()).action;
-            let (heading, body, apply) = extension_dialog(action);
+            let state = extension_state();
+            let action = extension_row_for(state).action;
+            let (heading, body, apply) = extension_dialog(state);
             let dialog = adw::AlertDialog::builder()
                 .heading(&heading)
                 .body(&body)

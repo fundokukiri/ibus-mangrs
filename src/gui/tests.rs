@@ -626,6 +626,21 @@ fn the_extension_row_offers_one_action_per_state() {
         );
         seen.push(text.subtitle.1);
     }
+    // Every state gets its own confirmation: an update or a reinstall must
+    // not ask "install?".
+    let mut headings = Vec::new();
+    for state in [
+        ExtensionState::Missing,
+        ExtensionState::Stale,
+        ExtensionState::Disabled,
+        ExtensionState::NeedsLogout,
+        ExtensionState::Running,
+    ] {
+        let (heading, body, apply) = crate::gui::pages::other::extension_dialog(state);
+        assert!(!heading.is_empty() && !body.is_empty() && !apply.is_empty());
+        assert!(!headings.contains(&heading), "{state:?} reuses a heading");
+        headings.push(heading);
+    }
     // A missing extension is installed, never "turned on" or "logged out of".
     assert_eq!(
         extension_row_for(ExtensionState::Missing).button.1,
