@@ -1201,7 +1201,15 @@ fn extension_enabled() -> bool {
 /// Switch an installed extension off. GNOME forgets the module on the next
 /// focus, so the row drops back to "Bật".
 pub(super) fn disable_focus_extension() -> Result<(), String> {
-    gnome_extensions(&["disable", FOCUS_EXT_UUID])
+    gnome_extensions(&["disable", FOCUS_EXT_UUID])?;
+    // The shell writes its enabled list a moment after answering, so a state
+    // read taken now still says "enabled and silent" and the row offers a
+    // logout for something that is simply off.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while extension_enabled() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Ok(())
 }
 
 /// Delete an installed extension from disk. GNOME loads whatever is left on
