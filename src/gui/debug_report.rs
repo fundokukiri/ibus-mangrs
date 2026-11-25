@@ -200,19 +200,23 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
         &t("rows.debug_info.mode", "Chế độ gõ"),
         mode_label(facts.mode).to_string(),
     ));
-    insert.push(Cell::info(
-        &t("rows.debug_info.backend", "Cách chèn cấu hình"),
-        backend_name(facts.preferred).to_string(),
-    ));
+    // Configured and actual in one row: two rows said the same thing when they
+    // agreed, which is almost always.
+    let configured = backend_name(facts.preferred);
     let shown = facts
         .backend
         .map(|s| s.to_string())
         .unwrap_or_else(|| t("rows.debug_transport.none", "chưa thấy trong log"));
+    let value = if facts.backend.is_some_and(|b| b != configured) {
+        format!("{configured} → {shown}")
+    } else {
+        shown.clone()
+    };
     // Auto landing on a concrete backend is normal, but it is also the case
     // where typing breaks in one application and not another.
     let auto_fallback = facts.preferred == crate::config::PreferredBackendConfig::Auto
         && facts.backend.is_some_and(|b| b != "auto");
-    let actual = Cell::info(&t("rows.debug_transport.title", "Cách chèn thực tế"), shown);
+    let actual = Cell::info(&t("rows.debug_info.insert", "Cách chèn"), value);
     insert.push(if auto_fallback {
         actual.with_status(
             Status::Warn,
@@ -416,7 +420,7 @@ mod tests {
         let titles: Vec<&str> = groups.iter().map(|s| s.title.as_str()).collect();
         assert_eq!(titles, ["Hệ thống", "Cách chèn", "Tệp"]);
         assert_eq!(groups[0].rows.len(), 5, "the system rows stay five");
-        assert_eq!(groups[1].rows.len(), 3);
+        assert_eq!(groups[1].rows.len(), 2);
         assert_eq!(groups[2].rows.len(), 2);
     }
 
@@ -452,8 +456,9 @@ mod tests {
         let boxes = rows(Some(&status(false, Some(true))), Some("uinput"));
         let actual = boxes
             .iter()
-            .find(|c| c.label == "Cách chèn thực tế")
+            .find(|c| c.label == "Cách chèn")
             .expect("a backend row");
+        assert_eq!(actual.value, "auto → uinput", "{actual:?}");
         assert_eq!(actual.status, Status::Warn, "{actual:?}");
         assert!(actual.hint.as_deref().unwrap_or("").contains("auto"));
 
@@ -464,7 +469,7 @@ mod tests {
             crate::config::PreferredBackendConfig::Uinput,
         )))
         .into_iter()
-        .find(|c| c.label == "Cách chèn thực tế")
+        .find(|c| c.label == "Cách chèn")
         .expect("a backend row")
         .status;
         assert_eq!(explicit, Status::Info);

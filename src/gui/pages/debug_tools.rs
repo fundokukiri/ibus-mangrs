@@ -5,7 +5,7 @@
 //! its folder. The groups are the window's own row widgets, so this column
 //! reads like every settings tab instead of a hand-drawn list.
 
-use super::widgets::{action_row, row_subtitle};
+use super::widgets::row_subtitle;
 use super::*;
 use crate::gui::debug_report::{Cell, Section, Status};
 
@@ -14,6 +14,22 @@ pub(super) const TOOLS_CSS: &str = "
 .diag-dot-warn { color: @warning_color; }
 .diag-dot-info { color: alpha(@view_fg_color, 0.45); }
 .diag-value { font-feature-settings: \"tnum\"; }
+/* This column answers ten short questions; the window's row height is built for
+   settings rows with a subtitle, which leaves too much air here. */
+.tools-compact row {
+  min-height: 34px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.tools-compact row > box.header {
+  min-height: 20px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.tools-compact preferencesgroup > box > box.header {
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
 ";
 
 /// The column's fixed parts, so the page can wire the typing test and re-read
@@ -32,31 +48,34 @@ pub(super) fn build(
     overlay: &adw::ToastOverlay,
     facts: Rc<dyn Fn() -> Vec<Section>>,
 ) -> Tools {
-    let body = gtk4::Box::new(Orientation::Vertical, 18);
+    let body = gtk4::Box::new(Orientation::Vertical, 10);
+    body.add_css_class("tools-compact");
 
     // --- Typing test ------------------------------------------------------
+    // No heading over the entry: the row's own title says what it is for.
     let try_group = adw::PreferencesGroup::new();
-    try_group.set_title(&t("misc.section_try", "Thử gõ"));
     let entry_row = adw::EntryRow::new();
     entry_row.set_title(&t("misc.debug_try_label", "Gõ thử"));
     entry_row.set_tooltip_text(Some(&t(
         "tips.debug_try",
         "Gõ vào đây để xem bộ gõ có nhận phím không: dòng mới hiện bên trái nghĩa là phím đã đi qua IBus.",
     )));
-    try_group.add(&entry_row);
 
-    let buffer_row = action_row(&t("misc.buffer_label", "buffer:"), "");
+    // The buffer rides on the entry's own row: one row asking one question,
+    // instead of an entry plus a caption row under it.
+    let composing = gtk4::Label::new(None);
+    composing.add_css_class("caption");
+    composing.add_css_class("dim-label");
     let buffer = gtk4::Label::new(None);
     buffer.add_css_class("caption");
     buffer.add_css_class("monospace");
     buffer.set_xalign(1.0);
     buffer.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    let composing = gtk4::Label::new(None);
-    composing.add_css_class("caption");
-    composing.add_css_class("dim-label");
-    buffer_row.add_suffix(&buffer);
-    buffer_row.add_suffix(&composing);
-    try_group.add(&buffer_row);
+    buffer.set_max_width_chars(24);
+    buffer.set_tooltip_text(Some(&t("misc.buffer_label", "buffer:")));
+    entry_row.add_suffix(&buffer);
+    entry_row.add_suffix(&composing);
+    try_group.add(&entry_row);
     body.append(&try_group);
     {
         let buffer = buffer.clone();
@@ -65,7 +84,7 @@ pub(super) fn build(
     buffer.set_markup(&buffer_markup(""));
 
     // --- The groups -------------------------------------------------------
-    let groups = gtk4::Box::new(Orientation::Vertical, 18);
+    let groups = gtk4::Box::new(Orientation::Vertical, 8);
     body.append(&groups);
 
     // The window is rebuilt only when a row actually changed: tearing down and
@@ -108,12 +127,20 @@ pub(super) fn buffer_markup(text: &str) -> String {
 }
 
 fn group_widget(section: &Section, overlay: &adw::ToastOverlay, ui: &Rc<Ui>) -> gtk4::Widget {
+    // A caption above the list instead of the group's own heading: the heading
+    // is built for a preferences page and costs a row of height for four words.
+    let wrap = gtk4::Box::new(Orientation::Vertical, 2);
+    let title = gtk4::Label::new(Some(&section.title));
+    title.add_css_class("caption");
+    title.add_css_class("dim-label");
+    title.set_xalign(0.0);
+    wrap.append(&title);
     let group = adw::PreferencesGroup::new();
-    group.set_title(&section.title);
     for cell in &section.rows {
         group.add(&row_widget(cell, overlay, ui));
     }
-    group.upcast()
+    wrap.append(&group);
+    wrap.upcast()
 }
 
 fn row_widget(cell: &Cell, overlay: &adw::ToastOverlay, ui: &Rc<Ui>) -> gtk4::Widget {
@@ -123,7 +150,7 @@ fn row_widget(cell: &Cell, overlay: &adw::ToastOverlay, ui: &Rc<Ui>) -> gtk4::Wi
     if cell.status == Status::Warn {
         if let Some(hint) = &cell.hint {
             row.set_subtitle(hint);
-            row.set_subtitle_lines(3);
+            row.set_subtitle_lines(2);
             if let Some(line) = row_subtitle(&row) {
                 line.add_css_class("warning");
                 line.add_css_class("caption");
