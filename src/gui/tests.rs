@@ -1271,8 +1271,42 @@ fn the_open_log_pane_picks_up_what_is_written() {
             .expect("the log file");
         file.write_all(b"1795619563100 ctx step=7\n1795619563200 ctx step=7 rep=3\n")
             .expect("a write");
+        // Enough to overflow the box, so following has to keep the newest
+        // line in view.
+        for i in 0..40 {
+            file.write_all(format!("1795619563300 ctx fill={i}\n").as_bytes())
+                .expect("a write");
+        }
     }
     pump(900);
+    // The log's own scroller keeps the newest line in view: no pause unless
+    // the button says so.
+    let log_scroller = descendants::<gtk4::ScrolledWindow>(overlay.upcast_ref())
+        .into_iter()
+        .find(|sc| {
+            sc.child()
+                .is_some_and(|child| child.downcast_ref::<gtk4::TextView>().is_some())
+        })
+        .expect("the log's scroller");
+    let adj = log_scroller.vadjustment();
+    assert!(
+        adj.value() >= adj.upper() - adj.page_size() - 2.0,
+        "the newest line is the one in view: value={} upper={} page={}",
+        adj.value(),
+        adj.upper(),
+        adj.page_size()
+    );
+    let pause = descendants::<gtk4::ToggleButton>(overlay.upcast_ref())
+        .into_iter()
+        .find(|b| {
+            b.icon_name()
+                .is_some_and(|i| i.contains("pause") || i.contains("play"))
+        })
+        .expect("the pause button");
+    assert!(
+        pause.is_active(),
+        "scrolling never pauses following on its own"
+    );
     let view = descendants::<gtk4::TextView>(overlay.upcast_ref());
     let text = view
         .first()

@@ -481,17 +481,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         });
     }
     {
-        // The pause button follows the state, not the click: scrolling up in
-        // the view turns following off, and the button has to say so.
-        let follow2 = follow.clone();
-        let auto_scroll = Rc::new(Cell::new(false));
-        let guard = Rc::clone(&auto_scroll);
-        scroller.vadjustment().connect_value_changed(move |adj| {
-            if guard.get() || !follow2.is_active() {
-                return;
-            }
-            if adj.value() + adj.page_size() < adj.upper() - 4.0 {
-                follow2.set_active(false);
+        // Re-pin when the text view grows: at the moment render() appends, the
+        // adjustment still reports the old height, so one scroll inside
+        // render() lands above the newest line and the log looks frozen.
+        let follow = follow.clone();
+        let adj = scroller.vadjustment();
+        adj.connect_changed(move |adj| {
+            if follow.is_active() {
+                adj.set_value(adj.upper() - adj.page_size());
             }
         });
     }
