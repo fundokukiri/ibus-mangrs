@@ -138,6 +138,31 @@ GNOME's input-source switcher, not a MăngRS shortcut.
 - **The panel menu is editable** (_Menu panel_ page): folders (one level), functions, the three
   radio groups (charset / method / display), separators, reordering, renaming and a reset to
   the shipped menu; the design is saved in `config.toml` and reaches the panel within a second.
-- **The GTK4 + libadwaita settings window** (12 pages, Vietnamese or English — a row on _Other
+- **The GTK4 + libadwaita settings window** (13 pages, Vietnamese or English — a row on _Other
   settings_ switches the language): every change hot-reloads within about a second without an
   IBus restart, and all settings back up into one JSON file.
+
+## Troubleshooting
+
+- **The _Gỡ lỗi_ page** (it appears once one of the three switches under _Advanced settings_ is on)
+  is two columns: the log on the left, the tools on the right. The bar across the top says whether
+  the engine runs (PID, uptime, version), the average and worst delay of the last 200 keystrokes,
+  and the log's size.
+- **The log**: a filter that matches any part of a line regardless of case, a list to show one kind
+  of line (_Phím_, _Chèn_, _Xoá_, _Bộ đệm_, _Lỗi_), a pause button, and _Xoá log_ (it asks first).
+  The newest line stays in view, and each line shows how long after the line above it arrived, its
+  kind, and the key decoded (`BackSpace (0xff08) thả`). Every line opens with a short tag (`st`,
+  `ins`, `del`, `buf`, `key`, `ctx`, `cfg`, `ext`) followed by `k=v` fields; a failure carries
+  `ok=0` and a run of identical lines is kept once with `rep=N`, so a question is one `grep`.
+- **_Thử gõ_** is a text box that goes through IBus like any application, so the log and both delay
+  numbers follow at once; the `buffer:` line under it says what the box holds and whether the engine
+  is composing a word.
+- **The right column** reads like the rest of the window: _Hệ thống_ (IBus version, extension,
+  operating system, kernel, DE/WM, session), _Cách chèn_ (global typing mode, backend), _Tệp_
+  (`config.toml`, `debug.log`). A row that disagrees with the others is tinted with the warning
+  colour and a sentence under its card says what to do; clicking a row copies its value.
+- **_Sao chép báo cáo_** builds Markdown to paste into a GitHub issue: a _Cách tái hiện_ block left
+  empty for you, the environment rows (only the ones worth a look), the `config.toml` in force and
+  the last 50 log lines. The _Ẩn nội dung gõ và macro khi sao chép_ switch replaces the text you
+  typed with `***`.
+- The log file lives at `~/.cache/ibus-mangrs/debug.log` and moves to `debug.log.old` past 5 MB.
