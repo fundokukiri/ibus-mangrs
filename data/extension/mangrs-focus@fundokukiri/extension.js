@@ -12,6 +12,8 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const XML = `
@@ -62,9 +64,14 @@ export default class MangrsFocusExtension extends Extension {
                 );
                 return;
             }
-            // No focused window (the overview, a shell popup)
-            // means no name — the engine falls back gracefully.
-            const win = global.display.focus_window;
+            // The shell's own UI typing is not an app: with the overview
+            // open (its search field) mutter keeps reporting the window
+            // underneath, so a rule for that app would apply to the search
+            // box. No focused window means no name — the engine falls back.
+            const shellTyping =
+                Main.overview.visible ||
+                (Main.runDialog !== undefined && Main.runDialog.visible);
+            const win = shellTyping ? null : global.display.focus_window;
             const wmClass = win ? win.get_wm_class() || '' : '';
             const title = win ? win.get_title() || '' : '';
             invocation.return_value(
