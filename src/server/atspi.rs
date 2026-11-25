@@ -15,6 +15,8 @@ use dbus::ffidisp::{BusType, Connection, ConnectionItem};
 use dbus::strings::{BusName, Interface, Member, Path};
 use dbus::Message;
 
+use crate::debug_log;
+
 const A11Y_BUS: &str = "org.a11y.Bus";
 const A11Y_BUS_PATH: &str = "/org/a11y/bus";
 const REGISTRY: &str = "org.a11y.atspi.Registry";
@@ -97,6 +99,9 @@ fn watch(latest: &Mutex<Option<(String, Instant)>>, stop: &AtomicBool) {
 
 fn listen(latest: &Mutex<Option<(String, Instant)>>, stop: &AtomicBool) {
     let Some((events, lookup)) = connect() else {
+        // Once per attempt, never per key: a session without accessibility
+        // retries every RETRY seconds for its whole life.
+        debug_log::log("atspi: no bus or no registry");
         return;
     };
     for item in events.iter(POLL_MS) {
@@ -112,11 +117,14 @@ fn listen(latest: &Mutex<Option<(String, Instant)>>, stop: &AtomicBool) {
             continue;
         }
         let Some(pid) = msg.sender().and_then(|sender| sender_pid(&lookup, &sender)) else {
+            debug_log::log("atspi activate: no pid");
             continue;
         };
         let Some(name) = comm_of(pid) else {
+            debug_log::log(&format!("atspi activate: pid={pid} has no app name"));
             continue;
         };
+        debug_log::log(&format!("atspi activate: pid={pid} name={name}"));
         if let Ok(mut slot) = latest.lock() {
             *slot = Some((name, Instant::now()));
         }
@@ -151,10 +159,11 @@ fn connect() -> Option<(Connection, Connection)> {
         &Member::new("RegisterEvent").unwrap(),
     )
     .append1(ACTIVATE);
-    events
+    let registered = events
         .send_with_reply_and_block(msg, CALL_TIMEOUT_MS)
-        .ok()?;
-    Some((events, lookup))
+        .is_ok();
+    debug_log::log(&format!("atspi: bus ok, register={registered}"));
+    registered.then_some((events, lookup))
 }
 
 fn sender_pid(conn: &Connection, sender: &BusName) -> Option<u32> {
