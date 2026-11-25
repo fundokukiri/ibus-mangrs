@@ -12,7 +12,7 @@ use super::*;
 pub(crate) const EXPERIMENTAL_CSS: &str = "
 .experimental-page switch:checked { background-color: @warning_color; }
 /* the trial badge stands apart from the row title it precedes */
-.experimental-page .experimental-badge { font-weight: 700; font-style: italic; }
+.experimental-page .experimental-badge { font-weight: 700; }
 ";
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
