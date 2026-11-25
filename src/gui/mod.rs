@@ -1059,12 +1059,11 @@ const FOCUS_EXTENSION_JS: &str =
     include_str!("../../data/extension/mangrs-focus@fundokukiri/extension.js");
 const FOCUS_EXTENSION_META: &str =
     include_str!("../../data/extension/mangrs-focus@fundokukiri/metadata.json");
-const FOCUS_EXT_DIR: &str = "gnome-shell/extensions/mangrs-focus@fundokukiri";
 
 /// Is the focus extension already installed (its directory exists)? The
 /// extension row shows the status and says "Cài lại" instead of "Cài đặt".
 pub(super) fn focus_extension_installed() -> bool {
-    dirs::data_dir().is_some_and(|d| d.join(FOCUS_EXT_DIR).join("extension.js").exists())
+    crate::server::focus_extension_installed()
 }
 
 /// The focus extension only makes sense inside GNOME: hide the installer

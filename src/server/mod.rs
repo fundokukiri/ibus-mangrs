@@ -43,6 +43,8 @@ mod tests;
 // The GUI hotkey recorder validates specs through crate::server::parse_hotkey;
 mod emoji_picker;
 mod picker;
+#[cfg(feature = "gui")]
+pub(crate) use picker::focus_extension_installed;
 
 // the lib build resolves the name inside hotkey itself, hence the allow.
 use self::emoji_picker::EmojiPickerState;

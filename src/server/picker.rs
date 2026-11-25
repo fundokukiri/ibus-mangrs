@@ -110,12 +110,29 @@ impl PickerState {
     }
 }
 
-/// The warning shown instead of the mode list while no app can be named.
-fn warning_text(english: bool) -> &'static str {
-    if english {
-        "The MăngRS Focus extension is off, turn it on and press the hotkey again"
-    } else {
-        "Chưa bật extension MăngRS Focus, bật extension rồi bấm lại"
+/// Is the shipped focus extension on disk at all (installed, whatever its
+/// enabled state)? GIO's own extension directories, system ones included.
+pub(crate) fn focus_extension_installed() -> bool {
+    const REL: &str = "gnome-shell/extensions/mangrs-focus@fundokukiri/extension.js";
+    dirs::data_dir().is_some_and(|dir| dir.join(REL).exists())
+        || std::path::Path::new("/usr")
+            .join("share")
+            .join(REL)
+            .exists()
+}
+
+/// The warning shown instead of the mode list while no app can be named: the
+/// user is told which of the two causes to fix.
+fn warning_text(english: bool, installed: bool) -> &'static str {
+    match (english, installed) {
+        (false, false) => "Chưa cài extension MăngRS Focus, cài trong Cài đặt nâng cao",
+        (false, true) => {
+            "Extension MăngRS Focus chưa bật, bật rồi bấm lại (mới cài thì đăng xuất trước)"
+        }
+        (true, false) => "The MăngRS Focus extension is not installed, install it in Advanced",
+        (true, true) => {
+            "The MăngRS Focus extension is off, turn it on and press again (log out if just installed)"
+        }
     }
 }
 
@@ -211,7 +228,10 @@ impl EngineHandler {
             // there is nothing to pick.
             out.push(signal("HideLookupTable"));
             out.push(signal("UpdateAuxiliaryText").append2(
-                crate::ibus_text::plain_text(warning_text(config.language == "en")),
+                crate::ibus_text::plain_text(warning_text(
+                    config.language == "en",
+                    focus_extension_installed(),
+                )),
                 true,
             ));
             return;
@@ -363,10 +383,19 @@ mod tests {
     }
 
     #[test]
-    fn the_warning_names_the_extension_in_both_languages() {
-        assert!(warning_text(false).contains("extension MăngRS Focus"));
-        assert!(warning_text(true).contains("extension is off"));
-        assert!(warning_text(false).len() <= 80 && warning_text(true).len() <= 90);
+    fn the_warning_says_which_half_is_missing() {
+        // Not installed and installed-but-off need different advice, in both
+        // languages, and both stay one short line.
+        for english in [false, true] {
+            let missing = warning_text(english, false);
+            let off = warning_text(english, true);
+            assert_ne!(missing, off);
+            assert!(missing.contains("MăngRS Focus") && off.contains("MăngRS Focus"));
+            let long = |text: &str| text.chars().count() > 90;
+            assert!(!long(missing) && !long(off), "{missing} / {off}");
+        }
+        assert!(warning_text(false, false).contains("Chưa cài"));
+        assert!(warning_text(false, true).contains("chưa bật"));
     }
 
     #[test]
