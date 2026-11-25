@@ -57,6 +57,11 @@ pub struct Config {
     /// default. Serves every preset: the pick keys are `Alt`+digits and
     /// `` ` ``, leaving each preset's own digit tone keys alone.
     pub suggest_words: bool,
+    /// Experimental: a browser's inline autocomplete appends its completion
+    /// after the caret, so a rewrite delete lands on that text (an address
+    /// bar committed `oỏ` for `o` then `r`). On, keys go straight to the app
+    /// while the completion is visible. Off by default.
+    pub dodge_inline_autocomplete: bool,
     /// Experimental: the suggestion strip's display while the strip is up —
     /// `floating` (default) only in the box (the client's field stays clean
     /// until the word commits), `mirror` in both places (the box's input line
@@ -875,6 +880,7 @@ impl Default for Config {
             keep_composed_words: false,
             keep_repeats_raw: false,
             suggest_words: false,
+            dodge_inline_autocomplete: false,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::ToneFirst,
             auto_restore: true,

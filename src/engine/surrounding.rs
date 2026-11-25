@@ -23,6 +23,26 @@ impl Engine {
         anchor: u32,
     ) -> Vec<Action> {
         if anchor != cursor {
+            // Experimental: a browser's inline completion arrives as a
+            // selection that starts exactly at the caret we left behind
+            // (`anchor=1 cursor=11` for a typed `o` behind `opencode.ai`).
+            // The report still describes something other than the word we
+            // committed, so it stays ignored, but it arms the raw
+            // passthrough: the next rewrite delete would land on that
+            // selection instead of our characters.
+            if self.dodge_inline_autocomplete
+                && !self.tail.is_empty()
+                && anchor as usize == self.tail.chars().count()
+                && text.starts_with(self.tail.as_str())
+            {
+                self.suggestions = true;
+                // Caret-aligned and truthful about everything before the
+                // caret: the clamp and the delete-proof rule both read it,
+                // and the protocol delete needs a report to be allowed.
+                debug_log::log("selection right at the caret → inline completion, protocol delete");
+                self.surrounding = Some((text, anchor));
+                return Vec::new();
+            }
             debug_log::log(&format!(
                 "st report with a selection anchor={anchor} cursor={cursor} → ignore"
             ));

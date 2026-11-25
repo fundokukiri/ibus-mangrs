@@ -1141,6 +1141,96 @@ fn forward_key_event_mode_survives_the_preedit_heuristics() {
 }
 
 #[test]
+fn inline_suggestion_passthrough_is_gated() {
+    // The experimental switch keeps Vietnamese typing alive in a browser
+    // address bar. Chrome reports its inline completion as a selection that
+    // starts at the caret the engine left behind (`anchor=1 cursor=11` behind
+    // `opencode.ai`), and an injected Backspace would delete that selection
+    // instead of the typed character, which is how `o` + `r` became `oỏ`.
+    // The rewrite therefore takes the protocol delete, which reaches our own
+    // character and keeps the mark.
+    for mode in [Mode::ForwardBackspace, Mode::Flow] {
+        let mut e = engine(
+            mode,
+            Config {
+                experimental_features: true,
+                dodge_inline_autocomplete: true,
+                ..Config::default()
+            },
+        );
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_surrounding("o".into(), 1);
+        e.process_char('o');
+        e.set_surrounding_with_anchor("opencode.ai".into(), 11, 1);
+        let actions = e.process_char('r');
+        assert!(
+            actions.iter().any(|a| matches!(a, Action::DeleteBefore(1))),
+            "{mode:?}: the rewrite must delete through the protocol: {actions:?}"
+        );
+        assert!(
+            !actions.iter().any(|a| matches!(
+                a,
+                Action::ForwardBackspaces(_) | Action::InjectBackspaces(_)
+            )),
+            "{mode:?}: no Backspace may reach the selection: {actions:?}"
+        );
+        // The word keeps its mark, and a terminator ends the evidence so the
+        // next word picks its own transport again.
+        assert!(
+            replay(&actions).contains('ỏ'),
+            "{mode:?}: the mark must land: {actions:?}"
+        );
+        e.process_char(' ');
+        assert!(!e.suggestions, "{mode:?}: a terminator ends the evidence");
+    }
+
+    // A selection that does not start at our caret is a real user selection,
+    // not a completion: the transport stays as it was.
+    let mut e = engine(
+        Mode::ForwardBackspace,
+        Config {
+            experimental_features: true,
+            dodge_inline_autocomplete: true,
+            ..Config::default()
+        },
+    );
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_surrounding("o".into(), 1);
+    e.process_char('o');
+    e.set_surrounding_with_anchor("opencode.ai".into(), 11, 7);
+    let actions = e.process_char('r');
+    assert!(
+        actions
+            .iter()
+            .all(|a| !matches!(a, Action::DeleteBefore(_))),
+        "a user selection keeps the mode's transport: {actions:?}"
+    );
+
+    // Gate closed: a saved switch changes nothing.
+    let mut e = engine(
+        Mode::ForwardBackspace,
+        Config {
+            dodge_inline_autocomplete: true,
+            ..Config::default()
+        },
+    );
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_surrounding("o".into(), 1);
+    e.process_char('o');
+    e.set_surrounding_with_anchor("opencode.ai".into(), 11, 1);
+    let actions = e.process_char('r');
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(1))),
+        "gate closed keeps the forwarded Backspace: {actions:?}"
+    );
+}
+
+#[test]
 fn xim_clients_report_no_usable_application_name() {
     // ibus-x11 names every input context `xim`, so an app rule can only
     // match one by accident; the server must name the app from the

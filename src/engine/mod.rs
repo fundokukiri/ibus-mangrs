@@ -427,6 +427,9 @@ pub struct Engine {
     /// one strip switch: the model's compounds, single words and next-word
     /// lists all serve under it, the dictionary being out of the strip.
     suggest_words: bool,
+    /// The `dodge_inline_autocomplete` switch, baked under the experimental
+    /// gate like the strip.
+    dodge_inline_autocomplete: bool,
     /// Pick learning, baked with `suggest_words` under the experimental
     /// gate — picks land in the config dir's TSV files and buy an in-band
     /// bonus only while that is on.
@@ -614,6 +617,7 @@ impl Engine {
             last_committed_word: None,
             prev_committed_word: None,
             suggest_words: false,
+            dodge_inline_autocomplete: false,
             learn_dir: std::path::PathBuf::new(),
             picks: None,
             password_quiet: false,
@@ -759,6 +763,7 @@ impl Engine {
         // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
+        self.dodge_inline_autocomplete = experimental && config.dodge_inline_autocomplete;
         // Learning has no switch of its own: it rides the suggestion switch,
         // so an open strip always personalizes and a closed one touches
         // nothing.
@@ -1345,6 +1350,16 @@ impl Engine {
     /// the focused client, so the relay race cannot arise. Also several
     /// clients silently drop the protocol delete, which used to duplicate
     /// words.
+    /// Whether a browser's inline completion is selected at our caret — the
+    /// experimental switch turned a selection report that starts exactly
+    /// where we left the caret into this evidence (see
+    /// `set_surrounding_with_anchor`). The protocol delete is the only
+    /// transport that reaches our own characters while that selection
+    /// stands, so every rewrite takes it.
+    fn autocomplete_selection(&self) -> bool {
+        self.dodge_inline_autocomplete && self.suggestions && self.protocol_delete_ok()
+    }
+
     fn deletes_allowed(&self) -> bool {
         self.protocol_delete_ok()
             || (self.uinput_available && (!self.injection_forbidden() || self.injection_relay_safe))

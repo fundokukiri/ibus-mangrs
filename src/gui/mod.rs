@@ -275,6 +275,7 @@ struct Ui {
     /// default-displayed and restored with them; needs the prediction
     /// model file to do anything.
     suggest_words: adw::SwitchRow,
+    dodge_inline_autocomplete: adw::SwitchRow,
     preferred_backend: adw::ComboRow,
     time_format: gtk4::DropDown,
     date_format: gtk4::DropDown,
@@ -625,6 +626,8 @@ impl Ui {
             .set_active(config.keep_composed_words);
         self.keep_repeats_raw.set_active(config.keep_repeats_raw);
         self.suggest_words.set_active(config.suggest_words);
+        self.dodge_inline_autocomplete
+            .set_active(config.dodge_inline_autocomplete);
         self.preferred_backend
             .set_selected(preferred_backend_index(config.preferred_backend));
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
@@ -797,6 +800,7 @@ impl Ui {
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
         config.suggest_words = self.suggest_words.is_active();
+        config.dodge_inline_autocomplete = self.dodge_inline_autocomplete.is_active();
         config.preferred_backend = match self.preferred_backend.selected() {
             1 => PreferredBackendConfig::Uinput,
             2 => PreferredBackendConfig::XTest,
@@ -846,6 +850,7 @@ impl Ui {
             config.keep_composed_words = saved_experimental.keep_composed_words;
             config.keep_repeats_raw = saved_experimental.keep_repeats_raw;
             config.suggest_words = saved_experimental.suggest_words;
+            config.dodge_inline_autocomplete = saved_experimental.dodge_inline_autocomplete;
             config.echo_stale_enabled = saved_experimental.echo_stale_enabled;
             config.echo_stale_ms = saved_experimental.echo_stale_ms;
             config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
@@ -871,11 +876,12 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 7] = [
+        let rows: [&gtk4::Widget; 8] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
             self.suggest_words.upcast_ref(),
+            self.dodge_inline_autocomplete.upcast_ref(),
             self.preferred_backend.upcast_ref(),
             self.echo_stale_row.upcast_ref(),
             self.idle_commit_row.upcast_ref(),
@@ -907,6 +913,8 @@ impl Ui {
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
         self.suggest_words.set_active(d.suggest_words);
+        self.dodge_inline_autocomplete
+            .set_active(d.dodge_inline_autocomplete);
         self.preferred_backend.set_selected(0);
         self.echo_stale_switch.set_active(d.echo_stale_enabled);
         self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
@@ -926,6 +934,8 @@ impl Ui {
         self.keep_composed_words.set_active(c.keep_composed_words);
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
         self.suggest_words.set_active(c.suggest_words);
+        self.dodge_inline_autocomplete
+            .set_active(c.dodge_inline_autocomplete);
         self.preferred_backend
             .set_selected(preferred_backend_index(c.preferred_backend));
         self.echo_stale_switch.set_active(c.echo_stale_enabled);

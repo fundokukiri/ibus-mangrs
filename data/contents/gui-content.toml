@@ -202,6 +202,10 @@ subtitle = "giữ o → oooo… thay vì dừng ở ô"
 title = "Gợi ý từ khi gõ"
 subtitle = "Dải gợi ý cạnh con trỏ"
 
+[rows.dodge_inline_autocomplete]
+title = "Sửa lỗi gõ trong ô địa chỉ"
+subtitle = "Trước ra oỏ, giờ ra ỏ"
+
 [rows.suggest_learn]
 title = "Học từ khi chọn gợi ý"
 subtitle = "Ưu tiên từ anh đã chọn"
@@ -589,6 +593,7 @@ method = "Kiểu gõ quyết định cách ra chữ có dấu, ví dụ Telex g�
 mode = "Cách đưa chữ vào app. Gạch chân hiện chữ ngay trong app, cần app hỗ trợ. Surrounding sửa đuôi từ dựa vào báo cáo của chính app. Flow chèn từng phím, cần backend chèn phím. Forward Backspace chạy được ở mọi app. OFF tắt tiếng Việt."
 charset = "Bảng mã chữ. Unicode dùng cho mọi việc thường ngày, VNI và TCVN3 chỉ để đọc file cũ."
 hide_underline = "Ẩn gạch chân ở những app vẽ gạch chân bị lỗi, ví dụ vài game và terminal."
+dodge_inline_autocomplete = "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Mặc định tắt."
 modern = "Đặt dấu theo chuẩn mới của Bộ GD-ĐT: hòa thay vì hoà."
 free = "Cho dấu đứng tự do trong từ, không buộc phải nằm ở nguyên âm gần nhất."
 auto_correct = "Âm tiết không có trong từ điển sẽ trả về đúng chuỗi phím đã bấm."

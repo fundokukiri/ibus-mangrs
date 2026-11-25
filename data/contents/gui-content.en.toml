@@ -200,6 +200,10 @@ subtitle = "hold o → oooo… instead of stopping at ô"
 title = "Word suggestions while typing"
 subtitle = "A suggestion strip by the caret"
 
+[rows.dodge_inline_autocomplete]
+title = "Fix typing in address bars"
+subtitle = "Used to give oỏ, now ỏ"
+
 [rows.suggest_learn]
 title = "Learn from picked suggestions"
 subtitle = "Favors the words you picked"
@@ -586,6 +590,7 @@ method = "The typing method decides how accented letters are built, e.g. Telex t
 mode = "How text reaches the app. Underline shows the word in the app and needs preedit support. Surrounding repairs the word tail through the app's own text reports. Flow injects every key, so it needs an injection backend. Forward Backspace works in every app. OFF turns Vietnamese typing off."
 charset = "The character table. Unicode covers everyday use, VNI and TCVN3 are only for reading old files."
 hide_underline = "Hides the underline in apps that draw it wrong, such as some games and terminals."
+dodge_inline_autocomplete = "While a browser shows a suggestion in its address bar, the word keeps its marks instead of coming out garbled. Off by default."
 modern = "New tone placement from the Ministry of Education: hòa instead of hoà."
 free = "Lets the tone sit anywhere in the word instead of always on the nearest vowel."
 auto_correct = "A syllable missing from the dictionary returns the exact keys typed."

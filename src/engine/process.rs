@@ -66,6 +66,15 @@ impl Engine {
             return self.process_char_off(c);
         }
 
+        // The completion evidence is per word: a terminator ends it, so the
+        // next word picks its delete transport again.
+        if self.suggestions
+            && self.dodge_inline_autocomplete
+            && crate::bamboo_wrapper::is_word_terminator(c)
+        {
+            self.suggestions = false;
+        }
+
         let mode = self.key_mode();
 
         // URL bypass, one way in: a real URL (`://` completed by this `/`,
@@ -374,6 +383,14 @@ impl Engine {
     /// (or the server's uinput fallback) in the inline modes, key events
     /// forwarded through IBus in the ForwardBackspace mode.
     pub(super) fn delete_action(&mut self, mode: Mode, n: u32, insert_len: usize) -> Action {
+        // Experimental: a browser's inline completion is a selection starting
+        // at the caret we committed behind, so a forwarded Backspace deletes
+        // that selection instead of our character (`o` + `r` → `oỏ`). The
+        // protocol delete targets the caret itself, so the app drops its
+        // completion and the marked word lands where it belongs.
+        if self.autocomplete_selection() {
+            return self.tracked_delete(n, insert_len);
+        }
         match mode {
             Mode::ForwardBackspace => Action::ForwardBackspaces(n),
             _ => self.tracked_delete(n, insert_len),
@@ -695,7 +712,11 @@ impl Engine {
         let insert: String = want.chars().skip(common).collect();
         let mut actions = Vec::new();
         if d > 0 {
-            actions.push(Action::InjectBackspaces(d as u32));
+            if self.autocomplete_selection() {
+                actions.push(Action::DeleteBefore(d as u32));
+            } else {
+                actions.push(Action::InjectBackspaces(d as u32));
+            }
         }
         if insert.is_empty() {
             // The pending insert is fully retracted: cancel the park — the

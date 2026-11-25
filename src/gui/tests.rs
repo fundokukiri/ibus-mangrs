@@ -768,6 +768,7 @@ fn refresh_round_trips_every_widget() {
         keep_composed_words: true,
         keep_repeats_raw: true,
         suggest_words: true,
+        dodge_inline_autocomplete: true,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
         bypass_url: false,
@@ -1062,7 +1063,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 21] = [
+    let rows: [&adw::SwitchRow; 22] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -1082,6 +1083,7 @@ fn every_switch_triggers_save() {
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,
+        &ui.dodge_inline_autocomplete,
         // `debug_log` has its own confirmation dialog and is covered by
         // `debug_mode_switch_keeps_the_dialog_choice` instead.
         &ui.x11_delete,
