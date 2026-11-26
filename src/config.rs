@@ -57,6 +57,11 @@ pub struct Config {
     /// default. Serves every preset: the pick keys are `Alt`+digits and
     /// `` ` ``, leaving each preset's own digit tone keys alone.
     pub suggest_words: bool,
+    /// Experimental: a browser's inline autocomplete appends its completion
+    /// after the caret, so a rewrite delete lands on that text (an address
+    /// bar committed `oỏ` for `o` then `r`). On, keys go straight to the app
+    /// while the completion is visible. Off by default.
+    pub dodge_inline_autocomplete: bool,
     /// Experimental: the suggestion strip's display while the strip is up —
     /// `floating` (default) only in the box (the client's field stays clean
     /// until the word commits), `mirror` in both places (the box's input line
@@ -358,30 +363,61 @@ pub const EXPERIMENTAL_HOTKEY_ACTIONS: &[&str] = &[
     "idle_commit_enabled",
 ];
 
-/// One rule pattern against one rule target (`app_name` when present, else
-/// the IBus client string, `None` when the client has neither) — the shared
-/// predicate behind `app_rule_mode`.
-/// Case-insensitive substring on the part after the transport prefix
-/// (`wayland:Firefox` → `Firefox`); the special pattern `none` matches only
-/// a client with no name at all, the only way to target one.
+/// The name without the source prefix a focus source adds (`wayland:`,
+/// `x11:`). Rules are written and matched bare, so every place that writes
+/// or compares a rule pattern goes through here.
+pub fn strip_transport_prefix(name: &str) -> &str {
+    name.strip_prefix("wayland:")
+        .or_else(|| name.strip_prefix("x11:"))
+        .unwrap_or(name)
+}
+
+pub const UNNAMED_PATTERN: &str = "none";
+
+/// The comparable form of an app name. Each focus source names the same app
+/// differently (`wayland:org.gnome.TextEditor`, `x11:Sublime_text`,
+/// `gtk3-im:sublime_text`), so a rule written while one source answered has
+/// to keep firing when another one does.
+pub fn canonical_app_name(name: &str) -> String {
+    let name = strip_transport_prefix(name);
+    let name = name.rsplit('/').next().unwrap_or(name).to_lowercase();
+    // A reverse-domain window class (`org.telegram.desktop`, `com.discordapp
+    // .Discord`) names the same app as the bare executable name; the leading
+    // top-level segment only gets in the way of matching it.
+    let mut segments: Vec<&str> = name.split('.').collect();
+    const TLDS: [&str; 8] = ["org", "com", "io", "net", "dev", "app", "co", "me"];
+    while segments.len() > 1 && TLDS.contains(&segments[0]) {
+        segments.remove(0);
+    }
+    segments
+        .concat()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect()
+}
+
 pub fn app_rule_matches(pattern: &str, target: Option<&str>) -> bool {
-    // A pattern may carry the transport prefix the focus extension adds
-    // (`wayland:foo` / `x11:foo`) — targets are matched bare (the prefix is
-    // stripped below), so strip it from the pattern too or such a rule can
-    // never fire.
-    let pattern = pattern
-        .strip_prefix("wayland:")
-        .or_else(|| pattern.strip_prefix("x11:"))
-        .unwrap_or(pattern)
-        .to_lowercase();
-    if pattern == "none" {
+    // The special pattern is a keyword, never a name: it matches a client no
+    // source could name, which is the only way to target one.
+    if strip_transport_prefix(pattern).eq_ignore_ascii_case(UNNAMED_PATTERN) {
         return target.is_none();
     }
     let Some(name) = target else {
         return false;
     };
-    let name = name.split_once(':').map_or(name, |(_, p)| p).to_lowercase();
-    !pattern.is_empty() && name.contains(&pattern)
+    let pattern = canonical_app_name(pattern);
+    let name = canonical_app_name(name);
+    if pattern.is_empty() {
+        return false;
+    }
+    if name.contains(&pattern) {
+        return true;
+    }
+    // A rule saved with the readable name (`Files`, `ONLYOFFICE`) still fires:
+    // the desktop entry it came from also reports the class.
+    crate::appname::keys_for(&pattern)
+        .iter()
+        .any(|key| canonical_app_name(key).contains(&name))
 }
 
 /// First `AppRule` matching the target, in config order.
@@ -399,14 +435,19 @@ impl Config {
     /// change the rule it currently rides on, not pile a new one on top.
     /// Only an app no rule covers gets a fresh rule, at the top.
     pub fn set_rule_mode_for_target(&mut self, target: &str, mode: ModeConfig) {
+        // The unnamed pattern targets clients without a name at all, so it has
+        // to be matched as `None` or every pick adds another copy of it.
+        let probe = (target != UNNAMED_PATTERN).then_some(target);
         if let Some(rule) = self
             .app_rules
             .iter_mut()
-            .find(|r| app_rule_matches(&r.pattern, Some(target)))
+            .find(|r| app_rule_matches(&r.pattern, probe))
         {
             rule.mode = mode;
             return;
         }
+        // The pattern is what matching compares against, so it keeps the
+        // reported name; the readable one is a display concern only.
         self.app_rules.insert(
             0,
             AppRule {
@@ -875,8 +916,9 @@ impl Default for Config {
             keep_composed_words: false,
             keep_repeats_raw: false,
             suggest_words: false,
+            dodge_inline_autocomplete: false,
             preferred_backend: PreferredBackendConfig::Auto,
-            backspace_tone: BackspaceToneConfig::ToneFirst,
+            backspace_tone: BackspaceToneConfig::WholeChar,
             auto_restore: true,
             bypass_url: true,
             w2u: W2uConfig::Disabled,
@@ -895,26 +937,26 @@ impl Default for Config {
             abbreviations: true,
             cycle_mode_hotkey: String::new(),
             enabled_hotkey: String::new(),
-            app_rule_hotkey: String::new(),
-            emoji_hotkey: String::new(),
+            app_rule_hotkey: "Shift+~".into(),
+            emoji_hotkey: "Ctrl+~".into(),
             emoji_enabled: false,
             hide_underline: false,
             backspace_interval_ms: 5,
-            post_delay_ms: 10,
+            post_delay_ms: 5,
             unicode_channel: UnicodeChannel::Commit,
             echo_stale_enabled: false,
             echo_stale_ms: 150,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
             flow_per_key_delay_ms: 20,
-            flow_backspace_restore_delay_ms: 150,
+            flow_backspace_restore_delay_ms: 5,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
             debug_log_text: false,
             debug_log_keys: false,
-            x11_delete_without_report: false,
-            preedit_for_xim: false,
+            x11_delete_without_report: true,
+            preedit_for_xim: true,
             nav_key_while_preedit: "forward".into(),
             app_rules: Vec::new(),
             custom_hotkeys: Vec::new(),
@@ -989,7 +1031,7 @@ impl Config {
         }
         // Slow path, only for a broken file: keep the keys that parse.
         let Ok(table) = text.parse::<toml::Table>() else {
-            crate::debug_log::log("config: unparsable TOML, using defaults");
+            crate::debug_log::log("cfg ok=0 why=unparsable using=defaults");
             return Self::default();
         };
         let mut kept = toml::Table::new();
@@ -999,7 +1041,7 @@ impl Config {
                 Ok(_) => {
                     kept.insert(key, value);
                 }
-                Err(e) => crate::debug_log::log(&format!("config: ignoring `{key}`: {e}")),
+                Err(e) => crate::debug_log::log(&format!("cfg ignore={key} err={e:?}")),
             }
         }
         toml::Value::Table(kept).try_into().unwrap_or_default()
@@ -1230,17 +1272,17 @@ mod tests {
             Some(ModeConfig::ForwardBackspace),
             "the short alias must keep working"
         );
-        // Both compatibility switches ship off: an old config keeps today's
-        // behaviour, and only the settings window turns them on.
+        // Both compatibility switches ship on: a fresh install gets the
+        // behaviour that keeps X11 and XIM clients working out of the box.
         let c = Config::default();
-        assert!(!c.x11_delete_without_report);
-        assert!(!c.preedit_for_xim);
+        assert!(c.x11_delete_without_report);
+        assert!(c.preedit_for_xim);
         let c: Config =
             toml::from_str("x11_delete_without_report = true\npreedit_for_xim = true\n").unwrap();
         assert!(c.x11_delete_without_report);
         assert!(c.preedit_for_xim);
         let c = Config::from_toml("mode = \"preedit\"\n");
-        assert!(!c.x11_delete_without_report && !c.preedit_for_xim);
+        assert!(c.x11_delete_without_report && c.preedit_for_xim);
     }
 
     #[test]
@@ -1568,6 +1610,64 @@ children = ["preedit", "flow"]
     }
 
     #[test]
+    fn a_readable_rule_still_fires_on_the_raw_class() {
+        // Rules saved while the picker wrote the readable name (`Files`,
+        // `Text Editor`) must keep firing after the picker went back to the
+        // class, which is what matching compares against.
+        let readable = vec![AppRule {
+            pattern: "Text Editor".into(),
+            mode: ModeConfig::Flow,
+        }];
+        assert_eq!(
+            app_rule_mode(&readable, Some("wayland:org.gnome.TextEditor")),
+            Some(ModeConfig::Flow)
+        );
+        assert_eq!(
+            app_rule_mode(&readable, Some("gtk4-im:gnome-text-editor")),
+            Some(ModeConfig::Flow)
+        );
+        assert_eq!(app_rule_mode(&readable, Some("wayland:Alacritty")), None);
+    }
+
+    #[test]
+    fn a_shell_rule_fires_on_the_compositor_client_string() {
+        // The shell's own search field reports the bare client name, so a rule
+        // written from the picker's display name has to match it.
+        assert!(app_rule_matches("GNOME Shell", Some("gnome-shell")));
+        assert!(app_rule_matches("gnome-shell", Some("gnome-shell")));
+        assert!(!app_rule_matches("GNOME Shell", Some("wayland:Alacritty")));
+    }
+
+    #[test]
+    fn a_rule_fires_whatever_source_named_the_app() {
+        let fire = |pattern: &str, target: &str| app_rule_matches(pattern, Some(target));
+        // The same app seen through the extension, xprop and a toolkit name.
+        assert!(fire(
+            "wayland:org.gnome.TextEditor",
+            "x11:gnome-text-editor"
+        ));
+        assert!(fire(
+            "x11:gnome-text-editor",
+            "wayland:org.gnome.TextEditor"
+        ));
+        assert!(fire("x11:Sublime_text", "gtk3-im:sublime_text"));
+        assert!(fire("wayland:Discord", "gtk4-im:discord"));
+        // Different apps stay apart.
+        assert!(!fire("Discord", "gtk3-im:slack"));
+        assert!(!fire("firefox", "gtk4-im:chromium"));
+    }
+
+    #[test]
+    fn the_unnamed_rule_is_written_once_and_only_matches_unnamed_clients() {
+        let mut c = Config::from_toml("");
+        c.set_rule_mode_for_target(UNNAMED_PATTERN, ModeConfig::Flow);
+        c.set_rule_mode_for_target(UNNAMED_PATTERN, ModeConfig::Preedit);
+        assert_eq!(c.app_rules.len(), 1, "a second pick must update, not add");
+        assert_eq!(app_rule_mode(&c.app_rules, None), Some(ModeConfig::Preedit));
+        assert_eq!(app_rule_mode(&c.app_rules, Some("firefox")), None);
+    }
+
+    #[test]
     fn app_rule_matches_substring_case_insensitive_first_win() {
         let rules = vec![
             AppRule {
@@ -1596,6 +1696,17 @@ children = ["preedit", "flow"]
         );
         assert_eq!(app_rule_mode(&rules, Some("Chromium")), None);
         assert_eq!(app_rule_mode(&rules, None), None);
+
+        // A rule may carry the prefix the focus extension names apps with;
+        // the target is matched bare, so the pattern has to be stripped too.
+        let named = vec![AppRule {
+            pattern: "wayland:gnome-text-editor".into(),
+            mode: ModeConfig::Flow,
+        }];
+        assert_eq!(
+            app_rule_mode(&named, Some("wayland:gnome-text-editor")),
+            Some(ModeConfig::Flow)
+        );
     }
 
     #[test]
@@ -1808,7 +1919,7 @@ children = ["preedit", "flow"]
                 .unwrap();
         assert_eq!(c.flow_backspace_restore_delay_ms, 45);
         let c: Config = toml::from_str("flow_backspace_retrack = false").unwrap();
-        assert_eq!(c.flow_backspace_restore_delay_ms, 150);
+        assert_eq!(c.flow_backspace_restore_delay_ms, 5);
     }
 
     #[test]
@@ -1825,7 +1936,7 @@ children = ["preedit", "flow"]
                 .unwrap();
         assert_eq!(c.flow_backspace_restore_delay_ms, 0);
         let c: Config = toml::from_str("flow_backspace_restore = false").unwrap();
-        assert_eq!(c.flow_backspace_restore_delay_ms, 150);
+        assert_eq!(c.flow_backspace_restore_delay_ms, 5);
     }
 
     /// The old mode names are gone for good: an old file resets the mode to
@@ -1925,6 +2036,7 @@ children = ["preedit", "flow"]
         let before = c.app_rules.len();
         c.set_rule_mode_for_target("e2epick", ModeConfig::Surrounding);
         assert_eq!(c.app_rules.len(), before + 1);
+        // The pattern stays the reported name; the readable one is display only.
         assert_eq!(c.app_rules[0].pattern, "e2epick");
         assert_eq!(
             crate::config::app_rule_mode(&c.app_rules, Some("e2epick")),

@@ -160,7 +160,38 @@ udev reads every file in the directory, so the old rule stays effective. Details
 ~/.config/ibus-mangrs/macros.toml     # one key=expansion per line, $TIME / $DATE
 ~/.config/ibus-mangrs/emoji.toml      # name = "glyph" pairs
 ~/.config/ibus-mangrs/dictionary.txt  # words never auto-restored
+~/.cache/ibus-mangrs/debug.log        # the debug log (while debug mode is on), rotates at 5 MB
 ```
+
+## Reporting a bug
+
+A typing bug needs the log — nobody can reconstruct it from a description. Quickest path:
+
+1. Open the settings window and go to the **_Gỡ lỗi_** page. If you do not see it, switch on one of
+   the three switches under _Advanced settings_ first (that is what turns logging on).
+2. Reproduce the bug a few times, then open the settings window **without closing that
+   application**.
+3. Press **_Sao chép báo cáo_**. The clipboard already holds Markdown for a GitHub issue: a
+   _Cách tái hiện_ block left blank for you (application, typing mode, steps, the text you typed,
+   what you expected, what happened), then the environment rows, the `config.toml` in force and the
+   last 50 log lines.
+4. Paste it into an issue at <https://github.com/fundokukiri/ibus-mangrs/issues>.
+
+When 50 lines are not enough, attach `~/.cache/ibus-mangrs/debug.log` (and `debug.log.old` if it
+exists), plus `journalctl --user -b | grep -i mangrs`.
+
+Worth knowing before you send:
+
+- By default the log holds **no typed text** — only decisions: cursors, lengths, delete counts. The
+  _Ẩn nội dung gõ và macro khi sao chép_ switch (on by default) replaces the text you typed with
+  `***` in the copied report.
+- If you turned on the typed-text tier yourself (to reproduce a lost character), do **not paste
+  anything sensitive** — that tier records what was typed in the focused field verbatim.
+- Logging writes a line per keystroke, so switch it off when you are done: _Advanced settings_,
+  _Chế độ gỡ lỗi_.
+- To read the log yourself: every line opens with `<epoch_ms> <tag> <key>=<value>`, failures carry
+  `ok=0`, so `grep ' ok=0'` lists every failure, `grep ' del '` the delete path and `grep 'ctx
+  focus'` the focus changes. A run of identical lines is kept once with `rep=<n>`.
 
 ## Troubleshooting
 
@@ -184,9 +215,27 @@ udev reads every file in the directory, so the old rule stays effective. Details
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — engine architecture (for code changes).
 - [CHANGELOG.md](../CHANGELOG.md) — changes per release.
 
-## License
+## Credits
 
-- [**MăngRS**](https://github.com/fundokukiri/ibus-mangrs) — [GPL-3.0 License](../LICENSE).
 - [**IBus Bamboo:**](https://github.com/BambooEngine/ibus-bamboo) Copyright (C) 2018 Luong Thanh Lam, [GPL-3.0 License](https://github.com/bambooengine/ibus-bamboo?tab=GPL-3.0-1-ov-file).
 - [**bamboo-core (Rust):**](https://github.com/bamboo-vi/bamboo-core) Vietnamese input algorithm library in Rust, [MIT License](https://github.com/bamboo-vi/bamboo-core?tab=MIT-1-ov-file).
 - [**bamboo-core (Go):**](https://github.com/BambooEngine/bamboo-core) Copyright (C) 2018 Luong Thanh Lam, [MIT License](https://github.com/BambooEngine/bamboo-core?tab=MIT-1-ov-file).
+- [**fcitx5-lotus:**](https://github.com/LotusInputMethod/fcitx5-lotus) Copyright (C) 2025 Võ Ngô Hoàng Thành, 2026 Nguyễn Hoàng Kỳ, [GPL-3.0 License](https://github.com/LotusInputMethod/fcitx5-lotus?tab=GPL-3.0-1-ov-file).
+
+## License
+
+MăngRS is distributed under the **GNU General Public License v3.0** — the full
+text is in [LICENSE](../LICENSE):
+
+```
+MăngRS is free software: you can redistribute it and/or modify it under the terms
+of the GNU General Public License as published by the Free Software Foundation,
+either version 3 of the License, or (at your option) any later version.
+
+MăngRS is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+MăngRS. If not, see <https://www.gnu.org/licenses/>.
+```

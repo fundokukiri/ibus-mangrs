@@ -67,6 +67,10 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     // ===== Page 7: Tinh chỉnh — uinput pacing + X11/XIM workarounds.
     let tune_page = pages::tune::build(&ui);
 
+    // ===== Page: Gỡ lỗi — log tools and diagnostics, reachable only while
+    // debug mode is on (its sidebar row is inserted on demand).
+    let debug_page = pages::debug::build(&ui);
+
     // ===== Page 8: Giới thiệu — feature highlights + the about dialog.
     let about_page = pages::about::build();
 
@@ -77,7 +81,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     // Content: one page per section, crossfading. Stack names are stable —
     // the engine opens pages with `--page=<name>`.
     // (stack name, sidebar label, symbolic icon from the icon theme)
-    let pages: [(&str, String, &str); 12] = [
+    let pages: [(&str, String, &str); 13] = [
         (
             "typing",
             t("pages.typing", "Chung"),
@@ -125,6 +129,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
             "emblem-system-symbolic",
         ),
         (
+            "debugging",
+            t("pages.debugging", "Gỡ lỗi"),
+            "utilities-terminal-symbolic",
+        ),
+        (
             "tune",
             t("pages.tune", "Tinh chỉnh"),
             "applications-engineering-symbolic",
@@ -135,11 +144,11 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
             "help-about-symbolic",
         ),
     ];
-    let pages_refs: [(&str, &str, &str); 12] = std::array::from_fn(|i| {
+    let pages_refs: [(&str, &str, &str); 13] = std::array::from_fn(|i| {
         let (name, title, icon) = &pages[i];
         (*name, title.as_str(), *icon)
     });
-    let page_boxes: [&gtk4::Widget; 12] = [
+    let page_boxes: [&gtk4::Widget; 13] = [
         typing_page.upcast_ref(),
         tone_page.upcast_ref(),
         macro_page.upcast_ref(),
@@ -150,6 +159,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         hotkeys_page.upcast_ref(),
         experimental_page.upcast_ref(),
         other_page.upcast_ref(),
+        debug_page.upcast_ref(),
         tune_page.upcast_ref(),
         about_page.upcast_ref(),
     ];
@@ -207,6 +217,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         h.set_margin_start(6);
         h.append(&gtk4::Image::from_icon_name(icon));
         let label = gtk4::Label::new(Some(title));
+        // Tab names read as headings, the way GNOME Settings letter its list.
+        label.add_css_class("heading");
         if warn {
             label.add_css_class("warning");
         }
@@ -265,6 +277,16 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
             page_rows.push((name.to_string(), row.clone()));
         }
     }
+    // The one conditional row: "Gỡ lỗi" exists in the sidebar only while
+    // debug mode is on. Its page is always in the stack, so toggling the
+    // switch never rebuilds or loses anything.
+    let debug_row = nav_row(
+        label_of("debugging"),
+        icon_of("debugging"),
+        "debugging",
+        false,
+    );
+    page_rows.push(("debugging".to_string(), debug_row.clone()));
     let about_row = nav_row(label_of("about"), icon_of("about"), "about", false);
     // The pinned About group keeps the same separator style above it.
     about_list.append(&separator_row());
@@ -352,6 +374,34 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
                 }
             }
         }));
+    }
+
+    // Show or remove the debug row, and land on "Cài đặt nâng cao" when the
+    // page the user is standing on is the one that just went away (the
+    // switch that removes it lives there).
+    {
+        let list = sidebar_list.clone();
+        let row = debug_row.clone();
+        let select = ui.sidebar_select.borrow().clone();
+        let hook: Rc<dyn Fn(bool)> = Rc::new(move |visible: bool| {
+            if visible {
+                if row.parent().is_none() {
+                    list.append(&row);
+                }
+                return;
+            }
+            let here = row.is_selected();
+            if row.parent().is_some() {
+                list.remove(&row);
+            }
+            if here {
+                if let Some(select) = &select {
+                    select("other");
+                }
+            }
+        });
+        hook(config.debug_log);
+        *ui.debug_tab.borrow_mut() = Some(hook);
     }
 
     // Search lives in the sidebar: the magnifier button stays visible and
@@ -563,8 +613,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(&app_name)
-        .default_width(980)
-        .default_height(720)
+        .default_width(1180)
+        .default_height(740)
         .content(&split_view)
         .build();
     // X11/XWayland reads the icon from the window; Wayland derives it from
@@ -718,6 +768,7 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         *ui.save_cb.borrow_mut() = Some(Rc::new(save.clone()));
         wire_switch_saves(&ui, Rc::new(save.clone()));
         wire_debug_mode(&ui);
+        wire_debug_tab(&ui);
         {
             let s = save.clone();
             ui.method.connect_selected_notify(move |_| s());
@@ -903,6 +954,7 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.keep_composed_words);
     on_change!(ui.keep_repeats_raw);
     on_change!(ui.suggest_words);
+    on_change!(ui.dodge_inline_autocomplete);
     on_change!(ui.emoji_enabled);
     on_change!(ui.dictionary_enabled);
     on_change!(ui.hide_underline);
@@ -933,6 +985,17 @@ pub(super) fn wire_debug_mode(ui: &Rc<Ui>) {
             return;
         };
         ask_debug_mode(&ui_for_switch, &window);
+    });
+}
+
+/// The "Gỡ lỗi" sidebar row follows the switch: the page exists either way.
+pub(super) fn wire_debug_tab(ui: &Rc<Ui>) {
+    let ui_for_tab = ui.clone();
+    ui.debug_log.connect_active_notify(move |switch| {
+        let hook = ui_for_tab.debug_tab.borrow().clone();
+        if let Some(hook) = hook {
+            hook(switch.is_active());
+        }
     });
 }
 

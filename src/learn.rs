@@ -265,11 +265,8 @@ pub fn clear_dir(dir: &Path) {
 mod tests {
     use super::*;
 
-    fn temp_dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("mangrs-learn-{}-{}", tag, std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
+    fn temp_dir(tag: &str) -> crate::test_support::TempDir {
+        crate::test_support::TempDir::new(&format!("mangrs-learn-{tag}"))
     }
 
     #[test]

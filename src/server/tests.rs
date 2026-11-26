@@ -227,6 +227,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        props: Vec::new(),
     };
     let press = |handler: &mut EngineHandler, keyval: u32| {
         let msg = engine_msg("ProcessKeyEvent").append3(keyval, 0u32, 0u32);
@@ -509,6 +510,9 @@ fn parse_hotkey_accepts_the_owner_requested_combos() {
 #[test]
 fn registry_includes_custom_shortcuts() {
     let config = Config {
+        // The two shipped shortcuts would land in this registry too.
+        app_rule_hotkey: String::new(),
+        emoji_hotkey: String::new(),
         custom_hotkeys: vec![
             crate::config::CustomHotkey {
                 spec: "Control+Shift".into(),
@@ -847,9 +851,8 @@ fn watchdog_flushes_a_lost_burst_after_the_deadline() {
     // (opened against the real cache file) would swallow every line this
     // test's machinery writes — the override is only consulted on open.
     crate::debug_log::test_reset();
-    let dir = std::env::temp_dir().join(format!("ibus-mangrs-watchdog-log-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("debug.log");
+    let dir = crate::debug_log::TempLogDir::new("watchdog-log");
+    let path = dir.dir().join("debug.log");
     let _ = std::fs::remove_file(&path);
     *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
     crate::debug_log::set_enabled(true);
@@ -934,7 +937,9 @@ fn watchdog_flushes_a_lost_burst_after_the_deadline() {
     crate::debug_log::test_reset();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
-        text.lines().filter(|l| l.contains("echo watchdog")).count(),
+        text.lines()
+            .filter(|l| l.contains("ins ok=0 why=burst_lost"))
+            .count(),
         1,
         "one watchdog line for one lost burst: {text}"
     );
@@ -1095,7 +1100,7 @@ fn bounce_pass(
     }
     if let Some(s) = stash {
         if Instant::now() >= s.deadline {
-            debug_log::log("stashed rewrite dropped: no report within the reconcile window");
+            debug_log::log("st stash=drop why=no_report");
             *stash = None;
         }
     }
@@ -1335,12 +1340,8 @@ fn burst_buffer_cap_drops_the_newest_and_logs_once() {
     // resets when the buffer drains, so a fresh episode logs again.
     let _guard = crate::debug_log::test_guard();
     crate::debug_log::test_reset();
-    let dir = std::env::temp_dir().join(format!(
-        "ibus-mangrs-burst-buffer-log-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("debug.log");
+    let dir = crate::debug_log::TempLogDir::new("burst-buffer-log");
+    let path = dir.dir().join("debug.log");
     let _ = std::fs::remove_file(&path);
     *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
     crate::debug_log::set_enabled(true);
@@ -1367,7 +1368,7 @@ fn burst_buffer_cap_drops_the_newest_and_logs_once() {
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
         text.lines()
-            .filter(|l| l.contains("burst buffer full"))
+            .filter(|l| l.contains("buf ok=0 why=burst_full"))
             .count(),
         1,
         "one line per overflow episode: {text}"
@@ -1378,13 +1379,15 @@ fn burst_buffer_cap_drops_the_newest_and_logs_once() {
     for i in 0..=BURST_BUFFER_CAP as u32 {
         buffer.push(0x61 + i, 30, 0);
     }
+    // The second episode says the same thing, so the writer counted it into
+    // the run instead of writing a twin; the count lands on the line that
+    // ends the run.
+    crate::debug_log::log("ctx step=closes-the-run");
     crate::debug_log::test_reset();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
-    assert_eq!(
+    assert!(
         text.lines()
-            .filter(|l| l.contains("burst buffer full"))
-            .count(),
-        2,
+            .any(|l| l.contains("buf ok=0 why=burst_full") && l.ends_with("rep=2")),
         "a fresh episode logs again: {text}"
     );
     let _ = std::fs::remove_file(&path);
@@ -1645,9 +1648,8 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
     // the stash anchor must span MIN_ANCHOR_CHARS to carry evidence.
     let _guard = crate::debug_log::test_guard();
     crate::debug_log::test_reset();
-    let dir = std::env::temp_dir().join(format!("ibus-mangrs-bounce-log-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("debug.log");
+    let dir = crate::debug_log::TempLogDir::new("bounce-log");
+    let path = dir.dir().join("debug.log");
     let _ = std::fs::remove_file(&path);
     *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
     crate::debug_log::set_enabled(true);
@@ -1989,9 +1991,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
     crate::debug_log::test_reset();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
-        text.lines()
-            .filter(|l| l.contains("stashed rewrite dropped"))
-            .count(),
+        text.lines().filter(|l| l.contains("st stash=drop")).count(),
         2,
         "one drop line per drop, mismatch and expiry: {text}"
     );
@@ -2151,6 +2151,7 @@ fn focus_out_arm_defers_the_reset_for_a_live_burst() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        props: Vec::new(),
     };
     // A live burst, constructed directly: one echo expected, one commit
     // parked behind it, the tail believing "chaò" (the parked "ò" is its
@@ -2301,9 +2302,8 @@ fn foreign_client_refuses_the_stashed_rewrite() {
     // into the wrong document. Drop, logged once.
     let _guard = crate::debug_log::test_guard();
     crate::debug_log::test_reset();
-    let dir = std::env::temp_dir().join(format!("ibus-mangrs-foreign-log-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("debug.log");
+    let dir = crate::debug_log::TempLogDir::new("foreign-log");
+    let path = dir.dir().join("debug.log");
     let _ = std::fs::remove_file(&path);
     *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
     crate::debug_log::set_enabled(true);
@@ -2387,9 +2387,7 @@ fn foreign_client_refuses_the_stashed_rewrite() {
     crate::debug_log::test_reset();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
-        text.lines()
-            .filter(|l| l.contains("stashed rewrite dropped"))
-            .count(),
+        text.lines().filter(|l| l.contains("st stash=drop")).count(),
         1,
         "the foreign refusal logs once: {text}"
     );
@@ -3023,6 +3021,8 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
         enabled_hotkey: "Control+Alt+h".into(),
         cycle_mode_hotkey: "Control+Alt+v".into(),
         app_rule_hotkey: "Control+Alt+p".into(),
+        // The shipped emoji shortcut would add a fourth entry.
+        emoji_hotkey: String::new(),
         ..Config::default()
     };
     let reg = hotkey_registry(&config);
@@ -3040,8 +3040,9 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
         3,
         "the registry does not dedupe - page order rules"
     );
-    // Unassigned or unusable specs register nothing.
-    assert!(hotkey_registry(&Config::default()).is_empty());
+    // The shipped defaults register the app-rule picker and the emoji
+    // picker; nothing else.
+    assert_eq!(hotkey_registry(&Config::default()).len(), 2);
     config.enabled_hotkey = "Control".into();
     config.cycle_mode_hotkey = "Shift+x".into();
     config.app_rule_hotkey = String::new();
@@ -3049,6 +3050,64 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
         hotkey_registry(&config).is_empty(),
         "parse_hotkey rejects these"
     );
+}
+
+/// A shell that answers late is not a shell without the extension: the picker
+/// tries once more before it says "chưa bật", and both attempts are logged so a
+/// report can tell the two apart.
+#[test]
+fn the_picker_retries_the_extension_before_blaming_it() {
+    let _guard = crate::debug_log::test_guard();
+    let dir = crate::debug_log::TempLogDir::new("picker-ext-retry");
+    let path = dir.dir().join("debug.log");
+    let _ = std::fs::remove_file(&path);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    crate::debug_log::set_enabled(true);
+
+    let engine: SharedEngine = Arc::new(Mutex::new(Engine::new(Method::Telex, Mode::Preedit)));
+    let mut handler = EngineHandler {
+        engine: Arc::clone(&engine),
+        injection: Injection::new(),
+        last_config_check: Instant::now(),
+        last_config_mtime: None,
+        hotkeys: Vec::new(),
+        last_fire: Vec::new(),
+        picker: None,
+        emoji_picker: None,
+        burst: BurstWatch::default(),
+        burst_buffer: BurstBuffer::default(),
+        bounce_deadline: None,
+        stash: None,
+        // No session bus in the test process: the call cannot be answered,
+        // which is the timeout path without waiting for one.
+        focus_ext: None,
+        props: Vec::new(),
+    };
+    let mut out = Vec::new();
+    handler.open_app_rule_picker(&mut out);
+
+    crate::debug_log::test_reset();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        text.contains("ext picker=retry answered=0"),
+        "the retry is logged: {text}"
+    );
+    assert!(
+        text.contains("ext ok=0 why=timeout"),
+        "the failure is logged as one: {text}"
+    );
+    assert!(
+        text.contains("ext picker=hotkey why=no_extension"),
+        "the warning follows both attempts: {text}"
+    );
+    assert!(
+        handler
+            .picker
+            .as_ref()
+            .is_some_and(|state| state.warnings_only()),
+        "the menu offers nothing to pick"
+    );
+    let _ = std::fs::remove_file(&path);
 }
 
 #[test]
@@ -3181,6 +3240,47 @@ fn emoji_menu_search_folds_diacritics() {
 }
 
 #[test]
+fn emoji_menu_ranks_the_closest_match_first() {
+    use super::emoji_picker::EmojiPickerState;
+    // The keyword-only row leads the table; the name match must still come
+    // first, the way `meo` should lead with the cat faces.
+    let rows = vec![
+        crate::emoji::SearchRow {
+            name: "distorted_face".into(),
+            glyph: "🫪".into(),
+            blob: crate::emoji::fold_ascii("distorted_face meo"),
+        },
+        crate::emoji::SearchRow {
+            name: "meowing_cat".into(),
+            glyph: "🐱".into(),
+            blob: crate::emoji::fold_ascii("meowing_cat"),
+        },
+    ];
+    let mut state = EmojiPickerState::with(rows, Vec::new());
+    for c in "meo".chars() {
+        state.query.push(c);
+    }
+    assert_eq!(
+        state.page_labels(),
+        vec!["🐱 meowing cat".to_string(), "🫪 distorted face".to_string()]
+    );
+}
+
+#[test]
+fn emoji_menu_auxiliary_counts_pages_and_names_an_empty_search() {
+    use super::emoji_picker::EmojiPickerState;
+    let mut state = EmojiPickerState::with(emoji_rows(), Vec::new());
+    state.query.push('a');
+    let aux = state.auxiliary();
+    assert!(aux.contains("trang 1/2"), "{aux}");
+    assert!(aux.contains("11 kết quả"), "{aux}");
+    state.query.push('z');
+    let aux = state.auxiliary();
+    assert!(aux.contains("Không khớp \"az\""), "{aux}");
+    assert!(aux.contains("Backspace"), "{aux}");
+}
+
+#[test]
 fn emoji_menu_pages_and_picks() {
     use super::emoji_picker::EmojiPickerState;
     let mut state = EmojiPickerState::with(emoji_rows(), Vec::new());
@@ -3299,13 +3399,54 @@ fn emoji_menu_auxiliary_follows_the_language() {
     }
     assert!(en.auxiliary().contains("results"), "{}", en.auxiliary());
     let vi = EmojiPickerState::with(emoji_rows(), Vec::new());
-    assert!(vi.auxiliary().contains("gõ chữ"), "{}", vi.auxiliary());
+    assert!(vi.auxiliary().contains("gõ để tìm"), "{}", vi.auxiliary());
 }
 
 /// The panel refreshes when the config file changes, on the engine's own
 /// loop pass — no key event or IBus restart needed (a GUI toggle reaches
 /// the panel within a second). GNOME applies only per-item UpdateProperty
 /// mid-session; a full RegisterProperties re-register is ignored there.
+#[test]
+fn a_reload_pushes_only_the_properties_a_change_touched() {
+    let updates = |out: &[Message]| {
+        out.iter()
+            .filter(|m| m.member().map(|m| m.to_string()).as_deref() == Some("UpdateProperty"))
+            .count()
+    };
+    let mut last: Vec<ibus_prop::Prop> = Vec::new();
+    let mut first = Vec::new();
+    crate::server::prop::update_all_properties(&Config::default(), &mut last, &mut first);
+    assert!(
+        updates(&first) >= 5,
+        "the first push sends the whole list: {}",
+        updates(&first)
+    );
+
+    // A knob no menu shows must not make the panel walk its items at all.
+    let mut knob = Config::default();
+    knob.backspace_interval_ms += 5;
+    let mut out = Vec::new();
+    crate::server::prop::update_all_properties(&knob, &mut last, &mut out);
+    assert_eq!(
+        updates(&out),
+        0,
+        "a knob change pushed {} items",
+        updates(&out)
+    );
+
+    // One toggle is the item plus its containing folder, not the whole list.
+    let mut toggle = knob.clone();
+    toggle.auto_restore = false;
+    let mut out = Vec::new();
+    crate::server::prop::update_all_properties(&toggle, &mut last, &mut out);
+    assert!(
+        updates(&out) <= 2 && updates(&out) >= 1,
+        "a toggle change pushed {} of {} items",
+        updates(&out),
+        updates(&first)
+    );
+}
+
 #[test]
 fn config_reload_refreshes_the_panel_without_a_key_event() {
     let config_path = Config::path().expect("a config path");
@@ -3335,6 +3476,7 @@ fn config_reload_refreshes_the_panel_without_a_key_event() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        props: Vec::new(),
     };
     let mut out = Vec::new();
     handler.maybe_reload_config(&mut out);
@@ -3475,19 +3617,19 @@ fn preferred_kind_maps_the_config_variants() {
 fn backend_selection_log_names_the_role() {
     assert_eq!(
         backend_selection_log(Some(Kind::Uinput), None),
-        "injection backend: uinput (matrix)"
+        "ctx backend=uinput pref=none why=matrix"
     );
     assert_eq!(
         backend_selection_log(Some(Kind::XTest), Some(Kind::XTest)),
-        "injection backend: xtest (preferred)"
+        "ctx backend=xtest pref=xtest why=preferred"
     );
     assert_eq!(
         backend_selection_log(Some(Kind::Uinput), Some(Kind::XTest)),
-        "injection backend: uinput (fallback — xtest denied)"
+        "ctx backend=uinput pref=xtest why=denied"
     );
     assert_eq!(
         backend_selection_log(None, Some(Kind::XTest)),
-        "injection backend: none (fallback — xtest denied)"
+        "ctx backend=none pref=xtest why=denied"
     );
 }
 
@@ -3599,6 +3741,7 @@ fn strip_handler(suggest_words: bool) -> (SharedEngine, EngineHandler) {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        props: Vec::new(),
     };
     (engine, handler)
 }
@@ -4514,6 +4657,7 @@ fn content_type_set_gates_password_fields() {
         bounce_deadline: None,
         stash: None,
         focus_ext: None,
+        props: Vec::new(),
     };
     handler.properties_call(&properties_set_msg("ContentType", 8u32, 0u32), "Set");
     assert!(lock_engine(&engine).password_quiet(), "PASSWORD quiets");

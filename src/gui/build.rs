@@ -216,6 +216,16 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.suggest_words.title", "Gợi ý từ khi gõ"),
         &t("rows.suggest_words.subtitle", "Dải gợi ý cạnh con trỏ"),
     );
+    let dodge_inline_autocomplete = switch_row(
+        &t(
+            "rows.dodge_inline_autocomplete.title",
+            "Sửa lỗi gõ trong ô địa chỉ",
+        ),
+        &t(
+            "rows.dodge_inline_autocomplete.subtitle",
+            "Trước ra oỏ, giờ ra ỏ",
+        ),
+    );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Cách chèn phím"),
         &t("rows.preferred_backend.subtitle", "Ưu tiên cách chèn phím"),
@@ -710,6 +720,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Hiện từ đang gõ cùng dải gợi ý ngay cạnh con trỏ. Chọn bằng phím `, Alt+1 đến Alt+5 hoặc bấm vào dòng gợi ý. Mặc định tắt."
     );
     tip!(
+        dodge_inline_autocomplete,
+        "tips.dodge_inline_autocomplete",
+        "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Mặc định tắt."
+    );
+    tip!(
         preferred_backend,
         "tips.preferred_backend",
         "Chọn cách chèn phím được ưu tiên. Để tự động là tốt nhất, chỉ đổi khi cần thử nghiệm."
@@ -775,6 +790,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_composed_words,
         keep_repeats_raw,
         suggest_words,
+        dodge_inline_autocomplete,
         preferred_backend,
         time_format,
         date_format,
@@ -792,6 +808,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         dictionary_text,
         rules_box,
         rule_choices: Rc::new(RefCell::new(Vec::new())),
+        rule_patterns: Rc::new(RefCell::new(Vec::new())),
         rule_add_mode_pick,
         rules_overlay,
         rules_loading,
@@ -805,6 +822,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         saved_emoji: RefCell::new(None),
         self_saved_mtime: Cell::new(None),
         sidebar_select: RefCell::new(None),
+        debug_tab: RefCell::new(None),
         rule_pill,
         rule_name_entry,
         rule_copy_btn,

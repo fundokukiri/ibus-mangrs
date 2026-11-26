@@ -27,7 +27,13 @@ use gtk4::{Entry, Orientation, StringList, TextView};
 use libadwaita as adw;
 
 mod content;
+mod debug_report;
+mod engine_probe;
 mod hotkey;
+mod latency;
+mod log_decode;
+mod log_tail;
+mod machine;
 mod pages;
 mod text;
 mod widgets;
@@ -275,6 +281,7 @@ struct Ui {
     /// default-displayed and restored with them; needs the prediction
     /// model file to do anything.
     suggest_words: adw::SwitchRow,
+    dodge_inline_autocomplete: adw::SwitchRow,
     preferred_backend: adw::ComboRow,
     time_format: gtk4::DropDown,
     date_format: gtk4::DropDown,
@@ -316,6 +323,9 @@ struct Ui {
     /// rows `fill_rules` builds (a rule whose stored mode is hidden gets one
     /// extra entry so the value still displays).
     rule_choices: Rc<RefCell<Vec<Vec<ModeConfig>>>>,
+    /// The pattern each row was built from: the row title shows the app's own
+    /// name, so the stored, matched value cannot be read back off it.
+    rule_patterns: Rc<RefCell<Vec<String>>>,
     /// The add-rule form's mode picker; its model follows the visible list.
     rule_add_mode_pick: gtk4::DropDown,
     /// The page's toast host: add/copy confirmations and delete-undo. It is
@@ -332,9 +342,12 @@ struct Ui {
     /// emoji.toml. A settings change usually touches one of them; rewriting
     /// the personal dictionary on every knob step costs ~8 ms at 20k words
     /// and is what made the window feel sticky.
-    saved_macros: RefCell<Option<Vec<(String, String)>>>,
-    saved_dictionary: RefCell<Option<Vec<String>>>,
-    saved_emoji: RefCell<Option<Vec<(String, String)>>>,
+    // The raw editor text at the last write: parsing a list only to find it
+    // unchanged cost 7 ms with a 20k-word dictionary on every debounced save,
+    // and a switch or a knob must not pay for the three lists it never touched.
+    saved_macros: RefCell<Option<String>>,
+    saved_dictionary: RefCell<Option<String>>,
+    saved_emoji: RefCell<Option<String>>,
     /// The config.toml mtime this window itself wrote (the last `save_all`):
     /// the live-reload poll skips it — reloading our own save would churn
     /// every row for nothing. External writers still reload.
@@ -347,6 +360,9 @@ struct Ui {
     /// Programmatic page jump: select_row drives the same row_selected
     /// handler the clicks use. `None` headless.
     sidebar_select: RefCell<Option<PageJump>>,
+    /// Shows/removes the "Gỡ lỗi" sidebar row; wired by the window, called
+    /// from the debug switch.
+    debug_tab: RefCell<Option<TabHook>>,
     /// The merged add-rule form ("Thêm luật"): the pill (fill + tooltip),
     /// the frameless name entry whose placeholder mirrors the focused app,
     /// the copy/apply pair shown only while an app is detected, and Thêm.
@@ -410,6 +426,8 @@ type SharedSave = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
 /// lives in `content` where the sidebar rows do; the gate uses it to land
 /// the user somewhere sane after closing the tab they stood on.
 type PageJump = Rc<dyn Fn(&str)>;
+/// Shows or removes the debug row from the sidebar.
+type TabHook = Rc<dyn Fn(bool)>;
 
 /// The combo-row index for a `nav_key_while_preedit` value — shared by
 /// refresh.
@@ -622,6 +640,8 @@ impl Ui {
             .set_active(config.keep_composed_words);
         self.keep_repeats_raw.set_active(config.keep_repeats_raw);
         self.suggest_words.set_active(config.suggest_words);
+        self.dodge_inline_autocomplete
+            .set_active(config.dodge_inline_autocomplete);
         self.preferred_backend
             .set_selected(preferred_backend_index(config.preferred_backend));
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
@@ -794,6 +814,7 @@ impl Ui {
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
         config.suggest_words = self.suggest_words.is_active();
+        config.dodge_inline_autocomplete = self.dodge_inline_autocomplete.is_active();
         config.preferred_backend = match self.preferred_backend.selected() {
             1 => PreferredBackendConfig::Uinput,
             2 => PreferredBackendConfig::XTest,
@@ -843,6 +864,7 @@ impl Ui {
             config.keep_composed_words = saved_experimental.keep_composed_words;
             config.keep_repeats_raw = saved_experimental.keep_repeats_raw;
             config.suggest_words = saved_experimental.suggest_words;
+            config.dodge_inline_autocomplete = saved_experimental.dodge_inline_autocomplete;
             config.echo_stale_enabled = saved_experimental.echo_stale_enabled;
             config.echo_stale_ms = saved_experimental.echo_stale_ms;
             config.idle_commit_enabled = saved_experimental.idle_commit_enabled;
@@ -850,29 +872,6 @@ impl Ui {
             config.preferred_backend = saved_experimental.preferred_backend;
         }
         config
-    }
-
-    /// The macros as the raw table shows them: one `khóa=nội dung` line
-    /// per pair; an empty key or value drops the pair (the old text list
-    /// skipped such lines too).
-    fn macros_from_text(&self) -> Vec<(String, String)> {
-        text_of(&self.macros_text)
-            .lines()
-            .filter_map(|line| line.split_once('='))
-            .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
-            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
-            .collect()
-    }
-
-    /// The emoji user table as the raw editor shows it: one `name=glyph`
-    /// line per pair, empty names or glyphs dropped (the macros rule).
-    fn emoji_from_text(&self) -> Vec<(String, String)> {
-        text_of(&self.emoji_text)
-            .lines()
-            .filter_map(|line| line.split_once('='))
-            .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
-            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
-            .collect()
     }
 
     // --- panel-menu editor (the design vector is the source of truth) ---
@@ -883,15 +882,6 @@ impl Ui {
         self.menu.borrow().clone()
     }
 
-    fn read_dictionary(&self) -> Vec<String> {
-        text_of(&self.dictionary_text)
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .map(str::to_string)
-            .collect()
-    }
-
     /// Lock or unlock every experimental row for the master gate — the tab
     /// itself always stays visible now. Locking is display only: the saved
     /// switch states and values stay in config.toml and come back verbatim
@@ -900,11 +890,12 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 7] = [
+        let rows: [&gtk4::Widget; 8] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
             self.suggest_words.upcast_ref(),
+            self.dodge_inline_autocomplete.upcast_ref(),
             self.preferred_backend.upcast_ref(),
             self.echo_stale_row.upcast_ref(),
             self.idle_commit_row.upcast_ref(),
@@ -936,6 +927,8 @@ impl Ui {
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
         self.suggest_words.set_active(d.suggest_words);
+        self.dodge_inline_autocomplete
+            .set_active(d.dodge_inline_autocomplete);
         self.preferred_backend.set_selected(0);
         self.echo_stale_switch.set_active(d.echo_stale_enabled);
         self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
@@ -955,6 +948,8 @@ impl Ui {
         self.keep_composed_words.set_active(c.keep_composed_words);
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
         self.suggest_words.set_active(c.suggest_words);
+        self.dodge_inline_autocomplete
+            .set_active(c.dodge_inline_autocomplete);
         self.preferred_backend
             .set_selected(preferred_backend_index(c.preferred_backend));
         self.echo_stale_switch.set_active(c.echo_stale_enabled);
@@ -1004,28 +999,28 @@ impl Ui {
 
         // Each list is compared with what was last written: a knob on the
         // typing page must not rewrite the personal dictionary.
-        let macros_text = self.macros_from_text();
-        if save_changed(self.saved_macros.borrow().as_deref(), &macros_text) {
+        let macros_raw = text_of(&self.macros_text);
+        if self.saved_macros.borrow().as_deref() != Some(macros_raw.as_str()) {
             let mut macros = Macros::load();
-            macros.set_entries(macros_text.iter().cloned());
+            macros.set_entries(parse_macros(&macros_raw).into_iter());
             macros.save()?;
-            *self.saved_macros.borrow_mut() = Some(macros_text);
+            *self.saved_macros.borrow_mut() = Some(macros_raw);
         }
 
-        let dictionary = self.read_dictionary();
-        if save_changed(self.saved_dictionary.borrow().as_deref(), &dictionary) {
+        let dictionary_raw = text_of(&self.dictionary_text);
+        if self.saved_dictionary.borrow().as_deref() != Some(dictionary_raw.as_str()) {
             let mut dict = Dictionary::load();
-            dict.set_words(dictionary.iter().cloned());
+            dict.set_words(parse_dictionary(&dictionary_raw).into_iter());
             dict.save()?;
-            *self.saved_dictionary.borrow_mut() = Some(dictionary);
+            *self.saved_dictionary.borrow_mut() = Some(dictionary_raw);
         }
 
-        let emoji_text = self.emoji_from_text();
-        if save_changed(self.saved_emoji.borrow().as_deref(), &emoji_text) {
+        let emoji_raw = text_of(&self.emoji_text);
+        if self.saved_emoji.borrow().as_deref() != Some(emoji_raw.as_str()) {
             let mut emoji = crate::emoji::UserEmoji::load();
-            emoji.set_entries(emoji_text.iter().cloned());
+            emoji.set_entries(parse_macros(&emoji_raw).into_iter());
             emoji.save()?;
-            *self.saved_emoji.borrow_mut() = Some(emoji_text);
+            *self.saved_emoji.borrow_mut() = Some(emoji_raw);
         }
         Ok(())
     }
@@ -1048,8 +1043,25 @@ impl Ui {
 /// Whether the widgets' parsed list differs from what was last written to
 /// its file: a settings change usually touches one list, and rewriting the
 /// personal dictionary on every knob step is what made the window sticky.
-fn save_changed<T: PartialEq>(last: Option<&[T]>, now: &[T]) -> bool {
-    last != Some(now)
+/// The macros as the raw table shows them: one `khóa=nội dung` line per pair;
+/// an empty key or value drops the pair (the old text list skipped such lines
+/// too). The emoji table reads with the same rule.
+fn parse_macros(raw: &str) -> Vec<(String, String)> {
+    raw.lines()
+        .filter_map(|line| line.split_once('='))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+        .collect()
+}
+
+/// The personal dictionary as the raw editor shows it: one word per line,
+/// `#` comments and blank lines dropped.
+fn parse_dictionary(raw: &str) -> Vec<String> {
+    raw.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(str::to_string)
+        .collect()
 }
 
 /// The shipped focus extension, embedded so the install button works on a
@@ -1058,12 +1070,200 @@ const FOCUS_EXTENSION_JS: &str =
     include_str!("../../data/extension/mangrs-focus@fundokukiri/extension.js");
 const FOCUS_EXTENSION_META: &str =
     include_str!("../../data/extension/mangrs-focus@fundokukiri/metadata.json");
-const FOCUS_EXT_DIR: &str = "gnome-shell/extensions/mangrs-focus@fundokukiri";
+const FOCUS_EXT_UUID: &str = "mangrs-focus@fundokukiri";
 
-/// Is the focus extension already installed (its directory exists)? The
-/// extension row shows the status and says "Cài lại" instead of "Cài đặt".
+/// What the settings row can say about the shipped focus extension.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum ExtensionState {
+    /// Nothing on disk: never installed.
+    Missing,
+    /// Installed, but not the copy this binary carries (an older install).
+    Stale,
+    /// Installed and current, switched off in GNOME.
+    Disabled,
+    /// Installed, enabled, and the shell has not loaded it this session.
+    NeedsLogout,
+    /// Installed, enabled and answering.
+    Running,
+}
+
+/// A confirmed action on the extension: one dialog each.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum ExtensionRequest {
+    /// Nothing installed yet.
+    InstallNew,
+    /// An older copy is on disk.
+    Update,
+    Enable,
+    Disable,
+    Remove,
+    Logout,
+}
+
+/// The two buttons a running extension offers: switch it off, or delete it.
+pub(super) const RUNNING_BUTTONS: [((&str, &str), ExtensionRequest); 2] = [
+    (
+        ("misc.extension_disable_button", "Tắt"),
+        ExtensionRequest::Disable,
+    ),
+    (
+        ("misc.extension_remove_button", "Gỡ"),
+        ExtensionRequest::Remove,
+    ),
+];
+
+/// What the row shows for a state: the subtitle names the situation, the
+/// button offers the one action that fixes it. Keys plus their code
+/// fallbacks, so the mapping is unit-testable.
+pub(super) struct ExtensionRowText {
+    pub subtitle: (&'static str, &'static str),
+    /// The row's one button; `None` when there is nothing left to do and the
+    /// row only reports ("Đang chạy").
+    pub button: Option<((&'static str, &'static str), ExtensionRequest)>,
+}
+
+pub(super) fn extension_row_for(state: ExtensionState) -> ExtensionRowText {
+    match state {
+        ExtensionState::Missing => ExtensionRowText {
+            subtitle: ("rows.focus_extension.subtitle_missing", "Chưa cài"),
+            button: Some((
+                ("misc.extension_button", "Cài đặt"),
+                ExtensionRequest::InstallNew,
+            )),
+        },
+        ExtensionState::Stale => ExtensionRowText {
+            subtitle: (
+                "rows.focus_extension.subtitle_stale",
+                "Bản trên máy cũ hơn bản trong app",
+            ),
+            button: Some((
+                ("misc.extension_update_button", "Cập nhật"),
+                ExtensionRequest::Update,
+            )),
+        },
+        ExtensionState::Disabled => ExtensionRowText {
+            subtitle: (
+                "rows.focus_extension.subtitle_disabled",
+                "Đã cài nhưng chưa bật",
+            ),
+            button: Some((
+                ("misc.extension_enable_button", "Bật"),
+                ExtensionRequest::Enable,
+            )),
+        },
+        ExtensionState::NeedsLogout => ExtensionRowText {
+            subtitle: (
+                "rows.focus_extension.subtitle_needs_logout",
+                "Đã bật, cần đăng xuất để GNOME tải",
+            ),
+            button: Some((
+                ("misc.logout_button", "Đăng xuất"),
+                ExtensionRequest::Logout,
+            )),
+        },
+        // Nothing left to do: a reinstall repairs nothing the user can see.
+        ExtensionState::Running => ExtensionRowText {
+            subtitle: ("rows.focus_extension.subtitle_running", "Đang chạy"),
+            button: None,
+        },
+    }
+}
+
+/// Is the extension installed at all (whatever its enabled state)?
 pub(super) fn focus_extension_installed() -> bool {
-    dirs::data_dir().is_some_and(|d| d.join(FOCUS_EXT_DIR).join("extension.js").exists())
+    crate::server::focus_extension_path().is_some()
+}
+
+/// Which of the five situations the extension is in right now. Three cheap
+/// facts, read only when the page is built or an action finishes.
+pub(super) fn extension_state() -> ExtensionState {
+    let Some(path) = crate::server::focus_extension_path() else {
+        return ExtensionState::Missing;
+    };
+    if !std::fs::read_to_string(&path).is_ok_and(|text| text == FOCUS_EXTENSION_JS) {
+        return ExtensionState::Stale;
+    }
+    // The bus answer is decisive: an extension that answers is running,
+    // whatever GNOME's settings say.
+    if crate::server::focus_extension_answers() {
+        return ExtensionState::Running;
+    }
+    if extension_enabled() {
+        ExtensionState::NeedsLogout
+    } else {
+        ExtensionState::Disabled
+    }
+}
+
+/// Is the extension in GNOME's enabled list? The GVariant text from
+/// `gsettings` is machine-readable; `gnome-extensions info` prints
+/// translated prose, and a Vietnamese locale made every extension look
+/// enabled. An unreadable answer counts as off, which only offers "Bật".
+fn extension_enabled() -> bool {
+    let Ok(out) = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.shell", "enabled-extensions"])
+        .output()
+    else {
+        return false;
+    };
+    String::from_utf8_lossy(&out.stdout).contains(FOCUS_EXT_UUID)
+}
+
+/// Switch an installed extension off. GNOME forgets the module on the next
+/// focus, so the row drops back to "Bật".
+pub(super) fn disable_focus_extension() -> Result<(), String> {
+    gnome_extensions(&["disable", FOCUS_EXT_UUID])?;
+    // The shell writes its enabled list a moment after answering, so a state
+    // read taken now still says "enabled and silent" and the row offers a
+    // logout for something that is simply off.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while extension_enabled() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Ok(())
+}
+
+/// Delete an installed extension from disk. GNOME loads whatever is left on
+/// the next session, so the row drops back to "Chưa cài".
+pub(super) fn remove_focus_extension() -> Result<(), String> {
+    gnome_extensions(&["uninstall", FOCUS_EXT_UUID])
+}
+
+/// One `gnome-extensions <verb>` call, with the command's own error text.
+fn gnome_extensions(args: &[&str]) -> Result<(), String> {
+    let out = std::process::Command::new("gnome-extensions")
+        .args(args)
+        .output()
+        .map_err(|e| format!("Không chạy được gnome-extensions: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "gnome-extensions {} thất bại: {}",
+            args.first().copied().unwrap_or_default(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}
+
+/// Switch an already-installed extension on: one CLI call, no reinstall.
+pub(super) fn enable_focus_extension() -> Result<(), String> {
+    gnome_extensions(&["enable", FOCUS_EXT_UUID])?;
+    // GNOME loads a switched-off extension at once, so no logout is needed —
+    // but the module needs a moment to answer. Reading the state straight
+    // away reported "needs a logout" for something that never does.
+    // A busy shell can take a second or two to evaluate the module, and a
+    // probe that lands too early reads as "enabled but silent", which the
+    // row reports as a logout. Three seconds total, deadlines rather than
+    // iterations because a probe can itself block for 300 ms.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while std::time::Instant::now() < deadline {
+        if crate::server::focus_extension_answers() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Ok(())
 }
 
 /// The focus extension only makes sense inside GNOME: hide the installer
@@ -1185,7 +1385,7 @@ pub(super) fn install_focus_extension() -> Result<String, String> {
     }
     let mut note = String::from("Đã cài qua gnome-extensions (kênh chính thức của GNOME). ");
     match std::process::Command::new("gnome-extensions")
-        .args(["enable", "mangrs-focus@fundokukiri"])
+        .args(["enable", FOCUS_EXT_UUID])
         .status()
     {
         Ok(s) if s.success() => {

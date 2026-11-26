@@ -69,14 +69,18 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let mut app_targets: Vec<(String, String)> = crate::config::recent_clients()
         .into_iter()
         .map(|n| {
-            let label = n.clone();
+            let label = crate::appname::display_name(&n);
             (label, n)
         })
         .collect();
-    app_targets.push((
-        t("rules.pseudo_wayland", "gnome-shell (app Wayland)"),
-        "gnome-shell".to_string(),
-    ));
+    // Without the focus extension that string is every relayed Wayland app,
+    // so offering the shell as a target would only mislead.
+    if super::super::focus_extension_installed() {
+        app_targets.push((
+            t("rules.pseudo_wayland", "gnome-shell (app Wayland)"),
+            "gnome-shell".to_string(),
+        ));
+    }
     app_targets.push((
         t("rules.pseudo_none", "(app không báo tên)"),
         "none".to_string(),
@@ -225,7 +229,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             ui.rule_name_entry.set_text("");
             ui.fire_toast(
                 &ui.rules_overlay,
-                &t("rules.add_toast", "Đã thêm luật cho {app}").replace("{app}", &pattern),
+                &t("rules.add_toast", "Đã thêm luật cho {app}")
+                    .replace("{app}", &crate::appname::display_name(&pattern)),
             );
         })
     };
@@ -264,7 +269,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             ui.rule_name_entry.clipboard().set_text(&value);
             ui.fire_toast(
                 &ui.rules_overlay,
-                &t("rules.copy_toast", "Đã sao chép {app}").replace("{app}", &value),
+                &t("rules.copy_toast", "Đã sao chép {app}")
+                    .replace("{app}", &crate::appname::display_name(&value)),
             );
         });
     }

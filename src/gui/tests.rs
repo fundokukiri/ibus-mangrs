@@ -45,9 +45,8 @@ fn gtk_widget_scenarios() {
     // config files. Concurrent unit tests keep reading the sandboxed dir —
     // they are self-contained writers, so that stays consistent.
     let original_config_dir = std::env::var("XDG_CONFIG_HOME").ok();
-    let sandbox = std::env::temp_dir().join(format!("mangrs-gui-test-{}", std::process::id()));
-    std::fs::create_dir_all(&sandbox).expect("sandbox dir");
-    std::env::set_var("XDG_CONFIG_HOME", &sandbox);
+    let sandbox = crate::test_support::TempDir::new("mangrs-gui-test");
+    std::env::set_var("XDG_CONFIG_HOME", sandbox.path());
     refresh_round_trips_every_widget();
     shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
@@ -59,6 +58,14 @@ fn gtk_widget_scenarios() {
     macros_editor_follows_the_switch();
     emoji_editor_follows_the_switch();
     toggling_off_releases_the_editor_caret();
+    close_test_windows();
+    the_debug_tab_follows_the_switch();
+    the_debug_tab_row_appears_only_with_debug_mode();
+    the_open_log_pane_picks_up_what_is_written();
+    the_debug_page_opens_with_both_columns();
+    close_test_windows();
+    the_debug_page_shows_the_status_the_rows_and_the_footer();
+    close_test_windows();
     close_test_windows();
     every_switch_triggers_save();
     debug_mode_switch_keeps_the_dialog_choice();
@@ -95,7 +102,6 @@ fn gtk_widget_scenarios() {
         Some(dir) => std::env::set_var("XDG_CONFIG_HOME", dir),
         None => std::env::remove_var("XDG_CONFIG_HOME"),
     }
-    let _ = std::fs::remove_dir_all(&sandbox);
 }
 
 /// The combo item lists (mode/charset/method/...) render in the window's
@@ -598,7 +604,63 @@ fn rule_rows_round_trip_through_read() {
         .row_at_index(0)
         .and_downcast::<adw::ActionRow>()
         .expect("rule row");
-    assert_eq!(row.title().as_str(), "kate");
+    // The row reads the app's own name; the stored pattern stays the class
+    // the rule matches, which the assertion above already covers.
+    assert_eq!(row.title().as_str(), "Kate");
+    assert_eq!(row.tooltip_text().as_deref(), Some("kate"));
+}
+
+/// The extension row must name the real situation and offer only the action
+/// that fixes it: a working extension has nothing left to press.
+#[test]
+fn the_extension_row_offers_one_action_per_state() {
+    use crate::gui::{extension_row_for, ExtensionRequest, ExtensionState};
+    let cases = [
+        (ExtensionState::Missing, Some(ExtensionRequest::InstallNew)),
+        (ExtensionState::Stale, Some(ExtensionRequest::Update)),
+        (ExtensionState::Disabled, Some(ExtensionRequest::Enable)),
+        (ExtensionState::NeedsLogout, Some(ExtensionRequest::Logout)),
+        (ExtensionState::Running, None),
+    ];
+    let mut subtitles = Vec::new();
+    for (state, action) in cases {
+        let text = extension_row_for(state);
+        assert_eq!(text.button.map(|(_, action)| action), action, "{state:?}");
+        assert!(!text.subtitle.1.is_empty());
+        assert!(
+            !subtitles.contains(&text.subtitle.1),
+            "{state:?} reuses one"
+        );
+        subtitles.push(text.subtitle.1);
+    }
+    // A missing extension is installed, never "turned on" or "logged out of".
+    let label = extension_row_for(ExtensionState::Missing).button;
+    assert_eq!(label.map(|((_, text), _)| text), Some("Cài đặt"));
+
+    // Every request has its own confirmation, so an update never says
+    // "install" and a removal says what it deletes.
+    let mut headings = Vec::new();
+    for request in [
+        ExtensionRequest::InstallNew,
+        ExtensionRequest::Update,
+        ExtensionRequest::Enable,
+        ExtensionRequest::Disable,
+        ExtensionRequest::Remove,
+        ExtensionRequest::Logout,
+    ] {
+        let (heading, body, apply) = crate::gui::pages::other::extension_dialog(request);
+        assert!(!heading.is_empty() && !body.is_empty() && !apply.is_empty());
+        assert!(!headings.contains(&heading), "{request:?} reuses a heading");
+        headings.push(heading);
+    }
+    // A running extension asks nothing to fix; it offers its two undo
+    // buttons instead.
+    let running = extension_row_for(ExtensionState::Running);
+    assert!(running.button.is_none());
+    assert_eq!(
+        crate::gui::RUNNING_BUTTONS.map(|(_, request)| request),
+        [ExtensionRequest::Disable, ExtensionRequest::Remove]
+    );
 }
 
 /// "Chế độ gỡ lỗi" is one switch: the two log tiers come from its dialog,
@@ -770,6 +832,7 @@ fn refresh_round_trips_every_widget() {
         keep_composed_words: true,
         keep_repeats_raw: true,
         suggest_words: true,
+        dodge_inline_autocomplete: true,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
         bypass_url: false,
@@ -905,11 +968,11 @@ fn refresh_round_trips_every_widget() {
         }]
     );
     assert_eq!(
-        ui.macros_from_text(),
+        super::parse_macros(&super::text_of(&ui.macros_text)),
         vec![("gs".to_string(), "giờ sáng".to_string())]
     );
     // A set: the order it hands the text view back in is not the input order.
-    let mut words = ui.read_dictionary();
+    let mut words = super::parse_dictionary(&super::text_of(&ui.dictionary_text));
     words.sort();
     assert_eq!(words, vec!["asl".to_string(), "tr".to_string()]);
 }
@@ -1055,6 +1118,263 @@ fn cycle_subtitle_lists_the_five_modes() {
     );
 }
 
+/// The "Gỡ lỗi" tab is the one conditional page: its row is in the sidebar
+/// only while debug mode is on, and the switch that turns it on lives on
+/// another page, so the removal has to happen without a rebuild.
+fn the_debug_tab_follows_the_switch() {
+    let ui = widgets();
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    {
+        let seen = seen.clone();
+        *ui.debug_tab.borrow_mut() = Some(Rc::new(move |visible: bool| {
+            seen.borrow_mut().push(visible)
+        }));
+    }
+    crate::gui::content::wire_debug_tab(&ui);
+    ui.debug_log.set_active(true);
+    ui.debug_log.set_active(false);
+    assert_eq!(
+        *seen.borrow(),
+        vec![true, false],
+        "the row follows the switch"
+    );
+}
+
+/// A window built while debug mode is on carries the row, one built while it
+/// is off does not.
+fn the_debug_tab_row_appears_only_with_debug_mode() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-debug-tab")
+        .build();
+    let nav = |w: &adw::ApplicationWindow, name: &str| {
+        descendants::<gtk4::ListBoxRow>(w.upcast_ref())
+            .into_iter()
+            .find(|r| r.widget_name() == name)
+    };
+    Config::default().save().expect("config off");
+    let win = crate::gui::content::build(&app, Some("typing"));
+    assert!(
+        nav(&win, "debugging").is_none(),
+        "no debug tab while debug mode is off"
+    );
+    win.close();
+    Config {
+        debug_log: true,
+        ..Config::default()
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("debugging"));
+    assert!(
+        nav(&win, "debugging").is_some(),
+        "the tab is there with debug mode on"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// The window opens wide enough for the two columns: the stacked layout is
+/// for a window the user has narrowed, not for the first look.
+fn the_debug_page_opens_with_both_columns() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-open-width")
+        .build();
+    let saved = Config::load();
+    Config {
+        debug_log: true,
+        ..saved
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("debugging"));
+    win.present();
+    for _ in 0..300 {
+        while gtk4::glib::MainContext::default().iteration(false) {}
+        if win.width() > 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    while gtk4::glib::MainContext::default().iteration(false) {}
+
+    let split_view = descendants::<adw::NavigationSplitView>(win.upcast_ref());
+    assert!(
+        split_view.iter().all(|view| !view.is_collapsed()),
+        "the sidebar stays open at the default size"
+    );
+    // The page's own split is the box holding a separator between two halves.
+    let split = descendants::<gtk4::Box>(win.upcast_ref())
+        .into_iter()
+        .find(|b| {
+            let mut child = b.first_child();
+            let mut separator = false;
+            while let Some(w) = child {
+                separator |= w.downcast_ref::<gtk4::Separator>().is_some();
+                child = w.next_sibling();
+            }
+            separator && b.orientation() == Orientation::Horizontal
+        })
+        .expect("the two-column split");
+    assert_eq!(
+        split.orientation(),
+        Orientation::Horizontal,
+        "the log and the tools sit side by side on the first look"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// A window the user is looking at picks up what the engine writes: the pane
+/// used to need a tab switch, because the writer rewrote the newline of the
+/// line above and the reader never saw the bytes that moved behind it.
+fn the_open_log_pane_picks_up_what_is_written() {
+    let dir = crate::debug_log::TempLogDir::new("live-log");
+    let path = dir.dir().join("debug.log");
+    std::fs::write(&path, "1795619563000 ctx start uinput=1\n").expect("a log");
+    let ui = widgets();
+    // The page captures the log path when it is built; nothing else in this
+    // binary shares the file afterwards.
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    let overlay = pages::debug::build(&ui);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = None;
+
+    let win = gtk4::Window::builder()
+        .default_width(1180)
+        .default_height(740)
+        .build();
+    win.set_child(Some(&overlay));
+    win.present();
+    let pump = |ms: u64| {
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < end {
+            while gtk4::glib::MainContext::default().iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    for _ in 0..300 {
+        while gtk4::glib::MainContext::default().iteration(false) {}
+        if win.width() > 1 && overlay.is_mapped() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    pump(700);
+
+    // Append-only, the way the engine writes: two lines in one write, then a
+    // repeat run and the line that ends it.
+    {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("the log file");
+        file.write_all(b"1795619563100 ctx step=7\n1795619563200 ctx step=7 rep=3\n")
+            .expect("a write");
+        // Enough to overflow the box, so following has to keep the newest
+        // line in view.
+        for i in 0..40 {
+            file.write_all(format!("1795619563300 ctx fill={i}\n").as_bytes())
+                .expect("a write");
+        }
+    }
+    pump(900);
+    // The log's own scroller keeps the newest line in view: no pause unless
+    // the button says so.
+    let log_scroller = descendants::<gtk4::ScrolledWindow>(overlay.upcast_ref())
+        .into_iter()
+        .find(|sc| {
+            sc.child()
+                .is_some_and(|child| child.downcast_ref::<gtk4::TextView>().is_some())
+        })
+        .expect("the log's scroller");
+    let adj = log_scroller.vadjustment();
+    assert!(
+        adj.value() >= adj.upper() - adj.page_size() - 2.0,
+        "the newest line is the one in view: value={} upper={} page={}",
+        adj.value(),
+        adj.upper(),
+        adj.page_size()
+    );
+    let pause = descendants::<gtk4::ToggleButton>(overlay.upcast_ref())
+        .into_iter()
+        .find(|b| {
+            b.icon_name()
+                .is_some_and(|i| i.contains("pause") || i.contains("play"))
+        })
+        .expect("the pause button");
+    assert!(
+        pause.is_active(),
+        "scrolling never pauses following on its own"
+    );
+    let view = descendants::<gtk4::TextView>(overlay.upcast_ref());
+    let text = view
+        .first()
+        .map(|v| {
+            let buffer = v.buffer();
+            buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string()
+        })
+        .unwrap_or_default();
+    assert!(text.contains("ctx step=7"), "the line arrived: {text}");
+    assert!(text.contains("ctx step=7 rep=3"), "its count too: {text}");
+    assert!(
+        text.lines().all(|line| line.contains("ctx ")),
+        "no fragment lines: {text}"
+    );
+    win.close();
+}
+
+fn the_debug_page_shows_the_status_the_rows_and_the_footer() {
+    let ui = widgets();
+    let overlay = pages::debug::build(&ui);
+    // Two system rows hide (Engine and the MăngRS version travel only in the
+    // report), leaving six there, three for the insert path and two files.
+    let rows = descendants::<adw::ActionRow>(overlay.upcast_ref());
+    assert_eq!(rows.len(), 11, "the diagnostics rows");
+    assert_eq!(
+        descendants::<adw::PreferencesGroup>(overlay.upcast_ref()).len(),
+        4,
+        "a group per section, plus the typing test"
+    );
+    let dots = descendants::<gtk4::Label>(overlay.upcast_ref())
+        .iter()
+        .filter(|l| l.text() == "●")
+        .count();
+    assert_eq!(dots, 12, "a dot per row, plus the status bar's");
+    let picks = descendants::<gtk4::DropDown>(overlay.upcast_ref()).len();
+    assert_eq!(picks, 1, "the type list");
+    let labels: Vec<String> = descendants::<gtk4::Label>(overlay.upcast_ref())
+        .iter()
+        .map(|l| l.text().to_string())
+        .collect();
+    for wanted in ["Hệ thống", "Cách chèn", "Tệp", "Thử gõ"] {
+        assert!(
+            labels.iter().any(|l| l == wanted),
+            "the page has a `{wanted}` group: {labels:?}"
+        );
+    }
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.starts_with("Engine đang chạy") || l.starts_with("Engine không chạy")),
+        "the status bar names the engine: {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|l| l.starts_with("Trễ TB")),
+        "the status bar carries the latency: {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|l| l == "Khởi động lại IBus"),
+        "the footer carries the restart button"
+    );
+    assert!(
+        labels.iter().any(|l| l.contains("Sao chép")),
+        "the footer carries the report button: {labels:?}"
+    );
+}
+
 /// Every switch wired by `wire_switch_saves` must fire the save funnel
 /// when toggled — a row missing from that list edits on screen only and
 /// never reaches `config.toml` (the "Ẩn gạch chân" switch). Each row
@@ -1064,7 +1384,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 21] = [
+    let rows: [&adw::SwitchRow; 22] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -1084,6 +1404,7 @@ fn every_switch_triggers_save() {
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,
+        &ui.dodge_inline_autocomplete,
         // `debug_log` has its own confirmation dialog and is covered by
         // `debug_mode_switch_keeps_the_dialog_choice` instead.
         &ui.x11_delete,
@@ -1736,15 +2057,21 @@ fn poll_reloads_skips_self_writes() {
 
 #[test]
 fn a_save_only_rewrites_the_list_that_changed() {
-    // The window writes macros, dictionary and emoji on every save; a knob
-    // change must not rewrite the personal dictionary (~8 ms at 20k words).
-    // `save_changed` is the guard: equal content stays on disk untouched.
-    let last = vec!["học".to_string(), "sinh".to_string()];
-    assert!(!crate::gui::save_changed(Some(&last[..]), &last));
-    let grown = vec!["học".to_string(), "sinh".to_string(), "viên".to_string()];
-    assert!(crate::gui::save_changed(Some(&last[..]), &grown));
-    assert!(
-        crate::gui::save_changed(None, &last),
-        "the first save writes"
+    // The window compares the raw editor text with what it last wrote, so a
+    // knob change never re-parses (let alone rewrites) the personal dictionary
+    // (~7 ms to parse at 20k words).
+    let last = "học\nsinh\n";
+    assert_eq!(parse_dictionary(last).len(), 2);
+    assert_eq!(
+        parse_dictionary("học\n# cũ\n\nsinh\n"),
+        parse_dictionary(last)
+    );
+    assert_ne!(
+        parse_dictionary("học\nsinh\nviên\n"),
+        parse_dictionary(last)
+    );
+    assert_eq!(
+        parse_macros("gs = giờ sáng\n= hỏng\nxx =\n"),
+        vec![("gs".to_string(), "giờ sáng".to_string())]
     );
 }

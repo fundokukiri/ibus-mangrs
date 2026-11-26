@@ -83,6 +83,25 @@ pub(super) fn hotkey_registry(config: &Config) -> Vec<HotkeyBinding> {
     out
 }
 
+/// Does the focus extension answer on the session bus right now? The settings
+/// window asks this to tell "installed and enabled" from "the shell has not
+/// loaded it yet" — GNOME caches extension modules for the whole session, so a
+/// fresh install needs a logout.
+#[cfg(feature = "gui")]
+pub(crate) fn focus_extension_answers() -> bool {
+    let Ok(conn) = Connection::get_private(BusType::Session) else {
+        return false;
+    };
+    // Test-only unwraps: this file's own constants.
+    let msg = Message::method_call(
+        &BusName::new(FOCUS_EXT_NAME).unwrap(),
+        &DbusPath::new(FOCUS_EXT_PATH).unwrap(),
+        &Interface::new(FOCUS_EXT_IFACE).unwrap(),
+        &Member::new("GetFocusedWindow").unwrap(),
+    );
+    conn.send_with_reply_and_block(msg, 300).is_ok()
+}
+
 impl EngineHandler {
     /// `ProcessKeyEvent`: hot-reload the config, check the shortcut
     /// registry, then feed the key to the engine. Signals go into `out`.
@@ -309,9 +328,14 @@ impl EngineHandler {
     /// The focused window's WM_CLASS from the focus extension. The
     /// session-bus connection is created lazily and kept for the handler's
     /// lifetime; a short timeout keeps a dead extension off the focus path.
-    /// Returns `None` when the extension is absent or names nothing (the
-    /// caller then falls back to the X active window).
-    pub(super) fn focus_extension_app(&mut self) -> Option<String> {
+    /// A caller that runs off the typing path (the rule picker) passes a
+    /// longer one: the shell answers from its own main loop, and a busy frame
+    /// can outlast 300 ms without the extension being absent.
+    /// Returns whether the extension answered, plus its class (empty when it
+    /// names nothing). An absent extension and a shell UI holding the keyboard
+    /// both mean "no class" to the caller, which falls back to the X active
+    /// window — but only the second one is the compositor's own UI.
+    pub(super) fn focus_extension_app(&mut self, timeout_ms: i32) -> (bool, Option<String>) {
         if self.focus_ext.is_none() {
             // The engine inherits the session environment from ibus-daemon;
             // without a session bus there is no extension either.
@@ -319,7 +343,9 @@ impl EngineHandler {
                 .and_then(|conn| conn.register().map(|_| conn))
                 .ok();
         }
-        let conn = self.focus_ext.as_ref()?;
+        let Some(conn) = self.focus_ext.as_ref() else {
+            return (false, None);
+        };
         // Test-only unwraps: the names are this file's own constants.
         let msg = Message::method_call(
             &BusName::new(FOCUS_EXT_NAME).unwrap(),
@@ -327,9 +353,13 @@ impl EngineHandler {
             &Interface::new(FOCUS_EXT_IFACE).unwrap(),
             &Member::new("GetFocusedWindow").unwrap(),
         );
-        let reply = conn.send_with_reply_and_block(msg, 300).ok()?;
-        let (class, _title) = reply.read2::<String, String>().ok()?;
-        (!class.is_empty()).then_some(class)
+        let Ok(reply) = conn.send_with_reply_and_block(msg, timeout_ms) else {
+            return (false, None);
+        };
+        let Ok((class, _title)) = reply.read2::<String, String>() else {
+            return (false, None);
+        };
+        (true, (!class.is_empty()).then_some(class))
     }
 
     /// Re-apply the config if the file changed since the last check.
@@ -359,7 +389,7 @@ impl EngineHandler {
             let actions = engine.apply_config(&config);
             engine.set_enabled(config.enabled);
             emit(&mut engine, &self.injection, &actions, out);
-            update_all_properties(&config, out);
+            update_all_properties(&config, &mut self.props, out);
         }
     }
 }

@@ -16,7 +16,7 @@
 
 use std::cmp::Reverse;
 use std::collections::HashSet;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 const FREQ_DATA: &str = include_str!("../data/vietnamese-freq.dict");
 
@@ -373,6 +373,63 @@ pub(crate) fn builtin_rows_with(
             .map(|id| (model.surface(id).to_string(), model.unigram(id)))
             .collect(),
         None => SuggestTable::embedded().rows(),
+    }
+}
+
+/// [`builtin_rows_with`] behind a cache: walking every model row costs ~29 ms
+/// with the shipped model, and `apply_config` runs from the synchronous key
+/// path whenever config.toml changes, so a rebuild per apply is felt as a
+/// stutter in typing and in the panel menu. Keyed by the shared `Arc` (one per
+/// model version) and holding it, so a freed address can never match a new
+/// model. The dictionary merge stays outside: it is cheap and file-driven.
+pub(crate) fn cached_builtin_rows(
+    model: Option<&Arc<crate::predict::PredictModel>>,
+) -> Vec<(String, u32)> {
+    type RowCache = Option<(
+        Option<Arc<crate::predict::PredictModel>>,
+        Vec<(String, u32)>,
+    )>;
+    static CACHE: OnceLock<Mutex<RowCache>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = cache.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some((cached, rows)) = guard.as_ref() {
+        let hit = match (model, cached) {
+            (Some(want), Some(have)) => Arc::ptr_eq(want, have),
+            (None, None) => true,
+            _ => false,
+        };
+        if hit {
+            return rows.clone();
+        }
+    }
+    let rows = builtin_rows_with(model.map(|m| m.as_ref()));
+    *guard = Some((model.cloned(), rows.clone()));
+    rows
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    fn sample(name: &str) -> Arc<crate::predict::PredictModel> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("data")
+            .join(name);
+        crate::predict::cached(&path).expect("committed model sample must parse")
+    }
+
+    #[test]
+    fn cached_builtin_rows_follow_the_model_they_were_built_from() {
+        let v1 = sample("model-sample.bin");
+        let v2 = sample("model-sample-v2.bin");
+        let once = cached_builtin_rows(Some(&v1));
+        assert_eq!(once, builtin_rows_with(Some(&v1)));
+        // Same shared Arc: the second call is the cached copy.
+        assert_eq!(cached_builtin_rows(Some(&v1)), once);
+        // A different model must not be served the old rows.
+        let other = cached_builtin_rows(Some(&v2));
+        assert_eq!(other, builtin_rows_with(Some(&v2)));
+        assert_eq!(cached_builtin_rows(None), builtin_rows_with(None));
     }
 }
 

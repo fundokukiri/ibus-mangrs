@@ -9,8 +9,11 @@ use super::*;
 
 /// The tab's one CSS block: the merged rows wrap their switch, so the class
 /// sits on the page and the rule reaches every switch inside it.
-pub(crate) const EXPERIMENTAL_CSS: &str =
-    ".experimental-page switch:checked { background-color: @warning_color; }";
+pub(crate) const EXPERIMENTAL_CSS: &str = "
+.experimental-page switch:checked { background-color: @warning_color; }
+/* the trial badge stands apart from the row title it precedes */
+.experimental-page .experimental-badge { font-weight: 700; }
+";
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
@@ -55,6 +58,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     typing.add(&ui.keep_composed_words);
     typing.add(&ui.keep_repeats_raw);
     typing.add(&ui.suggest_words);
+    typing.add(&ui.dodge_inline_autocomplete);
     page.add(&typing);
 
     let tuning = adw::PreferencesGroup::builder()
@@ -71,6 +75,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.keep_composed_words);
     decorate_experimental(&ui.keep_repeats_raw);
     decorate_experimental(&ui.suggest_words);
+    decorate_experimental(&ui.dodge_inline_autocomplete);
     decorate_experimental(&ui.echo_stale_row);
     decorate_experimental(&ui.idle_commit_row);
     decorate_experimental(&ui.preferred_backend);

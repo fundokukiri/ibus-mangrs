@@ -36,7 +36,8 @@ pub(super) fn picker_entries(visible: &[ModeConfig], current: ModeConfig, en: bo
 /// The mode a picker row resolves to right now: the rule/app mode, else the
 /// global mode.
 fn picker_current(config: &Config, target: &str) -> ModeConfig {
-    crate::config::app_rule_mode(&config.app_rules, Some(target)).unwrap_or(config.mode)
+    let probe = (target != crate::config::UNNAMED_PATTERN).then_some(target);
+    crate::config::app_rule_mode(&config.app_rules, probe).unwrap_or(config.mode)
 }
 
 /// Keys the picker consumes while open.
@@ -60,17 +61,43 @@ pub(super) struct PickerState {
     /// blue hover marks the current choice), Up/Down move it, Enter picks
     /// it; digits still select their entry directly.
     pub(super) cursor: usize,
+    /// Nothing can be picked: the list is a single warning row. Without the
+    /// focus extension no Wayland app can be named, so any choice would be
+    /// written against the wrong one.
+    warn: bool,
 }
 
 impl PickerState {
     pub fn new(target: String, cursor: usize) -> Self {
-        Self { target, cursor }
+        Self {
+            target,
+            cursor,
+            warn: false,
+        }
+    }
+
+    /// The state with nothing to pick — see the field docs.
+    fn warning() -> Self {
+        Self {
+            target: String::new(),
+            cursor: 0,
+            warn: true,
+        }
+    }
+
+    pub(super) fn warnings_only(&self) -> bool {
+        self.warn
     }
 
     /// Map one key event onto the picker. Pure, so tests can drive it.
     /// Digits 1..9 pick entries 1..9 and 0 picks the last; Enter picks
     /// the highlighted entry; Up/Down move the highlight.
     pub fn on_key(&self, keyval: u32) -> PickerKey {
+        if self.warn {
+            // Enter, a digit or a click must never write a rule for an app
+            // that cannot be named: any key just closes the menu.
+            return PickerKey::Ignore;
+        }
         match keyval {
             65293 | 65421 => PickerKey::Select(self.cursor), // Return / KP_Enter
             65307 => PickerKey::Cancel,                      // Escape
@@ -82,6 +109,64 @@ impl PickerState {
         }
     }
 }
+
+/// Where the focus extension's own file is, when it is installed at all:
+/// GIO's extension directories, the system one included.
+pub(crate) fn focus_extension_path() -> Option<std::path::PathBuf> {
+    const REL: &str = "gnome-shell/extensions/mangrs-focus@fundokukiri/extension.js";
+    dirs::data_dir()
+        .map(|dir| dir.join(REL))
+        .filter(|path| path.exists())
+        .or_else(|| {
+            let system = std::path::Path::new("/usr/share").join(REL);
+            system.exists().then_some(system)
+        })
+}
+
+/// Is the focus extension installed at all (whatever its enabled state)?
+pub(crate) fn focus_extension_installed() -> bool {
+    focus_extension_path().is_some()
+}
+
+/// The warning shown instead of the mode list while no app can be named: the
+/// user is told which of the two causes to fix.
+fn warning_text(english: bool, installed: bool) -> &'static str {
+    match (english, installed) {
+        (false, false) => "Chưa cài extension MăngRS Focus",
+        (false, true) => "Extension MăngRS Focus chưa bật",
+        (true, false) => "The MăngRS Focus extension is not installed",
+        (true, true) => "The MăngRS Focus extension is off",
+    }
+}
+
+/// The rule target for the focused context, read at press time: the
+/// extension/xprop name, else the client's own prgname, else — only while the
+/// compositor's own UI holds the keyboard — the bare relay client.
+/// `None` when nothing names the app.
+fn rule_target(engine: &Engine) -> Option<String> {
+    engine
+        .app_name()
+        .map(|name| crate::config::strip_transport_prefix(name).to_string())
+        .or_else(|| engine.client().and_then(client_prgname))
+        .or_else(|| {
+            // A compositor-owned context reports its own name with no toolkit
+            // prefix (`gnome-shell` while its search field or Alt+F2 box holds
+            // the keyboard), and rule matching already uses that string — so
+            // it is a target in its own right. Without the extension the same
+            // string is every relayed Wayland app, so it only counts when the
+            // extension answered with no window.
+            engine
+                .shell_ui_focused()
+                .then(|| engine.client())
+                .flatten()
+                .filter(|client| !matches!(*client, "xim" | "fake"))
+                .map(str::to_string)
+        })
+}
+
+/// Longer than the focus path's wait: the picker runs once per hotkey press,
+/// so a slow shell costs the user a moment, not a keystroke.
+pub(super) const PICKER_EXT_TIMEOUT_MS: i32 = 800;
 
 impl EngineHandler {
     /// Open the picker for the focused application. The target is the same
@@ -95,23 +180,56 @@ impl EngineHandler {
             out.push(signal("HideAuxiliaryText"));
             return;
         }
-        let target = {
+        let (mut target, mut extension_answered) = {
             let engine = lock_engine(&self.engine);
-            engine
-                .app_name()
-                .map(|name| {
-                    name.strip_prefix("wayland:")
-                        .or_else(|| name.strip_prefix("x11:"))
-                        .unwrap_or(name)
-                        .to_string()
-                })
-                .or_else(|| engine.client().and_then(client_prgname))
+            (rule_target(&engine), engine.extension_answered())
         };
-        let Some(target) = target.filter(|t| !t.is_empty()) else {
-            // No name, no rule that could ever match: stay closed.
-            debug_log::log("picker hotkey: focused app unnamed, staying closed");
+        if !extension_answered {
+            // The focus path gives the extension 300 ms, and the shell answers
+            // from its own main loop: a busy frame misses that without the
+            // extension being absent, which used to be reported as "not
+            // enabled". A hotkey press can afford a longer try, and a fresh
+            // connection rules out a bus connection that died mid-session.
+            self.focus_ext = None;
+            let (answered, class) = self.focus_extension_app(PICKER_EXT_TIMEOUT_MS);
+            debug_log::log(&format!("ext picker=retry answered={}", u8::from(answered)));
+            if answered {
+                let mut engine = lock_engine(&self.engine);
+                engine.set_extension_answered(true);
+                // An empty class is the compositor's own UI holding the
+                // keyboard, the same reading the focus path uses.
+                engine.set_shell_ui_focused(class.is_none());
+                match class {
+                    Some(class) => {
+                        engine.set_app_name(Some(format!("wayland:{class}")));
+                        crate::server::x11::note_prgname(&class);
+                    }
+                    None => engine.set_app_name(None),
+                }
+                target = rule_target(&engine);
+                extension_answered = true;
+            } else {
+                debug_log::log("ext ok=0 why=timeout");
+            }
+        }
+        // Nothing names this app and there is no extension to ask: with the
+        // extension off no Wayland app can be named at all, so the menu warns
+        // instead of offering a choice that would hit the wrong app.
+        if target.is_none() && !extension_answered {
+            debug_log::log("ext picker=hotkey why=no_extension");
+            self.picker = Some(PickerState::warning());
+            self.emit_picker_table(out);
             return;
-        };
+        }
+        // An app that names nothing (a terminal window under Wayland, any
+        // winit/Electron app) still needs its mode reachable: the pick writes
+        // the unnamed pattern, which matches only clients with no name.
+        let target = target
+            .filter(|target| !target.is_empty())
+            .unwrap_or_else(|| {
+                debug_log::log("ext picker=hotkey target=none rule=none");
+                crate::config::UNNAMED_PATTERN.to_string()
+            });
         // The in-flight word ends here, before the menu shows: a pick must
         // never apply_config over a live composition (that desynced the
         // tail and the wrapper — the lost-letters/duplicated-word report).
@@ -140,14 +258,43 @@ impl EngineHandler {
             return;
         };
         let config = Config::load();
+        if state.warnings_only() {
+            // Text only: a candidate row would be one the user can click, and
+            // there is nothing to pick.
+            out.push(signal("HideLookupTable"));
+            out.push(signal("UpdateAuxiliaryText").append2(
+                crate::ibus_text::plain_text(warning_text(
+                    config.language == "en",
+                    focus_extension_installed(),
+                )),
+                true,
+            ));
+            return;
+        }
         let current = picker_current(&config, &state.target);
         let entries = picker_entries(&ModeConfig::ALL, current, config.language == "en");
         let current_label = ibus_prop::mode_label(current, config.language == "en").to_string();
         let table =
             ibus_prop::lookup_table_variant(PICKER_PAGE_SIZE, state.cursor as u32, &entries);
         out.push(signal("UpdateLookupTable").append2(table, true));
+        // One short line: the app, the mode in force, and the keys the menu
+        // answers to (nothing else advertises them).
+        let hint = if config.language == "en" {
+            "↑↓ then Enter"
+        } else {
+            "↑↓ rồi Enter"
+        };
+        let label = if state.target == crate::config::UNNAMED_PATTERN {
+            if config.language == "en" {
+                "unnamed app".to_string()
+            } else {
+                "app không tên".to_string()
+            }
+        } else {
+            crate::appname::display_name(&state.target)
+        };
         out.push(signal("UpdateAuxiliaryText").append2(
-            crate::ibus_text::plain_text(&format!("{} — {}", state.target, current_label)),
+            crate::ibus_text::plain_text(&format!("{label} · {current_label} · {hint}")),
             true,
         ));
     }
@@ -208,7 +355,12 @@ impl EngineHandler {
             out.push(signal("HideAuxiliaryText"));
             return;
         };
-        debug_log::log(&format!("picker: {} → {}", state.target, mode.key()));
+        debug_log::log(&format!(
+            "ext picker target={:?} class={:?} mode={}",
+            crate::appname::display_name(&state.target),
+            state.target,
+            mode.key()
+        ));
         config.set_rule_mode_for_target(&state.target, mode);
         if config.save().is_err() {
             out.push(signal("HideLookupTable"));
@@ -234,5 +386,68 @@ impl EngineHandler {
             out.push(signal("HideLookupTable"));
             out.push(signal("HideAuxiliaryText"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{MethodConfig, ModeConfig};
+
+    fn engine(client: &str) -> Engine {
+        let mut engine = Engine::new(MethodConfig::Telex.into(), ModeConfig::Preedit.into());
+        engine.set_client(Some(client.to_string()));
+        engine
+    }
+
+    #[test]
+    fn the_shell_is_a_target_only_while_the_extension_names_no_window() {
+        // Without the extension a relayed Wayland app reports exactly this
+        // string, so it names no app.
+        let mut e = engine("gnome-shell");
+        assert_eq!(rule_target(&e), None);
+
+        // With the extension answering empty, the compositor's own UI really
+        // does hold the keyboard.
+        e.set_shell_ui_focused(true);
+        assert_eq!(rule_target(&e).as_deref(), Some("gnome-shell"));
+
+        // A named app always wins over the client string.
+        e.set_app_name(Some("wayland:Alacritty".into()));
+        assert_eq!(rule_target(&e).as_deref(), Some("Alacritty"));
+    }
+
+    #[test]
+    fn the_warning_says_which_half_is_missing() {
+        // Not installed and installed-but-off need different advice, in both
+        // languages, and both stay one short line.
+        for english in [false, true] {
+            let missing = warning_text(english, false);
+            let off = warning_text(english, true);
+            assert_ne!(missing, off);
+            assert!(missing.contains("MăngRS Focus") && off.contains("MăngRS Focus"));
+            let long = |text: &str| text.chars().count() > 44;
+            assert!(!long(missing) && !long(off), "{missing} / {off}");
+            assert!(!missing.contains(','), "{missing}");
+        }
+        assert!(warning_text(false, false).contains("Chưa cài"));
+        assert!(warning_text(false, true).contains("chưa bật"));
+    }
+
+    #[test]
+    fn a_warning_only_menu_cannot_pick_anything() {
+        // Without the extension no Wayland app is named, so Enter, a digit or
+        // Escape must all just close the menu: nothing is written.
+        let state = PickerState::warning();
+        assert!(state.warnings_only());
+        for key in [65293u32, 65421, 0x31, 0x30, 65307, 65362] {
+            assert_eq!(state.on_key(key), PickerKey::Ignore, "key {key}");
+        }
+    }
+
+    #[test]
+    fn a_toolkit_client_names_its_app_without_the_extension() {
+        let e = engine("gtk3-im:sublime_text");
+        assert_eq!(rule_target(&e).as_deref(), Some("sublime_text"));
     }
 }

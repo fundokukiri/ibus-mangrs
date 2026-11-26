@@ -15,6 +15,14 @@ use crate::engine::{Action, Engine, Mode};
 /// (keystrokes, expected word) for Telex.
 #[cfg(test)]
 const TELEX: &[(&str, &str)] = &[
+    // bamboo-core 0.6.1: a `uow` after nothing, `c` or `k` shows both horns at
+    // once, and an `o` after it swaps the pair to `uô` instead of undoing it.
+    ("uow", "ươ"),
+    ("cuow", "cươ"),
+    ("thuowr", "thuở"),
+    ("ruowifo", "ruồi"),
+    ("muownso", "muốn"),
+    ("xuwoongs", "xuống"),
     ("tieengs", "tiếng"),
     ("vieejt", "việt"),
     ("dd", "đ"),
@@ -286,7 +294,7 @@ const MS_LAYOUT: &[(&str, &str)] = &[
 #[cfg(test)]
 const TELEX2: &[(&str, &str)] = &[
     ("tieengs", "tiếng"),
-    ("uoow", "uơ"),
+    ("uoow", "ươ"),
     ("dd", "đ"),
     ("toio", "tôi"),
     ("aw", "ă"),
@@ -317,7 +325,7 @@ const TELEX_VNI: &[(&str, &str)] = &[
     ("to1", "tó"),
     ("thien2", "thièn"),
     ("a'", "a'"),
-    ("uoow", "uơ"),
+    ("uoow", "ươ"),
     ("que", "que"),
     ("gie", "gie"),
     ("dd", "đ"),
@@ -364,14 +372,15 @@ const VNI_FRENCH: &[(&str, &str)] = &[
 ];
 
 /// Telex W: the Telex mark set with `z` removing the tone; digits and the
-/// VIQR punctuation terminate like in Telex.
+/// VIQR punctuation terminate like in Telex. `uow` reads `ươ` since
+/// bamboo-core 0.6.1, which shows both horns at once instead of `uơ`.
 #[cfg(test)]
 const TELEX_W: &[(&str, &str)] = &[
     ("tieengs", "tiếng"),
     ("asz", "a"),
     ("aw", "ă"),
     ("ow", "ơ"),
-    ("uow", "uơ"),
+    ("uow", "ươ"),
     ("dd", "đ"),
     ("w", "ư"),
     ("ew", "ew"),
@@ -1007,7 +1016,9 @@ mod matrix {
         // exact — there is no protocol delete to swallow yet. The FIRST
         // word typed after a report has arrived pays a one-time swallow
         // cost while the proof is collected (the report can only prove the
-        // drop by seeing one swallowed delete); from the next word on, the
+        // drop by seeing one swallowed delete). With the
+        // delete-without-report switch on by default the cost is one echoed
+        // character instead of a mangled word; from the next word on the
         // walk's terminal transport serves the client and the text is
         // exact again.
         // One arm serves the contract since NonPreedit merged into
@@ -1024,8 +1035,8 @@ mod matrix {
             "aa tieengs chaox ",
         );
         assert!(
-            got.starts_with("â tieêngếng "),
-            "the forwarded transport serves the first word: \
+            got.starts_with("aâ tiếng "),
+            "the one-time cost is one echoed character, not the word: \
              {mode:?} final {got:?}"
         );
         assert!(

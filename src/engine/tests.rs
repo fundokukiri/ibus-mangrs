@@ -427,6 +427,12 @@ fn backspace_then_tone_key_rewrites_correctly() {
     // unikey convention: the Backspace undoes the last KEY — here the
     // tone key "s" — and retyping it restores the word.
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    // Pinned: the shipped default is WholeChar, this case is the tone-first skip.
+    e.apply_config(&Config {
+        mode: Mode::Surrounding.into(),
+        backspace_tone: BackspaceToneConfig::ToneFirst,
+        ..Config::default()
+    });
     let mut actions = type_str(&mut e, "tieengs"); // tiếng
     actions.extend(e.backspace().expect("backspace")); // tiêng
     e.set_surrounding("tiêng".into(), 5);
@@ -457,6 +463,11 @@ fn backspace_replays_when_the_tone_moves() {
     // unikey convention: each Backspace pops the last raw KEY and the
     // word recomposes ("hoàng" -> "hoang" -> "hoan" -> "hoa").
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.apply_config(&Config {
+        mode: Mode::Surrounding.into(),
+        backspace_tone: BackspaceToneConfig::ToneFirst,
+        ..Config::default()
+    });
     let mut actions = type_str(&mut e, "hoangf");
     assert_eq!(replay(&actions), "hoàng");
     for expected in ["hoang", "hoan", "hoa"] {
@@ -494,6 +505,14 @@ fn focus_change_drops_stale_surrounding_data() {
     // context. Without the clear, the engine sent protocol
     // DeleteSurroundingText to a context whose buffer mutter never saw.
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    // Pinned: the case walks the tone-first mark rewrite on purpose.
+    e.apply_config(&Config {
+        mode: Mode::Surrounding.into(),
+        backspace_tone: BackspaceToneConfig::ToneFirst,
+        // The switch ships on now; this case documents the walk's path.
+        x11_delete_without_report: false,
+        ..Config::default()
+    });
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     for c in "tieng".chars() {
@@ -695,6 +714,13 @@ fn no_report_no_backend_backspace_rides_the_forward_transport() {
     // edit a transport: the forwarded Backspace key event erases the
     // character, like any ForwardBackspace word edit.
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    // Pinned off: the shipped default now sends the delete without a report,
+    // which is the other arm of this contract.
+    e.apply_config(&Config {
+        mode: Mode::Surrounding.into(),
+        x11_delete_without_report: false,
+        ..Config::default()
+    });
     e.set_client(Some("gtk4-im:test".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
     assert_eq!(type_replay_with_reports(&mut e, "ab", false), "ab");
@@ -1141,6 +1167,96 @@ fn forward_key_event_mode_survives_the_preedit_heuristics() {
 }
 
 #[test]
+fn inline_suggestion_passthrough_is_gated() {
+    // The experimental switch keeps Vietnamese typing alive in a browser
+    // address bar. Chrome reports its inline completion as a selection that
+    // starts at the caret the engine left behind (`anchor=1 cursor=11` behind
+    // `opencode.ai`), and an injected Backspace would delete that selection
+    // instead of the typed character, which is how `o` + `r` became `oỏ`.
+    // The rewrite therefore takes the protocol delete, which reaches our own
+    // character and keeps the mark.
+    for mode in [Mode::ForwardBackspace, Mode::Flow] {
+        let mut e = engine(
+            mode,
+            Config {
+                experimental_features: true,
+                dodge_inline_autocomplete: true,
+                ..Config::default()
+            },
+        );
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_surrounding("o".into(), 1);
+        e.process_char('o');
+        e.set_surrounding_with_anchor("opencode.ai".into(), 11, 1);
+        let actions = e.process_char('r');
+        assert!(
+            actions.iter().any(|a| matches!(a, Action::DeleteBefore(1))),
+            "{mode:?}: the rewrite must delete through the protocol: {actions:?}"
+        );
+        assert!(
+            !actions.iter().any(|a| matches!(
+                a,
+                Action::ForwardBackspaces(_) | Action::InjectBackspaces(_)
+            )),
+            "{mode:?}: no Backspace may reach the selection: {actions:?}"
+        );
+        // The word keeps its mark, and a terminator ends the evidence so the
+        // next word picks its own transport again.
+        assert!(
+            replay(&actions).contains('ỏ'),
+            "{mode:?}: the mark must land: {actions:?}"
+        );
+        e.process_char(' ');
+        assert!(!e.suggestions, "{mode:?}: a terminator ends the evidence");
+    }
+
+    // A selection that does not start at our caret is a real user selection,
+    // not a completion: the transport stays as it was.
+    let mut e = engine(
+        Mode::ForwardBackspace,
+        Config {
+            experimental_features: true,
+            dodge_inline_autocomplete: true,
+            ..Config::default()
+        },
+    );
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_surrounding("o".into(), 1);
+    e.process_char('o');
+    e.set_surrounding_with_anchor("opencode.ai".into(), 11, 7);
+    let actions = e.process_char('r');
+    assert!(
+        actions
+            .iter()
+            .all(|a| !matches!(a, Action::DeleteBefore(_))),
+        "a user selection keeps the mode's transport: {actions:?}"
+    );
+
+    // Gate closed: a saved switch changes nothing.
+    let mut e = engine(
+        Mode::ForwardBackspace,
+        Config {
+            dodge_inline_autocomplete: true,
+            ..Config::default()
+        },
+    );
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_surrounding("o".into(), 1);
+    e.process_char('o');
+    e.set_surrounding_with_anchor("opencode.ai".into(), 11, 1);
+    let actions = e.process_char('r');
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(1))),
+        "gate closed keeps the forwarded Backspace: {actions:?}"
+    );
+}
+
+#[test]
 fn xim_clients_report_no_usable_application_name() {
     // ibus-x11 names every input context `xim`, so an app rule can only
     // match one by accident; the server must name the app from the
@@ -1226,6 +1342,34 @@ fn none_rule_targets_unnamed_clients_in_every_display_mode() {
         e.set_client(Some("gtk4-im:firefox".into()));
         assert_ne!(e.effective_mode(), unnamed, "named client: {mode:?}");
     }
+}
+
+#[test]
+fn a_shell_rule_fires_only_while_the_extension_names_no_window() {
+    // A Wayland app reaches the engine as the mutter relay client, exactly
+    // like the shell's own search field does. Without the extension the two
+    // cannot be told apart, so a rule for the shell must not fire.
+    let mut e = Engine::new(Method::Telex, Mode::Preedit);
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_client(Some("gnome-shell".into()));
+    e.apply_config(&Config {
+        app_rules: vec![crate::config::AppRule {
+            pattern: "gnome-shell".into(),
+            mode: crate::config::ModeConfig::Off,
+        }],
+        ..Config::default()
+    });
+    assert_eq!(e.effective_mode(), Mode::Preedit, "extension off");
+    e.set_extension_answered(true);
+    e.set_shell_ui_focused(true);
+    assert_eq!(
+        e.effective_mode(),
+        Mode::Off,
+        "the shell's own search field"
+    );
+    // A named app keeps riding its own rule.
+    e.set_app_name(Some("wayland:Alacritty".into()));
+    assert_eq!(e.effective_mode(), Mode::Preedit);
 }
 
 #[test]
@@ -1324,10 +1468,15 @@ fn legacy_charset_rewrites_the_whole_word() {
 #[test]
 fn legacy_charset_backspace_replays_correctly() {
     let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.apply_config(&Config {
+        mode: Mode::Surrounding.into(),
+        backspace_tone: BackspaceToneConfig::ToneFirst,
+        ..Config::default()
+    });
     e.set_charset(Charset::Vni);
     let mut actions = type_str(&mut e, "vieejt");
     actions.extend(e.backspace().expect("backspace"));
-    // The default tone-first skip: the tone goes, the letters stay.
+    // The pinned tone-first skip: the tone goes, the letters stay.
     assert_eq!(replay(&actions), encode(Charset::Vni, "viêt"));
 }
 
@@ -2741,7 +2890,16 @@ fn flow_backspace_restores_the_undone_mark_without_the_switch() {
     // deferred correction gives the mark back with the user's "Backspace
     // xóa dấu" setting — `chào` returns, like the inline modes. No
     // experimental switch involved (default config, gate closed).
-    let mut e = engine(Mode::Flow, Config::default());
+    let mut e = engine(
+        Mode::Flow,
+        // Pinned: the case exercises the deferred correction, so the window
+        // must outlast the key release it waits for.
+        Config {
+            flow_backspace_restore_delay_ms: 150,
+            backspace_tone: BackspaceToneConfig::ToneFirst,
+            ..Config::default()
+        },
+    );
     e.set_uinput_available(true);
     type_str(&mut e, "chaoff");
     flush_per_key(&mut e);
@@ -2782,7 +2940,15 @@ fn flow_per_key_tonefirst_fold_keeps_every_screen_char() {
     // screen (`tung` in the wrapper, `tùn` on screen), so the fold must
     // not apply the wrapper's delta to the screen directly: that erased
     // the leading `t` (`InjectBackspaces(3)`, screen `úng`).
-    let mut e = engine(Mode::Flow, Config::default());
+    let mut e = engine(
+        Mode::Flow,
+        Config {
+            // Same pinned window: the fold needs a fix still pending.
+            flow_backspace_restore_delay_ms: 150,
+            backspace_tone: BackspaceToneConfig::ToneFirst,
+            ..Config::default()
+        },
+    );
     e.set_uinput_available(true);
     type_str(&mut e, "tungf ");
     flush_per_key(&mut e); // "tùng " lands
@@ -3128,10 +3294,8 @@ fn flow_without_backend_serves_forward_backspace_and_logs_once() {
     // transport and logs the fallback once per session — two resolutions,
     // one line.
     let _guard = crate::debug_log::test_guard();
-    let dir = std::env::temp_dir().join(format!("ibus-mangrs-walk-log-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("debug.log");
-    let _ = std::fs::remove_file(&path);
+    let dir = crate::debug_log::TempLogDir::new("walk-log");
+    let path = dir.dir().join("debug.log");
     *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
     crate::debug_log::set_enabled(true);
     let mut e = Engine::new(Method::Telex, Mode::Flow);
@@ -3146,7 +3310,7 @@ fn flow_without_backend_serves_forward_backspace_and_logs_once() {
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
         text.lines()
-            .filter(|l| l.contains("flow without a backend"))
+            .filter(|l| l.contains("del mode=forward why=no_backend"))
             .count(),
         1,
         "one fallback line for two resolutions: {text}"
@@ -3156,8 +3320,6 @@ fn flow_without_backend_serves_forward_backspace_and_logs_once() {
         "tiếng",
         "the downgrade serves the word"
     );
-    let _ = std::fs::remove_file(&path);
-    let _ = std::fs::remove_dir(&dir);
 }
 
 #[test]
@@ -5665,7 +5827,7 @@ fn suggest_accept_rewrites_through_injection_in_flow() {
             Action::HideCandidates,
             Action::CommitNow("th".into()),
             Action::InjectBackspaces(2),
-            Action::PostDelay(10),
+            Action::PostDelay(5),
             Action::Commit(format!("{} ", picked)),
         ],
         "{actions:?}"
@@ -5744,7 +5906,7 @@ fn suggest_last_committed_word_follows_the_word_end() {
 /// A strip engine with pick learning on, redirected away from the real
 /// config dir: behavioral data from a test run must never touch the
 /// owner's files.
-fn learn_engine(method: Method, mode: Mode) -> Engine {
+fn learn_engine(method: Method, mode: Mode) -> (Engine, crate::test_support::TempDir) {
     let mut e = suggest_engine(method, mode, true);
     e.apply_config(&Config {
         mode: mode.into(),
@@ -5754,23 +5916,18 @@ fn learn_engine(method: Method, mode: Mode) -> Engine {
     });
     e.set_method(method);
     e.model = Some(sample_model());
-    e.learn_dir = learn_tmp("engine");
+    let dir = learn_tmp("engine");
+    e.learn_dir = dir.to_path_buf();
     e.picks = Some(crate::learn::UserPicks::load(&e.learn_dir));
-    e
+    (e, dir)
 }
 
-fn learn_tmp(tag: &str) -> std::path::PathBuf {
+fn learn_tmp(tag: &str) -> crate::test_support::TempDir {
     // A fresh dir per call: the tests run on parallel threads and a shared
     // directory would let one test's wipe/delete race another's asserts.
     static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "mangrs-learn-test-{tag}-{}-{n}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("temp learn dir");
-    dir
+    crate::test_support::TempDir::new(&format!("mangrs-learn-test-{tag}-{n}"))
 }
 
 #[test]
@@ -5780,7 +5937,7 @@ fn learning_off_writes_nothing() {
     // exist only when the owner opted in.
     let mut e = suggest_engine(Method::Telex, Mode::Preedit, true);
     let dir = learn_tmp("off");
-    e.learn_dir = dir.clone();
+    e.learn_dir = dir.to_path_buf();
     suggest_keys(&mut e, "sinh");
     e.accept_candidate(0);
     assert!(!dir.join(crate::learn::PICKS_FILE).exists());
@@ -5793,7 +5950,7 @@ fn pick_flushes_on_tick_not_on_key() {
     // tick — the key path never touches the filesystem. `sin` completes the
     // fixture's `sinh` row (single words only now — the model compound band
     // is gone).
-    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let (mut e, _dir) = learn_engine(Method::Telex, Mode::Preedit);
     let dir = e.learn_dir.clone();
     let keys = suggest_keys(&mut e, "sin");
     let items = candidates_of(keys.last().unwrap()).expect("the strip opens on sin");
@@ -5816,7 +5973,7 @@ fn user_bonus_stays_inside_its_band() {
     // never over the Vietnamese rows: the sample fixture has no VN row
     // under `he`, so the band check rides the `h` prefix, whose VN
     // completions must still lead the boosted EN band.
-    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let (mut e, _dir) = learn_engine(Method::Telex, Mode::Preedit);
     e.last_committed_word = Some("world".into());
     for _ in 0..25 {
         e.picks
@@ -5851,7 +6008,7 @@ fn password_purpose_gates_strip_and_learning() {
     // PASSWORD (8) and PIN (9) quiet the strip and the learning files;
     // typing itself is untouched, and a normal field (0) re-opens the
     // strip on the in-flight word.
-    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let (mut e, _dir) = learn_engine(Method::Telex, Mode::Preedit);
     let dir = e.learn_dir.clone();
     e.set_content_purpose(PURPOSE_PASSWORD);
     let keys = suggest_keys(&mut e, "sinh");
@@ -5897,7 +6054,7 @@ fn prev_committed_word_shifts() {
 fn pick_lifts_a_state_b_candidate() {
     // Ten picks of (hello, there) triple there's context score — it
     // overtakes the stronger world inside the same list.
-    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let (mut e, _dir) = learn_engine(Method::Telex, Mode::Preedit);
     suggest_keys(&mut e, "hello ");
     for _ in 0..10 {
         e.picks
@@ -6073,7 +6230,7 @@ fn a_picked_vietnamese_word_moves_up_inside_its_band() {
     // no realistic pick count crosses, so the loop below is long by design:
     // it proves the wiring reads the picks, and the first assertion pins
     // that one pick is not a wall-breaker.
-    let mut e = learn_engine(Method::Telex, Mode::Preedit);
+    let (mut e, _dir) = learn_engine(Method::Telex, Mode::Preedit);
     let pos = |list: &[String], w: &str| {
         list.iter()
             .position(|x| x == w)

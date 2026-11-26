@@ -168,6 +168,16 @@ pub enum Action {
     HideCandidates,
 }
 
+/// The last App Rule lookup, so a keystroke does not re-walk the rule list:
+/// the two name sources, the shell-UI flag they were judged with, and the
+/// mode they resolved to.
+struct RuleCache {
+    app: Option<String>,
+    client: Option<String>,
+    shell_ui: bool,
+    mode: Option<Mode>,
+}
+
 pub struct Engine {
     wrapper: BambooWrapper,
     mode: Mode,
@@ -177,6 +187,14 @@ pub struct Engine {
     /// `client`, so a relayed client keeps its mutter-safe delete handling
     /// even after it is named.
     app_name: Option<String>,
+    /// The focus extension answered this focus-in and named nothing: the
+    /// compositor's own UI holds the keyboard (its search field, Alt+F2).
+    /// Only then is the bare relay client (`gnome-shell`) an app the user can
+    /// mean — without the extension that string is every Wayland app.
+    shell_ui_focused: bool,
+    /// The focus extension answered this focus-in at all (installed, enabled
+    /// and reachable). False means nothing names Wayland-native apps.
+    extension_answered: bool,
     /// IBus capabilities reported by the client, from `SetCapabilities`.
     caps: u32,
     /// True while a preedit string is on screen, so we only send `HidePreedit`
@@ -400,7 +418,7 @@ pub struct Engine {
     /// asks for the mode more than once per keystroke; the cache turns that
     /// into two string compares. The key covers `app_name`/`client` changes
     /// by itself; `apply_config` clears it because the rules changed.
-    rule_cache: Option<(Option<String>, Option<String>, Option<Mode>)>,
+    rule_cache: Option<RuleCache>,
     /// Suggestion strip (experimental `suggest_words`): a candidate list is
     /// currently on the client's screen. Gates the hide-on-word-end paths
     /// and makes the accept path a no-op once the strip is gone.
@@ -427,6 +445,9 @@ pub struct Engine {
     /// one strip switch: the model's compounds, single words and next-word
     /// lists all serve under it, the dictionary being out of the strip.
     suggest_words: bool,
+    /// The `dodge_inline_autocomplete` switch, baked under the experimental
+    /// gate like the strip.
+    dodge_inline_autocomplete: bool,
     /// Pick learning, baked with `suggest_words` under the experimental
     /// gate — picks land in the config dir's TSV files and buy an in-band
     /// bonus only while that is on.
@@ -451,8 +472,15 @@ pub struct Engine {
     pub(crate) model: Option<std::sync::Arc<crate::predict::PredictModel>>,
     /// The table the strip serves from: the builtin rows (model-harvested
     /// or embedded) merged with the user dictionary at a weight that
-    /// outranks every builtin frequency. Rebuilt on every config apply.
+    /// outranks every builtin frequency. Rebuilt only when its two inputs
+    /// change: with a 20k-word dictionary the rebuild is 19 ms to load it,
+    /// 13 ms to merge and 26 ms to sort the table, and apply_config runs
+    /// from the synchronous key path after every settings change.
     suggest_table: SuggestTable,
+    /// The inputs `suggest_table` was built from, for the reuse check above.
+    suggest_model: Option<std::sync::Arc<crate::predict::PredictModel>>,
+    suggest_dict_time: Option<SystemTime>,
+    suggest_ready: bool,
 }
 
 /// `IBUS_CAP_PREEDIT_TEXT` and `IBUS_CAP_SURROUNDING_TEXT` from ibustypes.h.
@@ -535,6 +563,8 @@ impl Engine {
             repair_delete: None,
             last_char: None,
             app_name: None,
+            shell_ui_focused: false,
+            extension_answered: false,
             app_rules: Vec::new(),
             auto_restore: true,
             em_dash: false,
@@ -607,14 +637,17 @@ impl Engine {
             last_committed_word: None,
             prev_committed_word: None,
             suggest_words: false,
+            dodge_inline_autocomplete: false,
             learn_dir: std::path::PathBuf::new(),
             picks: None,
             password_quiet: false,
             model: None,
-            // The builtin rows stand in until apply_config merges the user
-            // dictionary below; on a machine without dictionary.txt this
-            // stays the whole table.
-            suggest_table: SuggestTable::from_rows(crate::suggest::builtin_rows_with(None)),
+            // Empty until the apply_config below fills it: `suggest_ready`
+            // keeps that first build honest even when nothing else changed.
+            suggest_table: SuggestTable::from_rows(Vec::new()),
+            suggest_model: None,
+            suggest_dict_time: None,
+            suggest_ready: false,
         };
         engine.apply_config(&Config::default());
         // apply_config applies the config's method/mode; the caller wins here.
@@ -719,14 +752,25 @@ impl Engine {
         // the strip legacy-only. Rebuilt on every config apply, so a new
         // model or dictionary needs no engine restart.
         let model = crate::predict::locate_shared();
-        let mut rows = crate::suggest::builtin_rows_with(model.as_deref());
-        rows.extend(merge_user_entries(
-            Dictionary::load()
-                .words()
-                .map(|w| (w.to_string(), 0))
-                .collect(),
-        ));
-        self.suggest_table = SuggestTable::from_rows(rows);
+        let dict_time = file_time(Dictionary::path().as_deref());
+        let same_model = match (self.suggest_model.as_ref(), model.as_ref()) {
+            (Some(have), Some(want)) => std::sync::Arc::ptr_eq(have, want),
+            (None, None) => true,
+            _ => false,
+        };
+        if !self.suggest_ready || !same_model || self.suggest_dict_time != dict_time {
+            let mut rows = crate::suggest::cached_builtin_rows(model.as_ref());
+            rows.extend(merge_user_entries(
+                Dictionary::load()
+                    .words()
+                    .map(|w| (w.to_string(), 0))
+                    .collect(),
+            ));
+            self.suggest_table = SuggestTable::from_rows(rows);
+            self.suggest_model = model.clone();
+            self.suggest_dict_time = dict_time;
+            self.suggest_ready = true;
+        }
         self.model = model;
         self.wrapper.set_abbreviations(config.abbreviations);
         // Experimental master gate: the keep stays off while the gate is
@@ -739,6 +783,7 @@ impl Engine {
         // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
+        self.dodge_inline_autocomplete = experimental && config.dodge_inline_autocomplete;
         // Learning has no switch of its own: it rides the suggestion switch,
         // so an open strip always personalizes and a closed one touches
         // nothing.
@@ -936,7 +981,7 @@ impl Engine {
             if let Some(t) = self.last_inject {
                 if t.elapsed() > max {
                     debug_log::log(&format!(
-                        "injection echoes stale ({}ms) → drop {} pending",
+                        "ins ok=0 why=echo_stale ms={} n={}",
                         t.elapsed().as_millis(),
                         self.pending_injected
                     ));
@@ -971,7 +1016,7 @@ impl Engine {
     pub fn defer_commit(&mut self, n: u32, text: String) {
         let threshold = self.echoes_forwarded + n;
         debug_log::log(&format!(
-            "defer commit after {n} echoes len={}",
+            "buf commit=defer why=echoes n={n} len={}",
             text.chars().count()
         ));
         self.deferred.push((threshold, text));
@@ -989,7 +1034,7 @@ impl Engine {
         {
             let (_, text) = self.deferred.remove(0);
             debug_log::log(&format!(
-                "flush deferred commit len={}",
+                "buf commit=defer len={} how=flush",
                 text.chars().count()
             ));
             ready.push(text);
@@ -1006,7 +1051,7 @@ impl Engine {
             .drain(..)
             .map(|(_, text)| {
                 debug_log::log(&format!(
-                    "flush deferred commit (forced) len={}",
+                    "buf commit=defer len={} how=flush forced=1",
                     text.chars().count()
                 ));
                 text
@@ -1016,14 +1061,14 @@ impl Engine {
         // and nobody will tick for it — delivering late beats never.
         all.extend(self.timed_commits.drain(..).map(|(_, text)| {
             debug_log::log(&format!(
-                "flush deferred commit (timed, forced) len={}",
+                "buf commit=defer len={} how=timed forced=1",
                 text.chars().count()
             ));
             text
         }));
         if let Some((_, text)) = self.per_key_park.take() {
             debug_log::log(&format!(
-                "flush deferred commit (per-key, forced) len={}",
+                "buf commit=defer len={} how=per_key forced=1",
                 text.chars().count()
             ));
             all.push(text);
@@ -1069,7 +1114,7 @@ impl Engine {
     /// rewrite commit waits past the deletes it depends on.
     pub fn park_commit(&mut self, text: String, delay: Duration) {
         debug_log::log(&format!(
-            "park commit for {}ms len={}",
+            "buf commit=park ms={} len={}",
             delay.as_millis(),
             text.chars().count()
         ));
@@ -1281,24 +1326,63 @@ impl Engine {
         self.app_name.as_deref()
     }
 
+    /// Whether the compositor's own UI, not an app, currently holds the
+    /// keyboard — see the field docs.
+    pub fn set_shell_ui_focused(&mut self, focused: bool) {
+        self.shell_ui_focused = focused;
+    }
+
+    pub fn shell_ui_focused(&self) -> bool {
+        self.shell_ui_focused
+    }
+
+    /// Whether the focus extension answered this focus-in — see the field docs.
+    pub fn set_extension_answered(&mut self, answered: bool) {
+        self.extension_answered = answered;
+    }
+
+    pub fn extension_answered(&self) -> bool {
+        self.extension_answered
+    }
+
     /// Mode forced by an `AppRule` matching the focused client, if any.
     /// The rule target is `app_name` (the focus extension / X active window)
     /// when present, else the IBus client string. The special pattern `none`
     /// matches clients with neither — the only way to target them, since
     /// there is no name to substring-match.
     fn client_rule_mode(&mut self) -> Option<Mode> {
-        // Cache hit without cloning: both name sources compare by reference.
-        if let Some((cached_app, cached_client, mode)) = &self.rule_cache {
-            if self.app_name.as_deref() == cached_app.as_deref()
-                && self.client.as_deref() == cached_client.as_deref()
+        // Cache hit without cloning: every field compares by reference.
+        if let Some(cached) = &self.rule_cache {
+            if self.app_name.as_deref() == cached.app.as_deref()
+                && self.client.as_deref() == cached.client.as_deref()
+                && self.shell_ui_focused == cached.shell_ui
             {
-                return *mode;
+                return cached.mode;
             }
         }
-        let effective = self.app_name.as_deref().or(self.client.as_deref());
-        let resolved = crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from);
-        self.rule_cache = Some((self.app_name.clone(), self.client.clone(), resolved));
-        resolved
+        let effective = self.rule_target_name();
+        let mode = crate::config::app_rule_mode(&self.app_rules, effective).map(Mode::from);
+        self.rule_cache = Some(RuleCache {
+            app: self.app_name.clone(),
+            client: self.client.clone(),
+            shell_ui: self.shell_ui_focused,
+            mode,
+        });
+        mode
+    }
+
+    /// The name App Rules match against: the resolved app name, else the
+    /// client string — except a compositor relay, which names the shell only
+    /// while the extension says the shell's own UI holds the keyboard.
+    /// Without the extension that string is every relayed Wayland app, so a
+    /// rule for the shell would otherwise switch the whole desktop off.
+    fn rule_target_name(&self) -> Option<&str> {
+        if let Some(name) = self.app_name.as_deref() {
+            return Some(name);
+        }
+        let client = self.client.as_deref()?;
+        let relay = matches!(client, "gnome-shell" | "mutter");
+        (!relay || self.shell_ui_focused).then_some(client)
     }
 
     /// True when the focused app drops `DeleteSurroundingText`, so non-preedit
@@ -1325,6 +1409,16 @@ impl Engine {
     /// the focused client, so the relay race cannot arise. Also several
     /// clients silently drop the protocol delete, which used to duplicate
     /// words.
+    /// Whether a browser's inline completion is selected at our caret — the
+    /// experimental switch turned a selection report that starts exactly
+    /// where we left the caret into this evidence (see
+    /// `set_surrounding_with_anchor`). The protocol delete is the only
+    /// transport that reaches our own characters while that selection
+    /// stands, so every rewrite takes it.
+    fn autocomplete_selection(&self) -> bool {
+        self.dodge_inline_autocomplete && self.suggestions && self.protocol_delete_ok()
+    }
+
     fn deletes_allowed(&self) -> bool {
         self.protocol_delete_ok()
             || (self.uinput_available && (!self.injection_forbidden() || self.injection_relay_safe))
@@ -1401,7 +1495,7 @@ impl Engine {
                     self.flow_needs_backend = true;
                     if !self.flow_fallback_logged {
                         self.flow_fallback_logged = true;
-                        debug_log::log("flow without a backend → forward backspace");
+                        debug_log::log("del mode=forward why=no_backend");
                     }
                     Mode::ForwardBackspace
                 }
@@ -1610,7 +1704,7 @@ impl Engine {
                     // Without a transport the screen holds the raw keys (mark
                     // keys are raw-forwarded, so no tone can move), which is
                     // exactly what the wrapper's raw-key undo models.
-                    debug_log::log("backspace forwarded (no delete transport)");
+                    debug_log::log("del mode=forward why=no_transport");
                     self.tail = replace_tail(&self.tail, 1, "");
                     self.note_backspace_forwarded();
                     // The word the strip is showing changed (or is gone): the
@@ -1680,7 +1774,7 @@ impl Engine {
         let commit_preedit = self.preedit_visible || self.effective_mode() == Mode::Preedit;
         let pending = self.wrapper.output().to_string();
         debug_log::log(&format!(
-            "reset: preedit_visible={} pending={} commit_preedit={commit_preedit}",
+            "ctx reset preedit={} pending={} commit_preedit={commit_preedit}",
             self.preedit_visible,
             !pending.is_empty()
         ));
@@ -2385,7 +2479,7 @@ impl Engine {
     /// here would duplicate it. Only the internal composition is cleared,
     /// exactly like ibus-bamboo's `Reset`.
     pub fn on_client_reset(&mut self) -> Vec<Action> {
-        debug_log::log("client reset → drop the pending word");
+        debug_log::log("buf drop why=client_reset");
         self.drop_pending_word(true)
     }
 
@@ -2401,7 +2495,7 @@ impl Engine {
         // password field would quiet every later normal field until the
         // daemon happened to resend a ContentType.
         self.password_quiet = false;
-        debug_log::log("focus-out → drop the pending word, no signals");
+        debug_log::log("buf drop why=focus_out");
         self.drop_pending_word(false)
     }
 
@@ -2424,11 +2518,11 @@ impl Engine {
         // Parked commits past their deadline become deliverable here —
         // the main loop woke for exactly this deadline (ms_until_tick).
         for text in self.take_due_commits() {
-            debug_log::log(&format!("timed commit flush len={}", text.chars().count()));
+            debug_log::log(&format!("buf flush=timed len={}", text.chars().count()));
             actions.push(Action::Commit(text));
         }
         if let Some(action) = self.take_due_per_key_commit() {
-            debug_log::log("timed commit flush (per-key)");
+            debug_log::log("buf flush=per_key");
             actions.push(action);
         }
         // The Flow Backspace's correction: by now the user's own
@@ -2443,7 +2537,7 @@ impl Engine {
                 Instant::now() >= deadline + Duration::from_millis(Self::DEFERRED_FIX_MS * 4);
             if deadline <= Instant::now() && (!self.backspace_down || overdue) {
                 self.deferred_fix = None;
-                debug_log::log("deferred backspace fix: rewrite the region");
+                debug_log::log("del mode=backspace why=deferred_fix");
                 actions.extend(self.per_key_coalesce(want));
             }
         }
@@ -2484,7 +2578,7 @@ impl Engine {
             self.repair_delete = None;
             self.release_word_mode();
             self.idle_committed = Some((raw, encode(self.charset, &pending)));
-            debug_log::log(&format!("idle commit len={}", pending.chars().count()));
+            debug_log::log(&format!("buf commit=idle len={}", pending.chars().count()));
             actions.extend(finished);
             // The in-flight word is gone: close the strip with the commit
             // (the next word's first key would hide it only one key later).

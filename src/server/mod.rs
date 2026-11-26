@@ -43,6 +43,10 @@ mod tests;
 // The GUI hotkey recorder validates specs through crate::server::parse_hotkey;
 mod emoji_picker;
 mod picker;
+#[cfg(feature = "gui")]
+pub(crate) use hotkey::focus_extension_answers;
+#[cfg(feature = "gui")]
+pub(crate) use picker::focus_extension_path;
 
 // the lib build resolves the name inside hotkey itself, hence the allow.
 use self::emoji_picker::EmojiPickerState;
@@ -65,6 +69,10 @@ pub const FACTORY_IFACE: &str = "org.freedesktop.IBus.Factory";
 /// a mutter relay, and GNOME offers no other name source for them (Shell
 /// Introspect is denied; the wlroots protocol ibus-bamboo uses is absent).
 /// The settings window asks the same service for its focused-app chip.
+/// How long the focus path waits for the shell extension. Short enough that a
+/// missing extension costs one focus change nothing; the picker path, which is
+/// user-initiated, waits longer (`picker::PICKER_EXT_TIMEOUT_MS`).
+pub(crate) const FOCUS_EXT_TIMEOUT_MS: i32 = 300;
 pub(crate) const FOCUS_EXT_NAME: &str = "io.github.fundokukiri.Mangrs";
 pub(crate) const FOCUS_EXT_PATH: &str = "/io/github/fundokukiri/Mangrs";
 pub(crate) const FOCUS_EXT_IFACE: &str = "io.github.fundokukiri.Mangrs";
@@ -123,6 +131,7 @@ impl Server {
             bounce_deadline: None,
             stash: None,
             focus_ext: None,
+            props: Vec::new(),
         }));
         handler.borrow_mut().last_config_mtime = Config::path()
             .and_then(|p| std::fs::metadata(&p).ok())
@@ -242,9 +251,7 @@ impl Server {
                 // once (the drop is the gate).
                 if let Some(s) = stash {
                     if Instant::now() >= s.deadline {
-                        debug_log::log(
-                            "stashed rewrite dropped: no report within the reconcile window",
-                        );
+                        debug_log::log("st stash=drop why=no_report");
                         *stash = None;
                     }
                 }
@@ -369,6 +376,9 @@ struct EngineHandler {
     stash: Option<StashedRewrite>,
     /// Session-bus connection to the focus extension, created lazily.
     focus_ext: Option<Connection>,
+    /// The property list pushed to the panel at the last config reload: a
+    /// reload sends only what differs, so a knob no menu shows sends nothing.
+    props: Vec<ibus_prop::Prop>,
 }
 
 impl EngineHandler {
@@ -540,10 +550,10 @@ impl EngineHandler {
 
         // The extension round trip must not run under the engine mutex; the
         // naming step below decides whether the answer is actually used.
-        let ext_name = if matches!(member, "FocusIn" | "FocusInId") {
-            self.focus_extension_app()
+        let (ext_answered, ext_name) = if matches!(member, "FocusIn" | "FocusInId") {
+            self.focus_extension_app(FOCUS_EXT_TIMEOUT_MS)
         } else {
-            None
+            (false, None)
         };
 
         let mut engine = lock_engine(&self.engine);
@@ -569,9 +579,9 @@ impl EngineHandler {
                         // `set_surrounding_with_anchor` logs cursor/len on the
                         // decision tier.
                         debug_log::log_text(&format!(
-                            "surrounding cursor={cursor} tail={:?} text={:?}",
+                            "st text cursor={cursor} tail={:?} text={:?}",
                             brief(engine.tail()),
-                            brief(&s),
+                            brief(&s)
                         ));
                         // The text before the caret, taken before the report
                         // moves into the engine: the stashed rewrite
@@ -655,6 +665,8 @@ impl EngineHandler {
                 // Wayland clients arrive as `gnome-shell` and every XIM client
                 // as the hard-coded `xim`, which names no application at all —
                 // without this no App Rule can target a Java/XIM app.
+                engine.set_extension_answered(ext_answered);
+                engine.set_shell_ui_focused(ext_answered && ext_name.is_none());
                 if engine.relay_context() || engine.client_name_is_opaque() {
                     let resolved = ext_name
                         .map(|class| (class.clone(), format!("wayland:{class}")))
@@ -683,7 +695,11 @@ impl EngineHandler {
                 self.hotkeys = hotkey_registry(&config);
                 self.last_fire.clear();
                 if debug_log::enabled() {
-                    debug_log::log(&format!("focus-in client={:?}", engine.client()));
+                    debug_log::log(&format!(
+                        "ctx focus=in client={:?} app={:?}",
+                        engine.client(),
+                        engine.app_name()
+                    ));
                 }
                 // Re-select the injection backend next to the config apply:
                 // a new focus may follow an environment change (device ACL,
@@ -806,9 +822,9 @@ impl EngineHandler {
                     self.burst_buffer.clear();
                 }
                 debug_log::log(if member == "Disable" {
-                    "disable"
+                    "ctx focus=out cause=disable"
                 } else {
-                    "focus-out"
+                    "ctx focus=out cause=blur"
                 });
                 msg.method_return()
             }
@@ -830,7 +846,7 @@ impl EngineHandler {
                 // client has already committed the word by the time this
                 // arrives (GTK sends it on a mouse click, a focus change and a
                 // button press).
-                debug_log::log("reset from client");
+                debug_log::log("ctx reset cause=client");
                 for text in engine.flush_deferred() {
                     out.push(signal("CommitText").append1(plain_text(&text)));
                 }
@@ -846,7 +862,7 @@ impl EngineHandler {
             }
             "SetCapabilities" => {
                 if let Ok(caps) = msg.read1::<u32>() {
-                    debug_log::log(&format!("set-capabilities {caps:#b}"));
+                    debug_log::log(&format!("ctx caps={caps:#b}"));
                     engine.set_capabilities(caps);
                 }
                 msg.method_return()
@@ -937,14 +953,14 @@ fn preferred_kind(config: &Config) -> Option<Kind> {
 /// was set. Reads only — never decides anything.
 fn backend_selection_log(selected: Option<Kind>, preferred: Option<Kind>) -> String {
     let held = selected.map_or("none".to_string(), |k| k.label().to_string());
-    match preferred {
-        None => format!("injection backend: {held} (matrix)"),
-        Some(p) if Some(p) == selected => format!("injection backend: {held} (preferred)"),
-        Some(p) => format!(
-            "injection backend: {held} (fallback — {} denied)",
-            p.label()
-        ),
-    }
+    // `denied` is the one selection a reader has to explain: the preferred
+    // backend is installed but the environment refused it.
+    let (wanted, why) = match preferred {
+        None => ("none".to_string(), "matrix"),
+        Some(p) if Some(p) == selected => (p.label().to_string(), "preferred"),
+        Some(p) => (p.label().to_string(), "denied"),
+    };
+    format!("ctx backend={held} pref={wanted} why={why}")
 }
 
 /// One key event as `ProcessKeyEvent` carries it: keysym, evdev keycode,
@@ -1022,7 +1038,7 @@ fn process_key(
                 .select_with(&[Kind::Uinput], &constructors)
                 .is_some()
             {
-                debug_log::log("uinput arrived mid-session — backend selected");
+                debug_log::log("ctx backend=uinput why=late");
                 refresh_backend_flags(engine, injection);
             }
         }
@@ -1173,7 +1189,7 @@ fn process_key(
                 NavKeyWhilePreedit::Forward => {
                     // The commit signals above are already in `out`, so the
                     // reply-forwarded key cannot overtake them on the wire.
-                    debug_log::log("nav-key forward: commit and key ride one reply");
+                    debug_log::log("ins nav=forward reply=key_and_commit");
                     return false;
                 }
                 // The relay drops modifier state on forwarded keys (the
@@ -1183,7 +1199,7 @@ fn process_key(
                 NavKeyWhilePreedit::Replay if state & !keymap::RELEASE_MASK == 0 => {
                     if let Some(keycode) = nav_evdev_keycode(keyval) {
                         debug_log::log(&format!(
-                            "nav-key replay: keyval={keyval:#x} keycode={keycode} after the commit"
+                            "key replay=1 keyval={keyval:#x} keycode={keycode} after=commit"
                         ));
                         push_forward_keys(out, keyval, keycode, 0);
                         return true;
@@ -1191,9 +1207,7 @@ fn process_key(
                 }
                 _ => {}
             }
-            debug_log::log(
-                "navigation key consumed: preedit commit must land before the caret moves",
-            );
+            debug_log::log("key nav=consumed why=commit_first");
             return true;
         }
         return false;
@@ -1361,9 +1375,7 @@ impl BurstBuffer {
         if self.keys.len() >= BURST_BUFFER_CAP {
             if !self.overflow_logged {
                 self.overflow_logged = true;
-                debug_log::log(&format!(
-                    "burst buffer full ({BURST_BUFFER_CAP}): dropping keys typed during the rewrite burst"
-                ));
+                debug_log::log(&format!("buf ok=0 why=burst_full cap={BURST_BUFFER_CAP}"));
             }
             return;
         }
@@ -1500,7 +1512,7 @@ fn burst_watch_pass(engine: &mut Engine, burst: &mut BurstWatch, out: &mut Vec<M
         return;
     }
     debug_log::log(&format!(
-        "echo watchdog: burst lost, {} echoes never came back → flush parked commits",
+        "ins ok=0 why=burst_lost echoes={}",
         burst.expected_echoes()
     ));
     // Clear the burst counters through the existing stale machinery and
@@ -1562,7 +1574,7 @@ fn defer_focus_out_during_burst(
     }
     *stash = stash_in_flight_rewrite(engine);
     *bounce_deadline = Some(Instant::now() + Duration::from_millis(FOCUS_BOUNCE_MS));
-    debug_log::log("focus-out during a burst → reset deferred for the bounce window");
+    debug_log::log("ctx focus=out defer=reset why=burst");
     true
 }
 
@@ -1634,7 +1646,7 @@ fn resolve_focus_bounce_on_focus_in(
     };
     if Instant::now() < deadline && same_client {
         *stash = None;
-        debug_log::log("focus bounce: the context returned inside the window → burst resumed");
+        debug_log::log("ctx focus=back why=bounce");
         return true;
     }
     abort_deferred_focus_out(engine, burst, buffer);
@@ -1670,7 +1682,7 @@ fn abort_deferred_focus_out(engine: &mut Engine, burst: &mut BurstWatch, buffer:
     // window landed: a bounced focus keeps the keys, a real switch drops
     // them — the coordination note from Task 12's round.
     buffer.clear();
-    debug_log::log("focus bounce closed without the context → burst aborted, rewrite stashed");
+    debug_log::log("ctx focus=lost why=bounce stash=rewrite");
 }
 
 /// Chars of the common prefix of two strings — the same derivation
@@ -1697,7 +1709,7 @@ fn reconcile_stashed_rewrite(
         return;
     };
     if Instant::now() > s.deadline {
-        debug_log::log("stashed rewrite dropped: no report within the reconcile window");
+        debug_log::log("st stash=drop why=no_report");
         *stash = None;
         return;
     }
@@ -1706,7 +1718,7 @@ fn reconcile_stashed_rewrite(
     // the repair would fire its deletes and commit into the wrong document.
     if let (Some(held), Some(live)) = (&s.client, engine.client()) {
         if held != live {
-            debug_log::log("stashed rewrite dropped: it belongs to another context");
+            debug_log::log("st stash=drop why=other_context");
             *stash = None;
             return;
         }
@@ -1732,9 +1744,9 @@ fn reconcile_stashed_rewrite(
         // stashed tail once it lands.
         engine.reanchor_tail(s.tail.clone());
         engine.note_committed(&insert);
-        debug_log::log("stashed rewrite reconciled: report matches → repair emitted");
+        debug_log::log("st stash=repair why=matches");
     } else {
-        debug_log::log("stashed rewrite dropped: the report does not match the stashed state");
+        debug_log::log("st stash=drop why=mismatch");
     }
     *stash = None;
 }
@@ -1806,7 +1818,7 @@ fn emit_with(
                 // delete rather than dropping the deletion and leaving a
                 // commit deferred forever.
                 if (t.backspaces)(*n, bs_gap) {
-                    debug_log::log(&format!("delete-before inject={n}"));
+                    debug_log::log(&format!("del mode=protocol n={n} op=inject"));
                     injected_since_commit += *n;
                     injected_total += *n;
                 } else if engine.delete_dropped() {
@@ -1816,13 +1828,11 @@ fn emit_with(
                     // suppress the paired commit, and let the engine know —
                     // the mode walk serves the following words through the
                     // forwarded-Backspace transport.
-                    debug_log::log(
-                        "delete-before inject FAILED on a delete-dropping client → keep raw",
-                    );
+                    debug_log::log("del ok=0 mode=protocol why=inject_failed keep=raw");
                     engine.set_uinput_available(false);
                     delete_failed = true;
                 } else {
-                    debug_log::log(&format!("delete-before inject FAILED → protocol=-{n}"));
+                    debug_log::log(&format!("del ok=0 mode=protocol why=inject_failed n={n}"));
                     let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*n as i32)).append1(*n);
                     out.push(m);
@@ -1833,9 +1843,9 @@ fn emit_with(
                     // Defensive: the engine gates deletes on a surrounding
                     // report (or the direct-client opt-in); never let one slip
                     // to a buffer mutter never saw.
-                    debug_log::log(&format!("delete-before protocol DROPPED (no report) n={n}"));
+                    debug_log::log(&format!("del mode=protocol dropped=1 why=no_report n={n}"));
                 } else {
-                    debug_log::log(&format!("delete-before protocol=-{n}"));
+                    debug_log::log(&format!("del mode=protocol n={n}"));
                     // Signature is (iu): a plain signed offset, not a variant.
                     let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*n as i32)).append1(*n);
@@ -1850,13 +1860,13 @@ fn emit_with(
                 let presses = presses(*offset);
                 if (t.backspaces)(presses, bs_gap) {
                     debug_log::log(&format!(
-                        "delete-surrounding inject offset={offset} presses={presses}"
+                        "del mode=surrounding offset={offset} presses={presses}"
                     ));
                     injected_since_commit += presses;
                     injected_total += presses;
                 } else {
                     debug_log::log(&format!(
-                        "delete-surrounding inject FAILED → protocol offset={offset} n={n}"
+                        "del ok=0 mode=surrounding why=inject_failed offset={offset} n={n}"
                     ));
                     let mut m = signal("DeleteSurroundingText");
                     m = m.append1(*offset).append1(*n);
@@ -1866,12 +1876,10 @@ fn emit_with(
             Action::DeleteSurrounding { offset, n } => {
                 if !engine.surrounding_data_ok() {
                     debug_log::log(&format!(
-                        "delete-surrounding protocol DROPPED (no report) offset={offset} n={n}"
+                        "del mode=surrounding dropped=1 why=no_report offset={offset} n={n}"
                     ));
                 } else {
-                    debug_log::log(&format!(
-                        "delete-surrounding protocol offset={offset} n={n}"
-                    ));
+                    debug_log::log(&format!("del mode=surrounding offset={offset} n={n}"));
                     let mut m = signal("DeleteSurroundingText");
                     m = m.append1(*offset).append1(*n);
                     out.push(m);
@@ -1879,7 +1887,7 @@ fn emit_with(
             }
             Action::RewriteByBackspace { backspaces, commit } => {
                 if (t.backspaces)(*backspaces, bs_gap) {
-                    debug_log::log(&format!("rewrite-by-backspace n={backspaces}"));
+                    debug_log::log(&format!("del mode=backspace n={backspaces}"));
                     injected_since_commit += *backspaces;
                     injected_total += *backspaces;
                 } else if engine.delete_dropped() {
@@ -1887,13 +1895,11 @@ fn emit_with(
                     // protocol fallback pair would land nowhere and
                     // duplicate. Keep the raw text (the commit rides inside
                     // this action, so skipping the branch skips both).
-                    debug_log::log(
-                        "rewrite-by-backspace inject FAILED on a delete-dropping client → keep raw",
-                    );
+                    debug_log::log("del ok=0 mode=backspace why=inject_failed keep=raw");
                     engine.set_uinput_available(false);
                 } else {
                     debug_log::log(&format!(
-                        "rewrite-by-backspace inject FAILED → protocol delete={backspaces}"
+                        "del ok=0 mode=backspace why=inject_failed n={backspaces}"
                     ));
                     let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*backspaces as i32)).append1(*backspaces);
@@ -1940,19 +1946,17 @@ fn emit_with(
             // uinput modes' word-end rewrite: real Backspaces, paced.
             Action::InjectBackspaces(n) => {
                 if (t.backspaces)(*n, bs_gap) {
-                    debug_log::log(&format!("flow rewrite: inject backspaces n={n}"));
+                    debug_log::log(&format!("del mode=flow n={n} op=inject"));
                     injected_since_commit += *n;
                     injected_total += *n;
                 } else if engine.surrounding_data_ok() {
                     // Device lost mid-session: protocol delete as fallback.
-                    debug_log::log(&format!("flow rewrite inject FAILED → protocol -{n}"));
+                    debug_log::log(&format!("del ok=0 mode=flow why=inject_failed n={n}"));
                     let mut m = signal("DeleteSurroundingText");
                     m = m.append1(-(*n as i32)).append1(*n);
                     out.push(m);
                 } else {
-                    debug_log::log(&format!(
-                        "flow rewrite inject FAILED and no report: deletion dropped n={n}"
-                    ));
+                    debug_log::log(&format!("del ok=0 mode=flow why=no_report dropped=1 n={n}"));
                 }
             }
             // ForwardBackspace mode's delete transport: Backspace key events
@@ -1967,7 +1971,7 @@ fn emit_with(
             // and the display desynced). The pacing stays on the injected
             // Backspace transport only.
             Action::ForwardBackspaces(n) => {
-                debug_log::log(&format!("forward-backspaces n={n}"));
+                debug_log::log(&format!("del mode=forward n={n}"));
                 for _ in 0..*n {
                     push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
                 }
@@ -2191,7 +2195,7 @@ fn push_commit(
     injected_since_commit: &mut u32,
 ) {
     if std::mem::take(delete_failed) {
-        debug_log::log("commit suppressed: its rewrite delete was not deliverable");
+        debug_log::log("buf commit=suppressed why=no_delete");
     } else if *injected_since_commit > 0 {
         // The injected Backspaces travel through the compositor while this
         // commit would go straight over D-Bus — a synchronous commit here

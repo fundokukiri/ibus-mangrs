@@ -107,7 +107,9 @@ pub fn mode_label(mode: crate::config::ModeConfig, en: bool) -> &'static str {
         .unwrap_or("")
 }
 
-/// One item in the engine's property list.
+/// One item in the engine's property list. `Eq`-by-value is what lets the
+/// reload push only the items a config change actually touched.
+#[derive(PartialEq)]
 pub struct Prop {
     pub key: String,
     pub kind: u32,

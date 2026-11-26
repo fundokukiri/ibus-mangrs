@@ -18,6 +18,9 @@ tiên):
 Đổi chế độ ở menu bộ gõ, hàng _Chế độ gõ_ trong cửa sổ cài đặt, phím tắt xoay vòng, hoặc theo
 từng app qua **Luật theo app**.
 
+Cả năm chế độ luôn có mặt ở mọi nơi: menu bộ gõ, hàng chọn chế độ, luật theo app và phím tắt
+xoay vòng. File cấu hình cũ còn khoá `visible_modes` vẫn nạp bình thường và khoá đó bị bỏ qua.
+
 - **Flow** cần một backend bơm phím hoạt động (kernel `/dev/uinput` mặc định, hoặc giao thức
   virtual-keyboard của compositor trên Hyprland/wlroots); không có thì **Forward Backspace**
   gánh thay và engine tự xin lại backend sau một khoảng chờ.
@@ -27,20 +30,6 @@ từng app qua **Luật theo app**.
   `turbo`/`select`/`smoothforward` → `flow`, `forwardselect` và chính tả cũ `forwardkeyevent`
   → `forwardbackspace`, `defaulttyping` → `off`, `auto` → `preedit`. File cũ vẫn nạp, không có
   gì bị ghi đè ngầm.
-
-### Hiện/ẩn chế độ gõ
-
-Trang *Chung* của cửa sổ cài đặt có một công tắc cho từng chế độ (_Chế độ hiển thị_). Chế độ
-bị ẩn không chọn được ở đâu cả: rút khỏi hàng chế độ, bảng chọn luật theo app, menu panel và
-phím tắt xoay vòng, và engine không áp dụng nó làm chế độ chung hay chế độ luật. Cả năm chế độ
-mặc định đều hiện. Danh sách lưu trong `config.toml`:
-
-```toml
-visible_modes = ["preedit", "surrounding", "flow", "forwardbackspace", "off"]
-```
-
-File không có khoá này (nâng cấp từ bản cũ) giữ nguyên mọi chế độ đang dùng — chế độ chung và
-mọi chế độ luật được nối vào danh sách mặc định, không có gì bị ẩn ngầm.
 
 ## Kiểu gõ và bảng mã
 
@@ -71,8 +60,8 @@ có dấu thế nào:
 
 | Kiểu | Hành vi | Ví dụ |
 | --- | --- | --- |
-| **Xóa dấu trước** (mặc định) | một Backspace bỏ cả dấu | `hạ` → `ha` → `h` |
-| **Xóa cả dấu và chữ** | xoá ký tự cuối trên màn hình | `việt` → `việ` → `vi` |
+| **Xóa dấu trước** | một Backspace bỏ cả dấu | `hạ` → `ha` → `h` |
+| **Xóa cả dấu và chữ** (mặc định) | xoá ký tự cuối trên màn hình | `việt` → `việ` → `vi` |
 | **Unikey (lùi từng phím)** | hoàn tác phím gõ cuối | `hạ` `hã` `hả` `hà` `há` `ha` |
 
 Ở **Flow**, xóa vào phần kết thúc của từ đã hoàn thành là xoá thuần — **một Backspace xoá
@@ -146,6 +135,28 @@ phải phím tắt của MăngRS.
 - **Menu trên panel sửa được** (trang *Menu panel*): thư mục (một cấp), chức năng, ba nhóm
   chọn (Bảng mã / Kiểu gõ / Chế độ gõ), đường phân cách, sắp xếp, đổi tên, đặt lại về menu
   mặc định; thiết kế lưu trong `config.toml` và tới panel trong khoảng một giây.
-- **Cửa sổ cài đặt GTK4 + libadwaita** (12 trang, tiếng Việt hoặc tiếng Anh — hàng ở _Cài đặt
+- **Cửa sổ cài đặt GTK4 + libadwaita** (13 trang, tiếng Việt hoặc tiếng Anh — hàng ở _Cài đặt
   khác_ đổi ngôn ngữ): sửa gì cũng áp dụng sau khoảng 1 giây, không cần restart IBus, và toàn
   bộ thiết lập sao lưu ra một tệp JSON duy nhất.
+
+## Gỡ lỗi
+
+- **Trang _Gỡ lỗi_** (hiện ra khi bật một trong ba công tắc ở _Cài đặt nâng cao_) chia hai cột:
+  nhật ký bên trái, công cụ bên phải. Thanh trên cùng cho biết engine có đang chạy (PID, thời gian
+  chạy, phiên bản), độ trễ trung bình và lớn nhất của 200 phím gần nhất, và dung lượng tệp nhật ký.
+- **Nhật ký**: lọc theo chữ bất kỳ, lọc theo loại dòng (_Phím_, _Chèn_, _Xoá_, _Bộ đệm_, _Lỗi_), tạm
+  dừng cuộn, và _Xoá log_ (hỏi trước). Dòng mới tự hiện ở dưới cùng, cách dòng trên bao nhiêu
+  mili-giây, thuộc loại nào, và phím đã giải mã (`BackSpace (0xff08) thả`). Mỗi dòng mở đầu bằng
+  một tag ngắn (`st`, `ins`, `del`, `buf`, `key`, `ctx`, `cfg`, `ext`) rồi các trường `k=v`; dòng
+  lỗi mang `ok=0`, dòng lặp liên tiếp được gộp một lần kèm `rep=N` — nhờ vậy một câu hỏi chỉ cần
+  một lần `grep`.
+- **_Thử gõ_** là ô nhập đi qua IBus như mọi ứng dụng, nên nhật ký và hai số độ trễ chạy theo ngay;
+  dòng `buffer:` dưới ô cho biết nội dung ô và engine có đang soạn từ hay không.
+- **Cột phải** đọc như phần còn lại của cửa sổ: _Hệ thống_ (phiên bản IBus, extension, hệ điều
+  hành, kernel, DE/WM, phiên), _Cách chèn_ (chế độ gõ toàn cục, backend), _Tệp_ (`config.toml`,
+  `debug.log`). Hàng nào lệch nhau được tô màu cảnh báo kèm một câu chỉ việc; bấm một hàng là sao
+  chép giá trị của nó.
+- **_Sao chép báo cáo_** tạo Markdown để dán thẳng vào issue GitHub: mục _Cách tái hiện_ để trống
+  cho bạn điền, các hàng môi trường (chỉ hàng đáng xem), `config.toml` đang dùng và 50 dòng nhật ký
+  cuối. Công tắc _Ẩn nội dung gõ và macro khi sao chép_ thay chữ bạn gõ bằng `***`.
+- Tệp nhật ký nằm ở `~/.cache/ibus-mangrs/debug.log` và tự chuyển sang `debug.log.old` khi quá 5 MB.

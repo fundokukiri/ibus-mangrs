@@ -410,7 +410,7 @@ impl BambooWrapper {
         // this — their compositions are valid and never reverted.
         if self.abbrev && new_output == self.raw && self.raw.starts_with("dd") && self.raw.len() > 2
         {
-            debug_log::log("abbreviation reverted by auto_correct → keep the đ");
+            debug_log::log("buf guard=abbreviation kept=d_stroke");
             new_output = format!("đ{}", &self.raw[2..]);
             self.output_override = Some(new_output.clone());
             self.abbrev_fixed = true;
@@ -431,7 +431,7 @@ impl BambooWrapper {
                 || (new_output == format!("{prev}{c}")
                     && self.raw.chars().count() > prev.chars().count() + 1))
         {
-            debug_log::log("auto_correct reverted a complete syllable → keep it, key literal");
+            debug_log::log("buf guard=auto_correct kept=word key=literal");
             if new_output == self.raw {
                 new_output = format!("{prev}{c}");
             }
@@ -466,7 +466,7 @@ impl BambooWrapper {
             && new_output == self.raw
             && new_output != format!("{prev}{c}")
         {
-            debug_log::log("experimental keep: complete syllable survives a refused letter");
+            debug_log::log("buf exp=keep refused=1");
             new_output = format!("{prev}{c}");
             self.output_override = Some(new_output.clone());
             self.kept_composition = true;
@@ -479,7 +479,7 @@ impl BambooWrapper {
         // composed key and Backspace stay exact. Last of the guards: its
         // override wins, a hold is always raw.
         if repeat_raw {
-            debug_log::log("experimental raw repeat: held key stays literal");
+            debug_log::log("buf exp=raw_repeat held=1");
             new_output = format!("{prev}{c}");
             self.output_override = Some(new_output.clone());
         }
@@ -496,7 +496,7 @@ impl BambooWrapper {
     /// following key literal — so the caller returns right away.
     fn resync_after_commit(&mut self, c: char, word: String) -> String {
         debug_log::log(&format!(
-            "overflow boundary: word of {} chars committed, key starts a new word",
+            "buf overflow=commit word_len={}",
             word.chars().count()
         ));
         self.pending_commit = Some(word);
@@ -638,7 +638,7 @@ impl BambooWrapper {
         // resync below keeps the tracker on the raw text.
         if new_output.chars().count() > self.raw.chars().count() {
             debug_log::log(&format!(
-                "bamboo output longer than raw keys ({} > {}) → rebuild",
+                "buf rebuild why=longer out={} raw={}",
                 new_output.chars().count(),
                 self.raw.chars().count()
             ));
@@ -657,7 +657,7 @@ impl BambooWrapper {
         // exactly what the user sees on screen.
         if self.undo_in_word && edit.insert.chars().count() as i64 - edit.delete_chars as i64 > 1 {
             debug_log::log(&format!(
-                "bamboo delta grows {} chars net → rebuild",
+                "buf rebuild why=delta net={}",
                 edit.insert.chars().count() as i64 - edit.delete_chars as i64
             ));
             rebuilt = true;
@@ -738,7 +738,7 @@ impl BambooWrapper {
                     .iter()
                     .any(|d| is_marked(*d) || matches!(*d, 'đ' | 'Đ'))
             {
-                debug_log::log("mark undone in word");
+                debug_log::log("buf mark=undone");
                 self.undo_in_word = true;
             }
         }
