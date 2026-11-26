@@ -11,9 +11,10 @@ A Vietnamese input method engine for **IBus**, written in **Rust** on top of
 5 display modes, a GTK4 settings window, macros, an emoji picker at the caret and per-app
 rules.
 
-> Developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland; X11 smoke-tested).
-> The only hard requirements are IBus ≥ 1.5 and GTK4 + libadwaita — it should work wherever
-> IBus works. Reports from other distros are welcome.
+> Developed and tested on **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland). **X11 (Xorg) is
+> untested** — if you run an X11 session, a report with the debug log is welcome. The only hard
+> requirements are IBus ≥ 1.5 and GTK4 + libadwaita — it should work wherever IBus works. Reports
+> from other distros are welcome.
 
 The full feature list and the usage guide live in **[FEATURES.en.md](FEATURES.en.md)** — this
 file focuses on installation and troubleshooting.

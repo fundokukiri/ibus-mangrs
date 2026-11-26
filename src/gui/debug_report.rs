@@ -473,7 +473,7 @@ mod tests {
             .iter()
             .find(|c| c.label == "Phiên bản MăngRS")
             .expect("an install row");
-        assert_eq!(install.value, "v1.2.7", "the row names the version");
+        assert_eq!(install.value, "v1.2.8", "the row names the version");
         assert_eq!(install.status, Status::Warn);
         assert!(install
             .hint

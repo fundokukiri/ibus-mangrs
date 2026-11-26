@@ -10,9 +10,10 @@ Bộ gõ tiếng Việt cho **IBus**, viết bằng **Rust** trên nền
 [`bamboo-core`](https://crates.io/crates/bamboo-core). 9 kiểu gõ, 11 bảng mã, 5 chế độ gõ,
 cửa sổ cài đặt GTK4, gõ tắt, bảng chọn emoji tại con trỏ và luật riêng cho từng ứng dụng.
 
-> Phát triển và thử nghiệm trên **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland; X11 đã chạy
-> thử). Chỉ cần IBus ≥ 1.5 và GTK4 + libadwaita — nơi nào IBus chạy được thì bộ gõ này chạy
-> được. Rất mong phản hồi từ người dùng các distro khác.
+> Phát triển và thử nghiệm trên **Arch Linux** (IBus 1.5.34, GNOME 51, Wayland). **Chưa thử trên
+> X11** (Xorg) — nếu bạn chạy phiên X11, hãy gửi báo cáo kèm log. Chỉ cần IBus ≥ 1.5 và GTK4 +
+> libadwaita — nơi nào IBus chạy được thì bộ gõ này chạy được. Rất mong phản hồi từ người dùng các
+> distro khác.
 
 Toàn bộ tính năng và hướng dẫn sử dụng nằm ở **[FEATURES-vi.md](docs/FEATURES-vi.md)** — file này chỉ
 tập trung vào cài đặt và xử lý sự cố.
