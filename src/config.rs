@@ -1074,6 +1074,15 @@ impl Config {
         toml::Value::Table(kept).try_into().unwrap_or_default()
     }
 
+    /// Whether the engine writes the debug log: the pause switch keeps the
+    /// tiers saved and stops the file, so both fields together decide. One
+    /// place on purpose — the three apply sites (startup, engine start, hot
+    /// reload) each used to write the expression out, and the reload path
+    /// dropped the pause term, so the switch only took effect after a restart.
+    pub fn log_enabled(&self) -> bool {
+        self.debug_log && !self.debug_log_paused
+    }
+
     pub fn save(&self) -> std::io::Result<()> {
         let Some(path) = Self::path() else {
             return Err(std::io::Error::new(
@@ -1626,6 +1635,20 @@ children = ["preedit", "flow"]
         );
         assert_eq!(c.mode, ModeConfig::Preedit, "the good keys must survive");
         assert!(!c.auto_restore);
+    }
+
+    #[test]
+    fn the_pause_wins_over_the_master_log_switch() {
+        let mut c = Config::from_toml("debug_log = true\n");
+        assert!(c.log_enabled(), "tiers on, not paused: the file is written");
+        c.debug_log_paused = true;
+        assert!(
+            !c.log_enabled(),
+            "a paused log writes nothing while its tiers stay saved"
+        );
+        c.debug_log = false;
+        c.debug_log_paused = false;
+        assert!(!c.log_enabled(), "the master switch still turns it off");
     }
 
     #[test]

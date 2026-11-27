@@ -189,9 +189,12 @@ impl Server {
                 // deadlines: a lost burst must wake the loop on its own
                 // clock, not the 1s poll. The bounce deadline folds the same
                 // way: an expired bounce window aborts promptly.
-                let engine_ms = e.ms_until_tick().map_or(1000, |ms| ms.min(1000));
-                let watch_ms = handler.burst.ms_until().map_or(1000, |ms| ms.min(1000));
-                let bounce_ms = handler.bounce_deadline.map_or(1000, |d| {
+                // The idle cap is the config poll: sleeping longer than that
+                // would delay every toggle by the difference.
+                let poll = hotkey::CONFIG_POLL.as_millis() as u64;
+                let engine_ms = e.ms_until_tick().map_or(poll, |ms| ms.min(poll));
+                let watch_ms = handler.burst.ms_until().map_or(poll, |ms| ms.min(poll));
+                let bounce_ms = handler.bounce_deadline.map_or(poll, |d| {
                     d.saturating_duration_since(Instant::now())
                         .as_millis()
                         .max(1) as u64
@@ -692,7 +695,7 @@ impl EngineHandler {
                 }
                 // Pick up settings changed in the GUI since the last focus.
                 let config = Config::load();
-                debug_log::set_enabled(config.debug_log && !config.debug_log_paused);
+                debug_log::set_enabled(config.log_enabled());
                 debug_log::set_text_enabled(config.debug_log_text);
                 debug_log::set_keys_enabled(config.debug_log_keys);
                 // Direct field assignment: the engine guard held by this
