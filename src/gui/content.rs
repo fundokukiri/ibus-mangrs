@@ -443,9 +443,17 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     spacer.set_vexpand(true);
     sidebar_box.append(&spacer);
     sidebar_box.append(&about_list);
+    // The sidebar page needs its own header bar: a collapsed split view puts it
+    // inside a navigation view as the root page, and a page without one shows
+    // no window controls at all, so the close button vanished once the window
+    // was narrow enough to collapse (both desktops). AdwHeaderBar hides the
+    // buttons that do not belong to its edge and adds the back button itself.
+    let sidebar_toolbar = adw::ToolbarView::new();
+    sidebar_toolbar.add_top_bar(&adw::HeaderBar::new());
+    sidebar_toolbar.set_content(Some(&sidebar_box));
     let sidebar_page = adw::NavigationPage::builder()
         .title(&app_name)
-        .child(&sidebar_box)
+        .child(&sidebar_toolbar)
         .build();
 
     let page_overlay = gtk4::Overlay::new();

@@ -60,6 +60,7 @@ fn gtk_widget_scenarios() {
     toggling_off_releases_the_editor_caret();
     close_test_windows();
     the_debug_tab_follows_the_switch();
+    the_sidebar_page_carries_a_header_bar();
     the_debug_tab_row_appears_only_with_debug_mode();
     the_open_log_pane_picks_up_what_is_written();
     the_debug_page_opens_with_both_columns();
@@ -1171,6 +1172,39 @@ fn the_debug_tab_row_appears_only_with_debug_mode() {
         nav(&win, "debugging").is_some(),
         "the tab is there with debug mode on"
     );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// Both split-view pages carry a header bar. A collapsed split view shows the
+/// sidebar as the root page, so a sidebar without one loses the window controls
+/// — the close button disappeared as soon as the window got narrow.
+fn the_sidebar_page_carries_a_header_bar() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-sidebar-header")
+        .build();
+    Config {
+        debug_log: true,
+        ..Config::default()
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("typing"));
+    let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the shell is a split view");
+    for page in [split.sidebar(), split.content()] {
+        let page = page.expect("both pages exist");
+        let toolbar = page
+            .child()
+            .and_downcast::<adw::ToolbarView>()
+            .expect("each page is a toolbar view");
+        assert!(
+            !descendants::<adw::HeaderBar>(toolbar.upcast_ref()).is_empty(),
+            "a page without a header bar shows no close button when collapsed"
+        );
+    }
     win.close();
     Config::default().save().expect("config back off");
 }

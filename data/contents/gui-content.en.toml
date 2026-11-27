@@ -42,7 +42,6 @@ section_try = "Try typing"
 debug_open_folder = "Open folder"
 debug_clear_log = "Delete log"
 debug_log_pause = "Pause log"
-debug_log_resume = "Resume log"
 debug_copy_report = "Copy report"
 debug_filter_placeholder = "Filter lines"
 debug_pause = "Pause scrolling"
@@ -738,8 +737,8 @@ selected_hint = "IBus is running another engine. Pick MăngRS in the input metho
 [rows.debug_transport]
 title = "Backend in use"
 none = "not in the log yet"
-auto_note = "Auto currently falls back to"
-auto_hint = "Set a per-application rule if typing misbehaves in one app."
+denied_note = "This machine cannot build the chosen insertion backend, using"
+denied_hint = "Pick Automatic to let the engine follow the session it runs in."
 
 [rows.debug_machine]
 os = "Operating system"

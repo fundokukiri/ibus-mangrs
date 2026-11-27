@@ -44,7 +44,6 @@ section_try = "Thử gõ"
 debug_open_folder = "Mở thư mục"
 debug_clear_log = "Xoá log"
 debug_log_pause = "Tạm dừng ghi log"
-debug_log_resume = "Ghi log tiếp"
 debug_copy_report = "Sao chép báo cáo"
 debug_filter_placeholder = "Lọc dòng"
 debug_pause = "Tạm dừng cuộn"
@@ -742,8 +741,8 @@ selected_hint = "IBus đang chạy engine khác. Chọn MăngRS trong menu bộ 
 [rows.debug_transport]
 title = "Backend thực tế"
 none = "chưa thấy trong log"
-auto_note = "Cách chèn auto đang rơi về"
-auto_hint = "Đặt luật theo app nếu gõ lỗi ở một ứng dụng."
+denied_note = "Máy này không dựng được cách chèn đã chọn, đang dùng"
+denied_hint = "Chọn Tự động để bộ gõ tự đi theo phiên đang đăng nhập."
 
 [rows.debug_machine]
 os = "Hệ điều hành"
