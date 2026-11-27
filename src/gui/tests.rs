@@ -112,6 +112,7 @@ fn gtk_widget_scenarios() {
         None => std::env::remove_var("XDG_CONFIG_HOME"),
     }
     close_test_windows();
+    the_empty_log_pane_keeps_polling_for_new_lines();
     the_window_controls_survive_a_narrow_window();
 }
 
@@ -2356,4 +2357,65 @@ fn a_save_only_rewrites_the_list_that_changed() {
         parse_macros("gs = giờ sáng\n= hỏng\nxx =\n"),
         vec![("gs".to_string(), "giờ sáng".to_string())]
     );
+}
+
+/// An empty pane shows the status page, which unmaps the text view. Gating the
+/// poll on the view therefore stopped it: after "Xoá log" the first line the
+/// engine wrote never arrived, and a filter that matched nothing could never
+/// fill again.
+fn the_empty_log_pane_keeps_polling_for_new_lines() {
+    let dir = crate::debug_log::TempLogDir::new("empty-log-poll");
+    let path = dir.dir().join("debug.log");
+    std::fs::write(&path, "").expect("an empty log");
+    let ui = widgets();
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    let overlay = pages::debug::build(&ui);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = None;
+
+    let win = gtk4::Window::builder()
+        .default_width(1180)
+        .default_height(740)
+        .build();
+    win.set_child(Some(&overlay));
+    win.present();
+    let pump = |ms: u64| {
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < end {
+            while gtk4::glib::MainContext::default().iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    for _ in 0..300 {
+        while gtk4::glib::MainContext::default().iteration(false) {}
+        if win.width() > 1 && overlay.is_mapped() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    pump(600);
+    {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("the log file");
+        file.write_all(b"1795619563000 ctx appeared=1\n")
+            .expect("a write");
+    }
+    // One poll every 400 ms: two of them, plus room for the redraw.
+    pump(1100);
+    let text = descendants::<gtk4::TextView>(overlay.upcast_ref())
+        .first()
+        .map(|view| {
+            let buffer = view.buffer();
+            buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string()
+        })
+        .unwrap_or_default();
+    assert!(
+        text.contains("appeared=1"),
+        "the first line after an empty pane reaches it: {text:?}"
+    );
+    win.close();
 }

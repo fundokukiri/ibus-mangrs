@@ -405,7 +405,10 @@ pub(super) fn report(sections: &[Section], config: &[String], log: &[String]) ->
     if !config.is_empty() {
         out.push_str(&format!(
             "\n### {}\n\n```toml\n{}\n```\n",
-            t("debug_report.config_section", "config.toml đang nạp"),
+            t(
+                "debug_report.config_section",
+                "config.toml (chỉ mục khác mặc định)"
+            ),
             config.join("\n")
         ));
     }

@@ -687,10 +687,15 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     {
         // Re-pin when the text view grows: at the moment render() appends, the
         // adjustment still reports the old height, so one scroll inside
-        // render() lands above the newest line and the log looks frozen.
+        // render() lands above the newest line and the log looks frozen. The
+        // scroll switch has the last word: a reader who stopped the pane keeps
+        // the lines they were reading.
         let adj = scroller.vadjustment();
+        let follow = follow.clone();
         adj.connect_changed(move |adj| {
-            adj.set_value(adj.upper() - adj.page_size());
+            if follow.is_active() {
+                adj.set_value(adj.upper() - adj.page_size());
+            }
         });
     }
     {
@@ -940,11 +945,15 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         }
         {
             let poll = Rc::clone(&poll);
-            let view = view.clone();
+            // The STACK, never the text view: an empty or paused log shows the
+            // status page instead, which leaves the view unmapped — and a poll
+            // gated on the view stopped there, so the first line written after a
+            // clear (or after a filter matched nothing) never reached the pane.
+            let stack = stack.clone();
             // Four times a second: a poll is a stat plus the bytes that
             // arrived, and a whole second of lag reads as a frozen log.
             gtk4::glib::timeout_add_local(std::time::Duration::from_millis(400), move || {
-                if view.is_mapped() {
+                if stack.is_mapped() {
                     poll(false);
                 }
                 gtk4::glib::ControlFlow::Continue
@@ -1019,15 +1028,38 @@ fn report_log_lines(path: Option<&std::path::Path>, hide_text: bool) -> Vec<Stri
     }
 }
 
-/// What `config.toml` held, line by line: the report quotes the file the
-/// engine actually loaded rather than what the widgets currently show.
+/// What `config.toml` held, minus everything that is already the default: the
+/// report quotes the file the engine actually loaded rather than what the
+/// widgets show, and a pasted dump of sixty unchanged keys buries the three
+/// that explain the bug.
 fn config_lines(ui: &Rc<Ui>) -> Vec<String> {
-    if let Some(text) = Config::path().and_then(|p| std::fs::read_to_string(p).ok()) {
-        return text.lines().map(|l| l.to_string()).collect();
-    }
-    toml::to_string_pretty(&ui.read())
-        .map(|text| text.lines().map(|l| l.to_string()).collect())
-        .unwrap_or_default()
+    let text = Config::path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .or_else(|| toml::to_string_pretty(&ui.read()).ok())
+        .unwrap_or_default();
+    let defaults = toml::to_string_pretty(&Config::default()).unwrap_or_default();
+    changed_config_lines(&text, &defaults)
+}
+
+/// The lines of `text` whose key is missing from `defaults` or holds a different
+/// value. Comments and blank lines go: they say nothing about this install.
+fn changed_config_lines(text: &str, defaults: &str) -> Vec<String> {
+    let by_key: std::collections::HashMap<&str, &str> = defaults
+        .lines()
+        .filter_map(|line| line.split_once(" = "))
+        .map(|(key, value)| (key.trim(), value.trim()))
+        .collect();
+    text.lines()
+        .filter(|line| {
+            let line = line.trim();
+            !line.is_empty() && !line.starts_with('#')
+        })
+        .filter(|line| match line.split_once(" = ") {
+            Some((key, value)) => by_key.get(key.trim()) != Some(&value.trim()),
+            None => true,
+        })
+        .map(|line| line.trim_end().to_string())
+        .collect()
 }
 
 /// The macro table as the report carries it.
@@ -1319,6 +1351,21 @@ mod tests {
         );
         assert_eq!(junk.len(), 1, "a line without a timestamp still shows");
         assert_eq!(junk[0].rel_ms, None, "it just has no gap to report");
+    }
+
+    #[test]
+    fn the_report_carries_only_the_settings_that_differ() {
+        let defaults = "mode = \"preedit\"\nlanguage = \"vi\"\n";
+        let file = "# a comment\n\nmode = \"preedit\"\nlanguage = \"en\"\nspell_check = true\n";
+        let kept = changed_config_lines(file, defaults);
+        assert_eq!(
+            kept,
+            vec![
+                "language = \"en\"".to_string(),
+                "spell_check = true".to_string()
+            ],
+            "the unchanged key and the comment are dropped: {kept:?}"
+        );
     }
 
     #[test]
