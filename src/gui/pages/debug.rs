@@ -377,11 +377,12 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // Without this the column's natural width is its longest label, and the box
     // would hand it half the page.
     side.set_propagate_natural_width(false);
+    // The facts take whatever height the actions leave: they are the part that
+    // may need to scroll.
     side.set_vexpand(true);
 
     let body = gtk4::Box::new(Orientation::Horizontal, 14);
     body.add_css_class("diag-body");
-    body.set_vexpand(true);
     body.append(&log_column);
 
     // --- Actions ------------------------------------------------------------
@@ -447,7 +448,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let side_column = gtk4::Box::new(Orientation::Vertical, 10);
     side_column.set_width_request(super::debug_tools::SIDE_WIDTH);
     side_column.set_hexpand(false);
-    side_column.set_vexpand(true);
+    // Not expanding: the column is exactly as tall as the page's tallest column,
+    // so its actions bottom ends level with the typing test instead of dropping
+    // to the window's edge.
+    side_column.set_vexpand(false);
     side_column.append(&side);
     side_column.append(&actions_card);
     body.append(&side_column);
@@ -462,7 +466,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     page.set_margin_bottom(14);
     page.set_margin_start(24);
     page.set_margin_end(24);
-    page.set_vexpand(true);
+    // Top-aligned and as tall as its content: the height the log gave up stays
+    // below the whole page, never between the log and the typing test.
+    page.set_valign(gtk4::Align::Start);
     page.append(&head);
     page.append(&body);
 
@@ -773,7 +779,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 } else {
                     body.set_orientation(Orientation::Horizontal);
                     side_column.set_width_request(super::debug_tools::SIDE_WIDTH);
-                    side_column.set_vexpand(true);
+                    side_column.set_vexpand(false);
                     side.set_propagate_natural_height(false);
                     side.set_vexpand(true);
                     log_column.set_vexpand(false);

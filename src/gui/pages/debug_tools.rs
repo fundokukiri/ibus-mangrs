@@ -385,18 +385,28 @@ fn tile(cell: &Cell) -> gtk4::Widget {
     // would otherwise end in an ellipsis that says nothing.
     value.set_wrap(true);
     value.set_tooltip_text(Some(cell.hint.as_deref().unwrap_or(&cell.value)));
-    if cell.id == "extension" {
-        value.add_css_class(match cell.status {
-            Status::Ok => "diag-ok",
-            Status::Warn => "diag-warn-text",
-            Status::Info => "diag-ok",
-        });
+    if let Some(class) = value_class(cell) {
+        value.add_css_class(class);
     }
     line.append(&value);
     tile.append(&line);
     let accessible = format!("{}: {}", cell.label, cell.value);
     tile.update_property(&[gtk4::accessible::Property::Label(&accessible)]);
     tile.upcast()
+}
+
+/// Which values are drawn in a colour of their own: the three the column reports
+/// as fine, and the extension when it is not.
+fn value_class(cell: &Cell) -> Option<&'static str> {
+    match cell.id {
+        "extension" => Some(match cell.status {
+            Status::Ok => "diag-ok",
+            Status::Warn => "diag-warn-text",
+            Status::Info => "diag-ok",
+        }),
+        "kernel" | "session" => Some("diag-ok"),
+        _ => None,
+    }
 }
 
 /// Which facts carry a dot. The extension's dot says whether it runs; the kernel
