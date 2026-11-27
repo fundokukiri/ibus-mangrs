@@ -34,12 +34,12 @@ pub(super) const TOOLS_CSS: &str = "
   color: @error_color;
 }
 /* The cards of this column, and the log beside them. */
-.diag-card { padding: 10px; }
+.diag-card { padding: 8px; }
 /* One fact: name over value, a shade lighter than the card it sits on. */
 .diag-tile {
   background-color: alpha(@view_fg_color, 0.06);
   border-radius: 8px;
-  padding: 5px 8px;
+  padding: 4px 8px;
 }
 /* A file row: the name, and a button for the full path. */
 .diag-file {
@@ -80,7 +80,7 @@ pub(super) const TOOLS_CSS: &str = "
 /// The column's fixed parts, so the page can wire the typing test and re-read
 /// the facts without rebuilding the window.
 pub(super) struct Tools {
-    pub body: gtk4::Widget,
+    pub body: gtk4::Box,
     /// The typing test. The page puts it under the log, because that is what it
     /// exercises.
     pub try_box: gtk4::Widget,
@@ -96,7 +96,8 @@ pub(super) fn build(
     overlay: &adw::ToastOverlay,
     facts: Rc<dyn Fn() -> Vec<Section>>,
 ) -> Tools {
-    let body = gtk4::Box::new(Orientation::Vertical, 12);
+    let body = gtk4::Box::new(Orientation::Vertical, 10);
+    body.add_css_class("diag-side");
     body.set_width_request(SIDE_WIDTH);
 
     // --- Thử gõ -----------------------------------------------------------
@@ -156,7 +157,7 @@ pub(super) fn build(
     system_card.append(&heading(&t("misc.section_system", "Hệ thống")));
     let grid = gtk4::Grid::builder()
         .column_spacing(8)
-        .row_spacing(8)
+        .row_spacing(6)
         .build();
     grid.set_hexpand(true);
     system_card.append(&grid);
@@ -169,7 +170,7 @@ pub(super) fn build(
     insert_card.append(&heading(&t("misc.section_insert", "Cách chèn")));
     let insert_grid = gtk4::Grid::builder()
         .column_spacing(8)
-        .row_spacing(8)
+        .row_spacing(6)
         .build();
     insert_grid.set_hexpand(true);
     insert_card.append(&insert_grid);
@@ -178,7 +179,7 @@ pub(super) fn build(
     // --- Tệp --------------------------------------------------------------
     let files_card = card();
     files_card.append(&heading(&t("misc.section_files", "Tệp")));
-    let files_box = gtk4::Box::new(Orientation::Vertical, 6);
+    let files_box = gtk4::Box::new(Orientation::Vertical, 4);
     files_card.append(&files_box);
     body.append(&files_card);
 
@@ -213,7 +214,7 @@ pub(super) fn build(
     };
     refresh();
     Tools {
-        body: body.upcast(),
+        body,
         try_box: try_card.upcast(),
         composing,
         refresh,

@@ -1613,11 +1613,23 @@ fn the_debug_page_shows_the_status_the_facts_and_the_action_bar() {
         "the kinds are buttons, not a menu"
     );
     let toggles = descendants::<gtk4::ToggleButton>(overlay.upcast_ref());
-    assert_eq!(toggles.len(), 6, "Tất cả and the five kinds");
+    let kinds: Vec<&gtk4::ToggleButton> =
+        toggles.iter().filter(|btn| btn.label().is_some()).collect();
+    assert_eq!(kinds.len(), 6, "Tất cả and the five kinds");
     assert!(
-        toggles.iter().any(|btn| btn.is_active()),
+        kinds.iter().any(|btn| btn.is_active()),
         "one kind is always in force"
     );
+    // The scroll switch sits beside the delete button and starts on: the pane
+    // follows the newest line until the reader says otherwise.
+    let follow = toggles
+        .iter()
+        .find(|btn| {
+            btn.icon_name()
+                .is_some_and(|icon| icon.contains("pause") || icon.contains("play"))
+        })
+        .expect("the scroll switch");
+    assert!(follow.is_active(), "following is the default");
     // A card each: the engine's state, the typing test, the three blocks, and
     // the action bar across the bottom. The log sits in its own pane.
     let cards = descendants::<gtk4::Box>(overlay.upcast_ref())

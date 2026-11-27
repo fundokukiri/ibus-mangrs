@@ -44,6 +44,19 @@ const FILTERS: [Option<Kind>; 6] = [
     Some(Kind::Error),
 ];
 
+/// How much of the height the page has left the log pane takes on a wide
+/// window. The rest is left open, so the pane reads as a window onto the log
+/// rather than as a wall of text.
+const LOG_SHARE: f64 = 0.8;
+
+/// The log pane's height when the column is stacked: the page scrolls there, and
+/// a pane sized to its content would be a few lines tall.
+const STACKED_LOG_HEIGHT: i32 = 320;
+
+/// Vertical gaps inside the log column, measured in spacing and margins rather
+/// than guessed wide.
+const LOG_COLUMN_GAPS: i32 = 24;
+
 /// Tallest bar of the header's sparkline, in pixels.
 const SPARK_HEIGHT: i32 = 18;
 
@@ -151,6 +164,17 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         "Gõ một phần nội dung để lọc, không phân biệt hoa thường.",
     )));
     let clear_btn = icon_button("user-trash-symbolic", &t("misc.debug_clear_log", "Xoá log"));
+    // Follows the newest line, and stops when the reader wants the old ones:
+    // reading a stack while the pane jumps is what this switch is for.
+    let follow = gtk4::ToggleButton::new();
+    follow.set_icon_name("media-playback-pause-symbolic");
+    follow.set_active(true);
+    follow.add_css_class("flat");
+    set_button_label(
+        &follow,
+        &t("misc.debug_follow", "Dừng cuộn"),
+        &t("misc.debug_follow", "Dừng cuộn"),
+    );
     let toolbar = gtk4::Box::new(Orientation::Horizontal, 8);
     toolbar.set_margin_top(10);
     toolbar.set_margin_start(10);
@@ -158,6 +182,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     toolbar.set_margin_bottom(8);
     toolbar.append(&filter_entry);
     toolbar.append(&clear_btn);
+    toolbar.append(&follow);
 
     // One linked group of toggles instead of a dropdown: the kinds are few, and
     // a dropdown hid both the choices and the kind in force.
@@ -346,20 +371,17 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
         .child(&tools.body)
         .build();
-    side.set_width_request(super::debug_tools::SIDE_WIDTH);
     // Without this the column's natural width is its longest label, and the box
     // would hand it half the page.
     side.set_propagate_natural_width(false);
-    side.set_hexpand(false);
     side.set_vexpand(true);
 
     let body = gtk4::Box::new(Orientation::Horizontal, 14);
     body.add_css_class("diag-body");
     body.set_vexpand(true);
     body.append(&log_column);
-    body.append(&side);
 
-    // --- Action bar -------------------------------------------------------
+    // --- Actions ------------------------------------------------------------
     let restart_btn =
         super::widgets::action_button(None, &t("misc.restart_button", "Khởi động lại IBus"));
     restart_btn.set_tooltip_text(Some(&t(
@@ -372,7 +394,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     );
     copy_btn.add_css_class("suggested-action");
     for btn in [&restart_btn, &copy_btn] {
-        btn.set_size_request(-1, 34);
+        btn.set_size_request(-1, 30);
     }
     // Remembered like the pause switch: the window opens the way it was left,
     // and the default stays on.
@@ -393,30 +415,48 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     )));
     hide_label.set_xalign(0.0);
     hide_label.set_hexpand(true);
+    hide_label.add_css_class("caption");
+    // Wrapped: on one line this label decides the column's width, and the log
+    // pays for it.
+    hide_label.set_wrap(true);
+    // A wrapped label still asks for its whole text in its natural width, which
+    // would widen the column past the log's share.
+    hide_label.set_max_width_chars(22);
     let hide_group = gtk4::Box::new(Orientation::Horizontal, 10);
     hide_group.set_valign(gtk4::Align::Center);
     hide_group.set_hexpand(true);
     hide_group.append(&hide_switch);
     hide_group.append(&hide_label);
-    let actions = gtk4::Box::new(Orientation::Horizontal, 8);
-    actions.append(&restart_btn);
-    actions.append(&copy_btn);
-    let footer = gtk4::Box::new(Orientation::Horizontal, 12);
-    footer.add_css_class("card");
-    footer.add_css_class("diag-card");
-    footer.set_margin_top(2);
-    footer.set_margin_bottom(18);
-    footer.set_margin_start(24);
-    footer.set_margin_end(24);
-    footer.append(&hide_group);
-    footer.append(&actions);
+    // One row each, full width, in a card of their own at the foot of the facts:
+    // three controls of different kinds stacked read faster than two rows of
+    // buttons of different widths.
+    for btn in [&restart_btn, &copy_btn] {
+        btn.set_hexpand(true);
+    }
+    let actions_card = gtk4::Box::new(Orientation::Vertical, 6);
+    actions_card.add_css_class("card");
+    actions_card.add_css_class("diag-card");
+    actions_card.append(&hide_group);
+    actions_card.append(&restart_btn);
+    actions_card.append(&copy_btn);
+    // The facts scroll if they must; the actions never do. A button half under
+    // the window's edge is worse than three facts one scroll away.
+    let side_column = gtk4::Box::new(Orientation::Vertical, 10);
+    side_column.set_width_request(super::debug_tools::SIDE_WIDTH);
+    side_column.set_hexpand(false);
+    side_column.set_vexpand(true);
+    side_column.append(&side);
+    side_column.append(&actions_card);
+    body.append(&side_column);
 
     // --- The page ---------------------------------------------------------
-    let page = gtk4::Box::new(Orientation::Vertical, 14);
+    let page = gtk4::Box::new(Orientation::Vertical, 10);
+    page.add_css_class("diag-page");
     // The same breathing room every other tab gets: their preferences page
     // centres a column and keeps it off the window edges, and a page that runs
     // edge to edge reads as a different application.
-    page.set_margin_top(18);
+    page.set_margin_top(14);
+    page.set_margin_bottom(14);
     page.set_margin_start(24);
     page.set_margin_end(24);
     page.set_vexpand(true);
@@ -425,7 +465,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // The page never scrolls while the two columns fit; the stacked column
     // below `NARROW_WIDTH` is taller than the window, and this keeps it
-    // reachable. The action bar stays out of it, so it is always in reach.
+    // reachable.
     let clamp = adw::Clamp::new();
     clamp.set_maximum_size(MAX_PAGE_WIDTH);
     clamp.set_tightening_threshold(MAX_PAGE_WIDTH);
@@ -436,9 +476,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         .child(&clamp)
         .vexpand(true)
         .build();
-    let root = gtk4::Box::new(Orientation::Vertical, 0);
-    root.append(&outer);
-    root.append(&footer);
 
     // --- Rendering --------------------------------------------------------
     let render: Rc<dyn Fn()> = {
@@ -457,6 +494,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let bars = bars.clone();
         let composing_label = tools.composing.clone();
         let clear_btn = clear_btn.clone();
+        let follow = follow.clone();
         let path = path.clone();
         Rc::new(move || {
             let cache = parsed.borrow();
@@ -495,8 +533,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 stack.set_visible_child_name("empty");
             } else {
                 stack.set_visible_child_name("log");
-                let adj = scroller.vadjustment();
-                adj.set_value(adj.upper() - adj.page_size());
+                if follow.is_active() {
+                    let adj = scroller.vadjustment();
+                    adj.set_value(adj.upper() - adj.page_size());
+                }
             }
             // The two latency numbers and the bars behind them come from the
             // same walk over the log.
@@ -676,12 +716,23 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         });
     }
     {
-        // A narrow window stacks the column instead of squeezing both. The
-        // footer stays where it is: it is the page's own action bar.
+        // A narrow window stacks the column instead of squeezing both, and the
+        // log keeps four fifths of the height the page has left: on a maximised
+        // window a pane that fills every pixel buries the typing test under the
+        // fold and reads as an unbroken wall.
         let body = body.clone();
         let side = side.clone();
+        let side_column = side_column.clone();
         let log_column = log_column.clone();
+        let stack_ref = stack.clone();
+        let toolbar_ref = toolbar.clone();
+        let filter_row_ref = filter_row.clone();
+        let try_box_ref = tools.try_box.clone();
         let page_ref = page.clone();
+        // Measured against the window, never against the page: the page grows
+        // with the pane, so asking the page would feed the pane its own height.
+        let viewport = outer.clone();
+        let head_ref = head.clone();
         let laid_out = Rc::new(Cell::new(false));
         let state = Rc::clone(&laid_out);
         // A tick callback runs on every frame and keeps the window redrawing
@@ -694,18 +745,39 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 state.set(narrow);
                 if narrow {
                     body.set_orientation(Orientation::Vertical);
-                    side.set_width_request(-1);
+                    side_column.set_width_request(-1);
+                    side_column.set_vexpand(false);
                     side.set_vexpand(false);
                     // Stacked, the column takes its own height and the page
                     // scrolls, instead of squeezing it into a few pixels.
                     side.set_propagate_natural_height(true);
                     log_column.set_vexpand(false);
+                    // Stacked, the log takes a fixed slice and the page scrolls.
+                    stack_ref.set_vexpand(false);
+                    stack_ref.set_height_request(STACKED_LOG_HEIGHT);
                 } else {
                     body.set_orientation(Orientation::Horizontal);
-                    side.set_width_request(super::debug_tools::SIDE_WIDTH);
+                    side_column.set_width_request(super::debug_tools::SIDE_WIDTH);
+                    side_column.set_vexpand(true);
                     side.set_propagate_natural_height(false);
                     side.set_vexpand(true);
-                    log_column.set_vexpand(true);
+                    log_column.set_vexpand(false);
+                    stack_ref.set_vexpand(false);
+                }
+            }
+            if !narrow {
+                let used = toolbar_ref.height()
+                    + filter_row_ref.height()
+                    + try_box_ref.height()
+                    + LOG_COLUMN_GAPS;
+                let room = viewport.height().max(page_ref.height())
+                    - page_ref.margin_top()
+                    - page_ref.margin_bottom()
+                    - head_ref.height()
+                    - LOG_COLUMN_GAPS;
+                let wanted = (((room - used).max(80) as f64) * LOG_SHARE) as i32;
+                if (stack_ref.height_request() - wanted).abs() > 6 {
+                    stack_ref.set_height_request(wanted);
                 }
             }
             gtk4::glib::ControlFlow::Continue
@@ -861,7 +933,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // One draw before the window appears, so the status card is never blank.
     render();
-    toast_overlay.set_child(Some(&root));
+    toast_overlay.set_child(Some(&outer));
     toast_overlay
 }
 
