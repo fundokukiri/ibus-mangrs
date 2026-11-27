@@ -1,71 +1,88 @@
-//! The right-hand column of the debug page: the typing test, then the
-//! diagnostics as preferences groups. A row carries a status dot, a label, the
-//! value on its right and, when something is off, a line saying what to do —
-//! clicking a row copies its value, and a file row also has a button to open
-//! its folder. The groups are the window's own row widgets, so this column
-//! reads like every settings tab instead of a hand-drawn list.
+//! The right-hand column of the debug page: the typing test, four rows of facts
+//! about this install, and the two files the report carries. Every card is the
+//! window's own `card` style, so the column reads like the settings tabs beside
+//! it; only the icon squares, the buffer chip and the sparkline need rules of
+//! their own.
+//!
+//! A fact is shown once and in one place: the rows are picked out of
+//! `debug_report::sections` by their `id`, never by their translated label, so
+//! the screen and the copied report cannot drift apart.
 
 use super::*;
 use crate::gui::debug_report::{Cell, Section, Status};
+
+/// The column's fixed width: wide enough for two values side by side, narrow
+/// enough to leave the log most of the page.
+pub(super) const SIDE_WIDTH: i32 = 292;
 
 pub(super) const TOOLS_CSS: &str = "
 .diag-dot-ok { color: @success_color; }
 .diag-dot-warn { color: @warning_color; }
 .diag-dot-info { color: alpha(@view_fg_color, 0.55); }
-/* Each value is something to read and copy: shape it like a value, not like a
-   second label. */
-.diag-value {
-  font-feature-settings: \"tnum\";
-  background-color: alpha(@view_fg_color, 0.07);
+/* The status square at the top of the page and the 28 px one in front of each
+   fact: a tinted tile, never a loose glyph. */
+.diag-head-icon {
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 11px;
+  background-color: alpha(@success_color, 0.16);
+  color: @success_color;
+}
+.diag-head-icon-off {
+  background-color: alpha(@error_color, 0.16);
+  color: @error_color;
+}
+.diag-icon {
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 8px;
+  background-color: alpha(@view_fg_color, 0.06);
+  color: alpha(@view_fg_color, 0.7);
+}
+.diag-icon-ok {
+  background-color: alpha(@success_color, 0.16);
+  color: @success_color;
+}
+.diag-icon-warn {
+  background-color: alpha(@warning_color, 0.18);
+  color: @warning_color;
+}
+.diag-ok { color: @success_color; font-weight: bold; }
+.diag-warn-text { color: @warning_color; font-weight: bold; }
+/* The cards of this column, and the log beside them. */
+.diag-card { padding: 12px; }
+/* What is being composed right now: a value, so give it a shape. */
+.buffer-chip {
+  background-color: alpha(@accent_bg_color, 0.18);
   border-radius: 6px;
   padding: 1px 6px;
 }
-/* A dropdown beside three flat icon buttons should not read as the only
-   control on the bar. */
-.diag-kind button {
-  min-height: 22px;
-  padding: 2px 8px;
+/* Eight delays, oldest first: the header's sparkline. */
+.diag-bar {
+  background-color: alpha(@accent_bg_color, 0.7);
+  border-radius: 2px;
+  min-width: 4px;
 }
-/* The count of lines that arrived while the view is paused. */
+.diag-value { font-feature-settings: \"tnum\"; }
+/* The search entry and the pause switch belong to the log they sit on. */
+.log-card {
+  padding: 0;
+}
+.log-view {
+  font-size: 12px;
+}
+.log-view, .log-view > text {
+  background-color: transparent;
+}
 .log-chip {
   background-color: alpha(@accent_bg_color, 0.22);
   border-radius: 9px;
   padding: 1px 7px;
 }
-/* The log is one card, like the diagnostics cards beside it. */
-.log-pane {
-  border-radius: 10px;
-  border-width: 1px;
-  border-style: solid;
-  border-color: alpha(@view_fg_color, 0.1);
-  background-color: alpha(@view_fg_color, 0.035);
-}
-.log-view, .log-view > text {
-  background-color: transparent;
-}
-/* This column answers ten short questions; the window's row height is built for
-   settings rows with a subtitle, which leaves too much air here. */
-.tools-compact row {
-  min-height: 30px;
-  padding-top: 1px;
-  padding-bottom: 1px;
-}
-.tools-compact row > box.header {
-  min-height: 20px;
-  padding-top: 1px;
-  padding-bottom: 1px;
-}
-.tools-compact preferencesgroup > box > box.header {
-  margin-top: 2px;
-  margin-bottom: 2px;
-}
-.tools-compact row.diag-warn {
-  background-color: alpha(@warning_color, 0.14);
-}
 ";
 
 /// The column's fixed parts, so the page can wire the typing test and re-read
-/// the groups without rebuilding the window.
+/// the rows without rebuilding the window.
 pub(super) struct Tools {
     pub body: gtk4::Widget,
     /// Says whether the engine sees a word being composed.
@@ -74,48 +91,43 @@ pub(super) struct Tools {
 }
 
 /// Build the column. `facts` is asked again on every refresh, which is what
-/// makes "Đọc lại" and a restart show their result.
+/// makes a restart show its result.
 pub(super) fn build(
     ui: &Rc<Ui>,
     overlay: &adw::ToastOverlay,
     facts: Rc<dyn Fn() -> Vec<Section>>,
 ) -> Tools {
-    let body = gtk4::Box::new(Orientation::Vertical, 10);
-    body.add_css_class("tools-compact");
+    let body = gtk4::Box::new(Orientation::Vertical, 14);
+    body.set_width_request(SIDE_WIDTH);
 
-    // --- Typing test ------------------------------------------------------
-    let try_group = adw::PreferencesGroup::new();
-    try_group.set_title(&t("misc.section_try", "Thử gõ"));
-    let card = gtk4::Box::new(Orientation::Vertical, 0);
-    card.add_css_class("card");
+    // --- Thử gõ -----------------------------------------------------------
+    let try_card = card();
+    try_card.append(&heading(&t("misc.section_try", "Thử gõ")));
     let entry = gtk4::Entry::new();
     entry.set_placeholder_text(Some(&t(
         "misc.debug_try_placeholder",
         "Gõ thử ở đây, log bên trái chạy theo",
     )));
-    entry.set_margin_top(6);
-    entry.set_margin_bottom(6);
-    entry.set_margin_start(10);
-    entry.set_margin_end(10);
+    entry.set_size_request(-1, 36);
+    entry.add_css_class("diag-entry");
     entry.set_tooltip_text(Some(&t(
         "tips.debug_try",
         "Gõ vào đây để xem bộ gõ có nhận phím không: dòng mới hiện bên trái nghĩa là phím đã đi qua IBus.",
     )));
-    card.append(&entry);
-    card.append(&gtk4::Separator::new(Orientation::Horizontal));
-    // The buffer keeps its own line under the field, the way the sample draws
-    // it: the field is for typing, the strip is for what the engine sees.
-    let strip = gtk4::Box::new(Orientation::Horizontal, 8);
-    strip.set_margin_top(4);
-    strip.set_margin_bottom(4);
-    strip.set_margin_start(12);
-    strip.set_margin_end(12);
-    let buffer_caption = gtk4::Label::new(Some(&t("misc.buffer_label", "buffer:")));
+    try_card.append(&entry);
+
+    let strip = gtk4::Box::new(Orientation::Horizontal, 6);
+    let keyboard = gtk4::Image::from_icon_name("input-keyboard-symbolic");
+    keyboard.add_css_class("dim-label");
+    let buffer_caption = gtk4::Label::new(Some(&t("misc.buffer_label", "buffer")));
     buffer_caption.add_css_class("caption");
     buffer_caption.add_css_class("dim-label");
+    // The chip keeps its own line: the field is for typing, the chip is for what
+    // the engine sees.
     let buffer = gtk4::Label::new(None);
     buffer.add_css_class("caption");
     buffer.add_css_class("monospace");
+    buffer.add_css_class("buffer-chip");
     buffer.set_xalign(0.0);
     buffer.set_hexpand(true);
     buffer.set_ellipsize(gtk4::pango::EllipsizeMode::End);
@@ -126,28 +138,31 @@ pub(super) fn build(
     let composing = gtk4::Label::new(None);
     composing.add_css_class("caption");
     composing.add_css_class("dim-label");
+    strip.append(&keyboard);
     strip.append(&buffer_caption);
     strip.append(&buffer);
     strip.append(&composing);
-    card.append(&strip);
-    try_group.add(&card);
-    body.append(&try_group);
+    try_card.append(&strip);
+    body.append(&try_card);
     {
         let buffer = buffer.clone();
         entry.connect_changed(move |entry| buffer.set_markup(&buffer_markup(&entry.text())));
     }
     buffer.set_markup(&buffer_markup(""));
 
-    // --- The groups -------------------------------------------------------
-    let groups = gtk4::Box::new(Orientation::Vertical, 6);
-    body.append(&groups);
+    // --- The facts --------------------------------------------------------
+    let info_card = card();
+    body.append(&info_card);
+    let files_row = gtk4::Box::new(Orientation::Horizontal, 14);
+    body.append(&files_row);
 
-    // The window is rebuilt only when a row actually changed: tearing down and
-    // re-creating four groups twice a second made the whole page re-lay out
-    // while the user was typing in the box above.
+    // The cards are rebuilt only when a fact actually changed: tearing them
+    // down twice a second made the whole page re-lay out while the user was
+    // typing in the box above.
     let shown: Rc<RefCell<Vec<Section>>> = Rc::new(RefCell::new(Vec::new()));
     let refresh: Rc<dyn Fn()> = {
-        let groups = groups.clone();
+        let info_card = info_card.clone();
+        let files_row = files_row.clone();
         let overlay = overlay.clone();
         let ui = ui.clone();
         let shown = Rc::clone(&shown);
@@ -156,12 +171,13 @@ pub(super) fn build(
             if next == *shown.borrow() {
                 return;
             }
-            while let Some(child) = groups.first_child() {
-                groups.remove(&child);
+            while let Some(child) = info_card.first_child() {
+                info_card.remove(&child);
             }
-            for section in &next {
-                groups.append(&group_widget(section, &overlay, &ui));
+            while let Some(child) = files_row.first_child() {
+                files_row.remove(&child);
             }
+            fill_facts(&info_card, &files_row, &next, &overlay, &ui);
             *shown.borrow_mut() = next;
         })
     };
@@ -173,7 +189,25 @@ pub(super) fn build(
     }
 }
 
-/// The underlined text after `buffer:`. Pango markup, so the value is escaped.
+/// A card of the column: the window's own card style with this column's tighter
+/// insets.
+fn card() -> gtk4::Box {
+    let card = gtk4::Box::new(Orientation::Vertical, 8);
+    card.add_css_class("card");
+    card.add_css_class("diag-card");
+    card
+}
+
+/// A card's own heading: small, upper case, muted, sentence case in the source.
+fn heading(text: &str) -> gtk4::Label {
+    let label = gtk4::Label::new(Some(&text.to_uppercase()));
+    label.add_css_class("caption");
+    label.add_css_class("dim-label");
+    label.set_xalign(0.0);
+    label
+}
+
+/// The underlined text after `buffer`. Pango markup, so the value is escaped.
 pub(super) fn buffer_markup(text: &str) -> String {
     if text.is_empty() {
         return "<span alpha=\"55%\">—</span>".to_string();
@@ -181,105 +215,214 @@ pub(super) fn buffer_markup(text: &str) -> String {
     format!("<u>{}</u>", gtk4::glib::markup_escape_text(text))
 }
 
-fn group_widget(section: &Section, overlay: &adw::ToastOverlay, ui: &Rc<Ui>) -> gtk4::Widget {
-    // A caption above the list instead of the group's own heading: the heading
-    // is built for a preferences page and costs a row of height for four words.
-    let wrap = gtk4::Box::new(Orientation::Vertical, 2);
-    let title = gtk4::Label::new(Some(&section.title));
-    title.add_css_class("caption");
-    title.add_css_class("dim-label");
-    title.set_xalign(0.0);
-    wrap.append(&title);
-    let group = adw::PreferencesGroup::new();
-    for cell in section.rows.iter().filter(|cell| cell.screen) {
-        group.add(&row_widget(cell, overlay, ui));
+/// The fact with this id, wherever the report put it.
+fn cell<'a>(sections: &'a [Section], id: &str) -> Option<&'a Cell> {
+    sections
+        .iter()
+        .flat_map(|section| section.rows.iter())
+        .find(|row| row.id == id)
+}
+
+/// The configured backend and the one the log names, joined the way the row
+/// reads: `auto → uinput`.
+fn backend_cell(sections: &[Section]) -> Option<Cell> {
+    let configured = cell(sections, "backend")?;
+    let actual = cell(sections, "actual")?;
+    let mut joined = configured.clone();
+    joined.value = format!("{} → {}", configured.value, actual.value);
+    // Both rows carry the same warning when they disagree: the pair is the
+    // evidence, and one of them alone says nothing.
+    if actual.status == Status::Warn {
+        joined.status = Status::Warn;
+        joined.hint.clone_from(&actual.hint);
     }
-    wrap.append(&group);
-    // The sentence that explains a warning sits under the card, in the theme's
-    // warning colour: inside the row it pushed the row itself apart.
-    for cell in section.rows.iter().filter(|cell| cell.screen) {
-        if cell.status != Status::Warn {
-            continue;
-        }
-        let Some(hint) = &cell.hint else { continue };
-        let line = gtk4::Label::new(Some(hint));
+    Some(joined)
+}
+
+/// Fill both cards from one reading of the facts.
+fn fill_facts(
+    info_card: &gtk4::Box,
+    files_row: &gtk4::Box,
+    sections: &[Section],
+    overlay: &adw::ToastOverlay,
+    ui: &Rc<Ui>,
+) {
+    let extension = cell(sections, "extension");
+    let icon = match extension.map(|row| row.status) {
+        Some(Status::Ok) => "emblem-ok-symbolic",
+        Some(Status::Warn) => "dialog-warning-symbolic",
+        _ => "dialog-information-symbolic",
+    };
+    let rows: [(&str, Option<&Cell>, Option<Cell>); 4] = [
+        (icon, extension, cell(sections, "ibus").cloned()),
+        (
+            "computer-symbolic",
+            cell(sections, "os"),
+            cell(sections, "kernel").cloned(),
+        ),
+        (
+            "video-display-symbolic",
+            cell(sections, "desktop"),
+            cell(sections, "session").cloned(),
+        ),
+        (
+            "preferences-other-symbolic",
+            cell(sections, "mode"),
+            backend_cell(sections),
+        ),
+    ];
+    for (icon, left, right) in rows {
+        let Some(left) = left else { continue };
+        info_card.append(&info_row(icon, left, right.as_ref()));
+    }
+    // What to do about a warning sits under the card, in the theme's warning
+    // colour: inside the row it pushed the two values apart.
+    for hint in warning_hints(sections) {
+        let line = gtk4::Label::new(Some(&hint));
         line.add_css_class("caption");
         line.add_css_class("warning");
         line.set_xalign(0.0);
         line.set_wrap(true);
-        line.set_margin_start(12);
-        line.set_margin_end(12);
-        wrap.append(&line);
+        info_card.append(&line);
     }
-    wrap.upcast()
+    for id in ["config", "log"] {
+        if let Some(row) = cell(sections, id) {
+            files_row.append(&file_card(row, overlay, ui));
+        }
+    }
 }
 
-fn row_widget(cell: &Cell, overlay: &adw::ToastOverlay, ui: &Rc<Ui>) -> gtk4::Widget {
-    let row = adw::ActionRow::new();
-    row.set_title(&cell.label);
-    row.set_activatable(true);
-    if cell.status == Status::Warn {
-        row.add_css_class("diag-warn");
+/// The sentences behind the warnings this column shows, once each.
+fn warning_hints(sections: &[Section]) -> Vec<String> {
+    let shown = ["extension", "backend", "actual"];
+    let mut out: Vec<String> = Vec::new();
+    for id in shown {
+        let Some(row) = cell(sections, id) else {
+            continue;
+        };
+        if row.status != Status::Warn {
+            continue;
+        }
+        let Some(hint) = &row.hint else { continue };
+        if !out.contains(hint) {
+            out.push(hint.clone());
+        }
     }
+    out
+}
 
-    let dot = gtk4::Label::new(Some("●"));
-    dot.add_css_class("caption");
-    dot.add_css_class(match cell.status {
-        Status::Ok => "diag-dot-ok",
-        Status::Warn => "diag-dot-warn",
-        Status::Info => "diag-dot-info",
-    });
-    row.add_prefix(&dot);
+/// One fact: a tinted icon square and two values, each a muted name over a
+/// monospace value that can be selected and copied with the mouse.
+fn info_row(icon: &str, left: &Cell, right: Option<&Cell>) -> gtk4::Widget {
+    let row = gtk4::Box::new(Orientation::Horizontal, 10);
+    let tile = gtk4::Image::from_icon_name(icon);
+    tile.add_css_class("diag-icon");
+    if left.id == "extension" {
+        if let Some(class) = status_class(left.status) {
+            tile.add_css_class(class);
+        }
+    }
+    let holder = gtk4::Box::new(Orientation::Horizontal, 0);
+    holder.set_valign(gtk4::Align::Center);
+    holder.append(&tile);
+    row.append(&holder);
+    row.append(&value_cell(left));
+    if let Some(right) = right {
+        row.append(&value_cell(right));
+    }
+    row.upcast()
+}
 
+/// The colour a status is drawn in, for the one row that has a state.
+fn status_class(status: Status) -> Option<&'static str> {
+    match status {
+        Status::Ok => Some("diag-icon-ok"),
+        Status::Warn => Some("diag-icon-warn"),
+        Status::Info => None,
+    }
+}
+
+fn value_cell(cell: &Cell) -> gtk4::Widget {
+    let box_ = gtk4::Box::new(Orientation::Vertical, 1);
+    box_.set_hexpand(true);
+    let name = gtk4::Label::new(Some(&cell.label));
+    name.add_css_class("caption");
+    name.add_css_class("dim-label");
+    name.set_xalign(0.0);
+    // Wrapped, not cut: the column is 292 px wide, and two values share a row.
+    name.set_wrap(true);
     let value = gtk4::Label::new(Some(&cell.value));
     value.add_css_class("caption");
     value.add_css_class("monospace");
     value.add_css_class("diag-value");
-    value.set_xalign(1.0);
-    value.set_single_line_mode(true);
-    value.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    value.set_max_width_chars(28);
-    row.add_suffix(&value);
-
-    if cell.open_dir.is_some() {
-        // The words stay in the tooltip and the accessible label: the button
-        // shows an icon, not a sentence.
-        let copy = gtk4::Button::from_icon_name("edit-copy-symbolic");
-        copy.add_css_class("flat");
-        copy.add_css_class("circular");
-        copy.set_valign(gtk4::Align::Center);
-        copy.set_tooltip_text(Some(&t("misc.debug_copy_path", "Sao chép đường dẫn")));
-        copy.update_property(&[gtk4::accessible::Property::Label(&t(
-            "misc.debug_copy_path",
-            "Sao chép đường dẫn",
-        ))]);
-        if let Some(path) = cell.hint.clone() {
-            let overlay = overlay.clone();
-            let ui = ui.clone();
-            copy.connect_clicked(move |btn| {
-                btn.clipboard().set_text(&path);
-                ui.fire_toast(&overlay, &t("misc.diag_copied", "Đã sao chép"));
-            });
+    value.set_xalign(0.0);
+    value.set_selectable(true);
+    value.set_wrap(true);
+    value.set_tooltip_text(Some(&cell.value));
+    // Only the extension has a state worth a colour: every other fact is either
+    // this install or this machine, and nothing about it can be wrong.
+    if cell.id == "extension" {
+        if let Some(class) = match cell.status {
+            Status::Ok => Some("diag-ok"),
+            Status::Warn => Some("diag-warn-text"),
+            Status::Info => None,
+        } {
+            value.add_css_class(class);
         }
-        row.add_suffix(&copy);
     }
+    let accessible = match &cell.hint {
+        Some(hint) => format!("{}: {}. {hint}", cell.label, cell.value),
+        None => format!("{}: {}", cell.label, cell.value),
+    };
+    box_.update_property(&[gtk4::accessible::Property::Label(&accessible)]);
+    box_.append(&name);
+    box_.append(&value);
+    box_.upcast()
+}
 
-    let tip = cell.hint.as_deref().unwrap_or(&cell.value).to_string();
-    row.set_tooltip_text(Some(&tip));
-    let accessible = format!("{}: {}. {}", cell.label, cell.value, tip);
-    row.update_property(&[gtk4::accessible::Property::Label(&accessible)]);
-    {
-        // A click copies the value the report would carry: the full path for a
-        // file row, because that is what a helper needs.
-        let copied = cell.hint.clone().unwrap_or_else(|| cell.value.clone());
+/// A file the report carries: its name, and a button for the full path.
+fn file_card(cell: &Cell, overlay: &adw::ToastOverlay, ui: &Rc<Ui>) -> gtk4::Widget {
+    let card = card();
+    card.set_hexpand(true);
+    let top = gtk4::Box::new(Orientation::Horizontal, 8);
+    let icon = gtk4::Image::from_icon_name("text-x-generic-symbolic");
+    icon.add_css_class("dim-label");
+    top.append(&icon);
+    let name = gtk4::Label::new(Some(&cell.value));
+    name.add_css_class("caption");
+    name.add_css_class("monospace");
+    name.set_xalign(0.0);
+    name.set_hexpand(true);
+    name.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+    top.append(&name);
+    card.append(&top);
+    let bottom = gtk4::Box::new(Orientation::Horizontal, 6);
+    let caption = gtk4::Label::new(Some(&cell.label));
+    caption.add_css_class("caption");
+    caption.add_css_class("dim-label");
+    caption.set_xalign(0.0);
+    caption.set_hexpand(true);
+    bottom.append(&caption);
+    let copy = gtk4::Button::from_icon_name("edit-copy-symbolic");
+    copy.add_css_class("flat");
+    copy.add_css_class("circular");
+    copy.set_valign(gtk4::Align::Center);
+    copy.set_tooltip_text(Some(&t("misc.debug_copy_path", "Sao chép đường dẫn")));
+    copy.update_property(&[gtk4::accessible::Property::Label(&t(
+        "misc.debug_copy_path",
+        "Sao chép đường dẫn",
+    ))]);
+    if let Some(path) = cell.hint.clone() {
         let overlay = overlay.clone();
         let ui = ui.clone();
-        row.connect_activated(move |row| {
-            row.clipboard().set_text(&copied);
+        copy.connect_clicked(move |btn| {
+            btn.clipboard().set_text(&path);
             ui.fire_toast(&overlay, &t("misc.diag_copied", "Đã sao chép"));
         });
     }
-    row.upcast()
+    bottom.append(&copy);
+    card.append(&bottom);
+    card.upcast()
 }
 
 #[cfg(test)]
@@ -292,5 +435,45 @@ mod tests {
         // A typed `<` must not turn into markup.
         assert!(buffer_markup("<b>x</b>").contains("&lt;b&gt;"));
         assert!(buffer_markup("").contains("—"), "an empty buffer says so");
+    }
+
+    #[test]
+    fn the_backend_row_joins_what_was_asked_for_and_what_ran() {
+        let dir = crate::debug_log::TempLogDir::new("diag-backend");
+        let path = dir.dir().join("config.toml");
+        let facts = crate::gui::debug_report::Facts {
+            machine: &crate::gui::machine::Machine {
+                os: "Arch Linux".into(),
+                kernel: "7.3".into(),
+                desktop: "GNOME".into(),
+                ibus: "1.5.35".into(),
+            },
+            preferred: crate::config::PreferredBackendConfig::Auto,
+            mode: crate::config::ModeConfig::default(),
+            extension: ("misc.extension_running", "Đang chạy", true),
+            config_path: Some(&path),
+            log_path: None,
+            engine: None,
+            backend: Some("uinput"),
+            backend_why: None,
+        };
+        let sections = crate::gui::debug_report::sections(&facts);
+        let joined = backend_cell(&sections).expect("the backend row");
+        assert!(joined.value.contains('→'), "{}", joined.value);
+        assert!(joined.value.ends_with("uinput"), "{}", joined.value);
+        // Every id the column reads exists in the report.
+        for id in [
+            "extension",
+            "ibus",
+            "os",
+            "kernel",
+            "desktop",
+            "session",
+            "mode",
+            "config",
+            "log",
+        ] {
+            assert!(cell(&sections, id).is_some(), "no `{id}` row");
+        }
     }
 }

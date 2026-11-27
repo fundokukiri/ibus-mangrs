@@ -1,7 +1,8 @@
 //! Page "Gỡ lỗi": one screen of tools that only exist while debug mode is on.
-//! A status bar on top, the log on the left, the typing test and the
-//! diagnostics on the right, and a footer that restarts IBus or copies a
-//! report. Below `NARROW_WIDTH` the right column drops under the log.
+//! A status card on top, the log card on the left, the typing test and the
+//! facts on the right, and an action bar across the bottom that restarts IBus
+//! or copies a report. Below `NARROW_WIDTH` the right column drops under the
+//! log.
 //!
 //! The switch that turns the log on stays in "Cài đặt nâng cao": this page is
 //! the consequence of that switch, not a second place to set it.
@@ -12,8 +13,8 @@ use std::sync::{Arc, Mutex};
 use super::*;
 use crate::gui::debug_report::{backend_from_log, backend_why_from_log, sections, Facts, Section};
 use crate::gui::engine_probe;
-use crate::gui::latency::{self, Stats};
-use crate::gui::log_decode::{composing, mask_private, parse, Kind, Line, CHIPS};
+use crate::gui::latency::{self, SPARK};
+use crate::gui::log_decode::{composing, mask_private, parse, Kind, Line};
 use crate::gui::log_tail::{size_label, tail, Reader, TAIL_BYTES};
 
 /// Lines the viewer keeps. Beyond this the file is history, and holding more
@@ -28,14 +29,15 @@ const REPORT_LINES: usize = 50;
 const MAX_PAGE_WIDTH: i32 = 1040;
 
 /// Under this width the two columns cannot both be read, so the right one
-/// moves below the log. It sits below the page width the window opens at, so
-/// the first look is the two-column one.
-const NARROW_WIDTH: i32 = 640;
+/// moves below the log.
+const NARROW_WIDTH: i32 = 720;
 
-/// The columns split about 1.5 to 1, within a band where both stay readable.
-const SHARE_RATIO: f32 = 2.5;
-const MIN_RIGHT_WIDTH: i32 = 300;
-const MAX_RIGHT_WIDTH: i32 = 560;
+/// The log kinds the filter bar offers, in the order it draws them. `None` is
+/// "Tất cả": the lines that belong to no kind only show there.
+const FILTERS: [Option<Kind>; 4] = [None, Some(Kind::Insert), Some(Kind::Key), Some(Kind::Error)];
+
+/// Tallest bar of the header's sparkline, in pixels.
+const SPARK_HEIGHT: i32 = 18;
 
 /// The facts that read another process, kept together so one worker thread
 /// updates them all.
@@ -61,8 +63,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         }
     }
 
-    // The log reader (it only reads what was appended), the kind on, the typed
-    // filter, and how many lines arrived while paused.
+    // The log reader (it only reads what was appended), the decoded lines, and
+    // which filter they were drawn under.
     let reader = Rc::new(RefCell::new(Reader::new(path.clone(), VIEW_LINES)));
     // The decoded log, kept between polls: re-decoding five thousand lines a
     // second cost about 9 ms, and redrawing all of them about 105 ms.
@@ -72,85 +74,136 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let drawn = Rc::new(Cell::new(0usize));
     let drawn_key: Rc<RefCell<(Option<Kind>, String)>> =
         Rc::new(RefCell::new((None, String::new())));
-    let pending = Rc::new(Cell::new(0usize));
     let kind_filter: Rc<RefCell<Option<Kind>>> = Rc::new(RefCell::new(None));
     let query: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
 
-    // --- Status bar -------------------------------------------------------
-    let dot = gtk4::Label::new(Some("●"));
-    dot.add_css_class("diag-dot-info");
-    let state = gtk4::Label::new(Some(&t("misc.status_unknown", "Chưa rõ engine")));
-    state.add_css_class("caption");
-    state.add_css_class("diag-group");
+    // --- Status card ------------------------------------------------------
+    let head_tile = gtk4::Image::from_icon_name("utilities-system-monitor-symbolic");
+    head_tile.add_css_class("diag-head-icon");
+    let tile_holder = gtk4::Box::new(Orientation::Horizontal, 0);
+    tile_holder.set_valign(gtk4::Align::Center);
+    tile_holder.append(&head_tile);
+    let state = gtk4::Label::new(None);
+    state.add_css_class("heading");
+    state.set_xalign(0.0);
     let detail = gtk4::Label::new(None);
     detail.add_css_class("caption");
     detail.add_css_class("dim-label");
     detail.set_xalign(0.0);
     detail.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    let metric_avg = gtk4::Label::new(None);
-    let metric_max = gtk4::Label::new(None);
-    let metric_log = gtk4::Label::new(None);
-    for metric in [&metric_avg, &metric_max, &metric_log] {
-        metric.add_css_class("caption");
-        metric.add_css_class("monospace");
-    }
-    let status_spacer = gtk4::Box::new(Orientation::Horizontal, 0);
-    status_spacer.set_hexpand(true);
-    let status = gtk4::Box::new(Orientation::Horizontal, 8);
-    status.append(&dot);
-    status.append(&state);
-    status.append(&detail);
-    status.append(&status_spacer);
-    status.append(&metric_avg);
-    status.append(&metric_max);
-    status.append(&metric_log);
+    let state_text = gtk4::Box::new(Orientation::Vertical, 1);
+    state_text.set_valign(gtk4::Align::Center);
+    state_text.set_hexpand(true);
+    state_text.append(&state);
+    state_text.append(&detail);
 
-    // --- Left column: toolbar over the log --------------------------------
-    let filter = gtk4::SearchEntry::new();
-    filter.set_placeholder_text(Some(&t("misc.debug_filter_placeholder", "Lọc dòng")));
-    filter.set_hexpand(true);
-    filter.set_tooltip_text(Some(&t(
+    let latency_caption = gtk4::Label::new(Some(&t("misc.metric_pair", "Trễ TB / tối đa")));
+    latency_caption.add_css_class("caption");
+    latency_caption.add_css_class("dim-label");
+    latency_caption.set_xalign(1.0);
+    let latency_value = gtk4::Label::new(None);
+    latency_value.add_css_class("monospace");
+    latency_value.add_css_class("diag-value");
+    latency_value.set_xalign(1.0);
+    let latency_text = gtk4::Box::new(Orientation::Vertical, 1);
+    latency_text.append(&latency_caption);
+    latency_text.append(&latency_value);
+    // Eight bars, oldest first: only the engine's own log says how long a
+    // keystroke took, so this is a picture of the same numbers beside it.
+    let spark = gtk4::Box::new(Orientation::Horizontal, 2);
+    spark.set_valign(gtk4::Align::End);
+    let mut bars = Vec::with_capacity(SPARK);
+    for _ in 0..SPARK {
+        let bar = gtk4::Box::new(Orientation::Vertical, 0);
+        bar.add_css_class("diag-bar");
+        bar.set_valign(gtk4::Align::End);
+        bar.set_size_request(4, 2);
+        spark.append(&bar);
+        bars.push(bar);
+    }
+    spark.set_visible(false);
+    let latency_box = gtk4::Box::new(Orientation::Horizontal, 10);
+    latency_box.set_valign(gtk4::Align::Center);
+    latency_box.append(&latency_text);
+    latency_box.append(&spark);
+
+    let head = gtk4::Box::new(Orientation::Horizontal, 12);
+    head.add_css_class("card");
+    head.add_css_class("diag-card");
+    head.append(&tile_holder);
+    head.append(&state_text);
+    head.append(&latency_box);
+
+    // --- The log card -----------------------------------------------------
+    let filter_entry = gtk4::SearchEntry::new();
+    filter_entry.set_placeholder_text(Some(&t("misc.debug_filter_placeholder", "Lọc dòng")));
+    filter_entry.set_hexpand(true);
+    filter_entry.set_tooltip_text(Some(&t(
         "tips.debug_filter",
         "Gõ một phần nội dung để lọc, không phân biệt hoa thường.",
     )));
-    let names: Vec<String> = std::iter::once(t("misc.chip_all", "Tất cả"))
-        .chain(CHIPS.iter().map(|kind| kind_label(*kind)))
-        .collect();
-    let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
-    let kind_pick = gtk4::DropDown::from_strings(&name_refs);
-    kind_pick.add_css_class("diag-kind");
-    // A heavy default dropdown shadowed by three flat icon buttons reads as the
-    // only control on the bar.
-    kind_pick.add_css_class("flat");
-    kind_pick.set_tooltip_text(Some(&t(
-        "tips.debug_kind",
-        "Chỉ hiện một loại dòng. Dòng không thuộc loại nào chỉ hiện khi chọn Tất cả.",
-    )));
-    kind_pick.update_property(&[gtk4::accessible::Property::Label(&t(
-        "misc.debug_kind",
-        "Loại dòng",
-    ))]);
-    let follow = gtk4::ToggleButton::new();
-    follow.set_icon_name("media-playback-pause-symbolic");
-    follow.set_active(true);
-    follow.add_css_class("flat");
-    set_button_label(
-        &follow,
-        &t("misc.debug_pause", "Tạm dừng cuộn"),
-        &t("misc.debug_pause", "Tạm dừng cuộn"),
-    );
-    let arrived = gtk4::Label::new(None);
-    arrived.add_css_class("caption");
-    arrived.add_css_class("accent");
-    arrived.add_css_class("log-chip");
-    arrived.set_visible(false);
     let clear_btn = icon_button("user-trash-symbolic", &t("misc.debug_clear_log", "Xoá log"));
-    let toolbar = gtk4::Box::new(Orientation::Horizontal, 6);
-    toolbar.append(&filter);
-    toolbar.append(&kind_pick);
-    toolbar.append(&follow);
-    toolbar.append(&arrived);
+    let toolbar = gtk4::Box::new(Orientation::Horizontal, 8);
+    toolbar.set_margin_top(10);
+    toolbar.set_margin_start(10);
+    toolbar.set_margin_end(10);
+    toolbar.set_margin_bottom(8);
+    toolbar.append(&filter_entry);
     toolbar.append(&clear_btn);
+
+    // One linked group of toggles instead of a dropdown: the kinds are few, and
+    // a dropdown hid both the choices and the kind in force.
+    let segmented = gtk4::Box::new(Orientation::Horizontal, 0);
+    segmented.add_css_class("linked");
+    segmented.set_valign(gtk4::Align::Center);
+    let mut buttons: Vec<(Option<Kind>, gtk4::ToggleButton)> = Vec::with_capacity(FILTERS.len());
+    for kind in FILTERS {
+        let text = match kind {
+            Some(kind) => kind_label(kind),
+            None => t("misc.chip_all", "Tất cả"),
+        };
+        let btn = gtk4::ToggleButton::with_label(&text);
+        btn.set_tooltip_text(Some(&t(
+            "tips.debug_kind",
+            "Chỉ hiện một loại dòng. Dòng không thuộc loại nào chỉ hiện khi chọn Tất cả.",
+        )));
+        if let Some((_, first)) = buttons.first() {
+            btn.set_group(Some(first));
+        }
+        segmented.append(&btn);
+        buttons.push((kind, btn));
+    }
+    if let Some((_, first)) = buttons.first() {
+        first.set_active(true);
+    }
+
+    // Stops the ENGINE writing, not the pane: whoever is chasing a bug keeps
+    // the lines already collected, and the file stops growing (or can be
+    // cleared without the next keystroke filling it again).
+    let log_pause = gtk4::Switch::new();
+    log_pause.set_active(crate::config::Config::load().debug_log_paused);
+    log_pause.set_valign(gtk4::Align::Center);
+    log_pause.set_tooltip_text(Some(&t(
+        "tips.debug_log_pause",
+        "Tạm dừng việc ghi log, engine không thêm dòng nào cho tới khi bạn bật lại.",
+    )));
+    log_pause.update_property(&[gtk4::accessible::Property::Label(&t(
+        "misc.debug_log_pause",
+        "Tạm dừng ghi log",
+    ))]);
+    let pause_caption = gtk4::Label::new(Some(&t("misc.debug_pause_short", "Tạm dừng")));
+    pause_caption.add_css_class("caption");
+    pause_caption.add_css_class("dim-label");
+    let filter_row = gtk4::Box::new(Orientation::Horizontal, 8);
+    filter_row.set_margin_start(10);
+    filter_row.set_margin_end(10);
+    filter_row.set_margin_bottom(8);
+    let filter_spacer = gtk4::Box::new(Orientation::Horizontal, 0);
+    filter_spacer.set_hexpand(true);
+    filter_row.append(&segmented);
+    filter_row.append(&filter_spacer);
+    filter_row.append(&pause_caption);
+    filter_row.append(&log_pause);
 
     let view = gtk4::TextView::new();
     view.set_editable(false);
@@ -160,10 +213,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // broken window, and that value is what the reader opened the page for.
     view.set_wrap_mode(gtk4::WrapMode::WordChar);
     view.add_css_class("log-view");
-    view.set_left_margin(10);
-    view.set_right_margin(10);
-    view.set_top_margin(6);
-    view.set_bottom_margin(6);
+    view.set_left_margin(6);
+    view.set_right_margin(6);
+    view.set_top_margin(2);
+    view.set_bottom_margin(2);
     make_tags(&view.buffer(), &view);
     let scroller = gtk4::ScrolledWindow::builder()
         .min_content_height(110)
@@ -171,13 +224,30 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         .vexpand(true)
         .child(&view)
         .build();
-    // One card, like the diagnostics cards beside it, rather than text floating
-    // on the window background.
-    scroller.add_css_class("log-pane");
-    let left = gtk4::Box::new(Orientation::Vertical, 6);
-    left.set_hexpand(true);
-    left.append(&toolbar);
-    left.append(&scroller);
+    scroller.set_margin_bottom(8);
+    scroller.set_margin_start(4);
+    scroller.set_margin_end(4);
+
+    // Nothing to show is a state of its own: a blank pane reads as a broken
+    // page, and a paused one has to say so.
+    let empty = adw::StatusPage::builder()
+        .icon_name("utilities-terminal-symbolic")
+        .title(t("misc.debug_empty_title", "Chưa có log"))
+        .build();
+    empty.set_vexpand(true);
+    let stack = gtk4::Stack::new();
+    stack.set_vexpand(true);
+    stack.add_named(&scroller, Some("log"));
+    stack.add_named(&empty, Some("empty"));
+
+    let log_card = gtk4::Box::new(Orientation::Vertical, 0);
+    log_card.add_css_class("card");
+    log_card.add_css_class("log-card");
+    log_card.set_hexpand(true);
+    log_card.set_vexpand(true);
+    log_card.append(&toolbar);
+    log_card.append(&filter_row);
+    log_card.append(&stack);
 
     // --- The facts the rows and the report read ---------------------------
     // Two of them come from other processes (`ibus engine`, `gsettings get`)
@@ -257,25 +327,25 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // --- Right column -----------------------------------------------------
     let tools = super::debug_tools::build(ui, &toast_overlay, Rc::clone(&facts));
-
-    // --- The two columns --------------------------------------------------
-    let separator = gtk4::Separator::new(Orientation::Vertical);
-    let right = gtk4::ScrolledWindow::builder()
+    let side = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
         .child(&tools.body)
         .build();
-    right.set_width_request(MIN_RIGHT_WIDTH);
-    // Without this the column's natural width is its longest label, and the
-    // box would hand it half the page instead of the fixed share on the right.
-    right.set_propagate_natural_width(false);
-    right.set_hexpand(false);
-    right.set_vexpand(true);
-    let split = gtk4::Box::new(Orientation::Horizontal, 12);
-    split.append(&left);
-    split.append(&separator);
+    side.set_width_request(super::debug_tools::SIDE_WIDTH);
+    // Without this the column's natural width is its longest label, and the box
+    // would hand it half the page.
+    side.set_propagate_natural_width(false);
+    side.set_hexpand(false);
+    side.set_vexpand(true);
 
-    // --- Footer -----------------------------------------------------------
+    let body = gtk4::Box::new(Orientation::Horizontal, 14);
+    body.add_css_class("diag-body");
+    body.set_vexpand(true);
+    body.append(&log_card);
+    body.append(&side);
+
+    // --- Action bar -------------------------------------------------------
     let restart_btn =
         super::widgets::action_button(None, &t("misc.restart_button", "Khởi động lại IBus"));
     restart_btn.set_tooltip_text(Some(&t(
@@ -287,18 +357,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         &t("misc.debug_copy_report", "Sao chép báo cáo"),
     );
     copy_btn.add_css_class("suggested-action");
-    let hide_switch = gtk4::CheckButton::with_label(&t(
-        "misc.debug_hide_text",
-        "Ẩn nội dung gõ và macro khi sao chép",
-    ));
-    // Remembered like the pause switch beside it: the window opens the way it
-    // was left, and the default stays on.
+    for btn in [&restart_btn, &copy_btn] {
+        btn.set_size_request(-1, 34);
+    }
+    // Remembered like the pause switch: the window opens the way it was left,
+    // and the default stays on.
+    let hide_switch = gtk4::Switch::new();
     hide_switch.set_active(crate::config::Config::load().debug_hide_text);
-    hide_switch.connect_active_notify(|sw| {
-        let mut config = crate::config::Config::load();
-        config.debug_hide_text = sw.is_active();
-        let _ = config.save();
-    });
     hide_switch.set_valign(gtk4::Align::Center);
     hide_switch.set_tooltip_text(Some(&t(
         "tips.debug_hide",
@@ -306,72 +371,47 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     )));
     hide_switch.update_property(&[gtk4::accessible::Property::Label(&t(
         "misc.debug_hide_text",
-        "Ẩn nội dung gõ và macro",
+        "Ẩn nội dung gõ và macro khi sao chép",
     ))]);
-    // Stops the ENGINE writing, not the pane: whoever is chasing a bug keeps
-    // their log tiers and the lines already collected, and the file stops
-    // growing (or can be cleared without the next keystroke filling it again).
-    // A checkbox like the masking one beside it: two controls of the same kind
-    // in one footer should not be drawn two different ways.
-    let log_pause = gtk4::CheckButton::with_label(&t("misc.debug_log_pause", "Tạm dừng ghi log"));
-    log_pause.set_active(crate::config::Config::load().debug_log_paused);
-    log_pause.set_valign(gtk4::Align::Center);
-    log_pause.set_tooltip_text(Some(&t(
-        "tips.debug_log_pause",
-        "Tạm dừng việc ghi log, engine không thêm dòng nào cho tới khi bạn bật lại.",
+    let hide_label = gtk4::Label::new(Some(&t(
+        "misc.debug_hide_text",
+        "Ẩn nội dung gõ và macro khi sao chép",
     )));
-    log_pause.update_property(&[gtk4::accessible::Property::Label(&t(
-        "misc.debug_log_pause",
-        "Tạm dừng ghi log",
-    ))]);
-    log_pause.connect_active_notify(|sw| {
-        let mut config = crate::config::Config::load();
-        config.debug_log_paused = sw.is_active();
-        let _ = config.save();
-    });
-
-    // Stacked, not side by side: the four labels in one row asked for 802 px,
-    // which made this page the widest thing in the window and pushed its
-    // minimum past the width where the sidebar collapses — and a header bar
-    // wider than its window loses the window controls with it. Stacked, the
-    // same controls fit the narrowest share the right column ever takes.
-    let footer = gtk4::Box::new(Orientation::Vertical, 8);
-    let hide_group = gtk4::Box::new(Orientation::Vertical, 2);
+    hide_label.set_xalign(0.0);
+    hide_label.set_hexpand(true);
+    let hide_group = gtk4::Box::new(Orientation::Horizontal, 10);
+    hide_group.set_valign(gtk4::Align::Center);
+    hide_group.set_hexpand(true);
     hide_group.append(&hide_switch);
-    hide_group.append(&log_pause);
-    let actions_row = gtk4::Box::new(Orientation::Horizontal, 8);
-    for btn in [&restart_btn, &copy_btn] {
-        btn.set_hexpand(true);
-        actions_row.append(btn);
-    }
+    hide_group.append(&hide_label);
+    let actions = gtk4::Box::new(Orientation::Horizontal, 8);
+    actions.append(&restart_btn);
+    actions.append(&copy_btn);
+    let footer = gtk4::Box::new(Orientation::Horizontal, 12);
+    footer.add_css_class("card");
+    footer.add_css_class("diag-card");
+    footer.set_margin_top(2);
+    footer.set_margin_bottom(18);
+    footer.set_margin_start(24);
+    footer.set_margin_end(24);
     footer.append(&hide_group);
-    footer.append(&actions_row);
-
-    // The actions close the right column, so the log runs the full height of
-    // the page and both columns finish on the same line instead of the log
-    // stopping early above its own footer.
-    let right_column = gtk4::Box::new(Orientation::Vertical, 10);
-    right_column.set_hexpand(false);
-    right_column.set_vexpand(true);
-    right_column.append(&right);
-    right_column.append(&footer);
-    split.append(&right_column);
+    footer.append(&actions);
 
     // --- The page ---------------------------------------------------------
-    let page = gtk4::Box::new(Orientation::Vertical, 10);
+    let page = gtk4::Box::new(Orientation::Vertical, 14);
     // The same breathing room every other tab gets: their preferences page
     // centres a column and keeps it off the window edges, and a page that runs
     // edge to edge reads as a different application.
     page.set_margin_top(18);
-    page.set_margin_bottom(18);
     page.set_margin_start(24);
     page.set_margin_end(24);
     page.set_vexpand(true);
-    page.append(&status);
-    page.append(&split);
+    page.append(&head);
+    page.append(&body);
 
-    // The page never scrolls while the columns fit; the stacked column below
-    // `NARROW_WIDTH` is taller than the window, and this keeps it reachable.
+    // The page never scrolls while the two columns fit; the stacked column
+    // below `NARROW_WIDTH` is taller than the window, and this keeps it
+    // reachable. The action bar stays out of it, so it is always in reach.
     let clamp = adw::Clamp::new();
     clamp.set_maximum_size(MAX_PAGE_WIDTH);
     clamp.set_tightening_threshold(MAX_PAGE_WIDTH);
@@ -380,7 +420,11 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
         .child(&clamp)
+        .vexpand(true)
         .build();
+    let root = gtk4::Box::new(Orientation::Vertical, 0);
+    root.append(&outer);
+    root.append(&footer);
 
     // --- Rendering --------------------------------------------------------
     let render: Rc<dyn Fn()> = {
@@ -391,11 +435,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let query = Rc::clone(&query);
         let view = view.clone();
         let scroller = scroller.clone();
-        let follow = follow.clone();
-        let metric_avg = metric_avg.clone();
-        let metric_max = metric_max.clone();
-        let metric_log = metric_log.clone();
+        let stack = stack.clone();
+        let empty = empty.clone();
+        let log_pause = log_pause.clone();
+        let latency_value = latency_value.clone();
+        let spark = spark.clone();
+        let bars = bars.clone();
         let composing_label = tools.composing.clone();
+        let clear_btn = clear_btn.clone();
         let path = path.clone();
         Rc::new(move || {
             let cache = parsed.borrow();
@@ -416,52 +463,77 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 *drawn_key.borrow_mut() = (kind, needle.clone());
             }
             drawn.set(shown.len());
-            // The two latency numbers are measured once, from the same walk.
-            let stats = latency::measure(&cache);
-            let pick = |f: fn(&Stats) -> u64| match stats {
-                Some(stats) => format!("{}ms", f(&stats)),
-                None => "—".to_string(),
-            };
-            set_metric(
-                &metric_avg,
-                &t("misc.metric_avg", "Trễ TB"),
-                &pick(|s| s.avg_ms),
-                true,
-            );
-            set_metric(
-                &metric_max,
-                &t("misc.metric_max", "Tối đa"),
-                &pick(|s| s.max_ms),
-                false,
-            );
-            let size = path
-                .as_deref()
-                .and_then(|p| std::fs::metadata(p).ok())
-                .map(|m| size_label(m.len()))
-                .unwrap_or_else(|| "—".to_string());
-            set_metric(&metric_log, &t("misc.metric_log", "Log"), &size, false);
-            let composing_text = match composing(&cache) {
-                Some(true) => t("misc.buffer_composing", "đang soạn"),
-                Some(false) => t("misc.buffer_empty", "trống"),
-                None => String::new(),
-            };
-            set_if_changed(&composing_label, &composing_text);
-            if follow.is_active() {
+            // An empty log is a state, not a blank card.
+            if shown.is_empty() {
+                if log_pause.is_active() {
+                    empty.set_title(&t("misc.debug_paused_title", "Đã tạm dừng"));
+                    empty.set_description(Some(&t(
+                        "misc.debug_paused_body",
+                        "Bật lại công tắc để engine ghi tiếp.",
+                    )));
+                } else {
+                    empty.set_title(&t("misc.debug_empty_title", "Chưa có log"));
+                    empty.set_description(Some(&t(
+                        "misc.debug_empty_body",
+                        "Gõ vào ô Thử gõ bên phải để engine ghi dòng đầu tiên.",
+                    )));
+                }
+                stack.set_visible_child_name("empty");
+            } else {
+                stack.set_visible_child_name("log");
                 let adj = scroller.vadjustment();
                 adj.set_value(adj.upper() - adj.page_size());
             }
+            // The two latency numbers and the bars behind them come from the
+            // same walk over the log.
+            let stats = latency::measure(&cache);
+            let pair = match &stats {
+                Some(stats) => format!("{} ms / {} ms", stats.avg_ms, stats.max_ms),
+                None => "—".to_string(),
+            };
+            set_if_changed(&latency_value, &pair);
+            let recent = stats.map(|stats| stats.recent).unwrap_or_default();
+            let top = recent.iter().copied().max().unwrap_or(1).max(1);
+            for (index, bar) in bars.iter().enumerate() {
+                match recent.get(index) {
+                    Some(ms) => {
+                        let height = ((ms * SPARK_HEIGHT as u64) / top).max(2) as i32;
+                        bar.set_size_request(4, height.min(SPARK_HEIGHT));
+                        bar.set_visible(true);
+                    }
+                    None => bar.set_visible(false),
+                }
+            }
+            spark.set_visible(!recent.is_empty());
+            let composing_text = match composing(&cache) {
+                Some(true) => t("misc.buffer_composing", "đang soạn"),
+                Some(false) => t("misc.buffer_empty", "rỗng"),
+                None => String::new(),
+            };
+            set_if_changed(&composing_label, &composing_text);
+            // How big the file has grown: the one number the card has no room
+            // for, on the button that deletes it.
+            let size = path
+                .as_deref()
+                .and_then(|p| std::fs::metadata(p).ok())
+                .map(|meta| size_label(meta.len()))
+                .unwrap_or_else(|| "—".to_string());
+            clear_btn.set_tooltip_text(Some(&format!(
+                "{} ({size})",
+                t("misc.debug_clear_log", "Xoá log")
+            )));
         })
     };
 
-    // --- Engine state in the status bar -----------------------------------
+    // --- Engine state in the status card ----------------------------------
     let status_refresh: Rc<dyn Fn()> = {
-        let dot = dot.clone();
+        let head_tile = head_tile.clone();
         let state = state.clone();
         let detail = detail.clone();
         let read_slow = Rc::clone(&read_slow);
         Rc::new(move || match read_slow().engine {
             Some(engine) => {
-                set_dot(&dot, "diag-dot-ok");
+                set_head_state(&head_tile, true);
                 set_if_changed(&state, &t("misc.status_running", "Engine đang chạy"));
                 let uptime = engine
                     .started
@@ -488,7 +560,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 );
             }
             None => {
-                set_dot(&dot, "diag-dot-warn");
+                set_head_state(&head_tile, false);
                 set_if_changed(&state, &t("misc.status_stopped", "Engine không chạy"));
                 set_if_changed(
                     &detail,
@@ -510,45 +582,50 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     {
         let render = Rc::clone(&render);
         let query = Rc::clone(&query);
-        filter.connect_search_changed(move |entry| {
+        filter_entry.connect_search_changed(move |entry| {
             *query.borrow_mut() = entry.text().to_string();
+            render();
+        });
+    }
+    for (kind, btn) in &buttons {
+        let render = Rc::clone(&render);
+        let kind_filter = Rc::clone(&kind_filter);
+        let kind = *kind;
+        btn.connect_toggled(move |btn| {
+            // A radio group fires on the button that loses too: only the one
+            // that turned on says which kind is in force.
+            if !btn.is_active() {
+                return;
+            }
+            *kind_filter.borrow_mut() = kind;
             render();
         });
     }
     {
         let render = Rc::clone(&render);
-        let kind_filter = Rc::clone(&kind_filter);
-        kind_pick.connect_selected_notify(move |pick| {
-            // Item 0 is "Tất cả"; the rest follow `CHIPS`.
-            let index = pick.selected();
-            *kind_filter.borrow_mut() = usize::try_from(index)
-                .ok()
-                .and_then(|i| i.checked_sub(1))
-                .and_then(|i| CHIPS.get(i).copied());
+        log_pause.connect_active_notify(move |sw| {
+            let mut config = crate::config::Config::load();
+            config.debug_log_paused = sw.is_active();
+            let _ = config.save();
             render();
-        });
-    }
-    {
-        let follow = follow.clone();
-        follow.connect_toggled(move |btn| {
-            let on = btn.is_active();
-            btn.set_icon_name(if on {
-                "media-playback-pause-symbolic"
-            } else {
-                "media-playback-start-symbolic"
-            });
         });
     }
     {
         // Re-pin when the text view grows: at the moment render() appends, the
         // adjustment still reports the old height, so one scroll inside
         // render() lands above the newest line and the log looks frozen.
-        let follow = follow.clone();
         let adj = scroller.vadjustment();
         adj.connect_changed(move |adj| {
-            if follow.is_active() {
-                adj.set_value(adj.upper() - adj.page_size());
-            }
+            adj.set_value(adj.upper() - adj.page_size());
+        });
+    }
+    {
+        let render = Rc::clone(&render);
+        hide_switch.connect_active_notify(move |sw| {
+            let mut config = crate::config::Config::load();
+            config.debug_hide_text = sw.is_active();
+            let _ = config.save();
+            render();
         });
     }
     {
@@ -585,43 +662,36 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         });
     }
     {
-        // A narrow window stacks the column instead of squeezing both.
-        let split = split.clone();
-        let separator = separator.clone();
-        let right = right.clone();
-        let right_column = right_column.clone();
-        let scroller = scroller.clone();
+        // A narrow window stacks the column instead of squeezing both. The
+        // footer stays where it is: it is the page's own action bar.
+        let body = body.clone();
+        let side = side.clone();
+        let log_card = log_card.clone();
         let page_ref = page.clone();
-        let laid_out = Rc::new(Cell::new((false, -1i32)));
+        let laid_out = Rc::new(Cell::new(false));
         let state = Rc::clone(&laid_out);
         // A tick callback runs on every frame and keeps the window redrawing
         // for as long as the page is open; a plain timer costs a comparison and
         // is quick enough that the columns land where they belong as the window
         // opens.
         gtk4::glib::timeout_add_local(std::time::Duration::from_millis(60), move || {
-            let width = page_ref.width();
-            let narrow = is_narrow(width);
-            let share = column_share(width);
-            if (narrow, share) != state.get() {
-                state.set((narrow, share));
+            let narrow = is_narrow(page_ref.width());
+            if narrow != state.get() {
+                state.set(narrow);
                 if narrow {
-                    split.set_orientation(Orientation::Vertical);
-                    separator.set_visible(false);
-                    right.set_width_request(-1);
-                    right.set_vexpand(false);
+                    body.set_orientation(Orientation::Vertical);
+                    side.set_width_request(-1);
+                    side.set_vexpand(false);
                     // Stacked, the column takes its own height and the page
                     // scrolls, instead of squeezing it into a few pixels.
-                    right.set_propagate_natural_height(true);
-                    right_column.set_vexpand(false);
-                    scroller.set_vexpand(false);
+                    side.set_propagate_natural_height(true);
+                    log_card.set_vexpand(false);
                 } else {
-                    split.set_orientation(Orientation::Horizontal);
-                    separator.set_visible(true);
-                    right.set_width_request(share);
-                    right.set_propagate_natural_height(false);
-                    right.set_vexpand(true);
-                    right_column.set_vexpand(true);
-                    scroller.set_vexpand(true);
+                    body.set_orientation(Orientation::Horizontal);
+                    side.set_width_request(super::debug_tools::SIDE_WIDTH);
+                    side.set_propagate_natural_height(false);
+                    side.set_vexpand(true);
+                    log_card.set_vexpand(true);
                 }
             }
             gtk4::glib::ControlFlow::Continue
@@ -720,18 +790,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // --- Following the file -----------------------------------------------
     {
-        // One poll reads only what the engine appended. While following, the
-        // view jumps to the new lines; while paused, the number waits in the
-        // toolbar until the user asks for it.
+        // One poll reads only what the engine appended, and the view keeps the
+        // newest line in sight.
         let poll: Rc<dyn Fn(bool)> = {
             let reader = Rc::clone(&reader);
             let parsed = Rc::clone(&parsed);
             let render = Rc::clone(&render);
             let status_refresh = Rc::clone(&status_refresh);
             let tools_refresh = Rc::clone(&tools.refresh);
-            let follow = follow.clone();
-            let arrived = arrived.clone();
-            let pending = Rc::clone(&pending);
             let last_probe = Rc::new(Cell::new(std::time::Instant::now()));
             let refresh_slow = Rc::clone(&refresh_slow);
             Rc::new(move |first: bool| {
@@ -746,30 +812,18 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 if added.is_empty() {
                     return;
                 }
+                render();
                 // Typing in the test box is exactly what starts the engine, so
                 // a status that said "not running" has to be re-read. Twice a
                 // second at most: the probe walks /proc.
                 if last_probe.get().elapsed() > std::time::Duration::from_millis(900) {
                     last_probe.set(std::time::Instant::now());
                     // The subprocesses run on the worker; this only applies
-                    // what it last answered, and the rows rebuild only if a
-                    // row's text changed.
+                    // what it last answered, and the cards rebuild only if a
+                    // value changed.
                     refresh_slow();
                     status_refresh();
                     tools_refresh();
-                }
-                if follow.is_active() {
-                    render();
-                    pending.set(0);
-                    arrived.set_visible(false);
-                } else {
-                    pending.set(pending.get() + added.len());
-                    arrived.set_text(&format!(
-                        "+{} {}",
-                        pending.get(),
-                        t("misc.debug_new_lines", "dòng mới")
-                    ));
-                    arrived.set_visible(true);
                 }
             })
         };
@@ -789,24 +843,11 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 gtk4::glib::ControlFlow::Continue
             });
         }
-        // Asking to follow again shows what arrived and clears the count.
-        {
-            let render = Rc::clone(&render);
-            let arrived = arrived.clone();
-            let pending = Rc::clone(&pending);
-            follow.connect_toggled(move |btn| {
-                if btn.is_active() {
-                    pending.set(0);
-                    arrived.set_visible(false);
-                    render();
-                }
-            });
-        }
     }
 
-    // One draw before the window appears, so the status bar is never blank.
+    // One draw before the window appears, so the status card is never blank.
     render();
-    toast_overlay.set_child(Some(&outer));
+    toast_overlay.set_child(Some(&root));
     toast_overlay
 }
 
@@ -815,10 +856,19 @@ fn is_narrow(width: i32) -> bool {
     width > 0 && width < NARROW_WIDTH
 }
 
-/// The right column's width: a fixed share of the page, kept in a band where
-/// the rows still read and the log keeps most of the room.
-fn column_share(width: i32) -> i32 {
-    ((width as f32 / SHARE_RATIO) as i32).clamp(MIN_RIGHT_WIDTH, MAX_RIGHT_WIDTH)
+/// The status square says running or not with its colour and its icon, the same
+/// way the word beside it does.
+fn set_head_state(tile: &gtk4::Image, running: bool) {
+    tile.set_icon_name(Some(if running {
+        "utilities-system-monitor-symbolic"
+    } else {
+        "dialog-error-symbolic"
+    }));
+    if running {
+        tile.remove_css_class("diag-head-icon-off");
+    } else {
+        tile.add_css_class("diag-head-icon-off");
+    }
 }
 
 /// "2 giờ 14 phút": an uptime short enough for a status bar.
@@ -920,11 +970,9 @@ fn extend_tail(cache: &mut Vec<Line>, fresh: &[String], cap: usize) {
     }
 }
 
-/// Draw every selected line from scratch: a new filter, a new kind, a cleared
-/// log.
-/// The clear button's work: the file goes, and so does the cache the pane
-/// draws from. Emptying the file alone left the lines on screen, because the
-/// pane never reads the file twice.
+/// The clear button's work: the file goes, and so does the cache the pane draws
+/// from. Emptying the file alone left the lines on screen, because the pane
+/// never reads the file twice.
 fn clear_log(
     path: &std::path::Path,
     reader: &Rc<RefCell<crate::gui::log_tail::Reader>>,
@@ -962,27 +1010,19 @@ fn draw_more(view: &gtk4::TextView, lines: &[&Line]) {
     }
 }
 
-/// One line: relative time, coloured kind, decoded body.
+/// One line: a coloured band for the kind, the gap since the line before, then
+/// the decoded body. The band is one mono glyph rather than 3 px of padding: a
+/// text view has no per-line box, and the glyph keeps every line's height.
 fn write(buffer: &gtk4::TextBuffer, iter: &mut gtk4::TextIter, lines: &[&Line]) {
     let press = t("misc.key_press", "nhấn");
     let release = t("misc.key_release", "thả");
-    let width = CHIPS
-        .iter()
-        .map(|k| kind_label(*k).len())
-        .max()
-        .unwrap_or(4);
     for line in lines {
+        buffer.insert_with_tags_by_name(iter, "▌", &[tag_for(line.kind)]);
         let when = match line.rel_ms {
             Some(ms) => format!("+{ms}ms"),
             None => String::new(),
         };
         buffer.insert_with_tags_by_name(iter, &format!("{when:>8} "), &["log-time"]);
-        let label = kind_label(line.kind);
-        buffer.insert_with_tags_by_name(
-            iter,
-            &format!("{label:<width$} "),
-            &[tag_for(line.kind), "log-label"],
-        );
         buffer.insert(iter, &line.body.text(&press, &release));
         buffer.insert(iter, "\n");
     }
@@ -1013,30 +1053,14 @@ fn make_tags(buffer: &gtk4::TextBuffer, view: &gtk4::TextView) {
         ("log-key", "accent_color", 1.0),
         ("log-insert", "success_color", 1.0),
         ("log-delete", "warning_color", 1.0),
-        ("log-flush", "view_fg_color", 0.75),
+        ("log-flush", "view_fg_color", 0.6),
         ("log-error", "error_color", 1.0),
-        ("log-other", "view_fg_color", 0.6),
+        ("log-other", "view_fg_color", 0.45),
         ("log-time", "view_fg_color", 0.45),
-        ("log-label", "view_fg_color", 1.0),
     ] {
         if let Some(created) = buffer.create_tag(Some(tag), &[]) {
             created.set_foreground_rgba(Some(&color(name, alpha)));
         }
-    }
-}
-
-/// A status-bar number: the name greyed, the value in full contrast, and a
-/// separator between two of them, so the bar reads as three answers instead of
-/// one run of text.
-fn set_metric(label: &gtk4::Label, name: &str, value: &str, first: bool) {
-    let lead = if first { "" } else { "· " };
-    let markup = format!(
-        "{lead}<span alpha=\"55%\">{}</span> {}",
-        gtk4::glib::markup_escape_text(name),
-        gtk4::glib::markup_escape_text(value)
-    );
-    if label.label() != markup {
-        label.set_markup(&markup);
     }
 }
 
@@ -1046,14 +1070,6 @@ fn set_if_changed(label: &gtk4::Label, text: &str) {
     if label.text() != text {
         label.set_text(text);
     }
-}
-
-/// The status dot takes exactly one of the three colours.
-fn set_dot(dot: &gtk4::Label, class: &str) {
-    for old in ["diag-dot-ok", "diag-dot-warn", "diag-dot-info"] {
-        dot.remove_css_class(old);
-    }
-    dot.add_css_class(class);
 }
 
 /// An icon-only toolbar button: tooltip and accessible label carry the words
@@ -1086,12 +1102,29 @@ mod tests {
     }
 
     #[test]
-    fn every_kind_the_list_offers_has_a_label() {
-        for kind in CHIPS {
+    fn every_kind_the_filter_bar_offers_has_a_label() {
+        for kind in [
+            Kind::Key,
+            Kind::Insert,
+            Kind::Delete,
+            Kind::Flush,
+            Kind::Error,
+            Kind::Other,
+        ] {
             assert!(!kind_label(kind).is_empty(), "{kind:?}");
         }
         assert_eq!(kind_label(Kind::Key), "Phím");
         assert_eq!(kind_label(Kind::Error), "Lỗi");
+    }
+
+    #[test]
+    fn the_filter_bar_opens_on_every_kind() {
+        assert_eq!(FILTERS.len(), 4);
+        assert_eq!(
+            FILTERS[0], None,
+            "the first toggle is every kind, and it is the one turned on"
+        );
+        assert!(FILTERS[1..].iter().all(|kind| kind.is_some()));
     }
 
     #[test]
@@ -1179,18 +1212,6 @@ mod tests {
         );
         assert_eq!(junk.len(), 1, "a line without a timestamp still shows");
         assert_eq!(junk[0].rel_ms, None, "it just has no gap to report");
-    }
-
-    #[test]
-    fn the_two_columns_split_one_and_a_half_to_one() {
-        assert_eq!(column_share(0), MIN_RIGHT_WIDTH);
-        assert_eq!(column_share(760), 304);
-        assert_eq!(column_share(1334), 533);
-        assert_eq!(
-            column_share(3000),
-            MAX_RIGHT_WIDTH,
-            "the log keeps the room"
-        );
     }
 
     #[test]
