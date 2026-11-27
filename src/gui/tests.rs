@@ -1613,7 +1613,7 @@ fn the_debug_page_shows_the_status_the_facts_and_the_action_bar() {
         "the kinds are buttons, not a menu"
     );
     let toggles = descendants::<gtk4::ToggleButton>(overlay.upcast_ref());
-    assert_eq!(toggles.len(), 4, "Tất cả and the three kinds");
+    assert_eq!(toggles.len(), 6, "Tất cả and the five kinds");
     assert!(
         toggles.iter().any(|btn| btn.is_active()),
         "one kind is always in force"

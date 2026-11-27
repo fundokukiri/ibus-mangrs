@@ -32,9 +32,17 @@ const MAX_PAGE_WIDTH: i32 = 1040;
 /// moves below the log.
 const NARROW_WIDTH: i32 = 720;
 
-/// The log kinds the filter bar offers, in the order it draws them. `None` is
-/// "Tất cả": the lines that belong to no kind only show there.
-const FILTERS: [Option<Kind>; 4] = [None, Some(Kind::Insert), Some(Kind::Key), Some(Kind::Error)];
+/// The log kinds the filter bar offers, in the order it draws them: "Tất cả"
+/// and then every kind the decoder names, so no line is out of reach. A line
+/// that fits none of them shows only under "Tất cả".
+const FILTERS: [Option<Kind>; 6] = [
+    None,
+    Some(Kind::Key),
+    Some(Kind::Insert),
+    Some(Kind::Delete),
+    Some(Kind::Flush),
+    Some(Kind::Error),
+];
 
 /// Tallest bar of the header's sparkline, in pixels.
 const SPARK_HEIGHT: i32 = 18;
@@ -1122,7 +1130,7 @@ mod tests {
 
     #[test]
     fn the_filter_bar_opens_on_every_kind() {
-        assert_eq!(FILTERS.len(), 4);
+        assert_eq!(FILTERS.len(), 6);
         assert_eq!(
             FILTERS[0], None,
             "the first toggle is every kind, and it is the one turned on"
