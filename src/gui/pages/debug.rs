@@ -22,7 +22,7 @@ use crate::gui::log_tail::{size_label, tail, Reader, TAIL_BYTES};
 const VIEW_LINES: usize = 5_000;
 
 /// The lines the copied report carries.
-const REPORT_LINES: usize = 50;
+const REPORT_LINES: usize = 100;
 
 /// A wide log is worth more than a wide window: past this the page stops
 /// growing and centres itself, like every other tab.
@@ -1028,6 +1028,59 @@ fn report_log_lines(path: Option<&std::path::Path>, hide_text: bool) -> Vec<Stri
     }
 }
 
+/// The settings a maintainer can act on. A typing bug is explained by the
+/// method, the modes and their switches, the timings and the transport — not by
+/// which keys the user picked for shortcuts, which page the window was left on,
+/// or whether the log is paused. Everything outside this list is left out of the
+/// report; app rules stay, because a rule decides how one app is typed in.
+const REPORT_CONFIG_KEYS: &[&str] = &[
+    "enabled",
+    "method",
+    "mode",
+    "charset",
+    "modern_tone_style",
+    "free_tone_marking",
+    "auto_correct",
+    "extended_finals",
+    "extended_onsets",
+    "keep_composed_words",
+    "keep_repeats_raw",
+    "suggest_words",
+    "dodge_inline_autocomplete",
+    "autocomplete_fix",
+    "preferred_backend",
+    "backspace_tone",
+    "auto_restore",
+    "bypass_url",
+    "w2u",
+    "bracket",
+    "em_dash",
+    "auto_capitalize",
+    "double_space_period",
+    "macro_enabled",
+    "capitalize_macro",
+    "macro_in_off_mode",
+    "macro_expand_valid_words",
+    "abbreviations",
+    "dictionary_enabled",
+    "emoji_enabled",
+    "hide_underline",
+    "backspace_interval_ms",
+    "post_delay_ms",
+    "unicode_channel",
+    "echo_stale_enabled",
+    "echo_stale_ms",
+    "idle_commit_enabled",
+    "idle_commit_ms",
+    "flow_per_key_delay_ms",
+    "flow_backspace_restore_delay_ms",
+    "experimental_features",
+    "x11_delete_without_report",
+    "preedit_for_xim",
+    "nav_key_while_preedit",
+    "app_rules",
+];
+
 /// What `config.toml` held, minus everything that is already the default: the
 /// report quotes the file the engine actually loaded rather than what the
 /// widgets show, and a pasted dump of sixty unchanged keys buries the three
@@ -1038,7 +1091,30 @@ fn config_lines(ui: &Rc<Ui>) -> Vec<String> {
         .or_else(|| toml::to_string_pretty(&ui.read()).ok())
         .unwrap_or_default();
     let defaults = toml::to_string_pretty(&Config::default()).unwrap_or_default();
-    changed_config_lines(&text, &defaults)
+    reportable_config_lines(&text, &defaults)
+}
+
+/// The kept keys, parsed as TOML so a section (the app rules) travels whole
+/// instead of losing its inner lines to a key filter.
+fn reportable_config_lines(text: &str, defaults: &str) -> Vec<String> {
+    let Ok(parsed) = text.parse::<toml::Table>() else {
+        // A hand-edited file that no longer parses is still worth quoting.
+        return changed_config_lines(text, defaults);
+    };
+    let default: toml::Table = defaults.parse().unwrap_or_default();
+    let mut kept = toml::Table::new();
+    for (key, value) in parsed {
+        if !REPORT_CONFIG_KEYS.contains(&key.as_str()) {
+            continue;
+        }
+        if default.get(&key) == Some(&value) {
+            continue;
+        }
+        kept.insert(key, value);
+    }
+    toml::to_string_pretty(&kept)
+        .map(|text| text.lines().map(str::to_string).collect())
+        .unwrap_or_default()
 }
 
 /// The lines of `text` whose key is missing from `defaults` or holds a different
@@ -1351,6 +1427,28 @@ mod tests {
         );
         assert_eq!(junk.len(), 1, "a line without a timestamp still shows");
         assert_eq!(junk[0].rel_ms, None, "it just has no gap to report");
+    }
+
+    #[test]
+    fn the_report_carries_only_the_settings_that_matter_and_differ() {
+        let defaults = "method = \"telex\"\nlanguage = \"vi\"\ncycle_mode_hotkey = \"\"\n";
+        let file = "method = \"vni\"\nlanguage = \"en\"\ncycle_mode_hotkey = \"a\"\n\
+                    mode = \"surrounding\"\n[[app_rules]]\npattern = \"firefox\"\n";
+        let lines = reportable_config_lines(file, defaults);
+        let joined = lines.join("\n");
+        assert!(
+            joined.contains("method"),
+            "a changed method travels: {joined}"
+        );
+        assert!(joined.contains("mode"), "so does a changed mode: {joined}");
+        assert!(
+            joined.contains("app_rules") && joined.contains("firefox"),
+            "an app rule travels whole: {joined}"
+        );
+        assert!(
+            !joined.contains("language") && !joined.contains("cycle_mode_hotkey"),
+            "the interface language and the user's own keys stay home: {joined}"
+        );
     }
 
     #[test]
