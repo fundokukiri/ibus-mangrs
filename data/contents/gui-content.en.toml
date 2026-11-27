@@ -244,10 +244,6 @@ title = "Word suggestions while typing"
 subtitle = "A suggestion strip by the caret"
 
 
-[rows.browser_forward_commit]
-title = "Fix typing in Google Docs"
-subtitle = "For Chrome on Ubuntu"
-
 [rows.dodge_inline_autocomplete]
 title = "Fix typing in address bars"
 subtitle = "Used to give oỏ, now ỏ"
@@ -665,7 +661,6 @@ mode = "How text reaches the app. Underline shows the word in the app and needs 
 charset = "The character table. Unicode covers everyday use, VNI and TCVN3 are only for reading old files."
 hide_underline = "Hides the underline in apps that draw it wrong, such as some games and terminals."
 dodge_inline_autocomplete = "While a browser shows a suggestion in its address bar, the word keeps its marks instead of coming out garbled. Off by default."
-browser_forward_commit = "Turn on when a browser repeats letters on Ubuntu: the word is deleted and typed again entirely with forwarded keys. Browsers and Electron apps only, off by default."
 modern = "New tone placement from the Ministry of Education: hòa instead of hoà."
 free = "Lets the tone sit anywhere in the word instead of always on the nearest vowel."
 auto_correct = "A syllable missing from the dictionary returns the exact keys typed."

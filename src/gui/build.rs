@@ -226,16 +226,6 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Trước ra oỏ, giờ ra ỏ",
         ),
     );
-    let browser_forward_commit = switch_row(
-        &t(
-            "rows.browser_forward_commit.title",
-            "Sửa lỗi gõ trong Google Docs",
-        ),
-        &t(
-            "rows.browser_forward_commit.subtitle",
-            "Dùng cho Chrome trên Ubuntu",
-        ),
-    );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Cách chèn phím"),
         &t("rows.preferred_backend.subtitle", "Ưu tiên cách chèn phím"),
@@ -735,11 +725,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Mặc định tắt."
     );
     tip!(
-        browser_forward_commit,
-        "tips.browser_forward_commit",
-        "Bật khi trình duyệt bị lặp chữ trên Ubuntu: từ được xoá và gõ lại hoàn toàn bằng phím chuyển tiếp. Chỉ ảnh hưởng trình duyệt và Electron, mặc định tắt."
-    );
-    tip!(
         preferred_backend,
         "tips.preferred_backend",
         "Chọn cách chèn phím được ưu tiên. Để tự động là tốt nhất, chỉ đổi khi cần thử nghiệm."
@@ -806,7 +791,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_repeats_raw,
         suggest_words,
         dodge_inline_autocomplete,
-        browser_forward_commit,
         preferred_backend,
         time_format,
         date_format,
