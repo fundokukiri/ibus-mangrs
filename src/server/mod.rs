@@ -877,9 +877,11 @@ impl EngineHandler {
 }
 
 /// Beat between the browser's injected Backspace keys and the commit in the
-/// same batch. The keys reach the client within 4-5 ms (measured from the
-/// reporter's log), the commit overtakes them if it goes at once.
+/// same batch. A fixed 12 ms was not enough for the Chrome on Ubuntu case (the
+/// commit still overtook the deletes, so the marks were eaten); ibus-bamboo,
+/// which types correctly there, sleeps 20 ms per key, and this follows it.
 const BROWSER_INJECT_PARK_MS: u64 = 12;
+const BROWSER_INJECT_PACE_MS: u64 = 20;
 
 /// Backspace scancode as it goes on the wire. Every ibus client adds 8 to get
 /// its own keycode (`ibusimcontext.c`, Qt's input context and the X11/XIM
@@ -1990,7 +1992,9 @@ fn emit_with(
                     // held every rewritten word back (measured in the owner's
                     // Ubuntu log). The count is still registered so the echoes
                     // that do arrive are swallowed instead of typed.
-                    let wait = engine.post_delay_ms().max(BROWSER_INJECT_PARK_MS);
+                    let wait = engine
+                        .post_delay_ms()
+                        .max(BROWSER_INJECT_PARK_MS + u64::from(*n) * BROWSER_INJECT_PACE_MS);
                     std::thread::sleep(std::time::Duration::from_millis(wait));
                     debug_log::log(&format!("del mode=forward n={n} op=inject wait={wait}"));
                     engine.add_injected(*n);
