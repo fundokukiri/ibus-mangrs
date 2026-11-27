@@ -18,18 +18,13 @@ pub(super) const WINDOW: usize = 200;
 /// where the log holds milliseconds.
 pub(super) const MAX_PAIR_MS: u64 = 1_000;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Stats {
     pub avg_ms: u64,
     pub max_ms: u64,
     /// How many keystrokes the two numbers come from.
     pub keys: usize,
-    /// The newest delays, oldest first: what the header's sparkline draws.
-    pub recent: Vec<u64>,
 }
-
-/// Bars the header's sparkline has room for.
-pub(super) const SPARK: usize = 8;
 
 /// Pair each press with the first flush or insert after it. A press with no
 /// such line yet is not counted: the keystroke is still in flight.
@@ -58,16 +53,10 @@ pub(super) fn measure(lines: &[Line]) -> Option<Stats> {
     }
     let max_ms = samples.iter().copied().max().unwrap_or(0);
     let avg_ms = samples.iter().sum::<u64>() / keys as u64;
-    let recent = samples
-        .iter()
-        .skip(keys.saturating_sub(SPARK))
-        .copied()
-        .collect();
     Some(Stats {
         avg_ms,
         max_ms,
         keys,
-        recent,
     })
 }
 
@@ -101,8 +90,7 @@ mod tests {
             Some(Stats {
                 avg_ms: 12,
                 max_ms: 12,
-                keys: 1,
-                recent: vec![12]
+                keys: 1
             })
         );
     }

@@ -17,9 +17,6 @@ pub(super) enum Status {
 /// One row of the tools column.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Cell {
-    /// Stable name for a row, so the page can place the fact it needs without
-    /// matching on translated text.
-    pub id: &'static str,
     pub label: String,
     pub value: String,
     pub status: Status,
@@ -36,9 +33,8 @@ pub(super) struct Cell {
 }
 
 impl Cell {
-    fn info(id: &'static str, label: &str, value: String) -> Cell {
+    fn info(label: &str, value: String) -> Cell {
         Cell {
-            id,
             label: label.to_string(),
             value,
             status: Status::Info,
@@ -51,13 +47,12 @@ impl Cell {
 
     /// A file row shows the file's name only: the full path is long, and the
     /// row has a folder button for anyone who needs it.
-    fn path(id: &'static str, label: &str, path: &std::path::Path) -> Cell {
+    fn path(label: &str, path: &std::path::Path) -> Cell {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| path.display().to_string());
         Cell {
-            id,
             label: label.to_string(),
             value: name,
             status: Status::Info,
@@ -129,58 +124,41 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
         Some(_) => Status::Info,
     };
     system.push(
-        Cell::info(
-            "engine",
-            &t("rows.debug_engine.selected", "Engine"),
-            selected,
-        )
-        .with_status(
-            selected_status,
-            &t(
-                "rows.debug_engine.selected_hint",
-                "IBus đang chạy engine khác. Chọn MăngRS trong menu bộ gõ.",
-            ),
-        )
-        .report_only(),
+        Cell::info(&t("rows.debug_engine.selected", "Engine"), selected)
+            .with_status(
+                selected_status,
+                &t(
+                    "rows.debug_engine.selected_hint",
+                    "IBus đang chạy engine khác. Chọn MăngRS trong menu bộ gõ.",
+                ),
+            )
+            .report_only(),
     );
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let install = match status {
-        Some(s) if s.stale => Cell::info(
-            "version",
-            &t("rows.debug_engine.version", "Phiên bản MăngRS"),
-            version,
-        )
-        .with_status(
-            Status::Warn,
-            &t(
-                "rows.debug_engine.stale_hint",
-                "Bản cài mới hơn tiến trình đang chạy. Khởi động lại IBus để dùng bản mới.",
-            ),
-        ),
+        Some(s) if s.stale => {
+            Cell::info(&t("rows.debug_engine.version", "Phiên bản MăngRS"), version).with_status(
+                Status::Warn,
+                &t(
+                    "rows.debug_engine.stale_hint",
+                    "Bản cài mới hơn tiến trình đang chạy. Khởi động lại IBus để dùng bản mới.",
+                ),
+            )
+        }
         // The tooltip names the binary that is actually typing: the only way
         // to tell two installs apart without opening a terminal.
-        Some(s) => Cell::info(
-            "version",
-            &t("rows.debug_engine.version", "Phiên bản MăngRS"),
-            version,
-        )
-        .with_status(Status::Ok, &s.exe.display().to_string()),
-        None => Cell::info(
-            "version",
-            &t("rows.debug_engine.version", "Phiên bản MăngRS"),
-            version,
-        ),
+        Some(s) => Cell::info(&t("rows.debug_engine.version", "Phiên bản MăngRS"), version)
+            .with_status(Status::Ok, &s.exe.display().to_string()),
+        None => Cell::info(&t("rows.debug_engine.version", "Phiên bản MăngRS"), version),
     };
     system.push(install.report_only());
     // The IBus daemon's own version belongs with the two rows about IBus.
     system.push(Cell::info(
-        "ibus",
         &t("rows.debug_machine.ibus", "Phiên bản IBus"),
         facts.machine.ibus.clone(),
     ));
     let (ext_key, ext_fallback, ext_running) = facts.extension;
     let extension = Cell::info(
-        "extension",
         &t("rows.debug_info.extension", "Extension"),
         t(ext_key, ext_fallback).to_string(),
     );
@@ -197,30 +175,26 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
     });
     // From this install down to the machine it sits on, ending with the session
     // it was typed in: the order the facts are usually asked in.
-    for (id, label_key, label_fallback, value) in [
+    for (label_key, label_fallback, value) in [
         (
-            "os",
             "rows.debug_machine.os",
             "Hệ điều hành",
             facts.machine.os.clone(),
         ),
         (
-            "kernel",
             "rows.debug_machine.kernel",
             "Kernel",
             facts.machine.kernel.clone(),
         ),
         (
-            "desktop",
             "rows.debug_machine.desktop",
             "DE/WM",
             facts.machine.desktop.clone(),
         ),
     ] {
-        system.push(Cell::info(id, &t(label_key, label_fallback), value));
+        system.push(Cell::info(&t(label_key, label_fallback), value));
     }
     system.push(Cell::info(
-        "session",
         &t("rows.debug_info.session", "Session"),
         std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "?".to_string()),
     ));
@@ -232,7 +206,6 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
 
     let mut insert = Vec::new();
     insert.push(Cell::info(
-        "mode",
         &t("rows.debug_info.mode", "Chế độ gõ toàn cục"),
         mode_label(facts.mode).to_string(),
     ));
@@ -248,7 +221,6 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
     // Both rows carry the same tint when they disagree: the pair is the
     // evidence, and one of them alone says nothing.
     let configured_cell = Cell::info(
-        "backend",
         &t("rows.debug_info.backend", "Backend"),
         configured.to_string(),
     );
@@ -257,11 +229,7 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
     } else {
         configured_cell
     });
-    let actual = Cell::info(
-        "actual",
-        &t("rows.debug_transport.title", "Backend thực tế"),
-        shown,
-    );
+    let actual = Cell::info(&t("rows.debug_transport.title", "Backend thực tế"), shown);
     insert.push(if denied {
         actual.with_status(
             Status::Warn,
@@ -291,25 +259,15 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
 
     let mut files = Vec::new();
     match facts.config_path {
-        Some(path) => files.push(Cell::path(
-            "config",
-            &t("rows.debug_info.config", "Cấu hình"),
-            path,
-        )),
+        Some(path) => files.push(Cell::path(&t("rows.debug_info.config", "Cấu hình"), path)),
         None => files.push(Cell::info(
-            "config",
             &t("rows.debug_info.config", "Cấu hình"),
             t("misc.debug_log_missing", "Không có đường dẫn"),
         )),
     }
     match facts.log_path {
-        Some(path) => files.push(Cell::path(
-            "log",
-            &t("rows.debug_info.log", "Nhật ký"),
-            path,
-        )),
+        Some(path) => files.push(Cell::path(&t("rows.debug_info.log", "Nhật ký"), path)),
         None => files.push(Cell::info(
-            "log",
             &t("rows.debug_info.log", "Nhật ký"),
             t("misc.debug_log_missing", "Không có đường dẫn log"),
         )),
@@ -706,8 +664,8 @@ mod tests {
             title: "Hệ thống".to_string(),
             report: true,
             rows: vec![
-                Cell::info("engine", "Engine", "đang chạy".to_string()).with_status(Status::Ok, ""),
-                Cell::info("register", "Đăng ký", "không thấy".to_string())
+                Cell::info("Engine", "đang chạy".to_string()).with_status(Status::Ok, ""),
+                Cell::info("Đăng ký", "không thấy".to_string())
                     .with_status(Status::Warn, "cài lại"),
             ],
         }];

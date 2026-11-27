@@ -67,13 +67,13 @@ fn gtk_widget_scenarios() {
     the_search_button_opens_the_entry();
     close_test_windows();
     every_switch_on_a_page_lands_on_the_same_edge();
-    the_debug_pause_switches_keep_their_places();
+    the_two_debug_checkboxes_share_the_footer();
     close_test_windows();
     the_debug_tab_row_appears_only_with_debug_mode();
     the_open_log_pane_picks_up_what_is_written();
     the_debug_page_opens_with_both_columns();
     close_test_windows();
-    the_debug_page_shows_the_status_the_facts_and_the_action_bar();
+    the_debug_page_shows_the_status_the_rows_and_the_footer();
     close_test_windows();
     close_test_windows();
     every_switch_triggers_save();
@@ -1436,36 +1436,47 @@ fn every_switch_on_a_page_lands_on_the_same_edge() {
     Config::default().save().expect("config back off");
 }
 
-/// The log's own pause sits on the log it stops, and the switch that hides the
-/// typed text sits in the action bar: neither one is a second copy of the
-/// other, and a narrow window may not push either out of reach.
-fn the_debug_pause_switches_keep_their_places() {
-    let ui = widgets();
-    let overlay = pages::debug::build(&ui);
-    let switches = descendants::<gtk4::Switch>(overlay.upcast_ref());
+/// "Tạm dừng ghi log" sits beside "Ẩn nội dung gõ": both are about what the
+/// copy produces, and they share the footer at the foot of the tools column.
+fn the_two_debug_checkboxes_share_the_footer() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-debug-footer")
+        .build();
+    Config {
+        debug_log: true,
+        ..Config::default()
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("debugging"));
+    // The language is process-global and an earlier scenario may have switched
+    // it, so both spellings are matched.
+    let checks: Vec<gtk4::CheckButton> = descendants::<gtk4::CheckButton>(win.upcast_ref())
+        .into_iter()
+        .filter(|c| {
+            c.label().is_some_and(|l| {
+                ["Ẩn", "Tạm", "Hide", "Pause"]
+                    .iter()
+                    .any(|p| l.starts_with(p))
+            })
+        })
+        .collect();
+    assert_eq!(checks.len(), 2, "both switches exist");
+    let row = |c: &gtk4::CheckButton| c.parent().map(|p| p.as_ptr());
     assert_eq!(
-        switches.len(),
-        2,
-        "the log pause and the copy masking switch"
+        row(&checks[0]),
+        row(&checks[1]),
+        "the pause switch must sit in the same footer group as the masking switch"
     );
-    let inside_log_card = |switch: &gtk4::Switch| {
-        let mut node = switch.parent();
-        while let Some(ancestor) = node {
-            if ancestor.has_css_class("log-card") {
-                return true;
-            }
-            node = ancestor.parent();
-        }
-        false
-    };
-    assert!(
-        inside_log_card(&switches[0]),
-        "the log's pause belongs on the log card"
-    );
-    assert!(
-        !inside_log_card(&switches[1]),
-        "the masking switch belongs in the action bar"
-    );
+    // Stacked: the footer lives at the foot of the tools column, too narrow for
+    // two labels side by side.
+    let group = checks[0]
+        .parent()
+        .and_then(|p| p.downcast::<gtk4::Box>().ok())
+        .expect("the footer group");
+    assert_eq!(group.orientation(), Orientation::Vertical);
+    win.close();
+    Config::default().save().expect("config back off");
 }
 
 /// The window opens wide enough for the two columns: the stacked layout is
@@ -1498,13 +1509,21 @@ fn the_debug_page_opens_with_both_columns() {
         split_view.iter().all(|view| !view.is_collapsed()),
         "the sidebar stays open at the default size"
     );
-    // The page's own body: the log card beside the tools column.
-    let body = descendants::<gtk4::Box>(win.upcast_ref())
+    // The page's own split is the box holding a separator between two halves.
+    let split = descendants::<gtk4::Box>(win.upcast_ref())
         .into_iter()
-        .find(|b| b.has_css_class("diag-body"))
-        .expect("the two-column body");
+        .find(|b| {
+            let mut child = b.first_child();
+            let mut separator = false;
+            while let Some(w) = child {
+                separator |= w.downcast_ref::<gtk4::Separator>().is_some();
+                child = w.next_sibling();
+            }
+            separator && b.orientation() == Orientation::Horizontal
+        })
+        .expect("the two-column split");
     assert_eq!(
-        body.orientation(),
+        split.orientation(),
         Orientation::Horizontal,
         "the log and the tools sit side by side on the first look"
     );
@@ -1583,6 +1602,17 @@ fn the_open_log_pane_picks_up_what_is_written() {
         adj.upper(),
         adj.page_size()
     );
+    let pause = descendants::<gtk4::ToggleButton>(overlay.upcast_ref())
+        .into_iter()
+        .find(|b| {
+            b.icon_name()
+                .is_some_and(|i| i.contains("pause") || i.contains("play"))
+        })
+        .expect("the pause button");
+    assert!(
+        pause.is_active(),
+        "scrolling never pauses following on its own"
+    );
     let view = descendants::<gtk4::TextView>(overlay.upcast_ref());
     let text = view
         .first()
@@ -1602,46 +1632,53 @@ fn the_open_log_pane_picks_up_what_is_written() {
     win.close();
 }
 
-fn the_debug_page_shows_the_status_the_facts_and_the_action_bar() {
+fn the_debug_page_shows_the_status_the_rows_and_the_footer() {
     let ui = widgets();
     let overlay = pages::debug::build(&ui);
-    // The filter is a bar of linked toggles: a dropdown hid both the choices
-    // and the kind in force.
+    // Two system rows hide (Engine and the MăngRS version travel only in the
+    // report), leaving six there, three for the insert path and two files.
+    let rows = descendants::<adw::ActionRow>(overlay.upcast_ref());
+    assert_eq!(rows.len(), 11, "the diagnostics rows");
     assert_eq!(
-        descendants::<gtk4::DropDown>(overlay.upcast_ref()).len(),
-        0,
-        "the kinds are buttons, not a menu"
+        descendants::<adw::PreferencesGroup>(overlay.upcast_ref()).len(),
+        4,
+        "a group per section, plus the typing test"
     );
-    let toggles = descendants::<gtk4::ToggleButton>(overlay.upcast_ref());
-    assert_eq!(toggles.len(), 4, "Tất cả and the three kinds");
+    let dots = descendants::<gtk4::Label>(overlay.upcast_ref())
+        .iter()
+        .filter(|l| l.text() == "●")
+        .count();
+    assert_eq!(dots, 12, "a dot per row, plus the status bar's");
+    let picks = descendants::<gtk4::DropDown>(overlay.upcast_ref()).len();
+    assert_eq!(picks, 1, "the type list");
+    let labels: Vec<String> = descendants::<gtk4::Label>(overlay.upcast_ref())
+        .iter()
+        .map(|l| l.text().to_string())
+        .collect();
+    for wanted in ["Hệ thống", "Cách chèn", "Tệp", "Thử gõ"] {
+        assert!(
+            labels.iter().any(|l| l == wanted),
+            "the page has a `{wanted}` group: {labels:?}"
+        );
+    }
     assert!(
-        toggles.iter().any(|btn| btn.is_active()),
-        "one kind is always in force"
+        labels
+            .iter()
+            .any(|l| l.starts_with("Engine đang chạy") || l.starts_with("Engine không chạy")),
+        "the status bar names the engine: {labels:?}"
     );
-    // A card each: the engine's state, the log, the typing test, the four
-    // facts, the two files, and the action bar across the bottom.
-    let cards = descendants::<gtk4::Box>(overlay.upcast_ref())
-        .into_iter()
-        .filter(|box_| box_.has_css_class("card"))
-        .count();
-    assert_eq!(cards, 7, "the page's cards");
-    // Eight facts, each a name over a value the mouse can select and copy.
-    let values = descendants::<gtk4::Label>(overlay.upcast_ref())
-        .into_iter()
-        .filter(|label| label.has_css_class("monospace") && label.is_selectable())
-        .count();
-    assert_eq!(values, 8, "two values per facts row");
-    assert_eq!(
-        descendants::<adw::StatusPage>(overlay.upcast_ref()).len(),
-        1,
-        "an empty log says so instead of showing a blank card"
+    assert!(
+        labels.iter().any(|l| l.starts_with("Trễ TB")),
+        "the status bar carries the latency: {labels:?}"
     );
-    // The status card names the engine; the numbers ride beside it.
-    let headings = descendants::<gtk4::Label>(overlay.upcast_ref())
-        .into_iter()
-        .filter(|label| label.has_css_class("heading"))
-        .count();
-    assert_eq!(headings, 1, "one engine state");
+    assert!(
+        labels.iter().any(|l| l == "Khởi động lại IBus"),
+        "the footer carries the restart button"
+    );
+    assert!(
+        labels.iter().any(|l| l.contains("Sao chép")),
+        "the footer carries the report button: {labels:?}"
+    );
 }
 
 /// Every switch wired by `wire_switch_saves` must fire the save funnel
