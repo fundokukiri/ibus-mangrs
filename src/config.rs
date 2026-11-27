@@ -187,6 +187,12 @@ pub struct Config {
     /// report as-is. Turn both on only when reproducing a lost/wrong
     /// character bug.
     pub debug_log_text: bool,
+    /// The debug tab's pause button: keeps every log tier switched on in
+    /// this file while the engine writes nothing, so a user who is hunting a
+    /// bug keeps their tiers but stops the file growing (or can capture a
+    /// snapshot of the current run before clearing it). Only read while
+    /// `debug_log` is on.
+    pub debug_log_paused: bool,
     /// Third log tier: record one line per key event (keyval/state). Only
     /// read while `debug_log` is on — the default log stays free of the
     /// per-keystroke spam that once filled it; turn on only when debugging
@@ -973,6 +979,7 @@ impl Default for Config {
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
+            debug_log_paused: false,
             debug_log_text: false,
             debug_log_keys: false,
             x11_delete_without_report: true,
@@ -1619,6 +1626,16 @@ children = ["preedit", "flow"]
         );
         assert_eq!(c.mode, ModeConfig::Preedit, "the good keys must survive");
         assert!(!c.auto_restore);
+    }
+
+    #[test]
+    fn debug_log_pause_defaults_off_and_parses() {
+        // The pause button keeps the log tiers as the user set them and only
+        // stops the writer, so it has to survive a save/load round trip.
+        let c = Config::from_toml("");
+        assert!(!c.debug_log_paused);
+        let c = Config::from_toml("debug_log = true\ndebug_log_paused = true\n");
+        assert!(c.debug_log && c.debug_log_paused);
     }
 
     #[test]

@@ -269,12 +269,19 @@ pub(super) fn mask_private(msg: &str) -> String {
         out.push_str(&rest[..field_start + quote_start + 1]);
         let inner_start = field_start + quote_start + 1;
         let mut end = inner_start;
-        let bytes = rest.as_bytes();
+        // Every step lands on a character boundary, so the walk cannot end up
+        // inside a multi-byte character: an escape may be followed by one
+        // (`\à`), and this slice is the only place that would notice.
         while end < rest.len() {
-            match bytes[end] {
-                b'\\' => end += 2,
+            match rest.as_bytes()[end] {
+                b'\\' => {
+                    end += 1;
+                    if let Some(c) = rest[end..].chars().next() {
+                        end += c.len_utf8();
+                    }
+                }
                 b'"' => break,
-                _ => end += 1,
+                _ => end += rest[end..].chars().next().map_or(1, char::len_utf8),
             }
         }
         let inner = &rest[inner_start..end.min(rest.len())];
@@ -401,5 +408,18 @@ mod tests {
         // Both fields on one line are masked, not just the first.
         let two = mask_private("tail=\"ab\" text=\"cd\" extra=1");
         assert_eq!(two, "tail=\"**\" text=\"**\" extra=1");
+    }
+
+    #[test]
+    fn masking_survives_an_escape_before_a_multibyte_character() {
+        // A backslash in front of a Vietnamese letter is three bytes across
+        // two characters; the walk has to stay on character boundaries so the
+        // masked shape counts characters, escapes included.
+        let masked = mask_private("text=\"\\à chào\"");
+        assert_eq!(
+            masked, "text=\"*******\"",
+            "seven characters, escape included"
+        );
+        assert!(!masked.contains('à'), "{masked}");
     }
 }

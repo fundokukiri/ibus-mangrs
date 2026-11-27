@@ -141,10 +141,26 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     arrived.add_css_class("accent");
     arrived.set_visible(false);
     let clear_btn = icon_button("user-trash-symbolic", &t("misc.debug_clear_log", "Xoá log"));
+    // Stops the ENGINE writing, not the pane: whoever is chasing a bug keeps
+    // their log tiers and the lines already collected, and the file stops
+    // growing (or can be cleared without the next keystroke filling it again).
+    let log_pause = gtk4::ToggleButton::new();
+    log_pause.add_css_class("flat");
+    let paused_now = crate::config::Config::load().debug_log_paused;
+    log_pause.set_active(paused_now);
+    set_log_pause_face(&log_pause, paused_now);
+    log_pause.connect_toggled(|btn| {
+        let paused = btn.is_active();
+        let mut config = crate::config::Config::load();
+        config.debug_log_paused = paused;
+        let _ = config.save();
+        set_log_pause_face(btn, paused);
+    });
     let toolbar = gtk4::Box::new(Orientation::Horizontal, 6);
     toolbar.append(&filter);
     toolbar.append(&kind_pick);
     toolbar.append(&follow);
+    toolbar.append(&log_pause);
     toolbar.append(&arrived);
     toolbar.append(&clear_btn);
 
@@ -985,6 +1001,33 @@ fn icon_button(icon: &str, label: &str) -> gtk4::Button {
     btn.add_css_class("flat");
     set_button_label(&btn, label, label);
     btn
+}
+
+/// The log toggle's face for one state: a stop icon while the engine is
+/// writing, a play icon once it is stopped, so the button always says what a
+/// click will do.
+fn set_log_pause_face(btn: &gtk4::ToggleButton, paused: bool) {
+    // Stop/start, not pause: the neighbouring toggle pauses the SCROLLING and
+    // already owns the pause glyph, and two identical buttons in one toolbar
+    // say nothing about which one does what.
+    btn.set_icon_name(if paused {
+        "media-playback-start-symbolic"
+    } else {
+        "media-playback-stop-symbolic"
+    });
+    let label = if paused {
+        t("misc.debug_log_resume", "Ghi log tiếp")
+    } else {
+        t("misc.debug_log_pause", "Tạm dừng ghi log")
+    };
+    set_button_label(
+        btn,
+        &label,
+        &t(
+            "tips.debug_log_pause",
+            "Tạm dừng tua lại phần log vừa ghi, engine không ghi thêm dòng nào cho tới khi bật lại.",
+        ),
+    );
 }
 
 fn set_button_label<W: IsA<gtk4::Widget> + IsA<gtk4::Accessible>>(btn: &W, label: &str, tip: &str) {

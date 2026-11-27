@@ -692,7 +692,7 @@ impl EngineHandler {
                 }
                 // Pick up settings changed in the GUI since the last focus.
                 let config = Config::load();
-                debug_log::set_enabled(config.debug_log);
+                debug_log::set_enabled(config.debug_log && !config.debug_log_paused);
                 debug_log::set_text_enabled(config.debug_log_text);
                 debug_log::set_keys_enabled(config.debug_log_keys);
                 // Direct field assignment: the engine guard held by this
