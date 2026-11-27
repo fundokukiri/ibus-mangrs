@@ -187,6 +187,10 @@ pub struct Config {
     /// report as-is. Turn both on only when reproducing a lost/wrong
     /// character bug.
     pub debug_log_text: bool,
+    /// GUI-only: the debug tab's copy switch, remembered so the window opens
+    /// the way it was left. On by default — a report pasted into an issue
+    /// should not carry the text the user typed unless they asked for it.
+    pub debug_hide_text: bool,
     /// The debug tab's pause button: keeps every log tier switched on in
     /// this file while the engine writes nothing, so a user who is hunting a
     /// bug keeps their tiers but stops the file growing (or can capture a
@@ -980,6 +984,7 @@ impl Default for Config {
             show_toasts: true,
             debug_log: false,
             debug_log_paused: false,
+            debug_hide_text: true,
             debug_log_text: false,
             debug_log_keys: false,
             x11_delete_without_report: true,
@@ -1635,6 +1640,14 @@ children = ["preedit", "flow"]
         );
         assert_eq!(c.mode, ModeConfig::Preedit, "the good keys must survive");
         assert!(!c.auto_restore);
+    }
+
+    #[test]
+    fn the_copy_switch_defaults_on_and_is_remembered() {
+        // On by default: a pasted report should not carry typed text unless the
+        // user turned masking off on purpose.
+        assert!(Config::from_toml("").debug_hide_text);
+        assert!(!Config::from_toml("debug_hide_text = false\n").debug_hide_text);
     }
 
     #[test]

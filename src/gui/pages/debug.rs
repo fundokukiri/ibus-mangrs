@@ -281,7 +281,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         "misc.debug_hide_text",
         "Ẩn nội dung gõ và macro khi sao chép",
     ));
-    hide_switch.set_active(true);
+    // Remembered like the pause switch beside it: the window opens the way it
+    // was left, and the default stays on.
+    hide_switch.set_active(crate::config::Config::load().debug_hide_text);
+    hide_switch.connect_active_notify(|sw| {
+        let mut config = crate::config::Config::load();
+        config.debug_hide_text = sw.is_active();
+        let _ = config.save();
+    });
     hide_switch.set_valign(gtk4::Align::Center);
     hide_switch.set_tooltip_text(Some(&t(
         "tips.debug_hide",

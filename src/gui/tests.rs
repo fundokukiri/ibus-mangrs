@@ -822,6 +822,7 @@ fn refresh_round_trips_every_widget() {
     let baseline = ui.read();
     let config = Config {
         debug_log_paused: false,
+        debug_hide_text: true,
         enabled: false,
         method: MethodConfig::Vni,
         mode: ModeConfig::ForwardBackspace,
