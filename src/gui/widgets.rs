@@ -311,6 +311,9 @@ pub(super) fn action_button(icon_name: Option<&str>, label: &str) -> gtk4::Butto
         // Detach the label before re-parenting it into the content box.
         btn.set_child(None::<&gtk4::Widget>);
         let content = gtk4::Box::new(Orientation::Horizontal, 6);
+        // Centred: a box fills its button, so its two children would otherwise
+        // sit at the left edge of a widened button.
+        content.set_halign(gtk4::Align::Center);
         content.append(&icon);
         content.append(&text);
         btn.set_child(Some(&content));

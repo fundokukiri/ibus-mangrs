@@ -181,13 +181,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     toolbar.set_margin_end(10);
     toolbar.set_margin_bottom(8);
     toolbar.append(&filter_entry);
-    toolbar.append(&clear_btn);
     toolbar.append(&follow);
+    toolbar.append(&clear_btn);
 
     // One linked group of toggles instead of a dropdown: the kinds are few, and
     // a dropdown hid both the choices and the kind in force.
     let segmented = gtk4::Box::new(Orientation::Horizontal, 0);
     segmented.add_css_class("linked");
+    segmented.add_css_class("diag-filters");
     segmented.set_valign(gtk4::Align::Center);
     let mut buttons: Vec<(Option<Kind>, gtk4::ToggleButton)> = Vec::with_capacity(FILTERS.len());
     for kind in FILTERS {
@@ -227,16 +228,18 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let pause_caption = gtk4::Label::new(Some(&t("misc.debug_pause_short", "Tạm dừng")));
     pause_caption.add_css_class("caption");
     pause_caption.add_css_class("dim-label");
-    let filter_row = gtk4::Box::new(Orientation::Horizontal, 8);
+    let pause_group = gtk4::Box::new(Orientation::Horizontal, 6);
+    pause_group.append(&pause_caption);
+    pause_group.append(&log_pause);
+    // Two short rows, always: side by side the kind bar and the switch decided
+    // the whole page's minimum width, and the page could never be narrowed.
+    let filter_row = gtk4::Box::new(Orientation::Vertical, 6);
     filter_row.set_margin_start(10);
     filter_row.set_margin_end(10);
     filter_row.set_margin_bottom(8);
-    let filter_spacer = gtk4::Box::new(Orientation::Horizontal, 0);
-    filter_spacer.set_hexpand(true);
+    pause_group.set_halign(gtk4::Align::End);
     filter_row.append(&segmented);
-    filter_row.append(&filter_spacer);
-    filter_row.append(&pause_caption);
-    filter_row.append(&log_pause);
+    filter_row.append(&pause_group);
 
     let view = gtk4::TextView::new();
     view.set_editable(false);
@@ -425,8 +428,8 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let hide_group = gtk4::Box::new(Orientation::Horizontal, 10);
     hide_group.set_valign(gtk4::Align::Center);
     hide_group.set_hexpand(true);
-    hide_group.append(&hide_switch);
     hide_group.append(&hide_label);
+    hide_group.append(&hide_switch);
     // One row each, full width, in a card of their own at the foot of the facts:
     // three controls of different kinds stacked read faster than two rows of
     // buttons of different widths.
@@ -634,6 +637,17 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // --- Wiring -----------------------------------------------------------
     {
+        // The icon is the only thing that says whether the pane is following:
+        // a flat toggle alone changes no colour.
+        follow.connect_toggled(|btn| {
+            btn.set_icon_name(if btn.is_active() {
+                "media-playback-pause-symbolic"
+            } else {
+                "media-playback-start-symbolic"
+            });
+        });
+    }
+    {
         let render = Rc::clone(&render);
         let query = Rc::clone(&query);
         filter_entry.connect_search_changed(move |entry| {
@@ -726,8 +740,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let log_column = log_column.clone();
         let stack_ref = stack.clone();
         let toolbar_ref = toolbar.clone();
-        let filter_row_ref = filter_row.clone();
+
         let try_box_ref = tools.try_box.clone();
+        let filter_row_ref = filter_row.clone();
         let page_ref = page.clone();
         // Measured against the window, never against the page: the page grows
         // with the pane, so asking the page would feed the pane its own height.

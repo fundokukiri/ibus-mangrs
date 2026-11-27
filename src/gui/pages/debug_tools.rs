@@ -60,6 +60,12 @@ pub(super) const TOOLS_CSS: &str = "
   min-width: 4px;
 }
 .diag-value { font-feature-settings: \"tnum\"; }
+/* Six kind buttons share one row with the pause switch: their padding decides
+   whether the page can be narrowed at all. */
+.diag-filters button {
+  padding: 2px 7px;
+  min-height: 22px;
+}
 /* The log's own frame: a rounded pane of its own, the one the page had before
    the rebuild. */
 .log-pane {
@@ -363,14 +369,10 @@ fn tile(cell: &Cell) -> gtk4::Widget {
     name.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     tile.append(&name);
     let line = gtk4::Box::new(Orientation::Horizontal, 5);
-    if cell.id == "extension" {
+    if let Some(class) = dot_class(cell) {
         let dot = gtk4::Label::new(Some("●"));
         dot.add_css_class("caption");
-        dot.add_css_class(match cell.status {
-            Status::Ok => "diag-dot-ok",
-            Status::Warn => "diag-dot-warn",
-            Status::Info => "diag-dot-info",
-        });
+        dot.add_css_class(class);
         line.append(&dot);
     }
     let value = gtk4::Label::new(Some(&cell.value));
@@ -395,6 +397,21 @@ fn tile(cell: &Cell) -> gtk4::Widget {
     let accessible = format!("{}: {}", cell.label, cell.value);
     tile.update_property(&[gtk4::accessible::Property::Label(&accessible)]);
     tile.upcast()
+}
+
+/// Which facts carry a dot. The extension's dot says whether it runs; the kernel
+/// and the session keep the muted one, for the two facts that can change under
+/// the user without anything being wrong.
+fn dot_class(cell: &Cell) -> Option<&'static str> {
+    match cell.id {
+        "extension" => Some(match cell.status {
+            Status::Ok => "diag-dot-ok",
+            Status::Warn => "diag-dot-warn",
+            Status::Info => "diag-dot-info",
+        }),
+        "kernel" | "session" => Some("diag-dot-info"),
+        _ => None,
+    }
 }
 
 /// A file the report carries: its name, and a button for the full path.
