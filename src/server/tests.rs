@@ -232,7 +232,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
     let press = |handler: &mut EngineHandler, keyval: u32| {
         let msg = engine_msg("ProcessKeyEvent").append3(keyval, 0u32, 0u32);
         let mut out = Vec::new();
-        let reply = handler.process_key_call(&msg, &mut out);
+        let reply = handler.process_key_call(None, &msg, &mut out);
         let consumed = reply.read1::<bool>().expect("bool reply");
         (consumed, out)
     };
@@ -247,7 +247,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
 
     // The context loses focus and no FocusIn ever comes back.
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+    handler.engine_call(None, &engine_msg("FocusOut"), "FocusOut", &mut out);
     assert!(
         lock_engine(&engine).is_enabled(),
         "FocusOut must not disable the wrapper"
@@ -263,7 +263,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
 
     // The panel toggle still disables, and keys then pass through.
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("Disable"), "Disable", &mut out);
+    handler.engine_call(None, &engine_msg("Disable"), "Disable", &mut out);
     assert!(!lock_engine(&engine).is_enabled());
     let (consumed, _) = press(&mut handler, 110); // 'n'
     assert!(!consumed, "a disabled engine forwards keys to the app");
@@ -1127,6 +1127,7 @@ fn press_key(
             state: 0,
         },
         out,
+        None,
     )
 }
 
@@ -2164,7 +2165,7 @@ fn focus_out_arm_defers_the_reset_for_a_live_burst() {
         handler.burst.deadline = Some(Instant::now() + Duration::from_secs(10));
     }
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+    handler.engine_call(None, &engine_msg("FocusOut"), "FocusOut", &mut out);
     assert!(
         handler.bounce_deadline.is_some(),
         "the arm defers the reset for the bounce window"
@@ -2524,6 +2525,7 @@ fn a_transport_that_types_the_word_keeps_the_rewrite_on_one_channel() {
                 typed_text.borrow_mut().push(text.to_string());
                 true
             },
+            send_now: &|_| {},
         };
         let mut out = Vec::new();
         emit_with(
@@ -2555,6 +2557,64 @@ fn a_transport_that_types_the_word_keeps_the_rewrite_on_one_channel() {
                 vec![]
             },
             "typed={typed}: the word reaches the transport"
+        );
+    }
+}
+
+#[test]
+fn the_marker_fix_commits_a_dot_before_the_deletes() {
+    // R6: the dot goes out on its own, before the keys, and one extra press
+    // removes it again — the browser drops its inline completion in between.
+    for marker in [false, true] {
+        let (_injection, ops) = recorded_injection();
+        let fix = if marker {
+            crate::config::AutocompleteFix::Marker
+        } else {
+            crate::config::AutocompleteFix::Raw
+        };
+        let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+        e.apply_config(&Config {
+            experimental_features: true,
+            dodge_inline_autocomplete: true,
+            autocomplete_fix: fix,
+            ..Config::default()
+        });
+        e.set_mode(Mode::ForwardBackspace);
+        // A direct client so the injected path is reachable; the browser name
+        // is what turns the marker on.
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_app_name(Some("wayland:google-chrome".into()));
+        e.set_uinput_available(true);
+        let sent = std::cell::RefCell::new(Vec::new());
+        let base = fake_transports(&|_, _| true);
+        let t = Transports {
+            backspaces: base.backspaces,
+            type_text: &|_| false,
+            send_now: &|m| sent.borrow_mut().push(m),
+        };
+        let mut out = Vec::new();
+        emit_with(&mut e, &[Action::ForwardBackspaces(2)], &mut out, &t);
+        assert_eq!(
+            sent.borrow().len(),
+            usize::from(marker),
+            "marker={marker}: one immediate commit"
+        );
+        assert!(
+            ops.lock().unwrap().is_empty(),
+            "marker={marker}: this arm forwards the keys, it does not press them"
+        );
+        let keys = out
+            .iter()
+            .filter(|m| {
+                m.member()
+                    .map(|n| &*n == "ForwardKeyEvent")
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(
+            keys,
+            if marker { 6 } else { 4 },
+            "marker={marker}: press and release per Backspace, plus the dot's"
         );
     }
 }
@@ -2720,6 +2780,7 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
                 state: 0,
             },
             &mut Vec::new(),
+            None,
         );
     }
     let mut out = Vec::new();
@@ -2735,6 +2796,7 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
                 state: 0,
             },
             &mut out,
+            None
         ),
         "Left must be consumed"
     );
@@ -2758,7 +2820,8 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
             keycode: 0,
             state: 0,
         },
-        &mut out
+        &mut out,
+        None
     ));
 }
 
@@ -2787,6 +2850,7 @@ fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
                 state: 0,
             },
             &mut Vec::new(),
+            None,
         );
     }
     e.set_capabilities(0b100000); // preedit bit gone, preedit still visible
@@ -2801,7 +2865,8 @@ fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
             keycode: 0,
             state: keymap::SHIFT_MASK,
         },
-        &mut out
+        &mut out,
+        None
     ));
     assert!(
         out.iter()
@@ -2829,7 +2894,8 @@ fn navigation_key_forwards_normally_without_pending_preedit() {
             keycode: 0,
             state: 0,
         },
-        &mut out
+        &mut out,
+        None
     ));
 }
 
@@ -2852,6 +2918,7 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
                 state: 0,
             },
             &mut Vec::new(),
+            None,
         );
     }
     let mut out = Vec::new();
@@ -2865,7 +2932,8 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
             keycode: 0,
             state: 0,
         },
-        &mut out
+        &mut out,
+        None
     ));
 }
 
@@ -2892,6 +2960,7 @@ fn pending_preedit_engine(value: &str) -> Engine {
                 state: 0,
             },
             &mut Vec::new(),
+            None,
         );
     }
     e
@@ -2921,6 +2990,7 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
                 state: 0,
             },
             &mut out,
+            None
         ),
         "Left must be forwarded"
     );
@@ -2941,7 +3011,8 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
             keycode: 0,
             state: 0,
         },
-        &mut out
+        &mut out,
+        None
     ));
 }
 
@@ -2964,6 +3035,7 @@ fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
                 state: 0,
             },
             &mut out,
+            None
         ),
         "Left must be consumed"
     );
@@ -3005,7 +3077,8 @@ fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
             keycode: 0,
             state: keymap::SHIFT_MASK,
         },
-        &mut out
+        &mut out,
+        None
     ));
     let members = member_names(&out);
     assert!(
@@ -3037,6 +3110,7 @@ fn the_nav_key_choice_applies_without_the_experimental_gate() {
                 state: 0,
             },
             &mut out,
+            None
         ),
         "Left must be forwarded without the gate"
     );
@@ -3059,6 +3133,7 @@ fn the_nav_key_choice_applies_without_the_experimental_gate() {
                 state: 0,
             },
             &mut out,
+            None
         ),
         "Left must be consumed with a saved swallow"
     );
@@ -3584,7 +3659,8 @@ fn self_heal_picks_uinput_up_mid_session() {
             keycode: 0,
             state: 0,
         },
-        &mut out
+        &mut out,
+        None
     ));
     assert_eq!(injection.current(), Some(Kind::Uinput));
     assert!(engine.uinput_available());
@@ -3809,7 +3885,7 @@ fn press(handler: &mut EngineHandler, keyval: u32) -> (bool, Vec<Message>) {
 fn press_with_state(handler: &mut EngineHandler, keyval: u32, state: u32) -> (bool, Vec<Message>) {
     let msg = engine_msg("ProcessKeyEvent").append3(keyval, 0u32, state);
     let mut out = Vec::new();
-    let reply = handler.process_key_call(&msg, &mut out);
+    let reply = handler.process_key_call(None, &msg, &mut out);
     (reply.read1::<bool>().expect("bool reply"), out)
 }
 
@@ -4118,7 +4194,7 @@ fn panel_pager_methods_page_the_strip() {
     let (_engine, mut handler) = strip_handler(false);
     let (_, _) = press(&mut handler, 0x74); // 't'
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    handler.engine_call(None, &engine_msg("PageDown"), "PageDown", &mut out);
     assert!(
         !members(&out).contains(&"UpdateLookupTable".to_string()),
         "no strip, no table: {:?}",
@@ -4142,7 +4218,7 @@ fn panel_pager_methods_page_the_strip() {
     }
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    handler.engine_call(None, &engine_msg("PageDown"), "PageDown", &mut out);
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
@@ -4152,7 +4228,7 @@ fn panel_pager_methods_page_the_strip() {
     // The seeded list has seven items: the second PageDown clamps on the
     // partial last page instead of walking past it.
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    handler.engine_call(None, &engine_msg("PageDown"), "PageDown", &mut out);
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
@@ -4160,7 +4236,7 @@ fn panel_pager_methods_page_the_strip() {
     let (_, cursor, ..) = table_parts(&table);
     assert_eq!(cursor, 5, "the last page clamps");
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("PageUp"), "PageUp", &mut out);
+    handler.engine_call(None, &engine_msg("PageUp"), "PageUp", &mut out);
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
@@ -4190,7 +4266,7 @@ fn candidate_clicked_picks_through_the_strip() {
     assert!(!cands.is_empty(), "candidates on screen: {cands:?}");
     let mut out = Vec::new();
     let msg = engine_msg("CandidateClicked").append3(0u32, 1u32, 0u32);
-    handler.engine_call(&msg, "CandidateClicked", &mut out);
+    handler.engine_call(None, &msg, "CandidateClicked", &mut out);
     let members_seen = members(&out);
     assert!(
         members_seen.contains(&"HideLookupTable".to_string())
@@ -4436,7 +4512,7 @@ fn alt_digits_pick_while_the_strip_is_paged() {
         "the second letter updates the word and the list"
     );
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    handler.engine_call(None, &engine_msg("PageDown"), "PageDown", &mut out);
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
@@ -4543,7 +4619,7 @@ fn a_digit_beyond_the_list_falls_through_to_the_engine() {
         );
     }
     let mut page = Vec::new();
-    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut page);
+    handler.engine_call(None, &engine_msg("PageDown"), "PageDown", &mut page);
     assert_eq!(
         members(&page),
         vec!["UpdateLookupTable"],
@@ -4636,7 +4712,7 @@ fn focus_out_and_reset_teardown_the_strip() {
     // and the engine's own HideCandidates stays silent behind the taken
     // state instead of doubling it.
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+    handler.engine_call(None, &engine_msg("FocusOut"), "FocusOut", &mut out);
     assert_eq!(
         members(&out)
             .iter()
@@ -4656,7 +4732,7 @@ fn focus_out_and_reset_teardown_the_strip() {
     let (_, out) = press(&mut handler, 0x68); // 'h'
     assert!(members(&out).iter().any(|m| m == "UpdateLookupTable"));
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("Reset"), "Reset", &mut out);
+    handler.engine_call(None, &engine_msg("Reset"), "Reset", &mut out);
     assert_eq!(
         members(&out)
             .iter()

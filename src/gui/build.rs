@@ -216,7 +216,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.suggest_words.title", "Gợi ý từ khi gõ"),
         &t("rows.suggest_words.subtitle", "Dải gợi ý cạnh con trỏ"),
     );
-    let dodge_inline_autocomplete = switch_row(
+    // One row, two controls: the fix (a mode dropdown) on the left of its
+    // on/off switch — the owner's shape, read like a mode picker.
+    let dodge_fix = gtk4::DropDown::from_strings(&[
+        &t("rows.dodge_fix.raw", "Hiện tại"),
+        &t("rows.dodge_fix.marker", "Dấu chấm (·)"),
+    ]);
+    let (dodge_row, dodge_switch) = select_switch_row(
         &t(
             "rows.dodge_inline_autocomplete.title",
             "Sửa lỗi gõ trong ô địa chỉ",
@@ -225,6 +231,7 @@ pub(super) fn widgets() -> Rc<Ui> {
             "rows.dodge_inline_autocomplete.subtitle",
             "Trước ra oỏ, giờ ra ỏ",
         ),
+        &dodge_fix,
     );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Cách chèn phím"),
@@ -720,9 +727,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Hiện từ đang gõ cùng dải gợi ý ngay cạnh con trỏ. Chọn bằng phím `, Alt+1 đến Alt+5 hoặc bấm vào dòng gợi ý. Mặc định tắt."
     );
     tip!(
-        dodge_inline_autocomplete,
+        dodge_row,
         "tips.dodge_inline_autocomplete",
-        "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Mặc định tắt."
+        "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Chọn `Dấu chấm` nếu cách hiện tại vẫn lỗi. Mặc định tắt."
     );
     tip!(
         preferred_backend,
@@ -790,7 +797,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_composed_words,
         keep_repeats_raw,
         suggest_words,
-        dodge_inline_autocomplete,
+        dodge_row,
+        dodge_switch,
+        dodge_fix,
         preferred_backend,
         time_format,
         date_format,

@@ -67,6 +67,8 @@ pub struct Config {
     /// bar committed `oỏ` for `o` then `r`). On, keys go straight to the app
     /// while the completion is visible. Off by default.
     pub dodge_inline_autocomplete: bool,
+    /// Which of the two address-bar fixes runs while that switch is on.
+    pub autocomplete_fix: AutocompleteFix,
     /// Experimental: the suggestion strip's display while the strip is up —
     /// `floating` (default) only in the box (the client's field stays clean
     /// until the word commits), `mirror` in both places (the box's input line
@@ -639,6 +641,18 @@ pub enum BackspaceToneConfig {
     UnikeyWalk,
 }
 
+/// How the address-bar fix in `dodge_inline_autocomplete` works, when it is
+/// on: `raw` keeps what shipped (the rewrite takes the protocol delete while
+/// the completion stands), `marker` types a `·` first so the browser drops
+/// its completion and the deletes land on real text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AutocompleteFix {
+    #[default]
+    Raw,
+    Marker,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum W2uConfig {
@@ -922,6 +936,7 @@ impl Default for Config {
             keep_repeats_raw: false,
             suggest_words: false,
             dodge_inline_autocomplete: false,
+            autocomplete_fix: AutocompleteFix::Raw,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::WholeChar,
             auto_restore: true,

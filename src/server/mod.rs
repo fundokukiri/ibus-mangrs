@@ -402,7 +402,7 @@ impl EngineHandler {
             }
             (ENGINE_IFACE, m) => {
                 let mut out: Vec<Message> = Vec::new();
-                let reply = self.engine_call(msg, m, &mut out);
+                let reply = self.engine_call(Some(conn), msg, m, &mut out);
                 for m in out {
                     send(conn, m);
                 }
@@ -493,9 +493,15 @@ impl EngineHandler {
     /// Handle one `org.freedesktop.IBus.Engine` call: push any signals into
     /// `out` and return the method reply. The engine mutex is taken lazily —
     /// `ProcessKeyEvent` re-checks the config first, which locks by itself.
-    fn engine_call(&mut self, msg: &Message, member: &str, out: &mut Vec<Message>) -> Message {
+    fn engine_call(
+        &mut self,
+        conn: Option<&Connection>,
+        msg: &Message,
+        member: &str,
+        out: &mut Vec<Message>,
+    ) -> Message {
         if member == "ProcessKeyEvent" {
-            return self.process_key_call(msg, out);
+            return self.process_key_call(conn, msg, out);
         }
         if member == "CandidateClicked" {
             // A mouse click on a picker entry (GNOME's candidate popup
@@ -926,6 +932,20 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
     );
 }
 
+/// The R6 marker: one committed character that makes a browser drop its
+/// inline completion, so the Backspaces that follow land on real text instead
+/// of the completion. It is committed immediately (not queued) because the
+/// keys are pressed inside the same arm, and the caller adds one press to
+/// remove the marker again.
+const MARKER: &str = "\u{b7}";
+const MARKER_WAIT_MS: u64 = 10;
+
+fn send_marker(t: &Transports) {
+    (t.send_now)(signal("CommitText").append1(plain_text(MARKER)));
+    std::thread::sleep(std::time::Duration::from_millis(MARKER_WAIT_MS));
+    debug_log::log("del marker=dot");
+}
+
 /// Push both engine backend flags from the holder's current state — the
 /// self-heal and the paced Flow re-request share it, so every re-select
 /// refreshes both (a stale relay-safe mark would let injection back onto
@@ -985,6 +1005,7 @@ fn process_key(
     buffer: &mut BurstBuffer,
     ev: KeyEvent,
     out: &mut Vec<Message>,
+    conn: Option<&Connection>,
 ) -> bool {
     let KeyEvent {
         keyval,
@@ -1108,7 +1129,7 @@ fn process_key(
             }
         }
         let actions = engine.reset();
-        let injected = emit(engine, injection, &actions, out);
+        let injected = emit_key(engine, injection, &actions, out, conn);
         add_injected_batch(engine, burst, injected);
         return false;
     }
@@ -1131,7 +1152,7 @@ fn process_key(
         }
         return match engine.backspace() {
             Some(actions) => {
-                let injected = emit(engine, injection, &actions, out);
+                let injected = emit_key(engine, injection, &actions, out, conn);
                 add_injected_batch(engine, burst, injected);
                 !actions.contains(&Action::Forward)
             }
@@ -1186,7 +1207,7 @@ fn process_key(
             && engine.preedit_commit_pending();
         let nav_behavior = engine.nav_key_while_preedit();
         let actions = engine.reset();
-        let injected = emit(engine, injection, &actions, out);
+        let injected = emit_key(engine, injection, &actions, out, conn);
         add_injected_batch(engine, burst, injected);
         if nav_pending {
             match nav_behavior {
@@ -1222,7 +1243,7 @@ fn process_key(
     };
     let actions = engine.process_char(c);
     let consumed = !actions.contains(&Action::Forward);
-    let injected = emit(engine, injection, &actions, out);
+    let injected = emit_key(engine, injection, &actions, out, conn);
     add_injected_batch(engine, burst, injected);
     // Char path only, after the actions are emitted: a backend arriving
     // must not disturb the word in flight (its lock serves the rest of it;
@@ -1484,7 +1505,7 @@ fn replay_buffered_keys(
             keycode,
             state,
         };
-        if !process_key(engine, injection, burst, buffer, ev, out) {
+        if !process_key(engine, injection, burst, buffer, ev, out, None) {
             // The engine passed the key through (an editing key, a disabled
             // engine, plain Latin): the original ProcessKeyEvent reply would
             // have handed it to the application, but the replay rides the
@@ -1742,7 +1763,7 @@ fn reconcile_stashed_rewrite(
             actions.push(Action::InjectBackspaces(erase as u32));
         }
         actions.push(Action::Commit(insert.clone()));
-        let injected = emit(engine, injection, &actions, out);
+        let injected = emit_key(engine, injection, &actions, out, None);
         add_injected_batch(engine, burst, injected);
         // The engine's belief follows the repair: the screen will hold the
         // stashed tail once it lands.
@@ -1770,6 +1791,30 @@ fn emit(
     let transports = Transports {
         backspaces: &|n, gap| injection.backspaces(n, gap),
         type_text: &|text| injection.type_text(text),
+        send_now: &|_| {},
+    };
+    emit_with(engine, actions, out, &transports)
+}
+
+/// The key path: the marker fix has to reach the client before the keys the
+/// same call presses, so the sender goes live when a connection is in reach.
+/// `None` (key replay, tests) keeps a no-op sender — no rewrite happens there.
+fn emit_key(
+    engine: &mut Engine,
+    injection: &Injection,
+    actions: &[Action],
+    out: &mut Vec<Message>,
+    conn: Option<&Connection>,
+) -> u32 {
+    let send_now = move |msg: Message| {
+        if let Some(conn) = conn {
+            send(conn, msg);
+        }
+    };
+    let transports = Transports {
+        backspaces: &|n, gap| injection.backspaces(n, gap),
+        type_text: &|text| injection.type_text(text),
+        send_now: &send_now,
     };
     emit_with(engine, actions, out, &transports)
 }
@@ -1782,6 +1827,9 @@ fn emit(
 struct Transports<'a> {
     backspaces: &'a dyn Fn(u32, u64) -> bool,
     type_text: &'a dyn Fn(&str) -> bool,
+    /// Put one message on the wire right now. The marker fix needs it: a
+    /// queued commit would be sent after the keys the arm presses.
+    send_now: &'a dyn Fn(Message),
 }
 
 /// `emit` with injectable transports. Tests use it to exercise the injection
@@ -1824,10 +1872,16 @@ fn emit_with(
                 // (permissions lost mid-session), fall back to the protocol
                 // delete rather than dropping the deletion and leaving a
                 // commit deferred forever.
-                if (t.backspaces)(*n, bs_gap) {
+                let n = if engine.marker_delete() {
+                    send_marker(t);
+                    *n + 1
+                } else {
+                    *n
+                };
+                if (t.backspaces)(n, bs_gap) {
                     debug_log::log(&format!("del mode=protocol n={n} op=inject"));
-                    injected_since_commit += *n;
-                    injected_total += *n;
+                    injected_since_commit += n;
+                    injected_total += n;
                 } else if engine.delete_dropped() {
                     // The device is gone for the session (the handle is
                     // opened once) and the client swallows the protocol
@@ -1841,7 +1895,7 @@ fn emit_with(
                 } else {
                     debug_log::log(&format!("del ok=0 mode=protocol why=inject_failed n={n}"));
                     let mut m = signal("DeleteSurroundingText");
-                    m = m.append1(-(*n as i32)).append1(*n);
+                    m = m.append1(-(n as i32)).append1(n);
                     out.push(m);
                 }
             }
@@ -1981,20 +2035,32 @@ fn emit_with(
             // it as well: one channel means no forwarded pair the client may
             // drop, and nothing left to wait for.
             Action::ForwardBackspaces(n) if inject && engine.transport_types_text() => {
-                if (t.backspaces)(*n, bs_gap) {
+                let n = if engine.marker_delete() {
+                    send_marker(t);
+                    *n + 1
+                } else {
+                    *n
+                };
+                if (t.backspaces)(n, bs_gap) {
                     debug_log::log(&format!("del mode=forward n={n} op=inject"));
-                    injected_since_commit += *n;
-                    injected_total += *n;
+                    injected_since_commit += n;
+                    injected_total += n;
                 } else {
                     debug_log::log(&format!("del mode=forward n={n}"));
-                    for _ in 0..*n {
+                    for _ in 0..n {
                         push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
                     }
                 }
             }
             Action::ForwardBackspaces(n) => {
+                let extra = if engine.marker_delete() {
+                    send_marker(t);
+                    1
+                } else {
+                    0
+                };
                 debug_log::log(&format!("del mode=forward n={n}"));
-                for _ in 0..*n {
+                for _ in 0..(*n + extra) {
                     push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
                 }
             }
@@ -2193,7 +2259,7 @@ fn strip_pick(
     if actions.is_empty() {
         return false;
     }
-    let injected = emit(engine, injection, &actions, out);
+    let injected = emit_key(engine, injection, &actions, out, None);
     add_injected_batch(engine, burst, injected);
     true
 }
@@ -2267,5 +2333,6 @@ fn fake_transports<'a>(backspaces: &'a dyn Fn(u32, u64) -> bool) -> Transports<'
     Transports {
         backspaces,
         type_text: &|_| false,
+        send_now: &|_| {},
     }
 }

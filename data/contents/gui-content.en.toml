@@ -244,6 +244,10 @@ title = "Word suggestions while typing"
 subtitle = "A suggestion strip by the caret"
 
 
+[rows.dodge_fix]
+raw = "Current"
+marker = "Dot marker (·)"
+
 [rows.dodge_inline_autocomplete]
 title = "Fix typing in address bars"
 subtitle = "Used to give oỏ, now ỏ"

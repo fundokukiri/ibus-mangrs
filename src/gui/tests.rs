@@ -833,6 +833,7 @@ fn refresh_round_trips_every_widget() {
         keep_repeats_raw: true,
         suggest_words: true,
         dodge_inline_autocomplete: true,
+        autocomplete_fix: crate::config::AutocompleteFix::Raw,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
         bypass_url: false,
@@ -1384,7 +1385,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 22] = [
+    let rows: [&adw::SwitchRow; 21] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -1404,7 +1405,6 @@ fn every_switch_triggers_save() {
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,
-        &ui.dodge_inline_autocomplete,
         // `debug_log` has its own confirmation dialog and is covered by
         // `debug_mode_switch_keeps_the_dialog_choice` instead.
         &ui.x11_delete,
@@ -1417,7 +1417,11 @@ fn every_switch_triggers_save() {
     }
     // The merged "Thử nghiệm" rows carry bare GtkSwitch suffixes — same
     // wiring, different widget type.
-    let switches: [&gtk4::Switch; 2] = [&ui.echo_stale_switch, &ui.idle_commit_switch];
+    let switches: [&gtk4::Switch; 3] = [
+        &ui.echo_stale_switch,
+        &ui.idle_commit_switch,
+        &ui.dodge_switch,
+    ];
     for switch in switches {
         let before = saves.get();
         switch.set_active(!switch.is_active());

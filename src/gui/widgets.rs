@@ -361,6 +361,26 @@ pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
     (row, switch)
 }
 
+/// Like `switch_value_row`, but the value sits *left* of the switch — the
+/// order a mode picker reads in (`[mode] [on/off]`).
+pub(super) fn select_switch_row<W: IsA<gtk4::Widget>>(
+    title: &str,
+    subtitle: &str,
+    value: &W,
+) -> (adw::ActionRow, gtk4::Switch) {
+    let row = action_row(title, subtitle);
+    let switch = gtk4::Switch::new();
+    switch.set_valign(gtk4::Align::Center);
+    value.set_valign(gtk4::Align::Center);
+    row.add_suffix(value);
+    row.add_suffix(&pacing_divider());
+    row.add_suffix(&switch);
+    if let (Some(suffixes), _) = find_suffixes_and_switch(row.upcast_ref()) {
+        suffixes.set_hexpand(true);
+    }
+    (row, switch)
+}
+
 /// One width for every merged-row value control: the rows must read as a
 /// balanced column, not some boxes short and some long. In pixels, not
 /// width_chars — the spin's built-in arrow stack makes a 12-char spin

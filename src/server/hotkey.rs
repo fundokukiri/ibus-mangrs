@@ -105,7 +105,12 @@ pub(crate) fn focus_extension_answers() -> bool {
 impl EngineHandler {
     /// `ProcessKeyEvent`: hot-reload the config, check the shortcut
     /// registry, then feed the key to the engine. Signals go into `out`.
-    pub(super) fn process_key_call(&mut self, msg: &Message, out: &mut Vec<Message>) -> Message {
+    pub(super) fn process_key_call(
+        &mut self,
+        conn: Option<&Connection>,
+        msg: &Message,
+        out: &mut Vec<Message>,
+    ) -> Message {
         let Ok((keyval, keycode, state)) = msg.read3::<u32, u32, u32>() else {
             return msg.method_return().append1(false);
         };
@@ -148,6 +153,7 @@ impl EngineHandler {
                 state,
             },
             out,
+            conn,
         );
         msg.method_return().append1(consumed)
     }

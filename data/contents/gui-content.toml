@@ -246,6 +246,10 @@ title = "Gợi ý từ khi gõ"
 subtitle = "Dải gợi ý cạnh con trỏ"
 
 
+[rows.dodge_fix]
+raw = "Hiện tại"
+marker = "Dấu chấm (·)"
+
 [rows.dodge_inline_autocomplete]
 title = "Sửa lỗi gõ trong ô địa chỉ"
 subtitle = "Trước ra oỏ, giờ ra ỏ"

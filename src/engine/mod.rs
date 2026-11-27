@@ -25,7 +25,7 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
-use crate::config::{AppRule, BackspaceToneConfig, Config};
+use crate::config::{AppRule, AutocompleteFix, BackspaceToneConfig, Config};
 use crate::debug_log::{self, brief};
 use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
@@ -457,6 +457,8 @@ pub struct Engine {
     /// The `dodge_inline_autocomplete` switch, baked under the experimental
     /// gate like the strip.
     dodge_inline_autocomplete: bool,
+    /// Which address-bar fix runs under that switch (see `AutocompleteFix`).
+    autocomplete_fix: AutocompleteFix,
     /// Pick learning, baked with `suggest_words` under the experimental
     /// gate — picks land in the config dir's TSV files and buy an in-band
     /// bonus only while that is on.
@@ -649,6 +651,7 @@ impl Engine {
             prev_committed_word: None,
             suggest_words: false,
             dodge_inline_autocomplete: false,
+            autocomplete_fix: AutocompleteFix::Raw,
             learn_dir: std::path::PathBuf::new(),
             picks: None,
             password_quiet: false,
@@ -795,6 +798,7 @@ impl Engine {
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
         self.dodge_inline_autocomplete = experimental && config.dodge_inline_autocomplete;
+        self.autocomplete_fix = config.autocomplete_fix;
         // Learning has no switch of its own: it rides the suggestion switch,
         // so an open strip always personalizes and a closed one touches
         // nothing.
@@ -1487,6 +1491,16 @@ impl Engine {
     /// `set_surrounding_with_anchor`). The protocol delete is the only
     /// transport that reaches our own characters while that selection
     /// stands, so every rewrite takes it.
+    /// R6, under the same switch: type a marker so the browser drops its
+    /// inline completion before the delete, instead of relying on the protocol
+    /// delete reaching our characters. Browsers only — an app that reports its
+    /// buffer would see the marker in the next report.
+    pub fn marker_delete(&self) -> bool {
+        self.dodge_inline_autocomplete
+            && self.autocomplete_fix == AutocompleteFix::Marker
+            && self.client_cannot_delete_surrounding()
+    }
+
     fn autocomplete_selection(&self) -> bool {
         self.dodge_inline_autocomplete && self.suggestions && self.protocol_delete_ok()
     }
