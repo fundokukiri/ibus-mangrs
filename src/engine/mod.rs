@@ -445,10 +445,6 @@ pub struct Engine {
     /// one strip switch: the model's compounds, single words and next-word
     /// lists all serve under it, the dictionary being out of the strip.
     suggest_words: bool,
-    /// The `browser_delete_keys` switch, baked under the experimental gate:
-    /// a browser's ForwardBackspace deletes ride real keys, the transport that
-    /// reaches Chrome where the forwarded pair is dropped.
-    browser_delete_keys: bool,
     /// The `dodge_inline_autocomplete` switch, baked under the experimental
     /// gate like the strip.
     dodge_inline_autocomplete: bool,
@@ -641,7 +637,6 @@ impl Engine {
             last_committed_word: None,
             prev_committed_word: None,
             suggest_words: false,
-            browser_delete_keys: false,
             dodge_inline_autocomplete: false,
             learn_dir: std::path::PathBuf::new(),
             picks: None,
@@ -788,7 +783,6 @@ impl Engine {
         // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
-        self.browser_delete_keys = experimental && config.browser_delete_keys;
         self.dodge_inline_autocomplete = experimental && config.dodge_inline_autocomplete;
         // Learning has no switch of its own: it rides the suggestion switch,
         // so an open strip always personalizes and a closed one touches
@@ -1423,11 +1417,6 @@ impl Engine {
     /// words.
     /// Whether a browser client should delete with real keys: the experimental
     /// switch is on and this is a client that drops the protocol delete. The
-    /// server reads it to pick the delete transport.
-    pub fn browser_delete_keys(&self) -> bool {
-        self.browser_delete_keys && self.client_cannot_delete_surrounding()
-    }
-
     /// Whether a browser's inline completion is selected at our caret — the
     /// experimental switch turned a selection report that starts exactly
     /// where we left the caret into this evidence (see

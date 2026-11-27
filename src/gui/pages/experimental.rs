@@ -58,7 +58,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     typing.add(&ui.keep_composed_words);
     typing.add(&ui.keep_repeats_raw);
     typing.add(&ui.suggest_words);
-    typing.add(&ui.browser_delete_keys);
     typing.add(&ui.dodge_inline_autocomplete);
     page.add(&typing);
 
@@ -76,7 +75,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.keep_composed_words);
     decorate_experimental(&ui.keep_repeats_raw);
     decorate_experimental(&ui.suggest_words);
-    decorate_experimental(&ui.browser_delete_keys);
     decorate_experimental(&ui.dodge_inline_autocomplete);
     decorate_experimental(&ui.echo_stale_row);
     decorate_experimental(&ui.idle_commit_row);

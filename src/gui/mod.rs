@@ -281,7 +281,6 @@ struct Ui {
     /// default-displayed and restored with them; needs the prediction
     /// model file to do anything.
     suggest_words: adw::SwitchRow,
-    browser_delete_keys: adw::SwitchRow,
     dodge_inline_autocomplete: adw::SwitchRow,
     preferred_backend: adw::ComboRow,
     time_format: gtk4::DropDown,
@@ -641,8 +640,6 @@ impl Ui {
             .set_active(config.keep_composed_words);
         self.keep_repeats_raw.set_active(config.keep_repeats_raw);
         self.suggest_words.set_active(config.suggest_words);
-        self.browser_delete_keys
-            .set_active(config.browser_delete_keys);
         self.dodge_inline_autocomplete
             .set_active(config.dodge_inline_autocomplete);
         self.preferred_backend
@@ -817,7 +814,6 @@ impl Ui {
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
         config.suggest_words = self.suggest_words.is_active();
-        config.browser_delete_keys = self.browser_delete_keys.is_active();
         config.dodge_inline_autocomplete = self.dodge_inline_autocomplete.is_active();
         config.preferred_backend = match self.preferred_backend.selected() {
             1 => PreferredBackendConfig::Uinput,
@@ -894,12 +890,11 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 9] = [
+        let rows: [&gtk4::Widget; 8] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
             self.suggest_words.upcast_ref(),
-            self.browser_delete_keys.upcast_ref(),
             self.dodge_inline_autocomplete.upcast_ref(),
             self.preferred_backend.upcast_ref(),
             self.echo_stale_row.upcast_ref(),
@@ -932,7 +927,6 @@ impl Ui {
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
         self.suggest_words.set_active(d.suggest_words);
-        self.browser_delete_keys.set_active(d.browser_delete_keys);
         self.dodge_inline_autocomplete
             .set_active(d.dodge_inline_autocomplete);
         self.preferred_backend.set_selected(0);
@@ -954,7 +948,6 @@ impl Ui {
         self.keep_composed_words.set_active(c.keep_composed_words);
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
         self.suggest_words.set_active(c.suggest_words);
-        self.browser_delete_keys.set_active(c.browser_delete_keys);
         self.dodge_inline_autocomplete
             .set_active(c.dodge_inline_autocomplete);
         self.preferred_backend

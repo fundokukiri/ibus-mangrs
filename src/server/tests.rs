@@ -2506,46 +2506,6 @@ fn forward_key_event_emits_backspace_press_and_release() {
 }
 
 #[test]
-fn the_browser_key_switch_decides_whether_the_pair_is_injected() {
-    // The switch exists for the machine where a browser drops the forwarded
-    // pair (Chrome on Ubuntu 26.04 with IBus 1.5.34: Google Docs doubled every
-    // word). On, its deletes ride the backend; off, they stay forwarded key
-    // events, which is what every other build ships.
-    for enabled in [false, true] {
-        let (injection, ops) = recorded_injection();
-        let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
-        e.apply_config(&Config {
-            experimental_features: true,
-            browser_delete_keys: enabled,
-            ..Config::default()
-        });
-        e.set_mode(Mode::ForwardBackspace);
-        e.set_client(Some("gnome-shell".into()));
-        e.set_app_name(Some("wayland:google-chrome".into()));
-        e.set_uinput_available(true);
-        let mut out = Vec::new();
-        let injected = emit(
-            &mut e,
-            &injection,
-            &[Action::ForwardBackspaces(2)],
-            &mut out,
-        );
-        let pressed = *ops.lock().unwrap() == vec![RecordedOp::Backspaces(2)];
-        assert_eq!(pressed, enabled, "switch {enabled}: backend use");
-        assert_eq!(
-            injected, 0,
-            "switch {enabled}: the browser path waits no echo, so nothing is deferred"
-        );
-        assert_eq!(
-            out.iter()
-                .any(|m| m.member().map(|m| m == "ForwardKeyEvent").unwrap_or(false)),
-            !enabled,
-            "switch {enabled}: the forwarded pair"
-        );
-    }
-}
-
-#[test]
 fn x11_delete_opt_in_reaches_the_wire_without_a_report() {
     // The emit guard follows the engine's own rule: with the opt-in on, a
     // direct client that advertises surrounding text gets the protocol

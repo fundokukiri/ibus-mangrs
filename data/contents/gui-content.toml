@@ -245,9 +245,6 @@ subtitle = "giữ o → oooo… thay vì dừng ở ô"
 title = "Gợi ý từ khi gõ"
 subtitle = "Dải gợi ý cạnh con trỏ"
 
-[rows.browser_delete_keys]
-title = "Sửa lỗi gõ trong Google Docs"
-subtitle = "Xoá từ bằng phím thật trên Ubuntu"
 
 [rows.dodge_inline_autocomplete]
 title = "Sửa lỗi gõ trong ô địa chỉ"
@@ -667,7 +664,6 @@ method = "Kiểu gõ quyết định cách ra chữ có dấu, ví dụ Telex g�
 mode = "Cách đưa chữ vào app. Gạch chân hiện chữ ngay trong app, cần app hỗ trợ. Surrounding sửa đuôi từ dựa vào báo cáo của chính app. Flow chèn từng phím, cần backend chèn phím. Forward Backspace chạy được ở mọi app. OFF tắt tiếng Việt."
 charset = "Bảng mã chữ. Unicode dùng cho mọi việc thường ngày, VNI và TCVN3 chỉ để đọc file cũ."
 hide_underline = "Ẩn gạch chân ở những app vẽ gạch chân bị lỗi, ví dụ vài game và terminal."
-browser_delete_keys = "Bật khi trình duyệt bị lặp chữ trên Ubuntu: từ được xoá bằng phím thật thay vì phím chuyển tiếp. Mặc định tắt."
 dodge_inline_autocomplete = "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Mặc định tắt."
 modern = "Đặt dấu theo chuẩn mới của Bộ GD-ĐT: hòa thay vì hoà."
 free = "Cho dấu đứng tự do trong từ, không buộc phải nằm ở nguyên âm gần nhất."

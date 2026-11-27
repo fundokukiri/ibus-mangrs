@@ -876,13 +876,6 @@ impl EngineHandler {
     }
 }
 
-/// Beat between the browser's injected Backspace keys and the commit in the
-/// same batch. A fixed 12 ms was not enough for the Chrome on Ubuntu case (the
-/// commit still overtook the deletes, so the marks were eaten); ibus-bamboo,
-/// which types correctly there, sleeps 20 ms per key, and this follows it.
-const BROWSER_INJECT_PARK_MS: u64 = 12;
-const BROWSER_INJECT_PACE_MS: u64 = 20;
-
 /// Backspace scancode as it goes on the wire. Every ibus client adds 8 to get
 /// its own keycode (`ibusimcontext.c`, Qt's input context and the X11/XIM
 /// client all do `keycode += 8`), so this must be the evdev code, NOT the X
@@ -1978,31 +1971,9 @@ fn emit_with(
             // and the display desynced). The pacing stays on the injected
             // Backspace transport only.
             Action::ForwardBackspaces(n) => {
-                // The experimental switch, for the machine that needs it: Chrome
-                // on Ubuntu 26.04 with IBus 1.5.34 drops the forwarded pair, so
-                // Google Docs doubled every word. Real keys through the backend
-                // reach it; the echo deferral below keeps the commit behind
-                // them, as the Flow mode does. Without a backend the forwarded
-                // pair stays, which is what every other build ships.
-                if engine.browser_delete_keys() && (t.backspaces)(*n, bs_gap) {
-                    // The keys are on the wire by the time the backend returns,
-                    // so the commit only needs one short beat before it goes —
-                    // not the echo wait: Chrome does not route those keys back
-                    // through IBus on this platform, and the 150 ms stale window
-                    // held every rewritten word back (measured in the owner's
-                    // Ubuntu log). The count is still registered so the echoes
-                    // that do arrive are swallowed instead of typed.
-                    let wait = engine
-                        .post_delay_ms()
-                        .max(BROWSER_INJECT_PARK_MS + u64::from(*n) * BROWSER_INJECT_PACE_MS);
-                    std::thread::sleep(std::time::Duration::from_millis(wait));
-                    debug_log::log(&format!("del mode=forward n={n} op=inject wait={wait}"));
-                    engine.add_injected(*n);
-                } else {
-                    debug_log::log(&format!("del mode=forward n={n}"));
-                    for _ in 0..*n {
-                        push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
-                    }
+                debug_log::log(&format!("del mode=forward n={n}"));
+                for _ in 0..*n {
+                    push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
                 }
             }
             // The per-key batch's parked commit: its deletes were injected
