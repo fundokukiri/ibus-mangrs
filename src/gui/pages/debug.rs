@@ -240,14 +240,17 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     stack.add_named(&scroller, Some("log"));
     stack.add_named(&empty, Some("empty"));
 
-    let log_card = gtk4::Box::new(Orientation::Vertical, 0);
-    log_card.add_css_class("card");
-    log_card.add_css_class("log-card");
-    log_card.set_hexpand(true);
-    log_card.set_vexpand(true);
-    log_card.append(&toolbar);
-    log_card.append(&filter_row);
-    log_card.append(&stack);
+    // The whole log — search, filter, lines — sits in one frame, and that frame
+    // is the rounded pane the page used before it was rebuilt, not an Adwaita
+    // card: a card here read as a settings card with a terminal dropped in it.
+    let log_column = gtk4::Box::new(Orientation::Vertical, 0);
+    log_column.add_css_class("log-pane");
+    log_column.add_css_class("diag-log");
+    log_column.set_hexpand(true);
+    log_column.set_vexpand(true);
+    log_column.append(&toolbar);
+    log_column.append(&filter_row);
+    log_column.append(&stack);
 
     // --- The facts the rows and the report read ---------------------------
     // Two of them come from other processes (`ibus engine`, `gsettings get`)
@@ -342,7 +345,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let body = gtk4::Box::new(Orientation::Horizontal, 14);
     body.add_css_class("diag-body");
     body.set_vexpand(true);
-    body.append(&log_card);
+    body.append(&log_column);
     body.append(&side);
 
     // --- Action bar -------------------------------------------------------
@@ -666,7 +669,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         // footer stays where it is: it is the page's own action bar.
         let body = body.clone();
         let side = side.clone();
-        let log_card = log_card.clone();
+        let log_column = log_column.clone();
         let page_ref = page.clone();
         let laid_out = Rc::new(Cell::new(false));
         let state = Rc::clone(&laid_out);
@@ -685,13 +688,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                     // Stacked, the column takes its own height and the page
                     // scrolls, instead of squeezing it into a few pixels.
                     side.set_propagate_natural_height(true);
-                    log_card.set_vexpand(false);
+                    log_column.set_vexpand(false);
                 } else {
                     body.set_orientation(Orientation::Horizontal);
                     side.set_width_request(super::debug_tools::SIDE_WIDTH);
                     side.set_propagate_natural_height(false);
                     side.set_vexpand(true);
-                    log_card.set_vexpand(true);
+                    log_column.set_vexpand(true);
                 }
             }
             gtk4::glib::ControlFlow::Continue

@@ -64,9 +64,14 @@ pub(super) const TOOLS_CSS: &str = "
   min-width: 4px;
 }
 .diag-value { font-feature-settings: \"tnum\"; }
-/* The search entry and the pause switch belong to the log they sit on. */
-.log-card {
-  padding: 0;
+/* The log's own frame: a rounded pane of its own, the one the page had before
+   the rebuild. */
+.log-pane {
+  border-radius: 10px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: alpha(@view_fg_color, 0.1);
+  background-color: alpha(@view_fg_color, 0.035);
 }
 .log-view {
   font-size: 12px;

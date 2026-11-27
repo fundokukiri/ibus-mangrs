@@ -1436,8 +1436,8 @@ fn every_switch_on_a_page_lands_on_the_same_edge() {
     Config::default().save().expect("config back off");
 }
 
-/// The log's own pause sits on the log it stops, and the switch that hides the
-/// typed text sits in the action bar: neither one is a second copy of the
+/// The log's own pause sits above the log it stops, and the switch that hides
+/// the typed text sits in the action bar: neither one is a second copy of the
 /// other, and a narrow window may not push either out of reach.
 fn the_debug_pause_switches_keep_their_places() {
     let ui = widgets();
@@ -1448,10 +1448,10 @@ fn the_debug_pause_switches_keep_their_places() {
         2,
         "the log pause and the copy masking switch"
     );
-    let inside_log_card = |switch: &gtk4::Switch| {
+    let inside_log_column = |switch: &gtk4::Switch| {
         let mut node = switch.parent();
         while let Some(ancestor) = node {
-            if ancestor.has_css_class("log-card") {
+            if ancestor.has_css_class("diag-log") {
                 return true;
             }
             node = ancestor.parent();
@@ -1459,11 +1459,11 @@ fn the_debug_pause_switches_keep_their_places() {
         false
     };
     assert!(
-        inside_log_card(&switches[0]),
-        "the log's pause belongs on the log card"
+        inside_log_column(&switches[0]),
+        "the log's pause belongs above the log it stops"
     );
     assert!(
-        !inside_log_card(&switches[1]),
+        !inside_log_column(&switches[1]),
         "the masking switch belongs in the action bar"
     );
 }
@@ -1624,7 +1624,7 @@ fn the_debug_page_shows_the_status_the_facts_and_the_action_bar() {
         .into_iter()
         .filter(|box_| box_.has_css_class("card"))
         .count();
-    assert_eq!(cards, 7, "the page's cards");
+    assert_eq!(cards, 6, "the page's cards");
     // Eight facts, each a name over a value the mouse can select and copy.
     let values = descendants::<gtk4::Label>(overlay.upcast_ref())
         .into_iter()
