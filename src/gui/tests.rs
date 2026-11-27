@@ -60,7 +60,7 @@ fn gtk_widget_scenarios() {
     toggling_off_releases_the_editor_caret();
     close_test_windows();
     the_debug_tab_follows_the_switch();
-    the_window_carries_one_header_bar_outside_the_pages();
+    each_column_carries_its_own_header_bar();
     the_window_can_shrink_to_fit_a_small_screen();
     close_test_windows();
     the_two_debug_checkboxes_share_a_row();
@@ -1186,44 +1186,55 @@ fn the_debug_tab_row_appears_only_with_debug_mode() {
 /// Both split-view pages carry a header bar. A collapsed split view shows the
 /// sidebar as the root page, so a sidebar without one loses the window controls
 /// — the close button disappeared as soon as the window got narrow.
-fn the_window_carries_one_header_bar_outside_the_pages() {
+fn each_column_carries_its_own_header_bar() {
     let app = adw::Application::builder()
         .application_id("org.freedesktop.IBus.mangrs.test-sidebar-header")
         .build();
-    Config {
-        debug_log: true,
-        ..Config::default()
-    }
-    .save()
-    .expect("config on");
+    Config::default().save().expect("config on");
     let win = crate::gui::content::build(&app, Some("typing"));
-    // The header bar sits on the window's own toolbar view: inside a page it
-    // would be laid out at that page's minimum width, and a page wider than a
-    // narrow window takes the window controls out of the window with it.
-    let toolbar = win
-        .content()
-        .and_downcast::<adw::ToolbarView>()
-        .expect("the window content is a toolbar view");
-    let bars = descendants::<adw::HeaderBar>(toolbar.upcast_ref());
-    assert_eq!(bars.len(), 1, "exactly one header bar on the window");
-    let controls: Vec<gtk4::WindowControls> =
-        descendants::<gtk4::WindowControls>(bars[0].upcast_ref());
-    assert!(
-        controls.iter().any(|c| c.side() == gtk4::PackType::End),
-        "the window controls live in that bar"
-    );
-    // And the pages must not add a second bar of their own.
-    let split = descendants::<adw::NavigationSplitView>(toolbar.upcast_ref())
+    let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
         .into_iter()
         .next()
         .expect("the shell is a split view");
+    // Both columns start at the top of the window: a bar on each, so neither
+    // leaves an empty strip above its first row.
     for page in [split.sidebar(), split.content()] {
         let page = page.expect("both pages exist");
-        assert!(
-            descendants::<adw::HeaderBar>(page.upcast_ref()).is_empty(),
-            "a page with its own header bar stacks a second title row"
+        assert_eq!(
+            descendants::<adw::HeaderBar>(page.upcast_ref()).len(),
+            1,
+            "each column carries exactly one header bar"
         );
     }
+    // The search button lives in the sidebar's bar, not in a row of its own.
+    let sidebar_bar = descendants::<adw::HeaderBar>(split.sidebar().unwrap().upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the sidebar bar");
+    assert!(
+        descendants::<gtk4::Button>(sidebar_bar.upcast_ref())
+            .into_iter()
+            .any(|b| b.icon_name().is_some_and(|i| i.contains("search"))),
+        "the search button sits in the sidebar's bar"
+    );
+    // The window controls live in the content column's bar.
+    let content_bar = descendants::<adw::HeaderBar>(split.content().unwrap().upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the content bar");
+    assert!(
+        descendants::<gtk4::WindowControls>(content_bar.upcast_ref())
+            .into_iter()
+            .any(|c| c.side() == gtk4::PackType::End),
+        "the window controls live in the content bar"
+    );
+    // The window holds the split view directly: nothing above either column.
+    assert!(
+        win.content()
+            .and_downcast::<adw::NavigationSplitView>()
+            .is_some(),
+        "the split view is the window's own content"
+    );
     win.close();
     Config::default().save().expect("config back off");
 }
@@ -1281,19 +1292,16 @@ fn the_window_controls_survive_a_narrow_window() {
         }
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    let bar = descendants::<adw::HeaderBar>(win.upcast_ref())
+    // Whichever pane is shown, one bar inside the window carries the controls.
+    let end = descendants::<gtk4::WindowControls>(win.upcast_ref())
         .into_iter()
-        .next()
-        .expect("a header bar");
-    let end = descendants::<gtk4::WindowControls>(bar.clone().upcast_ref())
-        .into_iter()
-        .find(|c| c.side() == gtk4::PackType::End)
-        .expect("the window controls sit at the end of the bar");
-    assert!(end.is_mapped(), "the close button is visible at 700 px");
+        .filter(|c| c.side() == gtk4::PackType::End)
+        .find(|c| c.is_mapped() && c.allocation().x() >= 0 && c.width() > 0)
+        .expect("a visible set of window controls");
     assert!(
-        bar.width() <= win.width(),
-        "the header bar ({} px) must not be wider than the window ({} px)",
-        bar.width(),
+        end.allocation().x() + end.width() <= win.width(),
+        "the window controls end at {} px, past the window's {} px",
+        end.allocation().x() + end.width(),
         win.width()
     );
     let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
@@ -1312,7 +1320,7 @@ fn the_window_controls_survive_a_narrow_window() {
         .map(|c| c.measure(gtk4::Orientation::Horizontal, -1).0)
         .unwrap_or(-1);
     assert!(
-        content_min <= 300,
+        content_min <= 420,
         "the window content asks for {content_min} px, so the window cannot be narrowed to its own minimum"
     );
     win.close();

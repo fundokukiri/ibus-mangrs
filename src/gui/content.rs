@@ -424,13 +424,21 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
             }
         });
     }
+    // The entry lives in its own row under the header bar and only exists
+    // while it is open: the button that opens it sits in the sidebar's own
+    // bar, so a closed search leaves no empty strip there.
     let search_box = gtk4::Box::new(Orientation::Horizontal, 6);
     search_box.set_margin_top(6);
     search_box.set_margin_bottom(6);
     search_box.set_margin_start(6);
     search_box.set_margin_end(6);
-    search_box.append(&search_btn);
     search_box.append(&search_entry);
+    search_box.set_visible(false);
+    search_entry.connect_visible_notify(|entry| {
+        if let Some(row) = entry.parent() {
+            row.set_visible(entry.is_visible());
+        }
+    });
     let sidebar_box = gtk4::Box::new(Orientation::Vertical, 0);
     sidebar_box.append(&search_box);
     // The main list keeps its natural height; an expanding spacer pins the
@@ -440,12 +448,18 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     spacer.set_vexpand(true);
     sidebar_box.append(&spacer);
     sidebar_box.append(&about_list);
-    // The pages carry no header bar of their own: one bar lives on the window
-    // (see below), so a page wider than the window can never carry the window
-    // controls out of it.
+    // Each column carries its own bar, so both start at the top of the window
+    // and neither leaves an empty strip above its first row. The search button
+    // sits in the sidebar's bar; the title and the window controls in the
+    // content's.
+    let sidebar_bar = adw::HeaderBar::new();
+    sidebar_bar.pack_start(&search_btn);
+    let sidebar_toolbar = adw::ToolbarView::new();
+    sidebar_toolbar.add_top_bar(&sidebar_bar);
+    sidebar_toolbar.set_content(Some(&sidebar_box));
     let sidebar_page = adw::NavigationPage::builder()
         .title(&app_name)
-        .child(&sidebar_box)
+        .child(&sidebar_toolbar)
         .build();
 
     let page_overlay = gtk4::Overlay::new();
@@ -599,40 +613,35 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         });
     }
 
+    let window_bar = adw::HeaderBar::new();
+    window_bar.set_title_widget(Some(&title_label));
+    window_bar.pack_start(&sidebar_btn);
+    // The bar must keep its width at every window size, and a toolbar view is
+    // never narrower than its content's minimum — which is the widest page
+    // (623 px). A horizontal scroller does not propagate that minimum, so the
+    // page slides sideways below it instead of widening the bar past the
+    // window and taking the close button with them.
+    let pane_scroller = gtk4::ScrolledWindow::new();
+    pane_scroller.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Never);
+    pane_scroller.set_propagate_natural_width(false);
+    pane_scroller.set_child(Some(&page_overlay));
+    let content_toolbar = adw::ToolbarView::new();
+    content_toolbar.add_top_bar(&window_bar);
+    content_toolbar.set_content(Some(&pane_scroller));
     let content_page = adw::NavigationPage::builder()
         .title(&app_name)
-        .child(&page_overlay)
+        .child(&content_toolbar)
         .build();
 
     split_view.set_sidebar(Some(&sidebar_page));
     split_view.set_content(Some(&content_page));
 
-    // One header bar for the whole window, outside the split view. Inside a
-    // page it is laid out at that page's minimum width, and a page asking for
-    // more than the window has (a small screen, a tile) pushed the window
-    // controls at its right end past the window edge, where clicking is
-    // impossible. Outside, its width is always the window's.
-    let window_bar = adw::HeaderBar::new();
-    window_bar.set_title_widget(Some(&title_label));
-    window_bar.pack_start(&sidebar_btn);
-    // The header bar must keep its width at every window size, and a toolbar
-    // view is never narrower than its content's minimum — which is the widest
-    // page (623 px). A horizontal scroller does not propagate that minimum, so
-    // the pages slide sideways below it instead of widening the bar past the
-    // window and taking the close button with them.
-    let pane_scroller = gtk4::ScrolledWindow::new();
-    pane_scroller.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Never);
-    pane_scroller.set_propagate_natural_width(false);
-    pane_scroller.set_child(Some(&split_view));
-    let window_toolbar = adw::ToolbarView::new();
-    window_toolbar.add_top_bar(&window_bar);
-    window_toolbar.set_content(Some(&pane_scroller));
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(&app_name)
         .default_width(1180)
         .default_height(740)
-        .content(&window_toolbar)
+        .content(&split_view)
         .build();
     // X11/XWayland reads the icon from the window; Wayland derives it from
     // the app id and the installed desktop file instead.
