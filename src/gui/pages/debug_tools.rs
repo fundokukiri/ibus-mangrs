@@ -400,8 +400,8 @@ fn tile(cell: &Cell) -> gtk4::Widget {
 }
 
 /// Which facts carry a dot. The extension's dot says whether it runs; the kernel
-/// and the session keep the muted one, for the two facts that can change under
-/// the user without anything being wrong.
+/// and the session carry the same green, on the owner's reading of the two facts
+/// that are simply fine.
 fn dot_class(cell: &Cell) -> Option<&'static str> {
     match cell.id {
         "extension" => Some(match cell.status {
@@ -409,7 +409,7 @@ fn dot_class(cell: &Cell) -> Option<&'static str> {
             Status::Warn => "diag-dot-warn",
             Status::Info => "diag-dot-info",
         }),
-        "kernel" | "session" => Some("diag-dot-info"),
+        "kernel" | "session" => Some("diag-dot-ok"),
         _ => None,
     }
 }
