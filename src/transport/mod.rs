@@ -25,6 +25,7 @@ use crate::uinput::Uinput;
 
 mod ei_sys;
 mod libei;
+mod libei_portal;
 mod uinput;
 mod wlr_vk;
 mod xtest;
@@ -117,8 +118,12 @@ pub fn preference_order() -> Vec<Kind> {
         } else {
             // wlroots-family compositors (Hyprland, sway, ...) expose the
             // virtual-keyboard protocol without any device node. Mutter
-            // exposes no such global, hence the arm above.
-            vec![Kind::WlrVirtualKeyboard, Kind::Uinput]
+            // exposes no such global, hence the arm above. Libei comes last:
+            // on a portal-only compositor (KDE) it is the only rung that
+            // works without the input group, but it costs a permission prompt
+            // and a 5 s acquisition, so the two prompt-free transports are
+            // tried first.
+            vec![Kind::WlrVirtualKeyboard, Kind::Uinput, Kind::Libei]
         }
     } else if std::env::var_os("DISPLAY").is_some() {
         // X11 sessions: XTest first. Both transports deliver the same events,
@@ -625,7 +630,7 @@ mod tests {
         _env.set("XDG_CURRENT_DESKTOP", "Hyprland");
         assert_eq!(
             preference_order(),
-            vec![Kind::WlrVirtualKeyboard, Kind::Uinput]
+            vec![Kind::WlrVirtualKeyboard, Kind::Uinput, Kind::Libei]
         );
     }
 

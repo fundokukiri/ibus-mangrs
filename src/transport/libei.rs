@@ -1,4 +1,6 @@
-//! libei backend: key injection through mutter's RemoteDesktop EIS socket.
+//! libei backend: key injection through an EIS socket — mutter's
+//! RemoteDesktop on GNOME, the xdg-desktop-portal on the compositors that only
+//! implement the portal (see `libei_portal`).
 //!
 //! Acquisition runs the mutter-direct round-trip the Task 6 spike measured
 //! end to end on this machine (DEVLOG 15/11): on ONE session-bus connection —
@@ -100,6 +102,76 @@ fn remaining(deadline: Instant) -> Duration {
     Duration::from_millis(ms.max(1))
 }
 
+/// The mutter RemoteDesktop round-trip: session, Start, ConnectToEIS, and the
+/// EIS socket fd. `None` when mutter does not own the name (a portal-only
+/// compositor) or any step fails — the caller then tries the portal.
+fn mutter_eis_fd(conn: &SyncConnection, deadline: Instant) -> Option<i32> {
+    // Ask the bus first: a compositor without mutter's service must cost one
+    // cheap call, not the whole acquisition budget.
+    conn.send_with_reply_and_block(
+        dbus_message(
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "GetNameOwner",
+        )?
+        .append1(MUTTER_NAME),
+        remaining(deadline),
+    )
+    .ok()?;
+
+    // CreateSession() takes no arguments and returns the session path.
+    let reply = conn
+        .send_with_reply_and_block(
+            dbus_message(MUTTER_NAME, MUTTER_PATH, MUTTER_IFACE, "CreateSession")?,
+            remaining(deadline),
+        )
+        .ok()?;
+    let session: Path<'static> = reply.read1().ok()?;
+
+    // The Session interface is exported a beat after CreateSession
+    // (~1.5 ms measured): introspect until it shows.
+    loop {
+        let reply = conn
+            .send_with_reply_and_block(
+                dbus_message(
+                    MUTTER_NAME,
+                    &session,
+                    "org.freedesktop.DBus.Introspectable",
+                    "Introspect",
+                )?,
+                remaining(deadline),
+            )
+            .ok()?;
+        let xml: String = reply.read1().ok()?;
+        if xml.contains(SESSION_IFACE) {
+            break;
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        sleep(INTROSPECT_RETRY);
+    }
+
+    conn.send_with_reply_and_block(
+        dbus_message(MUTTER_NAME, &session, SESSION_IFACE, "Start")?,
+        remaining(deadline),
+    )
+    .ok()?;
+
+    // ConnectToEIS(a{sv}) with an empty options dict; the reply carries the
+    // EI socket fd as 'h'. The fd is owned by the caller until libei takes it
+    // at ei_setup_backend_fd (which closes it at teardown).
+    let options = HashMap::<String, Variant<Box<dyn RefArg>>>::new();
+    let reply = conn
+        .send_with_reply_and_block(
+            dbus_message(MUTTER_NAME, &session, SESSION_IFACE, "ConnectToEIS")?.append1(options),
+            remaining(deadline),
+        )
+        .ok()?;
+    Some(reply.read1::<OwnedFd>().ok()?.into_fd())
+}
+
 /// Whether the EI socket has data within the slice; only paces the discovery
 /// loop (`ei_dispatch` itself never blocks).
 fn poll_readable(fd: i32, timeout_ms: i32) -> bool {
@@ -114,74 +186,36 @@ fn poll_readable(fd: i32, timeout_ms: i32) -> bool {
 }
 
 impl LibeiBackend {
-    /// The mutter-direct round-trip from the Task 6 spike. Failure at any
-    /// step returns None; the kind is denied by the caller.
+    /// The mutter-direct round-trip from the Task 6 spike, else the portal's.
+    /// Failure at any step returns None; the kind is denied by the caller.
     fn acquire(sys: &'static ei_sys::Table) -> Option<Self> {
         let deadline = Instant::now() + ACQUIRE_TIMEOUT;
         let conn = SyncConnection::new_session().ok()?;
+        let fd = match mutter_eis_fd(&conn, deadline) {
+            Some(fd) => fd,
+            // No mutter on this session (KDE, or anything portal-only). The
+            // portal path is the last rung of the non-mutter preference list,
+            // so nothing is denied that used to work.
+            None => super::libei_portal::connect_eis(deadline)?,
+        };
+        Self::from_eis_fd(conn, sys, fd, deadline)
+    }
 
-        // CreateSession() takes no arguments and returns the session path.
-        let reply = conn
-            .send_with_reply_and_block(
-                dbus_message(MUTTER_NAME, MUTTER_PATH, MUTTER_IFACE, "CreateSession")?,
-                remaining(deadline),
-            )
-            .ok()?;
-        let session: Path<'static> = reply.read1().ok()?;
-
-        // The Session interface is exported a beat after CreateSession
-        // (~1.5 ms measured): introspect until it shows.
-        loop {
-            let reply = conn
-                .send_with_reply_and_block(
-                    dbus_message(
-                        MUTTER_NAME,
-                        &session,
-                        "org.freedesktop.DBus.Introspectable",
-                        "Introspect",
-                    )?,
-                    remaining(deadline),
-                )
-                .ok()?;
-            let xml: String = reply.read1().ok()?;
-            if xml.contains(SESSION_IFACE) {
-                break;
-            }
-            if Instant::now() >= deadline {
-                return None;
-            }
-            sleep(INTROSPECT_RETRY);
-        }
-
-        conn.send_with_reply_and_block(
-            dbus_message(MUTTER_NAME, &session, SESSION_IFACE, "Start")?,
-            remaining(deadline),
-        )
-        .ok()?;
-
-        // ConnectToEIS(a{sv}) with an empty options dict; the reply carries
-        // the EI socket fd as 'h'.
-        let options = HashMap::<String, Variant<Box<dyn RefArg>>>::new();
-        let reply = conn
-            .send_with_reply_and_block(
-                dbus_message(MUTTER_NAME, &session, SESSION_IFACE, "ConnectToEIS")?
-                    .append1(options),
-                remaining(deadline),
-            )
-            .ok()?;
-        // SAFETY: ei_setup_backend_fd takes ownership of the fd and closes it
-        // at teardown, so into_fd() forgets the dbus wrapper instead of
-        // closing it (a close here would race libei's own).
-        let fd = reply.read1::<OwnedFd>().ok()?.into_fd();
-
+    /// The shared tail of both acquisitions: the EIS fd becomes a libei
+    /// context with a claimed keyboard, or the kind is denied.
+    fn from_eis_fd(
+        conn: SyncConnection,
+        sys: &'static ei_sys::Table,
+        fd: i32,
+        deadline: Instant,
+    ) -> Option<Self> {
         // SAFETY: ei_new returns a fresh sender context or NULL, checked
         // before any further use.
         let ei = unsafe { (sys.ei_new)(ptr::null_mut()) };
         if ei.is_null() {
-            // into_fd() detached the fd from the dbus wrapper above and it
-            // never reached libei, so close it here or every denial leaks
-            // one. SAFETY: the fd is owned only by this function at this
-            // point (libei never took it).
+            // The acquisition handed the fd over and it never reached libei,
+            // so close it here or every denial leaks one.
+            // SAFETY: the fd is owned only by this function at this point.
             unsafe { libc::close(fd) };
             return None;
         }
