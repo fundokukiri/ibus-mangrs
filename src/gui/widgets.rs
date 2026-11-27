@@ -375,9 +375,10 @@ pub(super) fn select_switch_row<W: IsA<gtk4::Widget>>(
     row.add_suffix(value);
     row.add_suffix(&pacing_divider());
     row.add_suffix(&switch);
-    if let (Some(suffixes), _) = find_suffixes_and_switch(row.upcast_ref()) {
-        suffixes.set_hexpand(true);
-    }
+    // No hexpand here: an expanded suffix box packs its children from the left
+    // and leaves the switch floating short of the row's edge, where every
+    // plain switch row puts it. Natural width puts the switch last, flush with
+    // the ones above and below.
     (row, switch)
 }
 

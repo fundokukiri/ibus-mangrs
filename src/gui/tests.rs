@@ -65,6 +65,8 @@ fn gtk_widget_scenarios() {
     close_test_windows();
     close_test_windows();
     the_search_button_opens_the_entry();
+    close_test_windows();
+    a_row_with_two_controls_keeps_its_switch_in_line();
     the_two_debug_checkboxes_share_a_row();
     close_test_windows();
     the_debug_tab_row_appears_only_with_debug_mode();
@@ -1382,6 +1384,52 @@ fn the_search_button_opens_the_entry() {
             .into_iter()
             .any(|l| l.text().contains("Luật")),
         "typing in the entry lists matching rows over the page"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// A row with a second control keeps its switch where every plain row puts it.
+/// An expanded suffix box packs its children from the left, which used to leave
+/// this row's switch 46 px short of the ones above it.
+fn a_row_with_two_controls_keeps_its_switch_in_line() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-switch-line")
+        .build();
+    Config::default().save().expect("config on");
+    let win = crate::gui::content::build(&app, Some("experimental"));
+    win.set_default_size(1180, 740);
+    win.present();
+    let ctx = gtk4::glib::MainContext::default();
+    for _ in 0..60 {
+        while ctx.pending() {
+            ctx.iteration(false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let right_edge = |row: &adw::ActionRow| -> Option<i32> {
+        let sw = descendants::<gtk4::Switch>(row.upcast_ref())
+            .into_iter()
+            .next()?;
+        let (mut x, _) = (0, 0);
+        let mut cur = Some(sw.upcast_ref::<gtk4::Widget>().clone());
+        while let Some(c) = cur {
+            x += c.allocation().x();
+            cur = c.parent();
+        }
+        Some(x + sw.width())
+    };
+    let rows: Vec<adw::ActionRow> = descendants::<adw::ActionRow>(win.upcast_ref());
+    let pick = |needle: &str| {
+        rows.iter()
+            .find(|r| r.title().contains(needle))
+            .and_then(right_edge)
+    };
+    let two_controls = pick("địa chỉ").expect("the address-bar row");
+    let plain = pick("Giữ từ khi gõ thêm").expect("a plain switch row");
+    assert_eq!(
+        two_controls, plain,
+        "the switch of a two-control row must end where a plain row's does"
     );
     win.close();
     Config::default().save().expect("config back off");
