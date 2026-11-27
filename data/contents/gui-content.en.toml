@@ -248,8 +248,8 @@ subtitle = "A suggestion strip by the caret"
 [rows.dodge_fix]
 title = "How to fix it"
 subtitle = "How the fix draws the suggestion"
-raw = "Current"
-marker = "Dot marker (·)"
+raw = "Delete straight"
+marker = "Insert dot ·"
 
 [rows.dodge_inline_autocomplete]
 title = "Fix typing in address bars"

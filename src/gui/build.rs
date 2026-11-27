@@ -236,8 +236,8 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Chọn cách sửa khi gợi ý hiện trong ô",
         ),
         &[
-            &t("rows.dodge_fix.raw", "Hiện tại"),
-            &t("rows.dodge_fix.marker", "Dấu chấm (·)"),
+            &t("rows.dodge_fix.raw", "Xoá thẳng"),
+            &t("rows.dodge_fix.marker", "Chèn dấu ·"),
         ],
     );
     let preferred_backend = combo_row(
