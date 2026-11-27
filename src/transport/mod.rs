@@ -106,9 +106,13 @@ pub fn preference_order() -> Vec<Kind> {
             vec![Kind::WlrVirtualKeyboard, Kind::Uinput]
         }
     } else if std::env::var_os("DISPLAY").is_some() {
-        // X11 sessions: the kernel device first, XTest where the device
-        // node is unreachable (no input group, containerized).
-        vec![Kind::Uinput, Kind::XTest]
+        // X11 sessions: XTest first. Both transports deliver the same events,
+        // and XTest needs no `/dev/uinput` access at all, so it works on a
+        // stock account without the input group (the availability goal of R3;
+        // the earlier measurement that the order does not change the echo race
+        // still holds). The kernel device stays as the fallback for the X11
+        // sessions XTest cannot serve.
+        vec![Kind::XTest, Kind::Uinput]
     } else {
         // No session evidence at all (tests, exotic launches): the legacy
         // default rather than a guess.
@@ -572,13 +576,13 @@ mod tests {
     use super::test_env::{EnvGuard, ENV_LOCK};
 
     #[test]
-    fn x11_session_prefers_uinput_then_xtest() {
+    fn x11_session_prefers_xtest_then_uinput() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _env = EnvGuard::save(&["DISPLAY", "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP"]);
         _env.set("DISPLAY", ":0");
         _env.unset("WAYLAND_DISPLAY");
         _env.unset("XDG_CURRENT_DESKTOP");
-        assert_eq!(preference_order(), vec![Kind::Uinput, Kind::XTest]);
+        assert_eq!(preference_order(), vec![Kind::XTest, Kind::Uinput]);
     }
 
     #[test]
