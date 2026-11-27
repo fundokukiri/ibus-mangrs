@@ -61,6 +61,10 @@ fn gtk_widget_scenarios() {
     close_test_windows();
     the_debug_tab_follows_the_switch();
     the_sidebar_page_carries_a_header_bar();
+    the_window_can_shrink_to_fit_a_small_screen();
+    close_test_windows();
+    the_two_debug_checkboxes_share_a_row();
+    close_test_windows();
     the_debug_tab_row_appears_only_with_debug_mode();
     the_open_log_pane_picks_up_what_is_written();
     the_debug_page_opens_with_both_columns();
@@ -1206,6 +1210,65 @@ fn the_sidebar_page_carries_a_header_bar() {
             "a page without a header bar shows no close button when collapsed"
         );
     }
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// The window's own minimum width has to stay under what a small screen
+/// allows: a content wider than its window also makes the header bar wider
+/// than the window, and the close button at its right end falls outside.
+/// Measured at 1030 px while the footer kept its four labels on one row.
+fn the_window_can_shrink_to_fit_a_small_screen() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-window-min")
+        .build();
+    Config {
+        debug_log: true,
+        ..Config::default()
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("debugging"));
+    let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the shell is a split view");
+    let (min, _, _, _) = split.measure(gtk4::Orientation::Horizontal, -1);
+    assert!(
+        min <= 850,
+        "the window cannot shrink below {min} px, so a narrower screen clips its close button"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// "Tạm dừng ghi log" sits beside "Ẩn nội dung gõ": both are about what the
+/// copy produces, and they share one row.
+fn the_two_debug_checkboxes_share_a_row() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-debug-footer")
+        .build();
+    Config {
+        debug_log: true,
+        ..Config::default()
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("debugging"));
+    let checks: Vec<gtk4::CheckButton> = descendants::<gtk4::CheckButton>(win.upcast_ref())
+        .into_iter()
+        .filter(|c| {
+            c.label()
+                .is_some_and(|l| l.starts_with("Ẩn") || l.starts_with("Tạm"))
+        })
+        .collect();
+    assert_eq!(checks.len(), 2, "both switches exist");
+    let row = |c: &gtk4::CheckButton| c.parent().map(|p| p.as_ptr());
+    assert_eq!(
+        row(&checks[0]),
+        row(&checks[1]),
+        "the pause switch must sit on the same row as the masking switch"
+    );
     win.close();
     Config::default().save().expect("config back off");
 }

@@ -320,16 +320,24 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let _ = config.save();
     });
 
-    let footer = gtk4::Box::new(Orientation::Horizontal, 8);
+    // Two rows, not one: the four labels side by side asked for 802 px of
+    // width, which made this page the widest thing in the window and pushed
+    // the window's own minimum past the width where the sidebar collapses. A
+    // header bar wider than its window loses the window controls with it.
+    let footer = gtk4::Box::new(Orientation::Vertical, 8);
     let hide_group = gtk4::Box::new(Orientation::Horizontal, 8);
     hide_group.append(&hide_switch);
+    hide_group.append(&log_pause);
+    let footer_actions = gtk4::Box::new(Orientation::Horizontal, 8);
+    footer_actions.append(&restart_btn);
+    footer_actions.append(&copy_btn);
     let footer_spacer = gtk4::Box::new(Orientation::Horizontal, 0);
     footer_spacer.set_hexpand(true);
+    let actions_row = gtk4::Box::new(Orientation::Horizontal, 0);
+    actions_row.append(&footer_spacer);
+    actions_row.append(&footer_actions);
     footer.append(&hide_group);
-    footer.append(&footer_spacer);
-    footer.append(&log_pause);
-    footer.append(&restart_btn);
-    footer.append(&copy_btn);
+    footer.append(&actions_row);
 
     // --- The page ---------------------------------------------------------
     let page = gtk4::Box::new(Orientation::Vertical, 10);
