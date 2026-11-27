@@ -1618,19 +1618,20 @@ fn the_debug_page_shows_the_status_the_facts_and_the_action_bar() {
         toggles.iter().any(|btn| btn.is_active()),
         "one kind is always in force"
     );
-    // A card each: the engine's state, the log, the typing test, the four
-    // facts, the two files, and the action bar across the bottom.
+    // A card each: the engine's state, the typing test, the three blocks, and
+    // the action bar across the bottom. The log sits in its own pane.
     let cards = descendants::<gtk4::Box>(overlay.upcast_ref())
         .into_iter()
         .filter(|box_| box_.has_css_class("card"))
         .count();
     assert_eq!(cards, 6, "the page's cards");
-    // Eight facts, each a name over a value the mouse can select and copy.
+    // Six facts in the grid and the two chips below it, each a value the mouse
+    // can select and copy.
     let values = descendants::<gtk4::Label>(overlay.upcast_ref())
         .into_iter()
         .filter(|label| label.has_css_class("monospace") && label.is_selectable())
         .count();
-    assert_eq!(values, 8, "two values per facts row");
+    assert_eq!(values, 8, "six tiles and two pills");
     assert_eq!(
         descendants::<adw::StatusPage>(overlay.upcast_ref()).len(),
         1,
