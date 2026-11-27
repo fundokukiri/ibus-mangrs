@@ -923,22 +923,15 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
     );
 }
 
-/// The rewrite's replacement text as forwarded key events, the way
-/// ibus-bamboo's "Forward as commit" types it: a Vietnamese letter has no plain
-/// keysym, so it travels as the Unicode keysym (`0x1000000 | codepoint`). One
-/// channel for the deletes and the text is the point — mixing forward keys with
-/// CommitText is what lost the ordering on Chrome (Docs doubled every word).
-const FORWARD_TEXT_PACE_MS: u64 = 5;
+/// ibus-bamboo's pacing for the machine where Chrome drops a browser rewrite:
+/// its "ForwardKeyEvent I" mode forwards the Backspace pairs, waits 50 ms plus
+/// 30 ms per key, and only then sends the text as one `CommitText`. The text
+/// never travels as keys there, because Chrome on Wayland discards a forwarded
+/// key event whose keycode is 0 (the Unicode keysym a Vietnamese letter would
+/// need), which made the word vanish instead of appearing.
 const FORWARD_DELETE_PACE_MS: u64 = 20;
-
-fn push_forward_text(out: &mut Vec<Message>, text: &str) {
-    for ch in text.chars() {
-        let cp = ch as u32;
-        let keyval = if cp < 0x80 { cp } else { 0x100_0000 | cp };
-        push_forward_keys(out, keyval, 0, 0);
-        std::thread::sleep(std::time::Duration::from_millis(FORWARD_TEXT_PACE_MS));
-    }
-}
+const FORWARD_COMMIT_GUARD_MS: u64 = 50;
+const FORWARD_COMMIT_PACE_MS: u64 = 30;
 
 /// Push both engine backend flags from the holder's current state — the
 /// self-heal and the paced Flow re-request share it, so every re-select
@@ -1819,6 +1812,9 @@ fn emit_with(
     // to swallow deletes: the paired commit must be suppressed too, or the
     // replacement lands on top of the raw keys and duplicates the word.
     let mut delete_failed = false;
+    // Keys the browser's forwarded deletes put on the wire, waiting for the
+    // commit that pairs with them.
+    let mut forward_wait = 0u32;
     for action in actions {
         match action {
             Action::Commit(text) => push_commit(
@@ -1827,6 +1823,7 @@ fn emit_with(
                 text.clone(),
                 &mut delete_failed,
                 &mut injected_since_commit,
+                &mut forward_wait,
             ),
             Action::DeleteBefore(n) if inject => {
                 // No usable protocol delete here; press real Backspace keys
@@ -2003,6 +2000,9 @@ fn emit_with(
                             FORWARD_DELETE_PACE_MS,
                         ));
                     }
+                }
+                if pace {
+                    forward_wait = *n;
                 }
             }
             // The per-key batch's parked commit: its deletes were injected
@@ -2222,6 +2222,7 @@ fn push_commit(
     text: String,
     delete_failed: &mut bool,
     injected_since_commit: &mut u32,
+    forward_wait: &mut u32,
 ) {
     if std::mem::take(delete_failed) {
         debug_log::log("buf commit=suppressed why=no_delete");
@@ -2232,9 +2233,15 @@ fn push_commit(
         // deletes the freshly committed word.
         engine.defer_commit(*injected_since_commit, text);
         *injected_since_commit = 0;
-    } else if engine.browser_forward_commit() {
-        debug_log::log(&format!("buf commit=forward len={}", text.chars().count()));
-        push_forward_text(out, &text);
+    } else if *forward_wait > 0 {
+        // The forwarded deletes are already on the wire; the client needs its
+        // own time to apply them, and a synchronous CommitText would overtake
+        // them and be deleted instead (Docs showed `banban`).
+        let wait = FORWARD_COMMIT_GUARD_MS + u64::from(*forward_wait) * FORWARD_COMMIT_PACE_MS;
+        debug_log::log(&format!("buf commit=parkfwd ms={wait}"));
+        std::thread::sleep(std::time::Duration::from_millis(wait));
+        *forward_wait = 0;
+        out.push(signal("CommitText").append1(plain_text(&text)));
     } else {
         out.push(signal("CommitText").append1(plain_text(&text)));
     }

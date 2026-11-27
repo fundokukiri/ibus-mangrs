@@ -2506,10 +2506,11 @@ fn forward_key_event_emits_backspace_press_and_release() {
 }
 
 #[test]
-fn the_browser_forward_commit_switch_types_the_rewrite_with_keys() {
-    // ibus-bamboo types Chrome on Ubuntu correctly by keeping the deletes and
-    // the replacement text on one channel; mixing forward keys with CommitText
-    // is what lost the ordering. Off (and for every other app) nothing changes.
+fn the_browser_forward_commit_switch_parks_the_text_behind_the_forwarded_keys() {
+    // ibus-bamboo's "ForwardKeyEvent I": forward the delete pairs, wait, then
+    // commit the text once. The text never rides as forwarded keys itself —
+    // Chrome on Wayland discards a key event whose keycode is 0, so a Unicode
+    // keysym made the word vanish. Off, or any other app: the shipped path.
     for (enabled, app) in [
         (false, "wayland:google-chrome"),
         (true, "wayland:org.gnome.TextEditor"),
@@ -2528,16 +2529,21 @@ fn the_browser_forward_commit_switch_types_the_rewrite_with_keys() {
         emit(
             &mut e,
             &injection,
-            &[Action::Commit("chào".into())],
+            &[Action::ForwardBackspaces(2), Action::Commit("chào".into())],
             &mut out,
         );
-        let commits: Vec<String> = out
+        let names: Vec<String> = out
             .iter()
             .map(|m| m.member().map(|n| n.to_string()).unwrap_or_default())
             .collect();
         assert!(
-            commits.iter().any(|n| n == "CommitText"),
-            "switch {enabled} for {app}: the shipped commit stays"
+            names.iter().any(|n| n == "CommitText"),
+            "switch {enabled} for {app}: the text still commits"
+        );
+        assert_eq!(
+            names.iter().filter(|n| *n == "ForwardKeyEvent").count(),
+            4,
+            "switch {enabled} for {app}: the deletes always forward"
         );
     }
 
@@ -2552,32 +2558,28 @@ fn the_browser_forward_commit_switch_types_the_rewrite_with_keys() {
     e.set_client(Some("gnome-shell".into()));
     e.set_app_name(Some("wayland:google-chrome".into()));
     let mut out = Vec::new();
+    let started = std::time::Instant::now();
     emit(
         &mut e,
         &injection,
-        &[Action::Commit("chào".into())],
+        &[Action::ForwardBackspaces(2), Action::Commit("chào".into())],
         &mut out,
     );
-    assert_eq!(
-        out.iter()
-            .filter(|m| m.member().map(|n| &*n == "CommitText").unwrap_or(false))
-            .count(),
-        0,
-        "the switch keeps CommitText off the wire"
+    // 50 ms guard plus 30 ms per forwarded key, the pacing ibus-bamboo uses.
+    assert!(
+        started.elapsed() >= std::time::Duration::from_millis(110),
+        "the commit waits behind the keys: {:?}",
+        started.elapsed()
     );
-    let keyvals: Vec<u32> = out
+    let names: Vec<String> = out
         .iter()
-        .filter(|m| {
-            m.member()
-                .map(|n| &*n == "ForwardKeyEvent")
-                .unwrap_or(false)
-        })
-        .map(|m| m.get1::<u32>().unwrap_or_default())
+        .map(|m| m.member().map(|n| n.to_string()).unwrap_or_default())
         .collect();
-    // press + release per rune; the Vietnamese letters ride as Unicode keysyms.
-    assert_eq!(keyvals.len(), 8, "{keyvals:?}");
-    assert_eq!(keyvals[0], 'c' as u32);
-    assert_eq!(keyvals[4], 0x100_0000 | ('à' as u32));
+    assert_eq!(
+        names.iter().filter(|n| *n == "CommitText").count(),
+        1,
+        "{names:?}"
+    );
 }
 
 #[test]
