@@ -1971,9 +1971,21 @@ fn emit_with(
             // and the display desynced). The pacing stays on the injected
             // Backspace transport only.
             Action::ForwardBackspaces(n) => {
-                debug_log::log(&format!("del mode=forward n={n}"));
-                for _ in 0..*n {
-                    push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
+                // The experimental switch, for the machine that needs it: Chrome
+                // on Ubuntu 26.04 with IBus 1.5.34 drops the forwarded pair, so
+                // Google Docs doubled every word. Real keys through the backend
+                // reach it; the echo deferral below keeps the commit behind
+                // them, as the Flow mode does. Without a backend the forwarded
+                // pair stays, which is what every other build ships.
+                if engine.browser_delete_keys() && (t.backspaces)(*n, bs_gap) {
+                    debug_log::log(&format!("del mode=forward n={n} op=inject"));
+                    injected_since_commit += *n;
+                    injected_total += *n;
+                } else {
+                    debug_log::log(&format!("del mode=forward n={n}"));
+                    for _ in 0..*n {
+                        push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
+                    }
                 }
             }
             // The per-key batch's parked commit: its deletes were injected

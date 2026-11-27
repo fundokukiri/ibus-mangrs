@@ -216,6 +216,16 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.suggest_words.title", "Gợi ý từ khi gõ"),
         &t("rows.suggest_words.subtitle", "Dải gợi ý cạnh con trỏ"),
     );
+    let browser_delete_keys = switch_row(
+        &t(
+            "rows.browser_delete_keys.title",
+            "Sửa lỗi gõ trong Google Docs",
+        ),
+        &t(
+            "rows.browser_delete_keys.subtitle",
+            "Xoá từ bằng phím thật trên Ubuntu",
+        ),
+    );
     let dodge_inline_autocomplete = switch_row(
         &t(
             "rows.dodge_inline_autocomplete.title",
@@ -720,6 +730,11 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Hiện từ đang gõ cùng dải gợi ý ngay cạnh con trỏ. Chọn bằng phím `, Alt+1 đến Alt+5 hoặc bấm vào dòng gợi ý. Mặc định tắt."
     );
     tip!(
+        browser_delete_keys,
+        "tips.browser_delete_keys",
+        "Bật khi trình duyệt bị lặp chữ trên Ubuntu: từ được xoá bằng phím thật thay vì phím chuyển tiếp. Mặc định tắt."
+    );
+    tip!(
         dodge_inline_autocomplete,
         "tips.dodge_inline_autocomplete",
         "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Mặc định tắt."
@@ -790,6 +805,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_composed_words,
         keep_repeats_raw,
         suggest_words,
+        browser_delete_keys,
         dodge_inline_autocomplete,
         preferred_backend,
         time_format,

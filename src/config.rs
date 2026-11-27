@@ -57,6 +57,13 @@ pub struct Config {
     /// default. Serves every preset: the pick keys are `Alt`+digits and
     /// `` ` ``, leaving each preset's own digit tone keys alone.
     pub suggest_words: bool,
+    /// Experimental: a browser's deletes for the ForwardBackspace mode ride
+    /// real Backspace keys through the injection backend instead of forwarded
+    /// key events. Measured on Ubuntu 26.04 with IBus 1.5.34: Chrome drops both
+    /// the protocol delete and the forwarded pair, so Google Docs doubled every
+    /// word (`Xin chaoào cacác banạn`) while the same build on Arch is correct.
+    /// Off by default; the switch exists for the machine that needs it.
+    pub browser_delete_keys: bool,
     /// Experimental: a browser's inline autocomplete appends its completion
     /// after the caret, so a rewrite delete lands on that text (an address
     /// bar committed `oỏ` for `o` then `r`). On, keys go straight to the app
@@ -916,6 +923,7 @@ impl Default for Config {
             keep_composed_words: false,
             keep_repeats_raw: false,
             suggest_words: false,
+            browser_delete_keys: false,
             dodge_inline_autocomplete: false,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::WholeChar,

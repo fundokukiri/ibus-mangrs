@@ -445,6 +445,10 @@ pub struct Engine {
     /// one strip switch: the model's compounds, single words and next-word
     /// lists all serve under it, the dictionary being out of the strip.
     suggest_words: bool,
+    /// The `browser_delete_keys` switch, baked under the experimental gate:
+    /// a browser's ForwardBackspace deletes ride real keys, the transport that
+    /// reaches Chrome where the forwarded pair is dropped.
+    browser_delete_keys: bool,
     /// The `dodge_inline_autocomplete` switch, baked under the experimental
     /// gate like the strip.
     dodge_inline_autocomplete: bool,
@@ -637,6 +641,7 @@ impl Engine {
             last_committed_word: None,
             prev_committed_word: None,
             suggest_words: false,
+            browser_delete_keys: false,
             dodge_inline_autocomplete: false,
             learn_dir: std::path::PathBuf::new(),
             picks: None,
@@ -783,6 +788,7 @@ impl Engine {
         // The strip row lives behind "Bật thử nghiệm" like the keeps: gate
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
+        self.browser_delete_keys = experimental && config.browser_delete_keys;
         self.dodge_inline_autocomplete = experimental && config.dodge_inline_autocomplete;
         // Learning has no switch of its own: it rides the suggestion switch,
         // so an open strip always personalizes and a closed one touches
@@ -1388,14 +1394,20 @@ impl Engine {
     /// True when the focused app drops `DeleteSurroundingText`, so non-preedit
     /// rewriting would duplicate characters there.
     fn client_cannot_delete_surrounding(&self) -> bool {
-        let Some(client) = self.client.as_deref() else {
-            return false;
-        };
-        // `gtk4-im:<prgname>`; the prefix only says which toolkit glued us in.
-        let prgname = client.split_once(':').map_or(client, |(_, p)| p);
-        FALLBACK_NO_DELETE_SURROUNDING
-            .iter()
-            .any(|p| prgname.contains(p))
+        // The IBus client id names the toolkit, not the app: on Wayland mutter
+        // relays every client as `gnome-shell`, so a browser is only visible
+        // through the name the focus extension reported
+        // (`wayland:google-chrome`). A `.desktop` name arrives capitalised.
+        [self.client.as_deref(), self.app_name()]
+            .into_iter()
+            .flatten()
+            .any(|name| {
+                let prgname = name.split_once(':').map_or(name, |(_, p)| p);
+                let lower = prgname.to_lowercase();
+                FALLBACK_NO_DELETE_SURROUNDING
+                    .iter()
+                    .any(|p| lower.contains(p))
+            })
     }
 
     /// Delete-based rewriting is only safe once the client has actually
@@ -1409,6 +1421,13 @@ impl Engine {
     /// the focused client, so the relay race cannot arise. Also several
     /// clients silently drop the protocol delete, which used to duplicate
     /// words.
+    /// Whether a browser client should delete with real keys: the experimental
+    /// switch is on and this is a client that drops the protocol delete. The
+    /// server reads it to pick the delete transport.
+    pub fn browser_delete_keys(&self) -> bool {
+        self.browser_delete_keys && self.client_cannot_delete_surrounding()
+    }
+
     /// Whether a browser's inline completion is selected at our caret — the
     /// experimental switch turned a selection report that starts exactly
     /// where we left the caret into this evidence (see
