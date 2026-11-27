@@ -195,6 +195,9 @@ impl EngineHandler {
             Some((_, t)) => *t = now,
             None => self.last_fire.push((action, now)),
         }
+        // Which action fired, so a report from a desktop where nothing appeared
+        // can say whether the key was ours or the menu went undrawn.
+        debug_log::log(&format!("ctx hotkey={action:?}"));
         match action {
             HotkeyAction::ToggleEnabled => self.toggle_enabled(out),
             HotkeyAction::CycleMode => self.cycle_mode(out),
