@@ -282,8 +282,8 @@ struct Ui {
     /// model file to do anything.
     suggest_words: adw::SwitchRow,
     dodge_row: adw::ActionRow,
-    dodge_switch: gtk4::Switch,
-    dodge_fix: gtk4::DropDown,
+    dodge_switch: adw::SwitchRow,
+    dodge_fix: adw::ComboRow,
     preferred_backend: adw::ComboRow,
     time_format: gtk4::DropDown,
     date_format: gtk4::DropDown,

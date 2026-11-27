@@ -59,6 +59,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     typing.add(&ui.keep_repeats_raw);
     typing.add(&ui.suggest_words);
     typing.add(&ui.dodge_row);
+    typing.add(&ui.dodge_fix);
     page.add(&typing);
 
     let tuning = adw::PreferencesGroup::builder()

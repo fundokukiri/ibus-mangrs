@@ -246,6 +246,8 @@ subtitle = "A suggestion strip by the caret"
 
 
 [rows.dodge_fix]
+title = "How to fix it"
+subtitle = "How the fix draws the suggestion"
 raw = "Current"
 marker = "Dot marker (·)"
 

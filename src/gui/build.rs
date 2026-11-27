@@ -216,13 +216,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.suggest_words.title", "Gợi ý từ khi gõ"),
         &t("rows.suggest_words.subtitle", "Dải gợi ý cạnh con trỏ"),
     );
-    // One row, two controls: the fix (a mode dropdown) on the left of its
-    // on/off switch — the owner's shape, read like a mode picker.
-    let dodge_fix = gtk4::DropDown::from_strings(&[
-        &t("rows.dodge_fix.raw", "Hiện tại"),
-        &t("rows.dodge_fix.marker", "Dấu chấm (·)"),
-    ]);
-    let (dodge_row, dodge_switch) = select_switch_row(
+    // Two rows, like every other choice in the window: the switch turns the fix
+    // on, the combo under it picks how it works.
+    let dodge_switch = switch_row(
         &t(
             "rows.dodge_inline_autocomplete.title",
             "Sửa lỗi gõ trong ô địa chỉ",
@@ -231,7 +227,18 @@ pub(super) fn widgets() -> Rc<Ui> {
             "rows.dodge_inline_autocomplete.subtitle",
             "Trước ra oỏ, giờ ra ỏ",
         ),
-        &dodge_fix,
+    );
+    let dodge_row: adw::ActionRow = dodge_switch.clone().upcast();
+    let dodge_fix = combo_row(
+        &t("rows.dodge_fix.title", "Cách sửa lỗi"),
+        &t(
+            "rows.dodge_fix.subtitle",
+            "Chọn cách sửa khi gợi ý hiện trong ô",
+        ),
+        &[
+            &t("rows.dodge_fix.raw", "Hiện tại"),
+            &t("rows.dodge_fix.marker", "Dấu chấm (·)"),
+        ],
     );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Cách chèn phím"),

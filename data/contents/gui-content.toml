@@ -248,6 +248,8 @@ subtitle = "Dải gợi ý cạnh con trỏ"
 
 
 [rows.dodge_fix]
+title = "Cách sửa lỗi"
+subtitle = "Chọn cách sửa khi gợi ý hiện trong ô"
 raw = "Hiện tại"
 marker = "Dấu chấm (·)"
 

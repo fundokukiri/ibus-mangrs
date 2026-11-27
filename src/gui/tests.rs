@@ -66,7 +66,7 @@ fn gtk_widget_scenarios() {
     close_test_windows();
     the_search_button_opens_the_entry();
     close_test_windows();
-    a_row_with_two_controls_keeps_its_switch_in_line();
+    every_switch_on_a_page_lands_on_the_same_edge();
     the_two_debug_checkboxes_share_a_row();
     close_test_windows();
     the_debug_tab_row_appears_only_with_debug_mode();
@@ -1389,10 +1389,11 @@ fn the_search_button_opens_the_entry() {
     Config::default().save().expect("config back off");
 }
 
-/// A row with a second control keeps its switch where every plain row puts it.
-/// An expanded suffix box packs its children from the left, which used to leave
-/// this row's switch 46 px short of the ones above it.
-fn a_row_with_two_controls_keeps_its_switch_in_line() {
+/// Every switch on a page ends on the same vertical edge, including the one
+/// whose row used to carry a second control in its suffix area (an expanded
+/// suffix box packed its children from the left, leaving that switch 46 px
+/// short of the others).
+fn every_switch_on_a_page_lands_on_the_same_edge() {
     let app = adw::Application::builder()
         .application_id("org.freedesktop.IBus.mangrs.test-switch-line")
         .build();
@@ -1682,7 +1683,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 21] = [
+    let rows: [&adw::SwitchRow; 22] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -1699,6 +1700,7 @@ fn every_switch_triggers_save() {
         &ui.capitalize_macro,
         &ui.macro_in_off_mode,
         &ui.macro_valid_words,
+        &ui.dodge_switch,
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,
@@ -1714,11 +1716,7 @@ fn every_switch_triggers_save() {
     }
     // The merged "Thử nghiệm" rows carry bare GtkSwitch suffixes — same
     // wiring, different widget type.
-    let switches: [&gtk4::Switch; 3] = [
-        &ui.echo_stale_switch,
-        &ui.idle_commit_switch,
-        &ui.dodge_switch,
-    ];
+    let switches: [&gtk4::Switch; 2] = [&ui.echo_stale_switch, &ui.idle_commit_switch];
     for switch in switches {
         let before = saves.get();
         switch.set_active(!switch.is_active());
