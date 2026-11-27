@@ -63,6 +63,8 @@ fn gtk_widget_scenarios() {
     each_column_carries_its_own_header_bar();
     the_window_can_shrink_to_fit_a_small_screen();
     close_test_windows();
+    close_test_windows();
+    the_search_button_opens_the_entry();
     the_two_debug_checkboxes_share_a_row();
     close_test_windows();
     the_debug_tab_row_appears_only_with_debug_mode();
@@ -1322,6 +1324,64 @@ fn the_window_controls_survive_a_narrow_window() {
     assert!(
         content_min <= 420,
         "the window content asks for {content_min} px, so the window cannot be narrowed to its own minimum"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// The search button sits in the sidebar's header bar now, and pressing it has
+/// to open the entry: the row it lives in starts hidden, and an entry inside a
+/// hidden row is neither mapped nor focusable.
+fn the_search_button_opens_the_entry() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-search-button")
+        .build();
+    Config::default().save().expect("config on");
+    let win = crate::gui::content::build(&app, Some("typing"));
+    win.set_default_size(1000, 700);
+    win.present();
+    let ctx = gtk4::glib::MainContext::default();
+    let pump = |ticks: usize| {
+        for _ in 0..ticks {
+            while ctx.pending() {
+                ctx.iteration(false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    pump(60);
+    let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the shell is a split view");
+    let sidebar = split.sidebar().expect("the sidebar page");
+    let btn = descendants::<gtk4::Button>(sidebar.upcast_ref())
+        .into_iter()
+        .find(|b| {
+            b.tooltip_text()
+                .is_some_and(|t| t.contains("Tìm chức năng"))
+        })
+        .expect("the search button");
+    let entry = descendants::<gtk4::SearchEntry>(sidebar.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the search entry");
+    assert!(!entry.is_visible(), "the entry starts hidden");
+    btn.emit_clicked();
+    pump(30);
+    assert!(entry.is_visible(), "pressing the button opens the entry");
+    assert!(
+        entry.is_mapped(),
+        "the entry is on screen, not just visible"
+    );
+    entry.set_text("luật");
+    pump(40);
+    let content = split.content().expect("the content page");
+    assert!(
+        descendants::<gtk4::Label>(content.upcast_ref())
+            .into_iter()
+            .any(|l| l.text().contains("Luật")),
+        "typing in the entry lists matching rows over the page"
     );
     win.close();
     Config::default().save().expect("config back off");

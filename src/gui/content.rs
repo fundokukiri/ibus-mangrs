@@ -412,18 +412,6 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     search_entry.set_placeholder_text(Some(&t("search.placeholder", "Tìm chức năng…")));
     search_entry.set_hexpand(true);
     search_entry.set_visible(false);
-    {
-        let entry = search_entry.clone();
-        search_btn.connect_clicked(move |_| {
-            let show = !entry.is_visible();
-            entry.set_visible(show);
-            if show {
-                entry.grab_focus();
-            } else {
-                entry.set_text("");
-            }
-        });
-    }
     // The entry lives in its own row under the header bar and only exists
     // while it is open: the button that opens it sits in the sidebar's own
     // bar, so a closed search leaves no empty strip there.
@@ -435,10 +423,38 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     search_box.append(&search_entry);
     search_box.set_visible(false);
     search_entry.connect_visible_notify(|entry| {
+        // `get_visible`, not `is_visible`: the notify fires before the row is
+        // shown, so the ancestor-aware check is still false here and the row
+        // would never appear. Closing the entry (Esc, a jump to a result) goes
+        // through here too, and takes the row with it.
         if let Some(row) = entry.parent() {
-            row.set_visible(entry.is_visible());
+            row.set_visible(entry.get_visible());
         }
     });
+    {
+        let entry = search_entry.clone();
+        let row = search_box.clone();
+        search_btn.connect_clicked(move |_| {
+            let show = !entry.is_visible();
+            // The row first: an entry inside a hidden row is not mapped, and an
+            // unmapped widget cannot take focus.
+            row.set_visible(show);
+            entry.set_visible(show);
+            if show {
+                // The split view moves focus back to the page when the row
+                // appears, so focus lands one frame later.
+                let entry = entry.clone();
+                gtk4::glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(50),
+                    move || {
+                        entry.grab_focus();
+                    },
+                );
+            } else {
+                entry.set_text("");
+            }
+        });
+    }
     let sidebar_box = gtk4::Box::new(Orientation::Vertical, 0);
     sidebar_box.append(&search_box);
     // The main list keeps its natural height; an expanding spacer pins the
