@@ -34,26 +34,12 @@ pub(super) const TOOLS_CSS: &str = "
   color: @error_color;
 }
 /* The cards of this column, and the log beside them. */
-.diag-card { padding: 12px; }
+.diag-card { padding: 10px; }
 /* One fact: name over value, a shade lighter than the card it sits on. */
 .diag-tile {
   background-color: alpha(@view_fg_color, 0.06);
   border-radius: 8px;
-  padding: 7px 9px;
-}
-/* The insertion path reads as two chips, not as two settings buttons: nothing
-   here is clickable. */
-.diag-pill {
-  border-radius: 999px;
-  border-width: 1px;
-  border-style: solid;
-  border-color: alpha(@view_fg_color, 0.16);
-  padding: 4px 12px;
-}
-.diag-pill-accent {
-  background-color: alpha(@accent_bg_color, 0.22);
-  color: @accent_color;
-  border-color: alpha(@accent_color, 0.35);
+  padding: 5px 8px;
 }
 /* A file row: the name, and a button for the full path. */
 .diag-file {
@@ -95,6 +81,9 @@ pub(super) const TOOLS_CSS: &str = "
 /// the facts without rebuilding the window.
 pub(super) struct Tools {
     pub body: gtk4::Widget,
+    /// The typing test. The page puts it under the log, because that is what it
+    /// exercises.
+    pub try_box: gtk4::Widget,
     /// Says whether the engine sees a word being composed.
     pub composing: gtk4::Label,
     pub refresh: Rc<dyn Fn()>,
@@ -107,7 +96,7 @@ pub(super) fn build(
     overlay: &adw::ToastOverlay,
     facts: Rc<dyn Fn() -> Vec<Section>>,
 ) -> Tools {
-    let body = gtk4::Box::new(Orientation::Vertical, 14);
+    let body = gtk4::Box::new(Orientation::Vertical, 12);
     body.set_width_request(SIDE_WIDTH);
 
     // --- Thử gõ -----------------------------------------------------------
@@ -139,7 +128,8 @@ pub(super) fn build(
     buffer.add_css_class("monospace");
     buffer.add_css_class("buffer-chip");
     buffer.set_xalign(0.0);
-    buffer.set_hexpand(true);
+    // The chip hugs its value: stretched across the card it read as a progress
+    // bar instead of as the word being composed.
     buffer.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     buffer.set_tooltip_text(Some(&t(
         "tips.debug_buffer",
@@ -148,6 +138,8 @@ pub(super) fn build(
     let composing = gtk4::Label::new(None);
     composing.add_css_class("caption");
     composing.add_css_class("dim-label");
+    composing.set_hexpand(true);
+    composing.set_halign(gtk4::Align::End);
     strip.append(&keyboard);
     strip.append(&buffer_caption);
     strip.append(&buffer);
@@ -175,8 +167,12 @@ pub(super) fn build(
     // --- Cách chèn --------------------------------------------------------
     let insert_card = card();
     insert_card.append(&heading(&t("misc.section_insert", "Cách chèn")));
-    let insert_row = gtk4::Box::new(Orientation::Horizontal, 8);
-    insert_card.append(&insert_row);
+    let insert_grid = gtk4::Grid::builder()
+        .column_spacing(8)
+        .row_spacing(8)
+        .build();
+    insert_grid.set_hexpand(true);
+    insert_card.append(&insert_grid);
     body.append(&insert_card);
 
     // --- Tệp --------------------------------------------------------------
@@ -186,10 +182,6 @@ pub(super) fn build(
     files_card.append(&files_box);
     body.append(&files_card);
 
-    // The typing test closes the column: the facts answer the questions someone
-    // opens this page with, and they have to be readable without scrolling.
-    body.append(&try_card);
-
     // The blocks are rebuilt only when a fact actually changed: tearing them
     // down twice a second made the whole page re-lay out while the user was
     // typing in the box above.
@@ -197,7 +189,7 @@ pub(super) fn build(
     let refresh: Rc<dyn Fn()> = {
         let grid = grid.clone();
         let hints = hints.clone();
-        let insert_row = insert_row.clone();
+        let insert_grid = insert_grid.clone();
         let files_box = files_box.clone();
         let overlay = overlay.clone();
         let ui = ui.clone();
@@ -207,13 +199,22 @@ pub(super) fn build(
             if next == *shown.borrow() {
                 return;
             }
-            fill_blocks(&grid, &hints, &insert_row, &files_box, &next, &overlay, &ui);
+            fill_blocks(
+                &grid,
+                &hints,
+                &insert_grid,
+                &files_box,
+                &next,
+                &overlay,
+                &ui,
+            );
             *shown.borrow_mut() = next;
         })
     };
     refresh();
     Tools {
         body: body.upcast(),
+        try_box: try_card.upcast(),
         composing,
         refresh,
     }
@@ -277,7 +278,7 @@ const TILES: [&str; 6] = ["ibus", "extension", "os", "kernel", "desktop", "sessi
 fn fill_blocks(
     grid: &gtk4::Grid,
     hints: &gtk4::Box,
-    insert_row: &gtk4::Box,
+    insert_grid: &gtk4::Grid,
     files_box: &gtk4::Box,
     sections: &[Section],
     overlay: &adw::ToastOverlay,
@@ -289,8 +290,8 @@ fn fill_blocks(
     while let Some(child) = hints.first_child() {
         hints.remove(&child);
     }
-    while let Some(child) = insert_row.first_child() {
-        insert_row.remove(&child);
+    while let Some(child) = insert_grid.first_child() {
+        insert_grid.remove(&child);
     }
     while let Some(child) = files_box.first_child() {
         files_box.remove(&child);
@@ -313,11 +314,13 @@ fn fill_blocks(
         line.set_wrap(true);
         hints.append(&line);
     }
+    // The same tiles as the block above: the insertion path is two facts, not
+    // two settings.
     if let Some(mode) = cell(sections, "mode") {
-        insert_row.append(&pill(&mode.value, true));
+        insert_grid.attach(&tile(mode), 0, 0, 1, 1);
     }
     if let Some(backend) = backend_cell(sections) {
-        insert_row.append(&pill(&backend.value, false));
+        insert_grid.attach(&tile(&backend), 1, 0, 1, 1);
     }
     for id in ["config", "log"] {
         let Some(row) = cell(sections, id) else {
@@ -375,8 +378,9 @@ fn tile(cell: &Cell) -> gtk4::Widget {
     value.add_css_class("diag-value");
     value.set_xalign(0.0);
     value.set_selectable(true);
-    value.set_single_line_mode(true);
-    value.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    // Wrapped, not clipped: a tile is 128 px wide, and "Gạch chân (preedit)"
+    // would otherwise end in an ellipsis that says nothing.
+    value.set_wrap(true);
     value.set_tooltip_text(Some(cell.hint.as_deref().unwrap_or(&cell.value)));
     if cell.id == "extension" {
         value.add_css_class(match cell.status {
@@ -390,24 +394,6 @@ fn tile(cell: &Cell) -> gtk4::Widget {
     let accessible = format!("{}: {}", cell.label, cell.value);
     tile.update_property(&[gtk4::accessible::Property::Label(&accessible)]);
     tile.upcast()
-}
-
-/// The insertion path as a chip: the mode in force takes the accent, the
-/// backend beside it stays neutral.
-fn pill(text: &str, accent: bool) -> gtk4::Widget {
-    let label = gtk4::Label::new(Some(text));
-    label.add_css_class("caption");
-    label.add_css_class("monospace");
-    label.add_css_class("diag-pill");
-    if accent {
-        label.add_css_class("diag-pill-accent");
-    }
-    label.set_selectable(true);
-    // Two pills share 292 px, so the longer one wraps instead of ending in an
-    // ellipsis: both halves of "Gạch chân (preedit)" are worth reading.
-    label.set_wrap(true);
-    label.set_tooltip_text(Some(text));
-    label.upcast()
 }
 
 /// A file the report carries: its name, and a button for the full path.

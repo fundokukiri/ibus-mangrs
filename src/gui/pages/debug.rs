@@ -338,6 +338,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
 
     // --- Right column -----------------------------------------------------
     let tools = super::debug_tools::build(ui, &toast_overlay, Rc::clone(&facts));
+    // The typing test sits under the log it produces: what you type in it is the
+    // next line in the pane above.
+    log_column.append(&tools.try_box);
     let side = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
