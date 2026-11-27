@@ -1129,7 +1129,15 @@ fn forward_key_event_mode_deletes_by_forwarding_backspaces() {
     let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT); // no ST capability at all
-    let actions = type_str(&mut e, "tieengs");
+                                          // A client that reports gets the protocol delete (see the test below), so
+                                          // this one keeps the report empty on every key.
+    let actions: Vec<Action> = "tieengs"
+        .chars()
+        .flat_map(|c| {
+            e.set_surrounding(String::new(), 0);
+            e.process_char(c)
+        })
+        .collect();
     assert!(
         !actions.iter().any(|a| matches!(
             a,
@@ -1273,7 +1281,10 @@ fn forward_key_event_backspace_never_deletes_by_protocol() {
     let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT);
-    type_str(&mut e, "tiee");
+    for c in "tiee".chars() {
+        e.set_surrounding(String::new(), 0);
+        e.process_char(c);
+    }
     let Some(actions) = e.backspace() else {
         panic!("a composition is in flight");
     };
@@ -1284,6 +1295,109 @@ fn forward_key_event_backspace_never_deletes_by_protocol() {
         )),
         "backspace must use the forwarded transport: {actions:?}"
     );
+}
+
+#[test]
+fn forward_mode_deletes_by_protocol_for_a_client_that_reports() {
+    // The forward mode presses keys only for a client that never reports its
+    // buffer. A report means the protocol delete has a target and no wait: the
+    // key transport is the one GTK4 discards (Ubuntu 26.04: the raw word stayed
+    // and the marked word was appended on top of it).
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    let actions = type_str(&mut e, "tieengs");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "a reporting client gets no forwarded keys: {actions:?}"
+    );
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+        )),
+        "the rewrite deletes by protocol: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn forward_mode_presses_keys_for_a_client_that_never_reports() {
+    // Terminal and XIM contexts report nothing: there the forwarded keys are
+    // the only transport, which is what the mode exists for.
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_surrounding(String::new(), 0);
+    let actions: Vec<Action> = "tieengs"
+        .chars()
+        .flat_map(|c| {
+            e.set_surrounding(String::new(), 0);
+            e.process_char(c)
+        })
+        .collect();
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "a silent client keeps the forwarded transport: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn forward_mode_presses_keys_for_a_browser_that_drops_protocol_deletes() {
+    // Google Docs in Chrome reports its buffer and then drops the protocol
+    // delete, which duplicated every word (`chao` + mark -> `chaoào`). The
+    // browser and Electron family keeps the forwarded keys; the list is the
+    // one the walk already uses for the same behaviour.
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.set_client(Some("gtk4-im:chrome".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    let actions = type_str(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "a browser keeps the forwarded transport: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+        )),
+        "no protocol delete for that family: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn forward_mode_finds_a_relayed_browser_by_its_app_name() {
+    // On Wayland the IBus client is `gnome-shell` for every app; only the focus
+    // extension names the browser. Chrome must still be recognised as a client
+    // that drops the protocol delete, or Google Docs duplicates every word
+    // (`chao` plus a mark -> `chaoào`, measured on the owner's Arch log).
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    let actions = type_str(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "the relayed browser keeps the forwarded transport: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+        )),
+        "no protocol delete for it: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
 }
 
 #[test]
@@ -2603,9 +2717,12 @@ fn flow_without_backend_types_through_forward_backspace() {
     e.set_capabilities(CAP_PREEDIT_TEXT);
     let actions = type_str(&mut e, "vieetj");
     assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        actions.iter().any(|a| matches!(
+            a,
+            Action::ForwardBackspaces(_)
+                | Action::DeleteBefore(_)
+                | Action::DeleteSurrounding { .. }
+        )),
         "the downgrade must serve the word: {actions:?}"
     );
     assert!(

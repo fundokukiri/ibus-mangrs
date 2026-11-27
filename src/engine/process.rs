@@ -391,10 +391,27 @@ impl Engine {
         if self.autocomplete_selection() {
             return self.tracked_delete(n, insert_len);
         }
-        match mode {
-            Mode::ForwardBackspace => Action::ForwardBackspaces(n),
-            _ => self.tracked_delete(n, insert_len),
+        if self.forward_by_keys(mode) {
+            Action::ForwardBackspaces(n)
+        } else {
+            self.tracked_delete(n, insert_len)
         }
+    }
+
+    /// Whether this keystroke's delete rides forwarded key events. The forward
+    /// mode presses keys only where a report is missing (terminal, XIM), where
+    /// the client already proved it drops protocol deletes, or for the browser
+    /// and Electron family, which drops them by design (Google Docs in Chrome
+    /// doubled every word through the protocol). Every other reporting client
+    /// gets the protocol delete: one message, no wait, and the only transport
+    /// that reaches a client whose IM context discards forwarded key events
+    /// (GTK4 on Ubuntu 26.04: the raw word stayed and the marked one was
+    /// appended, then erased by its own deletes).
+    fn forward_by_keys(&self, mode: Mode) -> bool {
+        forwards_delete(mode)
+            && (self.report_prefix_len() == 0
+                || self.delete_dropped
+                || self.client_cannot_delete_surrounding())
     }
 
     /// Delete count for this keystroke. The forward modes delete with real key
@@ -402,7 +419,7 @@ impl Engine {
     /// surrounding-text report would under-delete there (the report can
     /// predate the commit). The protocol path keeps the clamp.
     pub(super) fn delete_count(&self, mode: Mode, n: u32) -> u32 {
-        if forwards_delete(mode) {
+        if self.forward_by_keys(mode) {
             n
         } else {
             self.clamp_delete(n)

@@ -2532,7 +2532,10 @@ fn the_browser_key_switch_decides_whether_the_pair_is_injected() {
         );
         let pressed = *ops.lock().unwrap() == vec![RecordedOp::Backspaces(2)];
         assert_eq!(pressed, enabled, "switch {enabled}: backend use");
-        assert_eq!(injected, if enabled { 2 } else { 0 }, "switch {enabled}");
+        assert_eq!(
+            injected, 0,
+            "switch {enabled}: the browser path waits no echo, so nothing is deferred"
+        );
         assert_eq!(
             out.iter()
                 .any(|m| m.member().map(|m| m == "ForwardKeyEvent").unwrap_or(false)),

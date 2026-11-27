@@ -876,6 +876,11 @@ impl EngineHandler {
     }
 }
 
+/// Beat between the browser's injected Backspace keys and the commit in the
+/// same batch. The keys reach the client within 4-5 ms (measured from the
+/// reporter's log), the commit overtakes them if it goes at once.
+const BROWSER_INJECT_PARK_MS: u64 = 12;
+
 /// Backspace scancode as it goes on the wire. Every ibus client adds 8 to get
 /// its own keycode (`ibusimcontext.c`, Qt's input context and the X11/XIM
 /// client all do `keycode += 8`), so this must be the evdev code, NOT the X
@@ -1978,9 +1983,17 @@ fn emit_with(
                 // them, as the Flow mode does. Without a backend the forwarded
                 // pair stays, which is what every other build ships.
                 if engine.browser_delete_keys() && (t.backspaces)(*n, bs_gap) {
-                    debug_log::log(&format!("del mode=forward n={n} op=inject"));
-                    injected_since_commit += *n;
-                    injected_total += *n;
+                    // The keys are on the wire by the time the backend returns,
+                    // so the commit only needs one short beat before it goes —
+                    // not the echo wait: Chrome does not route those keys back
+                    // through IBus on this platform, and the 150 ms stale window
+                    // held every rewritten word back (measured in the owner's
+                    // Ubuntu log). The count is still registered so the echoes
+                    // that do arrive are swallowed instead of typed.
+                    let wait = engine.post_delay_ms().max(BROWSER_INJECT_PARK_MS);
+                    std::thread::sleep(std::time::Duration::from_millis(wait));
+                    debug_log::log(&format!("del mode=forward n={n} op=inject wait={wait}"));
+                    engine.add_injected(*n);
                 } else {
                     debug_log::log(&format!("del mode=forward n={n}"));
                     for _ in 0..*n {
