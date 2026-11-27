@@ -15,16 +15,6 @@ pub(super) enum Kind {
     Other,
 }
 
-/// The kinds the type list offers, in the order it shows them. Any other kind
-/// is visible only with "Tất cả" picked.
-pub(super) const CHIPS: [Kind; 5] = [
-    Kind::Key,
-    Kind::Insert,
-    Kind::Delete,
-    Kind::Flush,
-    Kind::Error,
-];
-
 /// A decoded line, ready to be drawn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Line {
