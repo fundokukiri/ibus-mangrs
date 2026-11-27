@@ -1213,10 +1213,10 @@ fn the_window_carries_one_header_bar_outside_the_pages() {
         "the window controls live in that bar"
     );
     // And the pages must not add a second bar of their own.
-    let split = toolbar
-        .content()
-        .and_downcast::<adw::NavigationSplitView>()
-        .expect("the split view is the toolbar's content");
+    let split = descendants::<adw::NavigationSplitView>(toolbar.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the shell is a split view");
     for page in [split.sidebar(), split.content()] {
         let page = page.expect("both pages exist");
         assert!(
@@ -1303,6 +1303,17 @@ fn the_window_controls_survive_a_narrow_window() {
     assert!(
         split.is_collapsed(),
         "900 px is the collapse width, so 700 px is collapsed"
+    );
+    // The pages' own minimum (623 px) must not reach the window: a horizontal
+    // scroller under the header bar keeps the bar at the window's width even
+    // when the window is narrower than every page.
+    let content_min = win
+        .content()
+        .map(|c| c.measure(gtk4::Orientation::Horizontal, -1).0)
+        .unwrap_or(-1);
+    assert!(
+        content_min <= 300,
+        "the window content asks for {content_min} px, so the window cannot be narrowed to its own minimum"
     );
     win.close();
     Config::default().save().expect("config back off");

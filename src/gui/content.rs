@@ -615,9 +615,18 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     let window_bar = adw::HeaderBar::new();
     window_bar.set_title_widget(Some(&title_label));
     window_bar.pack_start(&sidebar_btn);
+    // The header bar must keep its width at every window size, and a toolbar
+    // view is never narrower than its content's minimum — which is the widest
+    // page (623 px). A horizontal scroller does not propagate that minimum, so
+    // the pages slide sideways below it instead of widening the bar past the
+    // window and taking the close button with them.
+    let pane_scroller = gtk4::ScrolledWindow::new();
+    pane_scroller.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Never);
+    pane_scroller.set_propagate_natural_width(false);
+    pane_scroller.set_child(Some(&split_view));
     let window_toolbar = adw::ToolbarView::new();
     window_toolbar.add_top_bar(&window_bar);
-    window_toolbar.set_content(Some(&split_view));
+    window_toolbar.set_content(Some(&pane_scroller));
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(&app_name)
