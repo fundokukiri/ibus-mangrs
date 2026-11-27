@@ -3182,10 +3182,11 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
 }
 
 /// A shell that answers late is not a shell without the extension: the picker
-/// tries once more before it says "chưa bật", and both attempts are logged so a
-/// report can tell the two apart.
+/// tries once more before it gives up on naming the app, and both attempts are
+/// logged so a report can tell the two apart. Without a name the menu opens on
+/// the global mode rather than refusing to open at all.
 #[test]
-fn the_picker_retries_the_extension_before_blaming_it() {
+fn the_picker_retries_the_extension_before_falling_back_to_the_global_mode() {
     let _guard = crate::debug_log::test_guard();
     let dir = crate::debug_log::TempLogDir::new("picker-ext-retry");
     let path = dir.dir().join("debug.log");
@@ -3226,15 +3227,15 @@ fn the_picker_retries_the_extension_before_blaming_it() {
         "the failure is logged as one: {text}"
     );
     assert!(
-        text.contains("ext picker=hotkey why=no_extension"),
-        "the warning follows both attempts: {text}"
+        text.contains("ext picker=hotkey why=no_extension scope=global"),
+        "the fallback follows both attempts: {text}"
     );
     assert!(
         handler
             .picker
             .as_ref()
-            .is_some_and(|state| state.warnings_only()),
-        "the menu offers nothing to pick"
+            .is_some_and(|state| state.is_global()),
+        "the menu opens on the global mode, not on a warning"
     );
     let _ = std::fs::remove_file(&path);
 }

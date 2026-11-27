@@ -61,10 +61,11 @@ pub(super) struct PickerState {
     /// blue hover marks the current choice), Up/Down move it, Enter picks
     /// it; digits still select their entry directly.
     pub(super) cursor: usize,
-    /// Nothing can be picked: the list is a single warning row. Without the
-    /// focus extension no Wayland app can be named, so any choice would be
-    /// written against the wrong one.
-    warn: bool,
+    /// The pick applies to every app: without the focus extension nothing
+    /// names the focused window, so there is no rule to write and no wrong
+    /// app to write it against — the menu sets the global mode instead
+    /// (areca's ` key does the same on a desktop it cannot name).
+    global: bool,
 }
 
 impl PickerState {
@@ -72,32 +73,27 @@ impl PickerState {
         Self {
             target,
             cursor,
-            warn: false,
+            global: false,
         }
     }
 
-    /// The state with nothing to pick — see the field docs.
-    fn warning() -> Self {
+    /// The state with no app to name — see the field docs.
+    pub(super) fn global(cursor: usize) -> Self {
         Self {
             target: String::new(),
-            cursor: 0,
-            warn: true,
+            cursor,
+            global: true,
         }
     }
 
-    pub(super) fn warnings_only(&self) -> bool {
-        self.warn
+    pub(super) fn is_global(&self) -> bool {
+        self.global
     }
 
     /// Map one key event onto the picker. Pure, so tests can drive it.
     /// Digits 1..9 pick entries 1..9 and 0 picks the last; Enter picks
     /// the highlighted entry; Up/Down move the highlight.
     pub fn on_key(&self, keyval: u32) -> PickerKey {
-        if self.warn {
-            // Enter, a digit or a click must never write a rule for an app
-            // that cannot be named: any key just closes the menu.
-            return PickerKey::Ignore;
-        }
         match keyval {
             65293 | 65421 => PickerKey::Select(self.cursor), // Return / KP_Enter
             65307 => PickerKey::Cancel,                      // Escape
@@ -111,7 +107,10 @@ impl PickerState {
 }
 
 /// Where the focus extension's own file is, when it is installed at all:
-/// GIO's extension directories, the system one included.
+/// GIO's extension directories, the system one included. Only the settings
+/// window reads it — the engine no longer needs to know, the menu answers the
+/// missing extension by picking the global mode.
+#[cfg(feature = "gui")]
 pub(crate) fn focus_extension_path() -> Option<std::path::PathBuf> {
     const REL: &str = "gnome-shell/extensions/mangrs-focus@fundokukiri/extension.js";
     dirs::data_dir()
@@ -121,22 +120,6 @@ pub(crate) fn focus_extension_path() -> Option<std::path::PathBuf> {
             let system = std::path::Path::new("/usr/share").join(REL);
             system.exists().then_some(system)
         })
-}
-
-/// Is the focus extension installed at all (whatever its enabled state)?
-pub(crate) fn focus_extension_installed() -> bool {
-    focus_extension_path().is_some()
-}
-
-/// The warning shown instead of the mode list while no app can be named: the
-/// user is told which of the two causes to fix.
-fn warning_text(english: bool, installed: bool) -> &'static str {
-    match (english, installed) {
-        (false, false) => "Chưa cài extension MăngRS Focus",
-        (false, true) => "Extension MăngRS Focus chưa bật",
-        (true, false) => "The MăngRS Focus extension is not installed",
-        (true, true) => "The MăngRS Focus extension is off",
-    }
 }
 
 /// The rule target for the focused context, read at press time: the
@@ -212,12 +195,23 @@ impl EngineHandler {
                 debug_log::log("ext ok=0 why=timeout");
             }
         }
-        // Nothing names this app and there is no extension to ask: with the
-        // extension off no Wayland app can be named at all, so the menu warns
-        // instead of offering a choice that would hit the wrong app.
+        // Nothing names this app and there is no extension to ask (KDE, or any
+        // desktop without it). The menu still opens, on the global mode: a rule
+        // would be written against an app nobody can name, and the owner's KDE
+        // report was exactly this menu refusing to open at all.
         if target.is_none() && !extension_answered {
-            debug_log::log("ext picker=hotkey why=no_extension");
-            self.picker = Some(PickerState::warning());
+            debug_log::log("ext picker=hotkey why=no_extension scope=global");
+            {
+                let mut engine = lock_engine(&self.engine);
+                let actions = engine.end_word_for_picker();
+                emit(&mut engine, &self.injection, &actions, out);
+            }
+            let config = Config::load();
+            let cursor = ModeConfig::ALL
+                .iter()
+                .position(|mode| *mode == config.mode)
+                .unwrap_or(0);
+            self.picker = Some(PickerState::global(cursor));
             self.emit_picker_table(out);
             return;
         }
@@ -258,20 +252,11 @@ impl EngineHandler {
             return;
         };
         let config = Config::load();
-        if state.warnings_only() {
-            // Text only: a candidate row would be one the user can click, and
-            // there is nothing to pick.
-            out.push(signal("HideLookupTable"));
-            out.push(signal("UpdateAuxiliaryText").append2(
-                crate::ibus_text::plain_text(warning_text(
-                    config.language == "en",
-                    focus_extension_installed(),
-                )),
-                true,
-            ));
-            return;
-        }
-        let current = picker_current(&config, &state.target);
+        let current = if state.is_global() {
+            config.mode
+        } else {
+            picker_current(&config, &state.target)
+        };
         let entries = picker_entries(&ModeConfig::ALL, current, config.language == "en");
         let current_label = ibus_prop::mode_label(current, config.language == "en").to_string();
         let table =
@@ -284,7 +269,13 @@ impl EngineHandler {
         } else {
             "↑↓ rồi Enter"
         };
-        let label = if state.target == crate::config::UNNAMED_PATTERN {
+        let label = if state.is_global() {
+            if config.language == "en" {
+                "every app".to_string()
+            } else {
+                "mọi ứng dụng".to_string()
+            }
+        } else if state.target == crate::config::UNNAMED_PATTERN {
             if config.language == "en" {
                 "unnamed app".to_string()
             } else {
@@ -355,13 +346,18 @@ impl EngineHandler {
             out.push(signal("HideAuxiliaryText"));
             return;
         };
-        debug_log::log(&format!(
-            "ext picker target={:?} class={:?} mode={}",
-            crate::appname::display_name(&state.target),
-            state.target,
-            mode.key()
-        ));
-        config.set_rule_mode_for_target(&state.target, mode);
+        if state.is_global() {
+            debug_log::log(&format!("ext picker scope=global mode={}", mode.key()));
+            config.mode = mode;
+        } else {
+            debug_log::log(&format!(
+                "ext picker target={:?} class={:?} mode={}",
+                crate::appname::display_name(&state.target),
+                state.target,
+                mode.key()
+            ));
+            config.set_rule_mode_for_target(&state.target, mode);
+        }
         if config.save().is_err() {
             out.push(signal("HideLookupTable"));
             out.push(signal("HideAuxiliaryText"));
@@ -418,31 +414,15 @@ mod tests {
     }
 
     #[test]
-    fn the_warning_says_which_half_is_missing() {
-        // Not installed and installed-but-off need different advice, in both
-        // languages, and both stay one short line.
-        for english in [false, true] {
-            let missing = warning_text(english, false);
-            let off = warning_text(english, true);
-            assert_ne!(missing, off);
-            assert!(missing.contains("MăngRS Focus") && off.contains("MăngRS Focus"));
-            let long = |text: &str| text.chars().count() > 44;
-            assert!(!long(missing) && !long(off), "{missing} / {off}");
-            assert!(!missing.contains(','), "{missing}");
-        }
-        assert!(warning_text(false, false).contains("Chưa cài"));
-        assert!(warning_text(false, true).contains("chưa bật"));
-    }
-
-    #[test]
-    fn a_warning_only_menu_cannot_pick_anything() {
-        // Without the extension no Wayland app is named, so Enter, a digit or
-        // Escape must all just close the menu: nothing is written.
-        let state = PickerState::warning();
-        assert!(state.warnings_only());
-        for key in [65293u32, 65421, 0x31, 0x30, 65307, 65362] {
-            assert_eq!(state.on_key(key), PickerKey::Ignore, "key {key}");
-        }
+    fn a_menu_without_an_extension_picks_by_hand() {
+        // No app can be named, so the entries land on the global mode and the
+        // keys still work: Enter, a digit, the arrows and Escape.
+        let state = PickerState::global(0);
+        assert!(state.is_global());
+        assert_eq!(state.on_key(0x31), PickerKey::Select(0));
+        assert_eq!(state.on_key(65293), PickerKey::Select(0));
+        assert_eq!(state.on_key(65364), PickerKey::Move(1));
+        assert_eq!(state.on_key(65307), PickerKey::Cancel);
     }
 
     #[test]

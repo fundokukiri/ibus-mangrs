@@ -46,6 +46,7 @@ mod picker;
 #[cfg(feature = "gui")]
 pub(crate) use hotkey::focus_extension_answers;
 #[cfg(feature = "gui")]
+#[cfg(feature = "gui")]
 pub(crate) use picker::focus_extension_path;
 
 // the lib build resolves the name inside hotkey itself, hence the allow.
