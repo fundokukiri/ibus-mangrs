@@ -1401,6 +1401,38 @@ fn forward_mode_finds_a_relayed_browser_by_its_app_name() {
 }
 
 #[test]
+fn a_proven_delete_dropper_is_remembered_across_focus_changes() {
+    // R5: the first rewrite in an app that swallows the protocol delete costs
+    // that word, but walking back into the same app must not cost another one.
+    // A client reset (the click signal) forgets the verdict.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gtk4-im:matrix".into()));
+    e.set_app_name(Some("wayland:org.example.App".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+
+    let actions = type_str(&mut e, "tie");
+    assert_eq!(replay(&actions), "tie");
+    e.set_surrounding("tie".into(), 3);
+    let actions = e.process_char('e').into_iter().collect::<Vec<_>>();
+    assert!(actions.contains(&Action::Commit("ê".into())), "{actions:?}");
+    // The client shows `tieê`: the delete missing, the insert landed.
+    e.set_surrounding("tieê".into(), 4);
+    assert!(e.delete_dropped(), "the report proved the drop");
+
+    // Another app is unmeasured; the first one is remembered.
+    e.set_app_name(Some("wayland:org.example.Other".into()));
+    assert!(!e.drops_deletes(), "a fresh context is unmeasured");
+    e.set_app_name(Some("wayland:org.example.App".into()));
+    assert!(e.drops_deletes(), "the verdict survives a focus round-trip");
+
+    // The click signal forgets every verdict.
+    e.forget_delete_verdicts();
+    e.set_app_name(Some("wayland:org.example.Other".into()));
+    e.set_app_name(Some("wayland:org.example.App".into()));
+    assert!(!e.drops_deletes(), "a reset forgets the verdict");
+}
+
+#[test]
 fn config_rule_bypasses_the_delete_fallback() {
     // An explicit rule pins the mode for its client, skipping the runtime
     // fallback that would otherwise force preedit on delete-dropping

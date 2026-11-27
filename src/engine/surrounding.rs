@@ -70,6 +70,7 @@ impl Engine {
         if let Some((healthy, swallowed)) = self.awaiting_delete_proof.take() {
             if swallowed != healthy && cursor.min(len) == swallowed {
                 self.delete_dropped = true;
+                self.note_delete_verdict(true);
                 debug_log::log("del mode=swallowed why=report_proof");
             }
         }
@@ -194,7 +195,7 @@ impl Engine {
             let commit = actual[a2.len()..].to_string();
             let extra = extra as u32;
             let offset = -((k as i32) + extra as i32);
-            if self.repair_delete.is_some() || self.delete_dropped {
+            if self.repair_delete.is_some() || self.drops_deletes() {
                 // A repair was already attempted since the last verified
                 // state and the text is still off: the client drops the
                 // protocol delete (the drift shape may differ each time).

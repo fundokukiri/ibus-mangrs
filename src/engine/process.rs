@@ -410,7 +410,7 @@ impl Engine {
     fn forward_by_keys(&self, mode: Mode) -> bool {
         forwards_delete(mode)
             && (self.report_prefix_len() == 0
-                || self.delete_dropped
+                || self.drops_deletes()
                 || self.client_cannot_delete_surrounding())
     }
 

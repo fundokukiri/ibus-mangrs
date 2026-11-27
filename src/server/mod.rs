@@ -847,6 +847,9 @@ impl EngineHandler {
                 // arrives (GTK sends it on a mouse click, a focus change and a
                 // button press).
                 debug_log::log("ctx reset cause=client");
+                // A reset is the click signal: nothing else tells us the app
+                // may have changed, so the cached delete verdicts go too.
+                engine.forget_delete_verdicts();
                 for text in engine.flush_deferred() {
                     out.push(signal("CommitText").append1(plain_text(&text)));
                 }

@@ -223,6 +223,11 @@ pub struct Engine {
     /// Set once the client has been proven to drop DeleteSurroundingText:
     /// the server then injects real Backspace keys instead of the signal.
     delete_dropped: bool,
+    /// Verdicts from earlier focus sessions, keyed by client and app name, so
+    /// walking back into an app that swallows rewrite deletes does not pay for
+    /// the wrong first word again. Cleared by a client reset: that is the
+    /// click signal, and nothing else can tell us the app changed.
+    delete_verdicts: std::collections::HashMap<String, bool>,
     /// Delivery proof for the last rewrite delete: `(expected prefix length
     /// when the delete lands, expected when it is swallowed)`. The next ST
     /// report settles it — a report matching the swallowed shape proves the
@@ -589,6 +594,7 @@ impl Engine {
             preedit_for_xim: false,
             nav_key_while_preedit: NavKeyWhilePreedit::default(),
             delete_dropped: false,
+            delete_verdicts: std::collections::HashMap::new(),
             awaiting_delete_proof: None,
             uinput_available: false,
             flow_needs_backend: false,
@@ -961,7 +967,7 @@ impl Engine {
     /// The client dropped the protocol delete at least once; the server
     /// should inject real key events for deletions from now on.
     pub fn delete_dropped(&self) -> bool {
-        self.delete_dropped
+        self.drops_deletes()
     }
 
     /// Record that `n` Backspace keys were injected; their echoes must be
@@ -1256,7 +1262,7 @@ impl Engine {
     /// way device-injected ones are (same exemption as `deletes_allowed`).
     pub fn may_inject(&self) -> bool {
         (!self.injection_forbidden() || self.injection_relay_safe)
-            && (self.delete_dropped || self.surrounding.is_none())
+            && (self.drops_deletes() || self.surrounding.is_none())
     }
 
     /// Contexts where injected key events are known to be lost.
@@ -1333,7 +1339,49 @@ impl Engine {
     /// The focused application's name from the focus extension or the X
     /// active window. Rule matching only — see the field docs.
     pub fn set_app_name(&mut self, name: Option<String>) {
+        if self.app_name != name {
+            // A proof belongs to the context it was measured in; the cache
+            // restores it when this app comes back.
+            self.delete_dropped = false;
+        }
         self.app_name = name;
+    }
+
+    /// The cache key for this context: the IBus client id plus the focus
+    /// extension's app name. On Wayland the id is the same `gnome-shell` for
+    /// every app, so the app name is what actually separates contexts.
+    fn delete_verdict_key(&self) -> Option<String> {
+        let client = self.client.as_deref()?;
+        Some(format!(
+            "{client}|{}",
+            self.app_name.as_deref().unwrap_or("")
+        ))
+    }
+
+    /// Remember that this context swallows rewrite deletes, and forget every
+    /// verdict on a client reset (the only signal that the app may have
+    /// changed).
+    fn note_delete_verdict(&mut self, dropped: bool) {
+        if let Some(key) = self.delete_verdict_key() {
+            self.delete_verdicts.insert(key, dropped);
+        }
+    }
+
+    /// Drop the cached verdicts; called when the client resets.
+    pub fn forget_delete_verdicts(&mut self) {
+        self.delete_verdicts.clear();
+    }
+
+    /// Whether this context swallows rewrite deletes: proven in this focus
+    /// session, or measured earlier for the same client and app. The second
+    /// half is the whole of R5 — walking back into such an app no longer pays
+    /// for another wrong first word.
+    pub fn drops_deletes(&self) -> bool {
+        self.delete_dropped
+            || self
+                .delete_verdict_key()
+                .and_then(|key| self.delete_verdicts.get(&key).copied())
+                .unwrap_or(false)
     }
 
     /// The name set by `set_app_name`, for callers outside the engine (the
@@ -1544,7 +1592,7 @@ impl Engine {
         // A report (or the direct-client opt-in) proves the protocol delete
         // safe, with drift repair as today. A client PROVEN to swallow
         // rewrite deletes skips it: the terminal transport below serves it.
-        if self.protocol_delete_ok() && !self.delete_dropped {
+        if self.protocol_delete_ok() && !self.drops_deletes() {
             return Mode::Surrounding;
         }
         // No usable report yet: injected Backspaces serve when a backend
