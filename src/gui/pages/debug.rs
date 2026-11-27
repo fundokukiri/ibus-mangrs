@@ -119,6 +119,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
     let kind_pick = gtk4::DropDown::from_strings(&name_refs);
     kind_pick.add_css_class("diag-kind");
+    // A heavy default dropdown shadowed by three flat icon buttons reads as the
+    // only control on the bar.
+    kind_pick.add_css_class("flat");
     kind_pick.set_tooltip_text(Some(&t(
         "tips.debug_kind",
         "Chỉ hiện một loại dòng. Dòng không thuộc loại nào chỉ hiện khi chọn Tất cả.",
@@ -139,6 +142,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let arrived = gtk4::Label::new(None);
     arrived.add_css_class("caption");
     arrived.add_css_class("accent");
+    arrived.add_css_class("log-chip");
     arrived.set_visible(false);
     let clear_btn = icon_button("user-trash-symbolic", &t("misc.debug_clear_log", "Xoá log"));
     let toolbar = gtk4::Box::new(Orientation::Horizontal, 6);
@@ -152,7 +156,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     view.set_editable(false);
     view.set_cursor_visible(false);
     view.set_monospace(true);
-    view.set_wrap_mode(gtk4::WrapMode::None);
+    // Wrapped, not clipped: a line cut mid-word at the pane's edge reads as a
+    // broken window, and that value is what the reader opened the page for.
+    view.set_wrap_mode(gtk4::WrapMode::WordChar);
+    view.add_css_class("log-view");
     view.set_left_margin(10);
     view.set_right_margin(10);
     view.set_top_margin(6);
@@ -160,9 +167,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     make_tags(&view.buffer(), &view);
     let scroller = gtk4::ScrolledWindow::builder()
         .min_content_height(110)
+        .hscrollbar_policy(gtk4::PolicyType::Never)
         .vexpand(true)
         .child(&view)
         .build();
+    // One card, like the diagnostics cards beside it, rather than text floating
+    // on the window background.
+    scroller.add_css_class("log-pane");
     let left = gtk4::Box::new(Orientation::Vertical, 6);
     left.set_hexpand(true);
     left.append(&toolbar);
@@ -263,7 +274,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let split = gtk4::Box::new(Orientation::Horizontal, 12);
     split.append(&left);
     split.append(&separator);
-    split.append(&right);
 
     // --- Footer -----------------------------------------------------------
     let restart_btn =
@@ -320,24 +330,32 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let _ = config.save();
     });
 
-    // Two rows, not one: the four labels side by side asked for 802 px of
-    // width, which made this page the widest thing in the window and pushed
-    // the window's own minimum past the width where the sidebar collapses. A
-    // header bar wider than its window loses the window controls with it.
+    // Stacked, not side by side: the four labels in one row asked for 802 px,
+    // which made this page the widest thing in the window and pushed its
+    // minimum past the width where the sidebar collapses — and a header bar
+    // wider than its window loses the window controls with it. Stacked, the
+    // same controls fit the narrowest share the right column ever takes.
     let footer = gtk4::Box::new(Orientation::Vertical, 8);
-    let hide_group = gtk4::Box::new(Orientation::Horizontal, 8);
+    let hide_group = gtk4::Box::new(Orientation::Vertical, 2);
     hide_group.append(&hide_switch);
     hide_group.append(&log_pause);
-    let footer_actions = gtk4::Box::new(Orientation::Horizontal, 8);
-    footer_actions.append(&restart_btn);
-    footer_actions.append(&copy_btn);
-    let footer_spacer = gtk4::Box::new(Orientation::Horizontal, 0);
-    footer_spacer.set_hexpand(true);
-    let actions_row = gtk4::Box::new(Orientation::Horizontal, 0);
-    actions_row.append(&footer_spacer);
-    actions_row.append(&footer_actions);
+    let actions_row = gtk4::Box::new(Orientation::Horizontal, 8);
+    for btn in [&restart_btn, &copy_btn] {
+        btn.set_hexpand(true);
+        actions_row.append(btn);
+    }
     footer.append(&hide_group);
     footer.append(&actions_row);
+
+    // The actions close the right column, so the log runs the full height of
+    // the page and both columns finish on the same line instead of the log
+    // stopping early above its own footer.
+    let right_column = gtk4::Box::new(Orientation::Vertical, 10);
+    right_column.set_hexpand(false);
+    right_column.set_vexpand(true);
+    right_column.append(&right);
+    right_column.append(&footer);
+    split.append(&right_column);
 
     // --- The page ---------------------------------------------------------
     let page = gtk4::Box::new(Orientation::Vertical, 10);
@@ -351,7 +369,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     page.set_vexpand(true);
     page.append(&status);
     page.append(&split);
-    page.append(&footer);
 
     // The page never scrolls while the columns fit; the stacked column below
     // `NARROW_WIDTH` is taller than the window, and this keeps it reachable.
@@ -405,23 +422,24 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                 Some(stats) => format!("{}ms", f(&stats)),
                 None => "—".to_string(),
             };
-            set_if_changed(
+            set_metric(
                 &metric_avg,
-                &format!("{} {}", t("misc.metric_avg", "Trễ TB"), pick(|s| s.avg_ms)),
+                &t("misc.metric_avg", "Trễ TB"),
+                &pick(|s| s.avg_ms),
+                true,
             );
-            set_if_changed(
+            set_metric(
                 &metric_max,
-                &format!("{} {}", t("misc.metric_max", "Tối đa"), pick(|s| s.max_ms)),
+                &t("misc.metric_max", "Tối đa"),
+                &pick(|s| s.max_ms),
+                false,
             );
             let size = path
                 .as_deref()
                 .and_then(|p| std::fs::metadata(p).ok())
                 .map(|m| size_label(m.len()))
                 .unwrap_or_else(|| "—".to_string());
-            set_if_changed(
-                &metric_log,
-                &format!("{} {size}", t("misc.metric_log", "Log")),
-            );
+            set_metric(&metric_log, &t("misc.metric_log", "Log"), &size, false);
             let composing_text = match composing(&cache) {
                 Some(true) => t("misc.buffer_composing", "đang soạn"),
                 Some(false) => t("misc.buffer_empty", "trống"),
@@ -571,6 +589,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         let split = split.clone();
         let separator = separator.clone();
         let right = right.clone();
+        let right_column = right_column.clone();
         let scroller = scroller.clone();
         let page_ref = page.clone();
         let laid_out = Rc::new(Cell::new((false, -1i32)));
@@ -593,6 +612,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                     // Stacked, the column takes its own height and the page
                     // scrolls, instead of squeezing it into a few pixels.
                     right.set_propagate_natural_height(true);
+                    right_column.set_vexpand(false);
                     scroller.set_vexpand(false);
                 } else {
                     split.set_orientation(Orientation::Horizontal);
@@ -600,6 +620,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
                     right.set_width_request(share);
                     right.set_propagate_natural_height(false);
                     right.set_vexpand(true);
+                    right_column.set_vexpand(true);
                     scroller.set_vexpand(true);
                 }
             }
@@ -991,6 +1012,7 @@ fn make_tags(buffer: &gtk4::TextBuffer, view: &gtk4::TextView) {
     for (tag, name, alpha) in [
         ("log-key", "accent_color", 1.0),
         ("log-insert", "success_color", 1.0),
+        ("log-delete", "warning_color", 1.0),
         ("log-flush", "view_fg_color", 0.75),
         ("log-error", "error_color", 1.0),
         ("log-other", "view_fg_color", 0.6),
@@ -1000,6 +1022,21 @@ fn make_tags(buffer: &gtk4::TextBuffer, view: &gtk4::TextView) {
         if let Some(created) = buffer.create_tag(Some(tag), &[]) {
             created.set_foreground_rgba(Some(&color(name, alpha)));
         }
+    }
+}
+
+/// A status-bar number: the name greyed, the value in full contrast, and a
+/// separator between two of them, so the bar reads as three answers instead of
+/// one run of text.
+fn set_metric(label: &gtk4::Label, name: &str, value: &str, first: bool) {
+    let lead = if first { "" } else { "· " };
+    let markup = format!(
+        "{lead}<span alpha=\"55%\">{}</span> {}",
+        gtk4::glib::markup_escape_text(name),
+        gtk4::glib::markup_escape_text(value)
+    );
+    if label.label() != markup {
+        label.set_markup(&markup);
     }
 }
 

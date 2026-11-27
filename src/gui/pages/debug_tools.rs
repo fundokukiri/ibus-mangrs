@@ -11,8 +11,38 @@ use crate::gui::debug_report::{Cell, Section, Status};
 pub(super) const TOOLS_CSS: &str = "
 .diag-dot-ok { color: @success_color; }
 .diag-dot-warn { color: @warning_color; }
-.diag-dot-info { color: alpha(@view_fg_color, 0.45); }
-.diag-value { font-feature-settings: \"tnum\"; }
+.diag-dot-info { color: alpha(@view_fg_color, 0.55); }
+/* Each value is something to read and copy: shape it like a value, not like a
+   second label. */
+.diag-value {
+  font-feature-settings: \"tnum\";
+  background-color: alpha(@view_fg_color, 0.07);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+/* A dropdown beside three flat icon buttons should not read as the only
+   control on the bar. */
+.diag-kind button {
+  min-height: 22px;
+  padding: 2px 8px;
+}
+/* The count of lines that arrived while the view is paused. */
+.log-chip {
+  background-color: alpha(@accent_bg_color, 0.22);
+  border-radius: 9px;
+  padding: 1px 7px;
+}
+/* The log is one card, like the diagnostics cards beside it. */
+.log-pane {
+  border-radius: 10px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: alpha(@view_fg_color, 0.1);
+  background-color: alpha(@view_fg_color, 0.035);
+}
+.log-view, .log-view > text {
+  background-color: transparent;
+}
 /* This column answers ten short questions; the window's row height is built for
    settings rows with a subtitle, which leaves too much air here. */
 .tools-compact row {

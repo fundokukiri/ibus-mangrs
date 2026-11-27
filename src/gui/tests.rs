@@ -67,7 +67,7 @@ fn gtk_widget_scenarios() {
     the_search_button_opens_the_entry();
     close_test_windows();
     every_switch_on_a_page_lands_on_the_same_edge();
-    the_two_debug_checkboxes_share_a_row();
+    the_two_debug_checkboxes_share_the_footer();
     close_test_windows();
     the_debug_tab_row_appears_only_with_debug_mode();
     the_open_log_pane_picks_up_what_is_written();
@@ -1437,8 +1437,8 @@ fn every_switch_on_a_page_lands_on_the_same_edge() {
 }
 
 /// "Tạm dừng ghi log" sits beside "Ẩn nội dung gõ": both are about what the
-/// copy produces, and they share one row.
-fn the_two_debug_checkboxes_share_a_row() {
+/// copy produces, and they share the footer at the foot of the tools column.
+fn the_two_debug_checkboxes_share_the_footer() {
     let app = adw::Application::builder()
         .application_id("org.freedesktop.IBus.mangrs.test-debug-footer")
         .build();
@@ -1466,8 +1466,15 @@ fn the_two_debug_checkboxes_share_a_row() {
     assert_eq!(
         row(&checks[0]),
         row(&checks[1]),
-        "the pause switch must sit on the same row as the masking switch"
+        "the pause switch must sit in the same footer group as the masking switch"
     );
+    // Stacked: the footer lives at the foot of the tools column, too narrow for
+    // two labels side by side.
+    let group = checks[0]
+        .parent()
+        .and_then(|p| p.downcast::<gtk4::Box>().ok())
+        .expect("the footer group");
+    assert_eq!(group.orientation(), Orientation::Vertical);
     win.close();
     Config::default().save().expect("config back off");
 }
