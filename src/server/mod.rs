@@ -933,6 +933,7 @@ fn refresh_backend_flags(engine: &mut Engine, injection: &Injection) {
         injection.current(),
         Some(Kind::Libei | Kind::WlrVirtualKeyboard)
     ));
+    engine.set_transport_types_text(injection.supports_text());
 }
 
 /// The config's preferred injection backend, `None` for `auto`: the
@@ -1765,6 +1766,7 @@ fn emit(
 ) -> u32 {
     let transports = Transports {
         backspaces: &|n, gap| injection.backspaces(n, gap),
+        type_text: &|text| injection.type_text(text),
     };
     emit_with(engine, actions, out, &transports)
 }
@@ -1776,6 +1778,7 @@ fn emit(
 /// `n` times `gap` ms apart.
 struct Transports<'a> {
     backspaces: &'a dyn Fn(u32, u64) -> bool,
+    type_text: &'a dyn Fn(&str) -> bool,
 }
 
 /// `emit` with injectable transports. Tests use it to exercise the injection
@@ -1806,6 +1809,7 @@ fn emit_with(
         match action {
             Action::Commit(text) => push_commit(
                 engine,
+                t,
                 out,
                 text.clone(),
                 &mut delete_failed,
@@ -1970,6 +1974,21 @@ fn emit_with(
             // vanished from screen yet Backspace revealed it — the buffer
             // and the display desynced). The pacing stays on the injected
             // Backspace transport only.
+            // With a transport that types the word too, the deletes go through
+            // it as well: one channel means no forwarded pair the client may
+            // drop, and nothing left to wait for.
+            Action::ForwardBackspaces(n) if inject && engine.transport_types_text() => {
+                if (t.backspaces)(*n, bs_gap) {
+                    debug_log::log(&format!("del mode=forward n={n} op=inject"));
+                    injected_since_commit += *n;
+                    injected_total += *n;
+                } else {
+                    debug_log::log(&format!("del mode=forward n={n}"));
+                    for _ in 0..*n {
+                        push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
+                    }
+                }
+            }
             Action::ForwardBackspaces(n) => {
                 debug_log::log(&format!("del mode=forward n={n}"));
                 for _ in 0..*n {
@@ -2189,6 +2208,7 @@ fn signal(member: &str) -> Message {
 /// is dropped.
 fn push_commit(
     engine: &mut Engine,
+    t: &Transports,
     out: &mut Vec<Message>,
     text: String,
     delete_failed: &mut bool,
@@ -2196,6 +2216,16 @@ fn push_commit(
 ) {
     if std::mem::take(delete_failed) {
         debug_log::log("buf commit=suppressed why=no_delete");
+    } else if *injected_since_commit > 0 && engine.transport_types_text() {
+        // One channel: the transport presses the deletes and types the word,
+        // in that order, so nothing can overtake anything and no wait is
+        // needed after the deletes.
+        *injected_since_commit = 0;
+        if (t.type_text)(&text) {
+            debug_log::log(&format!("buf commit=typed len={}", text.chars().count()));
+        } else {
+            out.push(signal("CommitText").append1(plain_text(&text)));
+        }
     } else if *injected_since_commit > 0 {
         // The injected Backspaces travel through the compositor while this
         // commit would go straight over D-Bus — a synchronous commit here
@@ -2231,5 +2261,8 @@ const INTROSPECT_XML: &str = r#"<node>
 /// Fake transports for tests: every key press "succeeds".
 #[cfg(test)]
 fn fake_transports<'a>(backspaces: &'a dyn Fn(u32, u64) -> bool) -> Transports<'a> {
-    Transports { backspaces }
+    Transports {
+        backspaces,
+        type_text: &|_| false,
+    }
 }

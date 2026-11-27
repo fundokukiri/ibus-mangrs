@@ -4,7 +4,12 @@
 //! whitelist: Backspace and Delete. Injected keys enter the input pipeline
 //! like the user's own keystrokes, so a bug in an injection path could type
 //! text desktop-wide; the whitelist keeps that damage structural — no op
-//! presses a letter or a digit. Text travels over IBus instead (CommitText).
+//! presses a letter or a digit out of the user's own key stream. The one
+//! exception is [`BackendOps::type_text`], offered by the wlroots backend
+//! only: it types the word a rewrite is replacing, through a keymap whose
+//! entire alphabet is those few codepoints, so the residual damage is the
+//! word being written twice. Text travels over IBus (CommitText) everywhere
+//! else.
 //!
 //! [`Injection`] holds the selected backend. [`Injection::select`] walks a
 //! preference list through [`constructors`] — led by a config-fed preferred
@@ -65,6 +70,16 @@ pub trait BackendOps: Send {
     fn backspaces(&self, n: u32, gap_ms: u64) -> bool;
     /// Press Delete `n` times.
     fn delete(&self, n: u32) -> bool;
+    /// Whether `type_text` can work at all here; cheap, unlike the call.
+    fn supports_text(&self) -> bool {
+        false
+    }
+    /// Type `text` as key events from this transport. Only the compositor
+    /// backends can, and only for a whole rewrite: with the deletes on the
+    /// same channel there is no ordering race left to wait out.
+    fn type_text(&self, _text: &str) -> bool {
+        false
+    }
 }
 
 /// Builds the backend for `kind`; `None` means the kind cannot be used, and
@@ -276,6 +291,22 @@ impl Injection {
     /// for nothing.
     pub fn retry_denied(&mut self, kind: Kind) {
         self.denied.retain(|k| *k != kind);
+    }
+
+    /// Whether the held backend can type a word by itself.
+    pub fn supports_text(&self) -> bool {
+        self.inner
+            .as_ref()
+            .is_some_and(|backend| backend.supports_text())
+    }
+
+    /// Type `text` through the held backend; `false` means the caller keeps
+    /// the word on CommitText.
+    pub fn type_text(&self, text: &str) -> bool {
+        match &self.inner {
+            Some(backend) => backend.type_text(text),
+            None => false,
+        }
     }
 
     pub fn backspaces(&self, n: u32, gap_ms: u64) -> bool {

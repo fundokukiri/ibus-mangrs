@@ -2506,6 +2506,60 @@ fn forward_key_event_emits_backspace_press_and_release() {
 }
 
 #[test]
+fn a_transport_that_types_the_word_keeps_the_rewrite_on_one_channel() {
+    // The wlroots virtual keyboard types the word itself, so the deletes and
+    // the text share one channel: the deletes stop being forwarded key events
+    // (which a client may drop) and the text stops being a CommitText (which
+    // could overtake them). Every other transport keeps the shipped path.
+    for typed in [false, true] {
+        let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_uinput_available(true);
+        e.set_transport_types_text(typed);
+        let base = fake_transports(&|_, _| true);
+        let typed_text: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
+        let t = Transports {
+            backspaces: base.backspaces,
+            type_text: &|text| {
+                typed_text.borrow_mut().push(text.to_string());
+                true
+            },
+        };
+        let mut out = Vec::new();
+        emit_with(
+            &mut e,
+            &[Action::ForwardBackspaces(2), Action::Commit("chào".into())],
+            &mut out,
+            &t,
+        );
+        let names = |want: &str| {
+            out.iter()
+                .filter(|m| m.member().map(|n| &*n == want).unwrap_or(false))
+                .count()
+        };
+        assert_eq!(
+            names("ForwardKeyEvent"),
+            if typed { 0 } else { 4 },
+            "typed={typed}: the delete transport"
+        );
+        assert_eq!(
+            names("CommitText"),
+            if typed { 0 } else { 1 },
+            "typed={typed}: the word transport"
+        );
+        assert_eq!(
+            typed_text.borrow().clone(),
+            if typed {
+                vec!["chào".to_string()]
+            } else {
+                vec![]
+            },
+            "typed={typed}: the word reaches the transport"
+        );
+    }
+}
+
+#[test]
 fn x11_delete_opt_in_reaches_the_wire_without_a_report() {
     // The emit guard follows the engine's own rule: with the opt-in on, a
     // direct client that advertises surrounding text gets the protocol

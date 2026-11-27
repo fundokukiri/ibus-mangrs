@@ -246,6 +246,10 @@ pub struct Engine {
     /// (Libei / wlr virtual keyboard), so the relay ban on injection does
     /// not apply to it — see `deletes_allowed`.
     injection_relay_safe: bool,
+    /// Set by the server from the held transport: it types a rewrite's word
+    /// itself (the wlroots virtual keyboard), so the word and the deletes it
+    /// serves travel one channel and need no wait between them.
+    transport_types_text: bool,
     /// Backspace keys injected through uinput that will echo back as
     /// ProcessKeyEvent; those must be forwarded untouched.
     pending_injected: u32,
@@ -590,6 +594,7 @@ impl Engine {
             flow_needs_backend: false,
             flow_fallback_logged: false,
             injection_relay_safe: false,
+            transport_types_text: false,
             pending_injected: 0,
             deferred: Vec::new(),
             echoes_forwarded: 0,
@@ -1147,6 +1152,17 @@ impl Engine {
     }
 
     /// Whether the server can inject keys (called once at startup).
+    /// The selected transport types a rewrite's word itself, so its deletes
+    /// and that word share one channel and no wait is needed between them.
+    pub fn set_transport_types_text(&mut self, types: bool) {
+        self.transport_types_text = types;
+    }
+
+    /// See `set_transport_types_text`.
+    pub fn transport_types_text(&self) -> bool {
+        self.transport_types_text
+    }
+
     pub fn set_uinput_available(&mut self, available: bool) {
         self.uinput_available = available;
     }
