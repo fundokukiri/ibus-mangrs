@@ -67,6 +67,13 @@ pub struct Config {
     /// bar committed `oỏ` for `o` then `r`). On, keys go straight to the app
     /// while the completion is visible. Off by default.
     pub dodge_inline_autocomplete: bool,
+    /// Experimental: for the browser and Electron family in ForwardBackspace,
+    /// a rewrite sends its replacement text as forwarded key events too, never
+    /// through CommitText. Chrome on Ubuntu drops both the protocol delete and
+    /// the forwarded Backspace pair, and mixing the two channels loses the
+    /// ordering; ibus-bamboo's "Forward as commit" types that app correctly by
+    /// keeping the deletes and the text on one channel. Off by default.
+    pub browser_forward_commit: bool,
     /// Experimental: the suggestion strip's display while the strip is up —
     /// `floating` (default) only in the box (the client's field stays clean
     /// until the word commits), `mirror` in both places (the box's input line
@@ -922,6 +929,7 @@ impl Default for Config {
             keep_repeats_raw: false,
             suggest_words: false,
             dodge_inline_autocomplete: false,
+            browser_forward_commit: false,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::WholeChar,
             auto_restore: true,

@@ -923,6 +923,23 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
     );
 }
 
+/// The rewrite's replacement text as forwarded key events, the way
+/// ibus-bamboo's "Forward as commit" types it: a Vietnamese letter has no plain
+/// keysym, so it travels as the Unicode keysym (`0x1000000 | codepoint`). One
+/// channel for the deletes and the text is the point — mixing forward keys with
+/// CommitText is what lost the ordering on Chrome (Docs doubled every word).
+const FORWARD_TEXT_PACE_MS: u64 = 5;
+const FORWARD_DELETE_PACE_MS: u64 = 20;
+
+fn push_forward_text(out: &mut Vec<Message>, text: &str) {
+    for ch in text.chars() {
+        let cp = ch as u32;
+        let keyval = if cp < 0x80 { cp } else { 0x100_0000 | cp };
+        push_forward_keys(out, keyval, 0, 0);
+        std::thread::sleep(std::time::Duration::from_millis(FORWARD_TEXT_PACE_MS));
+    }
+}
+
 /// Push both engine backend flags from the holder's current state — the
 /// self-heal and the paced Flow re-request share it, so every re-select
 /// refreshes both (a stale relay-safe mark would let injection back onto
@@ -1971,9 +1988,21 @@ fn emit_with(
             // and the display desynced). The pacing stays on the injected
             // Backspace transport only.
             Action::ForwardBackspaces(n) => {
-                debug_log::log(&format!("del mode=forward n={n}"));
-                for _ in 0..*n {
+                // The same switch paces these too: ibus-bamboo sleeps 20 ms per
+                // forwarded Backspace, and an unpaced burst is what Chrome lost
+                // in the Docs editor.
+                let pace = engine.browser_forward_commit();
+                debug_log::log(&format!(
+                    "del mode=forward n={n}{}",
+                    if pace { " op=pace" } else { "" }
+                ));
+                for i in 0..*n {
                     push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
+                    if pace && i + 1 < *n {
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            FORWARD_DELETE_PACE_MS,
+                        ));
+                    }
                 }
             }
             // The per-key batch's parked commit: its deletes were injected
@@ -2203,6 +2232,9 @@ fn push_commit(
         // deletes the freshly committed word.
         engine.defer_commit(*injected_since_commit, text);
         *injected_since_commit = 0;
+    } else if engine.browser_forward_commit() {
+        debug_log::log(&format!("buf commit=forward len={}", text.chars().count()));
+        push_forward_text(out, &text);
     } else {
         out.push(signal("CommitText").append1(plain_text(&text)));
     }

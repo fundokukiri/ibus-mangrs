@@ -246,6 +246,10 @@ title = "Gợi ý từ khi gõ"
 subtitle = "Dải gợi ý cạnh con trỏ"
 
 
+[rows.browser_forward_commit]
+title = "Sửa lỗi gõ trong Google Docs"
+subtitle = "Dùng cho Chrome trên Ubuntu"
+
 [rows.dodge_inline_autocomplete]
 title = "Sửa lỗi gõ trong ô địa chỉ"
 subtitle = "Trước ra oỏ, giờ ra ỏ"
@@ -665,6 +669,7 @@ mode = "Cách đưa chữ vào app. Gạch chân hiện chữ ngay trong app, c�
 charset = "Bảng mã chữ. Unicode dùng cho mọi việc thường ngày, VNI và TCVN3 chỉ để đọc file cũ."
 hide_underline = "Ẩn gạch chân ở những app vẽ gạch chân bị lỗi, ví dụ vài game và terminal."
 dodge_inline_autocomplete = "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Mặc định tắt."
+browser_forward_commit = "Bật khi trình duyệt bị lặp chữ trên Ubuntu: từ được xoá và gõ lại hoàn toàn bằng phím chuyển tiếp. Chỉ ảnh hưởng trình duyệt và Electron, mặc định tắt."
 modern = "Đặt dấu theo chuẩn mới của Bộ GD-ĐT: hòa thay vì hoà."
 free = "Cho dấu đứng tự do trong từ, không buộc phải nằm ở nguyên âm gần nhất."
 auto_correct = "Âm tiết không có trong từ điển sẽ trả về đúng chuỗi phím đã bấm."

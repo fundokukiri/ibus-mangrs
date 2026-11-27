@@ -448,6 +448,9 @@ pub struct Engine {
     /// The `dodge_inline_autocomplete` switch, baked under the experimental
     /// gate like the strip.
     dodge_inline_autocomplete: bool,
+    /// The `browser_forward_commit` switch, baked under the experimental gate:
+    /// a browser's rewrite rides forwarded keys for its text as well.
+    browser_forward_commit: bool,
     /// Pick learning, baked with `suggest_words` under the experimental
     /// gate — picks land in the config dir's TSV files and buy an in-band
     /// bonus only while that is on.
@@ -638,6 +641,7 @@ impl Engine {
             prev_committed_word: None,
             suggest_words: false,
             dodge_inline_autocomplete: false,
+            browser_forward_commit: false,
             learn_dir: std::path::PathBuf::new(),
             picks: None,
             password_quiet: false,
@@ -784,6 +788,7 @@ impl Engine {
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
         self.dodge_inline_autocomplete = experimental && config.dodge_inline_autocomplete;
+        self.browser_forward_commit = experimental && config.browser_forward_commit;
         // Learning has no switch of its own: it rides the suggestion switch,
         // so an open strip always personalizes and a closed one touches
         // nothing.
@@ -1402,6 +1407,13 @@ impl Engine {
                     .iter()
                     .any(|p| lower.contains(p))
             })
+    }
+
+    /// The `browser_forward_commit` switch, narrowed to the family that needs it:
+    /// elsewhere the shipped transports already work, and forwarded character
+    /// keys are slower than one CommitText.
+    pub fn browser_forward_commit(&self) -> bool {
+        self.browser_forward_commit && self.client_cannot_delete_surrounding()
     }
 
     /// Delete-based rewriting is only safe once the client has actually

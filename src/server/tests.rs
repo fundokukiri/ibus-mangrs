@@ -2506,6 +2506,81 @@ fn forward_key_event_emits_backspace_press_and_release() {
 }
 
 #[test]
+fn the_browser_forward_commit_switch_types_the_rewrite_with_keys() {
+    // ibus-bamboo types Chrome on Ubuntu correctly by keeping the deletes and
+    // the replacement text on one channel; mixing forward keys with CommitText
+    // is what lost the ordering. Off (and for every other app) nothing changes.
+    for (enabled, app) in [
+        (false, "wayland:google-chrome"),
+        (true, "wayland:org.gnome.TextEditor"),
+    ] {
+        let (injection, _ops) = recorded_injection();
+        let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+        e.apply_config(&Config {
+            experimental_features: true,
+            browser_forward_commit: enabled,
+            ..Config::default()
+        });
+        e.set_mode(Mode::ForwardBackspace);
+        e.set_client(Some("gnome-shell".into()));
+        e.set_app_name(Some(app.into()));
+        let mut out = Vec::new();
+        emit(
+            &mut e,
+            &injection,
+            &[Action::Commit("chào".into())],
+            &mut out,
+        );
+        let commits: Vec<String> = out
+            .iter()
+            .map(|m| m.member().map(|n| n.to_string()).unwrap_or_default())
+            .collect();
+        assert!(
+            commits.iter().any(|n| n == "CommitText"),
+            "switch {enabled} for {app}: the shipped commit stays"
+        );
+    }
+
+    let (injection, _ops) = recorded_injection();
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.apply_config(&Config {
+        experimental_features: true,
+        browser_forward_commit: true,
+        ..Config::default()
+    });
+    e.set_mode(Mode::ForwardBackspace);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    let mut out = Vec::new();
+    emit(
+        &mut e,
+        &injection,
+        &[Action::Commit("chào".into())],
+        &mut out,
+    );
+    assert_eq!(
+        out.iter()
+            .filter(|m| m.member().map(|n| &*n == "CommitText").unwrap_or(false))
+            .count(),
+        0,
+        "the switch keeps CommitText off the wire"
+    );
+    let keyvals: Vec<u32> = out
+        .iter()
+        .filter(|m| {
+            m.member()
+                .map(|n| &*n == "ForwardKeyEvent")
+                .unwrap_or(false)
+        })
+        .map(|m| m.get1::<u32>().unwrap_or_default())
+        .collect();
+    // press + release per rune; the Vietnamese letters ride as Unicode keysyms.
+    assert_eq!(keyvals.len(), 8, "{keyvals:?}");
+    assert_eq!(keyvals[0], 'c' as u32);
+    assert_eq!(keyvals[4], 0x100_0000 | ('à' as u32));
+}
+
+#[test]
 fn x11_delete_opt_in_reaches_the_wire_without_a_report() {
     // The emit guard follows the engine's own rule: with the opt-in on, a
     // direct client that advertises surrounding text gets the protocol
