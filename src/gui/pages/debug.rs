@@ -301,9 +301,11 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // Stops the ENGINE writing, not the pane: whoever is chasing a bug keeps
     // their log tiers and the lines already collected, and the file stops
     // growing (or can be cleared without the next keystroke filling it again).
-    let log_pause = gtk4::Switch::new();
-    log_pause.set_valign(gtk4::Align::Center);
+    // A checkbox like the masking one beside it: two controls of the same kind
+    // in one footer should not be drawn two different ways.
+    let log_pause = gtk4::CheckButton::with_label(&t("misc.debug_log_pause", "Tạm dừng ghi log"));
     log_pause.set_active(crate::config::Config::load().debug_log_paused);
+    log_pause.set_valign(gtk4::Align::Center);
     log_pause.set_tooltip_text(Some(&t(
         "tips.debug_log_pause",
         "Tạm dừng việc ghi log, engine không thêm dòng nào cho tới khi bạn bật lại.",
@@ -317,12 +319,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
         config.debug_log_paused = sw.is_active();
         let _ = config.save();
     });
-    let pause_label = gtk4::Label::new(Some(&t("misc.debug_log_pause", "Tạm dừng ghi log")));
-    pause_label.set_valign(gtk4::Align::Center);
-    let pause_group = gtk4::Box::new(Orientation::Horizontal, 8);
-    pause_group.set_valign(gtk4::Align::Center);
-    pause_group.append(&pause_label);
-    pause_group.append(&log_pause);
 
     let footer = gtk4::Box::new(Orientation::Horizontal, 8);
     let hide_group = gtk4::Box::new(Orientation::Horizontal, 8);
@@ -331,7 +327,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     footer_spacer.set_hexpand(true);
     footer.append(&hide_group);
     footer.append(&footer_spacer);
-    footer.append(&pause_group);
+    footer.append(&log_pause);
     footer.append(&restart_btn);
     footer.append(&copy_btn);
 
