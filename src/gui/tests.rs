@@ -60,7 +60,7 @@ fn gtk_widget_scenarios() {
     toggling_off_releases_the_editor_caret();
     close_test_windows();
     the_debug_tab_follows_the_switch();
-    the_sidebar_page_carries_a_header_bar();
+    the_window_carries_one_header_bar_outside_the_pages();
     the_window_can_shrink_to_fit_a_small_screen();
     close_test_windows();
     the_two_debug_checkboxes_share_a_row();
@@ -107,6 +107,8 @@ fn gtk_widget_scenarios() {
         Some(dir) => std::env::set_var("XDG_CONFIG_HOME", dir),
         None => std::env::remove_var("XDG_CONFIG_HOME"),
     }
+    close_test_windows();
+    the_window_controls_survive_a_narrow_window();
 }
 
 /// The combo item lists (mode/charset/method/...) render in the window's
@@ -1184,7 +1186,7 @@ fn the_debug_tab_row_appears_only_with_debug_mode() {
 /// Both split-view pages carry a header bar. A collapsed split view shows the
 /// sidebar as the root page, so a sidebar without one loses the window controls
 /// — the close button disappeared as soon as the window got narrow.
-fn the_sidebar_page_carries_a_header_bar() {
+fn the_window_carries_one_header_bar_outside_the_pages() {
     let app = adw::Application::builder()
         .application_id("org.freedesktop.IBus.mangrs.test-sidebar-header")
         .build();
@@ -1195,19 +1197,31 @@ fn the_sidebar_page_carries_a_header_bar() {
     .save()
     .expect("config on");
     let win = crate::gui::content::build(&app, Some("typing"));
-    let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
-        .into_iter()
-        .next()
-        .expect("the shell is a split view");
+    // The header bar sits on the window's own toolbar view: inside a page it
+    // would be laid out at that page's minimum width, and a page wider than a
+    // narrow window takes the window controls out of the window with it.
+    let toolbar = win
+        .content()
+        .and_downcast::<adw::ToolbarView>()
+        .expect("the window content is a toolbar view");
+    let bars = descendants::<adw::HeaderBar>(toolbar.upcast_ref());
+    assert_eq!(bars.len(), 1, "exactly one header bar on the window");
+    let controls: Vec<gtk4::WindowControls> =
+        descendants::<gtk4::WindowControls>(bars[0].upcast_ref());
+    assert!(
+        controls.iter().any(|c| c.side() == gtk4::PackType::End),
+        "the window controls live in that bar"
+    );
+    // And the pages must not add a second bar of their own.
+    let split = toolbar
+        .content()
+        .and_downcast::<adw::NavigationSplitView>()
+        .expect("the split view is the toolbar's content");
     for page in [split.sidebar(), split.content()] {
         let page = page.expect("both pages exist");
-        let toolbar = page
-            .child()
-            .and_downcast::<adw::ToolbarView>()
-            .expect("each page is a toolbar view");
         assert!(
-            !descendants::<adw::HeaderBar>(toolbar.upcast_ref()).is_empty(),
-            "a page without a header bar shows no close button when collapsed"
+            descendants::<adw::HeaderBar>(page.upcast_ref()).is_empty(),
+            "a page with its own header bar stacks a second title row"
         );
     }
     win.close();
@@ -1242,6 +1256,58 @@ fn the_window_can_shrink_to_fit_a_small_screen() {
     Config::default().save().expect("config back off");
 }
 
+/// The close button must survive a resized window: at 700 px the header bar
+/// (window level, outside the split view) still holds the window controls and
+/// the sidebar has collapsed. This is the case that used to push the controls
+/// past the window edge, because each page carried its own header bar at the
+/// page's minimum width.
+fn the_window_controls_survive_a_narrow_window() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-narrow-window")
+        .build();
+    Config {
+        debug_log: true,
+        ..Config::default()
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("debugging"));
+    win.set_default_size(700, 700);
+    win.present();
+    let ctx = gtk4::glib::MainContext::default();
+    for _ in 0..40 {
+        while ctx.pending() {
+            ctx.iteration(false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let bar = descendants::<adw::HeaderBar>(win.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("a header bar");
+    let end = descendants::<gtk4::WindowControls>(bar.clone().upcast_ref())
+        .into_iter()
+        .find(|c| c.side() == gtk4::PackType::End)
+        .expect("the window controls sit at the end of the bar");
+    assert!(end.is_mapped(), "the close button is visible at 700 px");
+    assert!(
+        bar.width() <= win.width(),
+        "the header bar ({} px) must not be wider than the window ({} px)",
+        bar.width(),
+        win.width()
+    );
+    let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the shell is a split view");
+    assert!(
+        split.is_collapsed(),
+        "900 px is the collapse width, so 700 px is collapsed"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
 /// "Tạm dừng ghi log" sits beside "Ẩn nội dung gõ": both are about what the
 /// copy produces, and they share one row.
 fn the_two_debug_checkboxes_share_a_row() {
@@ -1255,11 +1321,16 @@ fn the_two_debug_checkboxes_share_a_row() {
     .save()
     .expect("config on");
     let win = crate::gui::content::build(&app, Some("debugging"));
+    // The language is process-global and an earlier scenario may have switched
+    // it, so both spellings are matched.
     let checks: Vec<gtk4::CheckButton> = descendants::<gtk4::CheckButton>(win.upcast_ref())
         .into_iter()
         .filter(|c| {
-            c.label()
-                .is_some_and(|l| l.starts_with("Ẩn") || l.starts_with("Tạm"))
+            c.label().is_some_and(|l| {
+                ["Ẩn", "Tạm", "Hide", "Pause"]
+                    .iter()
+                    .any(|p| l.starts_with(p))
+            })
         })
         .collect();
     assert_eq!(checks.len(), 2, "both switches exist");

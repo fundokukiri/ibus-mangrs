@@ -192,11 +192,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
 
     let title_label = gtk4::Label::new(Some("Chung"));
     title_label.add_css_class("title");
-    let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&title_label));
     let sidebar_btn = gtk4::Button::from_icon_name("sidebar-show-symbolic");
     sidebar_btn.set_visible(false);
-    header.pack_start(&sidebar_btn);
 
     // Sidebar rows in GNOME Settings groups: the everyday pages, the
     // feature targets, the advanced ones — one thin separator between
@@ -443,22 +440,16 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     spacer.set_vexpand(true);
     sidebar_box.append(&spacer);
     sidebar_box.append(&about_list);
-    // The sidebar page needs its own header bar: a collapsed split view puts it
-    // inside a navigation view as the root page, and a page without one shows
-    // no window controls at all, so the close button vanished once the window
-    // was narrow enough to collapse (both desktops). AdwHeaderBar hides the
-    // buttons that do not belong to its edge and adds the back button itself.
-    let sidebar_toolbar = adw::ToolbarView::new();
-    sidebar_toolbar.add_top_bar(&adw::HeaderBar::new());
-    sidebar_toolbar.set_content(Some(&sidebar_box));
+    // The pages carry no header bar of their own: one bar lives on the window
+    // (see below), so a page wider than the window can never carry the window
+    // controls out of it.
     let sidebar_page = adw::NavigationPage::builder()
         .title(&app_name)
-        .child(&sidebar_toolbar)
+        .child(&sidebar_box)
         .build();
 
     let page_overlay = gtk4::Overlay::new();
     page_overlay.set_child(Some(&stack));
-    let content_toolbar = adw::ToolbarView::new();
 
     // --- search: the sidebar entry, results over every page -----------------
     // Typing in the sidebar entry shows a flat list of matching rows across
@@ -608,22 +599,31 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         });
     }
 
-    content_toolbar.add_top_bar(&header);
-    content_toolbar.set_content(Some(&page_overlay));
     let content_page = adw::NavigationPage::builder()
         .title(&app_name)
-        .child(&content_toolbar)
+        .child(&page_overlay)
         .build();
 
     split_view.set_sidebar(Some(&sidebar_page));
     split_view.set_content(Some(&content_page));
 
+    // One header bar for the whole window, outside the split view. Inside a
+    // page it is laid out at that page's minimum width, and a page asking for
+    // more than the window has (a small screen, a tile) pushed the window
+    // controls at its right end past the window edge, where clicking is
+    // impossible. Outside, its width is always the window's.
+    let window_bar = adw::HeaderBar::new();
+    window_bar.set_title_widget(Some(&title_label));
+    window_bar.pack_start(&sidebar_btn);
+    let window_toolbar = adw::ToolbarView::new();
+    window_toolbar.add_top_bar(&window_bar);
+    window_toolbar.set_content(Some(&split_view));
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(&app_name)
         .default_width(1180)
         .default_height(740)
-        .content(&split_view)
+        .content(&window_toolbar)
         .build();
     // X11/XWayland reads the icon from the window; Wayland derives it from
     // the app id and the installed desktop file instead.
@@ -632,10 +632,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     // Collapse the sidebar into an overlay pattern on narrow widths: the
     // toggle button (visible only while collapsed) flips between the page
     // and the sidebar list. NavigationSplitView has no manual show-sidebar —
-    // collapsed mode is managed through show-content.
+    // collapsed mode is managed through show-content. The width has to stay
+    // above the window's own minimum (the sidebar plus the widest page), or
+    // the window can never be narrowed into the breakpoint and the sidebar
+    // never collapses at all.
     let bp = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
         adw::BreakpointConditionLengthType::MaxWidth,
-        700.0,
+        900.0,
         adw::LengthUnit::Px,
     ));
     bp.add_setter(&split_view, "collapsed", Some(&true.to_value()));
