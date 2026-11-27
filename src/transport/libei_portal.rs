@@ -1,16 +1,17 @@
 //! `xdg-desktop-portal` acquisition of an EIS socket, for the compositors that
-//! have no `org.gnome.Mutter.RemoteDesktop` (KDE/KWin, and anything else that
-//! implements only the portal). The mutter-direct path in `libei.rs` stays the
-//! first attempt — it needs no user prompt and is measured — and this one is
-//! the fallback the non-mutter Wayland preference list reaches last.
+//! have no `org.gnome.Mutter.RemoteDesktop` and implement only the portal. The
+//! mutter-direct path in `libei.rs` stays the first attempt — it needs no user
+//! prompt and is measured — and this one is the fallback the non-mutter Wayland
+//! preference list reaches last.
 //!
 //! The portal API is request-based: every method returns a `Request` object
 //! path and the result arrives as a `Response` signal on that path, so each
 //! call here subscribes first, hands the portal a unique `handle_token`, and
 //! waits for the matching signal inside the acquisition budget.
 //!
-//! NOT exercised on a real KDE session from this repository: the code path is
-//! unreachable on GNOME (mutter answers first) and on X11/wlroots (uinput or
+//! NOT exercised on a desktop that has only the portal, from this repository:
+//! the code path is unreachable on GNOME (mutter answers first) and on
+//! X11/wlroots (uinput or
 //! the virtual keyboard answer first), so it is denied gracefully wherever it
 //! cannot work and never runs on the machines this project is verified on.
 
@@ -112,8 +113,9 @@ fn request(
     outcome
 }
 
-/// One line per portal step, at the debug log's `ei` tag: a KDE report then
-/// says which step refused instead of a bare "no transport".
+/// One line per portal step, at the debug log's `ei` tag: a report from a
+/// portal-only desktop then says which step refused instead of a bare "no
+/// transport".
 fn debug_log_done(member: &str, ok: bool) {
     crate::debug_log::log(&format!("ctx ei=portal step={member} ok={}", u8::from(ok)));
 }

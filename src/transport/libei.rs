@@ -193,9 +193,10 @@ impl LibeiBackend {
         let conn = SyncConnection::new_session().ok()?;
         let fd = match mutter_eis_fd(&conn, deadline) {
             Some(fd) => fd,
-            // No mutter on this session (KDE, or anything portal-only). The
-            // portal path is the last rung of the non-mutter preference list,
-            // so nothing is denied that used to work.
+            // No mutter on this session: the portal is the way in for a
+            // compositor that offers only that. The portal path is the last
+            // rung of the non-mutter preference list, so nothing is denied
+            // that used to work.
             None => super::libei_portal::connect_eis(deadline)?,
         };
         Self::from_eis_fd(conn, sys, fd, deadline)

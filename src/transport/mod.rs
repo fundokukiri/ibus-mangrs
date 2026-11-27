@@ -119,10 +119,10 @@ pub fn preference_order() -> Vec<Kind> {
             // wlroots-family compositors (Hyprland, sway, ...) expose the
             // virtual-keyboard protocol without any device node. Mutter
             // exposes no such global, hence the arm above. Libei comes last:
-            // on a portal-only compositor (KDE) it is the only rung that
-            // works without the input group, but it costs a permission prompt
-            // and a 5 s acquisition, so the two prompt-free transports are
-            // tried first.
+            // on a compositor that offers only the portal it is the only rung
+            // that works without the input group, but it costs a permission
+            // prompt and a 5 s acquisition, so the two prompt-free transports
+            // are tried first.
             vec![Kind::WlrVirtualKeyboard, Kind::Uinput, Kind::Libei]
         }
     } else if std::env::var_os("DISPLAY").is_some() {

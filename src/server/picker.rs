@@ -195,10 +195,9 @@ impl EngineHandler {
                 debug_log::log("ext ok=0 why=timeout");
             }
         }
-        // Nothing names this app and there is no extension to ask (KDE, or any
-        // desktop without it). The menu still opens, on the global mode: a rule
-        // would be written against an app nobody can name, and the owner's KDE
-        // report was exactly this menu refusing to open at all.
+        // Nothing names this app and there is no extension to ask. The menu
+        // still opens, on the global mode: a rule written against an app nobody
+        // can name would land on the wrong one.
         if target.is_none() && !extension_answered {
             debug_log::log("ext picker=hotkey why=no_extension scope=global");
             {
