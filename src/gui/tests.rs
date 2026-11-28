@@ -54,6 +54,7 @@ fn gtk_widget_scenarios() {
     nhip_table_edits_and_resets_every_timing();
     nhip_rows_name_their_config_key();
     nhip_header_carries_the_filter_and_the_reset();
+    the_marker_pause_follows_the_address_bar_style();
     rules_add_group_merges_the_focus_chip();
     rule_rows_round_trip_through_read();
     macro_page_helpers_count_and_preview();
@@ -1022,6 +1023,21 @@ fn the_address_bar_row_maps_both_keys() {
     assert_eq!(dodge_from_index(0), (false, None));
     assert_eq!(dodge_from_index(1), (true, Some(AutocompleteFix::Raw)));
     assert_eq!(dodge_from_index(2), (true, Some(AutocompleteFix::Marker)));
+}
+
+/// The marker pause is only reachable while the address-bar style is the
+/// `·` marker: the other two styles never press it.
+fn the_marker_pause_follows_the_address_bar_style() {
+    let ui = widgets();
+    let _page = crate::gui::pages::tune::build(&ui);
+    for (pick, editable) in [(0u32, false), (1, false), (2, true)] {
+        ui.dodge_fix.set_selected(pick);
+        assert_eq!(
+            ui.marker_wait_spin.is_sensitive(),
+            editable,
+            "pick {pick}: the marker pause editable == {editable}"
+        );
+    }
 }
 
 /// The filter and the reset live in the group header, right of the title:

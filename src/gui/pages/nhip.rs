@@ -68,6 +68,9 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
         group.add(&widget);
     }
     group.set_header_suffix(Some(&header_controls(&rows, placed)));
+    // The marker pause only exists for one address-bar style: the dot that
+    // makes a browser drop its inline completion. Locked for the other two.
+    gate_marker_pause(ui);
     // Every spin saves on its own: the table has no apply button.
     for spin in rows.iter().map(|r| r.spin.clone()) {
         let s = ui.save_cb.clone();
@@ -129,6 +132,24 @@ fn spin_or_switch_row(row: &Row) -> adw::ActionRow {
     widget
 }
 
+/// Write the shipped values back through the spins, so the normal save
+/// funnel persists them.
+pub(crate) fn reset_spins(defaults: &[(gtk4::SpinButton, u64)]) {
+    for (spin, value) in defaults {
+        spin.set_value(*value as f64);
+    }
+}
+
+/// The marker pause follows the address-bar style: editable only while
+/// "Chèn dấu ·" is the pick.
+fn gate_marker_pause(ui: &Rc<Ui>) {
+    ui.marker_wait_spin
+        .set_sensitive(ui.dodge_fix.selected() == 2);
+    let spin = ui.marker_wait_spin.clone();
+    ui.dodge_fix
+        .connect_selected_notify(move |d| spin.set_sensitive(d.selected() == 2));
+}
+
 /// The group header carries both controls, right of the title: the filter
 /// that narrows the table and the button that puts every value back.
 fn header_controls(rows: &[Row], placed: Vec<(gtk4::Widget, Bucket)>) -> gtk4::Box {
@@ -165,10 +186,32 @@ fn header_controls(rows: &[Row], placed: Vec<(gtk4::Widget, Bucket)>) -> gtk4::B
     {
         let defaults: Vec<(gtk4::SpinButton, u64)> =
             rows.iter().map(|r| (r.spin.clone(), r.default)).collect();
-        reset.connect_clicked(move |_| {
-            for (spin, value) in &defaults {
-                spin.set_value(*value as f64);
-            }
+        reset.connect_clicked(move |button| {
+            // A reset rewrites ten values at once, and the button sits in a
+            // header a scroll can brush past: ask first.
+            let Some(window) = button.root().and_downcast::<gtk4::Window>() else {
+                reset_spins(&defaults);
+                return;
+            };
+            let dialog = adw::AlertDialog::builder()
+                .heading(t("rows.nhip.reset_confirm_title", "Khôi phục mặc định?"))
+                .body(t(
+                    "rows.nhip.reset_confirm_body",
+                    "Mọi giá trị trong bảng trở về như lúc mới cài.",
+                ))
+                .build();
+            dialog.add_response("cancel", &t("misc.cancel", "Hủy"));
+            dialog.add_response("reset", &t("rows.nhip.reset", "Khôi phục mặc định"));
+            dialog.set_response_appearance("reset", adw::ResponseAppearance::Destructive);
+            dialog.set_default_response(Some("cancel"));
+            dialog.set_close_response("cancel");
+            let defaults = defaults.clone();
+            dialog.connect_response(None, move |_, response| {
+                if response == "reset" {
+                    reset_spins(&defaults);
+                }
+            });
+            dialog.present(Some(&window));
         });
     }
 

@@ -518,6 +518,8 @@ filter_all = "All"
 filter_uinput = "Key presses"
 filter_park = "Commit park"
 scope = "Applies to"
+reset_confirm_title = "Restore defaults?"
+reset_confirm_body = "Every value in the table goes back to what it was when the app was installed."
 [groups.tune.channel]
 title = "Text channel"
 
