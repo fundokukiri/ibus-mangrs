@@ -1092,24 +1092,15 @@ fn nhip_rows_name_their_modes() {
             .iter()
             .find(|r| r.title().contains(needle))
             .expect("the row");
-        let subtitle = crate::gui::widgets::row_subtitle(row).expect("a subtitle");
-        let box_ = subtitle
-            .parent()
-            .and_downcast::<gtk4::Box>()
-            .expect("the box");
-        let labels: Vec<String> = descendants::<gtk4::Label>(box_.upcast_ref())
-            .into_iter()
-            .map(|l| l.text().to_string())
-            .collect();
-        labels
-            .into_iter()
-            .find(|t| t.starts_with('['))
+        row.subtitle()
+            .and_then(|s| s.split(' ').next().map(|w| w.to_string()))
+            .filter(|w| w.starts_with('['))
             .unwrap_or_default()
     };
     assert_eq!(badge_of("Flow: hiện dấu"), "[F]");
     assert_eq!(badge_of("Chờ sau phím xoá thật"), "[S]");
-    assert_eq!(badge_of("Hoãn reset khi mất focus"), "[P, S, F, FB]");
-    assert_eq!(badge_of("Chờ sau phím xoá"), "[S, F, FB]");
+    assert_eq!(badge_of("Hoãn reset khi mất focus"), "[P,S,F,FB]");
+    assert_eq!(badge_of("Chờ sau phím xoá"), "[S,F,FB]");
 }
 
 /// The filter and the reset live in the group header, right of the title:

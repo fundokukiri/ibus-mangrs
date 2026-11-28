@@ -50,7 +50,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
         .title(t("groups.tune.nhip.title", "Nhịp gõ"))
         .description(t(
             "groups.tune.nhip.description",
-            "Thời gian chờ của cả bốn chế độ, tính bằng mili giây.",
+            "Thời gian chờ của cả bốn chế độ, tính bằng mili giây. P: gạch chân · S: Surrounding · F: Flow · FB: ForwardBackspace.",
         ))
         .build();
     let rows = rows(ui);
@@ -72,7 +72,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
             line("effect", row.effect)
         );
         widget.set_tooltip_text(Some(&text));
-        modes_badge(&widget, row.modes);
         if row.gated {
             ui.nhip_gated.borrow_mut().push(widget.clone().upcast());
         }
@@ -96,9 +95,15 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
 }
 
 fn spin_or_switch_row(row: &Row) -> adw::ActionRow {
+    // The modes lead the description line: a user compares values by what
+    // they reach, so the badge comes before the prose.
     let widget = action_row(
         &row.title(),
-        &t(&format!("{}.subtitle", row.key), row.subtitle),
+        &format!(
+            "{} {}",
+            row.modes,
+            t(&format!("{}.subtitle", row.key), row.subtitle)
+        ),
     );
     {
         let (spin, default, switch) = (&row.spin, row.default, &row.switch);
@@ -142,27 +147,6 @@ fn spin_or_switch_row(row: &Row) -> adw::ActionRow {
         }
     }
     widget
-}
-
-/// The mode badge under the subtitle: four symbols, only the ones the
-/// value reaches. Adw rows carry a title and a subtitle and nothing else,
-/// so the line goes into the row's own title box.
-fn modes_badge(widget: &adw::ActionRow, modes: &str) {
-    let Some(subtitle) = row_subtitle(widget) else {
-        return;
-    };
-    let Some(box_) = subtitle.parent().and_downcast::<gtk4::Box>() else {
-        return;
-    };
-    let line = gtk4::Label::new(Some(modes));
-    line.set_xalign(0.0);
-    line.add_css_class("caption");
-    line.add_css_class("dim-label");
-    line.set_tooltip_text(Some(&t(
-        "rows.nhip.modes_tooltip",
-        "P: gạch chân · S: Surrounding · F: Flow · FB: ForwardBackspace",
-    )));
-    box_.append(&line);
 }
 
 /// Write the shipped values back through the spins, so the normal save
@@ -290,7 +274,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace",
             "Khoảng cách giữa các phím Backspace ảo; giảm khi app xoá chậm.",
             "Tăng: xoá chậm mà chắc ở app nặng; giảm: xoá nhanh, dễ mất ký tự nếu app xử lý chậm.",
-            "[S, F, FB]",
+            "[S,F,FB]",
             &ui.backspace_interval,
             Bucket::Uinput,
             d.backspace_interval_ms,
@@ -304,7 +288,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace",
             "Nghỉ sau mỗi lần sửa màn hình trước khi nhận phím tiếp.",
             "Tăng: app kịp xử lý nhưng gõ thấy trễ; giảm: mượt hơn, dễ dính chữ khi app chậm.",
-            "[S, F, FB]",
+            "[S,F,FB]",
             &ui.post_delay,
             Bucket::Uinput,
             d.post_delay_ms,
@@ -318,7 +302,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "Surrounding, Flow, ForwardBackspace",
             "Commit chờ phím xoá áp xong; quá ngắn thì chữ hiện trước dấu, quá dài thì gõ bị trễ.",
             "Tăng: chữ chắc chắn hiện sau khi xoá xong nhưng gõ trễ; giảm: mượt hơn, có thể hiện chữ trước dấu.",
-            "[S, F, FB]",
+            "[S,F,FB]",
             &ui.echo_apply_grace_spin,
             Bucket::Park,
             d.echo_apply_grace_ms,
@@ -374,7 +358,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "tất cả các chế độ",
             "Mất focus trong khoảng này thì coi là nháy, giữ nguyên từ đang gõ.",
             "Tăng: giữ từ qua lần mất focus lâu hơn; giảm: reset sớm, dễ mất từ khi cửa sổ nháy.",
-            "[P, S, F, FB]",
+            "[P,S,F,FB]",
             &ui.focus_bounce_spin,
             Bucket::Park,
             d.focus_bounce_ms,
@@ -388,7 +372,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "tất cả, nhưng chỉ khi chọn cách Chèn dấu ·",
             "Chờ sau khi chèn dấu · để browser bỏ gợi ý trước khi xoá.",
             "Tăng: browser kịp bỏ gợi ý rồi mới xoá; giảm: xoá sớm, dễ xoá nhầm gợi ý.",
-            "[S, F, FB]",
+            "[S,F,FB]",
             &ui.marker_wait_spin,
             Bucket::Park,
             d.marker_wait_ms,
@@ -402,7 +386,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             purpose: "Quá hạn này không thấy phím ảo quay về thì đổ chữ đã treo, để không mất chữ trên Wayland.",
             scope: "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace",
             effect: "Tăng: chờ lâu hơn nên ít mất chữ nhưng chữ hiện trễ; giảm: đổ chữ sớm, dễ mất chữ khi phím ảo về chậm.",
-            modes: "[S, F, FB]",
+            modes: "[S,F,FB]",
             spin: ui.echo_stale_spin.clone(),
             switch: Some(ui.echo_stale_switch.clone()),
             bucket: Bucket::Park,

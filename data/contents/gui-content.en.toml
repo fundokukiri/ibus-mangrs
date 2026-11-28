@@ -490,7 +490,7 @@ description = "Flow only, in milliseconds."
 
 [groups.tune.nhip]
 title = "Key pace"
-description = "Park times of all four modes, in milliseconds."
+description = "Park times of all four modes, in milliseconds. P: Preedit · S: Surrounding · F: Flow · FB: ForwardBackspace."
 
 [rows.echo_apply_grace]
 title = "Wait after the delete"
@@ -521,7 +521,6 @@ scope = "Applies to"
 reset_confirm_title = "Restore defaults?"
 reset_confirm_body = "Every value in the table goes back to what it was when the app was installed."
 effect = "Adjusting"
-modes_tooltip = "P: Preedit · S: Surrounding · F: Flow · FB: ForwardBackspace"
 [groups.tune.channel]
 title = "Text channel"
 
