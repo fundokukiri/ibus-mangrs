@@ -167,7 +167,8 @@ Có lỗi khi gõ thì gửi kèm log — người sửa không đoán được 
 2. Gõ lại đúng chỗ bị lỗi vài lần, rồi **giữ nguyên app đó** mở cửa sổ cài đặt.
 3. Bấm **_Sao chép báo cáo_** — nội dung đã là Markdown để dán thẳng vào issue GitHub: mục
    _Cách tái hiện_ để trống cho bạn điền (ứng dụng, chế độ gõ, các bước, chữ đã gõ, mong đợi,
-   thực tế), tiếp theo là các hàng môi trường, `config.toml` đang dùng và 50 dòng nhật ký cuối.
+   thực tế), tiếp theo là các hàng môi trường, những mục `config.toml` khác mặc định và 50 dòng
+   nhật ký cuối.
 4. Dán vào issue tại <https://github.com/fundokukiri/ibus-mangrs/issues>.
 
 Nếu cần gửi nhiều hơn 50 dòng, đính kèm cả tệp `~/.cache/ibus-mangrs/debug.log` (và

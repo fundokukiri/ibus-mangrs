@@ -174,8 +174,8 @@ A typing bug needs the log — nobody can reconstruct it from a description. Qui
    application**.
 3. Press **_Sao chép báo cáo_**. The clipboard already holds Markdown for a GitHub issue: a
    _Cách tái hiện_ block left blank for you (application, typing mode, steps, the text you typed,
-   what you expected, what happened), then the environment rows, the `config.toml` in force and the
-   last 50 log lines.
+   what you expected, what happened), then the environment rows, the `config.toml` entries that
+   differ from the default and the last 50 log lines.
 4. Paste it into an issue at <https://github.com/fundokukiri/ibus-mangrs/issues>.
 
 When 50 lines are not enough, attach `~/.cache/ibus-mangrs/debug.log` (and `debug.log.old` if it

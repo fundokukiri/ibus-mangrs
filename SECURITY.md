@@ -26,7 +26,7 @@ kênh trên đã cho một tiến trình thường của tài khoản.
 
 | Hành động | Cơ chế | Giới hạn |
 | --- | --- | --- |
-| Bơm sự kiện phím | một trong các backend chọn theo phiên — `/dev/uinput` (thiết bị kernel), XTest (X11), giao thức virtual-keyboard của wlroots (Hyprland/wlroots), hoặc libei qua API trực tiếp của mutter (GNOME) — xem `ARCHITECTURE.md` phần "Injection transports" | mọi backend bị engine khống chế cùng một whitelist: **chỉ Backspace và Delete** — chữ luôn đi qua IBus, không bao giờ qua bơm phím. Trên `/dev/uinput` kernel tự thực thi giới hạn (chỉ đăng ký các keycode đó); trên các backend giao thức, bộ phương thức của trait là lớp thực thi |
+| Bơm sự kiện phím | một trong các backend chọn theo phiên — `/dev/uinput` (thiết bị kernel), XTest (X11), giao thức virtual-keyboard của wlroots (Hyprland/wlroots), hoặc libei — qua API trực tiếp của mutter (GNOME) hay qua `org.freedesktop.portal.RemoteDesktop` ở compositor chỉ mở portal — xem `ARCHITECTURE.md` phần "Injection transports" | mọi backend bị engine khống chế cùng một whitelist: **chỉ Backspace và Delete** — chữ luôn đi qua IBus, không bao giờ qua bơm phím. Trên `/dev/uinput` kernel tự thực thi giới hạn (chỉ đăng ký các keycode đó); trên các backend giao thức, bộ phương thức của trait là lớp thực thi |
 | Đưa chữ vào văn bản | IBus `CommitText` tới input context đang focus | chỉ client đang focus |
 | Ghi file | `~/.config/ibus-mangrs/`, `~/.cache/ibus-mangrs/`, các file xuất từ cửa sổ cài đặt | không đụng `/usr`, `/etc`, hay home của người khác |
 
@@ -45,6 +45,9 @@ session-bus nào mà không cần hộp thoại đồng ý — compositor tin c�
 và một tiến trình như vậy vốn có thể dùng XTEST/XRecord trên X11 hay `/dev/uinput` với ACL
 uaccess). Những gì engine thêm trên đó là cùng whitelist với mọi backend khác: chỉ Backspace
 và Delete, thực thi bởi bộ phương thức của trait — không lời gọi backend nào gõ được chữ.
+Ở compositor chỉ mở portal, engine xin phiên qua `org.freedesktop.portal.RemoteDesktop`
+(`ConnectToEIS`): cùng socket EIS, nhưng lần dùng đầu có hộp thoại xin phép của portal — đường
+này có sự đồng ý của người dùng, khác API trực tiếp của mutter ở trên.
 Thư viện `libei.so.1` được nạp lúc chạy (dlopen): hệ thống thiếu nó vẫn build và chạy engine
 bình thường, backend libei đơn giản không bao giờ kích hoạt.
 
@@ -70,7 +73,8 @@ nội dung vẫn đúng một chữ `uinput`, vì tool khác có thể đã ghi 
 `/dev/uinput` được mở lười và thử lại mỗi hai giây khi chưa mở được, vì logind có thể cấp ACL
 một lúc sau khi engine khởi động. Nếu nó không bao giờ khả dụng, kiểu gõ commit-as-you-type
 rơi về xoá qua protocol ở app tự báo cáo chữ, còn lại là phím Backspace gửi tiếp qua IBus —
-không bao giờ fail âm thầm.
+không bao giờ fail âm thầm. Trên X11, XTest được thử trước `/dev/uinput`, nên ACL này không còn
+là điều kiện để gõ ở phiên Xorg — thiết bị kernel chỉ là dự phòng.
 
 ## Rủi ro còn lại (đã chấp nhận)
 

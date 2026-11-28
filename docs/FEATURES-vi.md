@@ -144,8 +144,10 @@ phải phím tắt của MăngRS.
 - **Trang _Gỡ lỗi_** (hiện ra khi bật một trong ba công tắc ở _Cài đặt nâng cao_) chia hai cột:
   nhật ký bên trái, công cụ bên phải. Thanh trên cùng cho biết engine có đang chạy (PID, thời gian
   chạy, phiên bản), độ trễ trung bình và lớn nhất của 200 phím gần nhất, và dung lượng tệp nhật ký.
-- **Nhật ký**: lọc theo chữ bất kỳ, lọc theo loại dòng (_Phím_, _Chèn_, _Xoá_, _Bộ đệm_, _Lỗi_), tạm
-  dừng cuộn, và _Xoá log_ (hỏi trước). Dòng mới tự hiện ở dưới cùng, cách dòng trên bao nhiêu
+- **Nhật ký**: lọc theo chữ bất kỳ, lọc theo loại dòng (_Phím_, _Chèn_, _Xoá_, _Bộ đệm_, _Lỗi_), công
+  tắc cuộn cạnh khung log (tắt thì khung đứng yên chỗ bạn đang đọc, không tự nhảy xuống), công tắc
+  _Tạm dừng_ (engine ngừng ghi log, trạng thái được nhớ trong `config.toml`) và _Xoá log_ (hỏi
+  trước). Khi công tắc cuộn bật, dòng mới tự hiện ở dưới cùng, cách dòng trên bao nhiêu
   mili-giây, thuộc loại nào, và phím đã giải mã (`BackSpace (0xff08) thả`). Mỗi dòng mở đầu bằng
   một tag ngắn (`st`, `ins`, `del`, `buf`, `key`, `ctx`, `cfg`, `ext`) rồi các trường `k=v`; dòng
   lỗi mang `ok=0`, dòng lặp liên tiếp được gộp một lần kèm `rep=N` — nhờ vậy một câu hỏi chỉ cần
@@ -157,6 +159,6 @@ phải phím tắt của MăngRS.
   `debug.log`). Hàng nào lệch nhau được tô màu cảnh báo kèm một câu chỉ việc; bấm một hàng là sao
   chép giá trị của nó.
 - **_Sao chép báo cáo_** tạo Markdown để dán thẳng vào issue GitHub: mục _Cách tái hiện_ để trống
-  cho bạn điền, các hàng môi trường (chỉ hàng đáng xem), `config.toml` đang dùng và 50 dòng nhật ký
-  cuối. Công tắc _Ẩn nội dung gõ và macro khi sao chép_ thay chữ bạn gõ bằng `***`.
+  cho bạn điền, các hàng môi trường (chỉ hàng đáng xem), những mục `config.toml` khác mặc định và
+  50 dòng nhật ký cuối. Công tắc _Ẩn nội dung gõ và macro khi sao chép_ thay chữ bạn gõ bằng `***`.
 - Tệp nhật ký nằm ở `~/.cache/ibus-mangrs/debug.log` và tự chuyển sang `debug.log.old` khi quá 5 MB.

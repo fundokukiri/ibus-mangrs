@@ -149,11 +149,13 @@ GNOME's input-source switcher, not a MăngRS shortcut.
   the engine runs (PID, uptime, version), the average and worst delay of the last 200 keystrokes,
   and the log's size.
 - **The log**: a filter that matches any part of a line regardless of case, a list to show one kind
-  of line (_Phím_, _Chèn_, _Xoá_, _Bộ đệm_, _Lỗi_), a pause button, and _Xoá log_ (it asks first).
-  The newest line stays in view, and each line shows how long after the line above it arrived, its
-  kind, and the key decoded (`BackSpace (0xff08) thả`). Every line opens with a short tag (`st`,
-  `ins`, `del`, `buf`, `key`, `ctx`, `cfg`, `ext`) followed by `k=v` fields; a failure carries
-  `ok=0` and a run of identical lines is kept once with `rep=N`, so a question is one `grep`.
+  of line (_Phím_, _Chèn_, _Xoá_, _Bộ đệm_, _Lỗi_), a scroll switch beside the pane (off: the pane
+  stays where you left it instead of following), a _Tạm dừng_ switch that stops the engine writing
+  (the state is remembered in `config.toml`), and _Xoá log_ (it asks first). With the scroll
+  switch on, the newest line stays in view, and each line shows how long after the line above it
+  arrived, its kind, and the key decoded (`BackSpace (0xff08) thả`). Every line opens with a short
+  tag (`st`, `ins`, `del`, `buf`, `key`, `ctx`, `cfg`, `ext`) followed by `k=v` fields; a failure
+  carries `ok=0` and a run of identical lines is kept once with `rep=N`, so a question is one `grep`.
 - **_Thử gõ_** is a text box that goes through IBus like any application, so the log and both delay
   numbers follow at once; the `buffer:` line under it says what the box holds and whether the engine
   is composing a word.
@@ -162,7 +164,7 @@ GNOME's input-source switcher, not a MăngRS shortcut.
   (`config.toml`, `debug.log`). A row that disagrees with the others is tinted with the warning
   colour and a sentence under its card says what to do; clicking a row copies its value.
 - **_Sao chép báo cáo_** builds Markdown to paste into a GitHub issue: a _Cách tái hiện_ block left
-  empty for you, the environment rows (only the ones worth a look), the `config.toml` in force and
-  the last 50 log lines. The _Ẩn nội dung gõ và macro khi sao chép_ switch replaces the text you
-  typed with `***`.
+  empty for you, the environment rows (only the ones worth a look), the `config.toml` entries that
+  differ from the default and the last 50 log lines. The _Ẩn nội dung gõ và macro khi sao chép_
+  switch replaces the text you typed with `***`.
 - The log file lives at `~/.cache/ibus-mangrs/debug.log` and moves to `debug.log.old` past 5 MB.
