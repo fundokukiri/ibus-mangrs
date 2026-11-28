@@ -54,6 +54,7 @@ fn gtk_widget_scenarios() {
     nhip_table_edits_and_resets_every_timing();
     nhip_rows_name_their_config_key();
     nhip_header_carries_the_filter_and_the_reset();
+    nhip_rows_name_their_modes();
     the_marker_pause_follows_the_address_bar_style();
     rules_add_group_merges_the_focus_chip();
     rule_rows_round_trip_through_read();
@@ -1080,6 +1081,37 @@ fn the_table_tooltip_speaks_the_window_language() {
     );
 }
 
+/// Every row names the modes it acts on under its subtitle: the Flow pair
+/// is Flow-only, the parked grace covers the three delete transports.
+fn nhip_rows_name_their_modes() {
+    let ui = widgets();
+    let page = crate::gui::pages::tune::build(&ui);
+    let rows = descendants::<adw::ActionRow>(page.upcast_ref());
+    let badge_of = |needle: &str| {
+        let row = rows
+            .iter()
+            .find(|r| r.title().contains(needle))
+            .expect("the row");
+        let subtitle = crate::gui::widgets::row_subtitle(row).expect("a subtitle");
+        let box_ = subtitle
+            .parent()
+            .and_downcast::<gtk4::Box>()
+            .expect("the box");
+        let labels: Vec<String> = descendants::<gtk4::Label>(box_.upcast_ref())
+            .into_iter()
+            .map(|l| l.text().to_string())
+            .collect();
+        labels
+            .into_iter()
+            .find(|t| t.starts_with('['))
+            .unwrap_or_default()
+    };
+    assert_eq!(badge_of("Flow: hiện dấu"), "[F]");
+    assert_eq!(badge_of("Chờ sau phím xoá thật"), "[S]");
+    assert_eq!(badge_of("Hoãn reset khi mất focus"), "[P, S, F, FB]");
+    assert_eq!(badge_of("Chờ sau phím xoá"), "[S, F, FB]");
+}
+
 /// The filter and the reset live in the group header, right of the title:
 /// they act on the whole table, so they do not take a row of their own.
 fn nhip_header_carries_the_filter_and_the_reset() {
@@ -1148,6 +1180,10 @@ fn nhip_rows_name_their_config_key() {
         assert!(
             tip.contains("Chỉnh:") && tip.contains("Tăng:") && tip.contains("giảm:"),
             "{needle}: the tooltip must say what raising and lowering does, got {tip:?}"
+        );
+        assert!(
+            tip.contains("modes_tooltip") == false,
+            "{needle}: the badge tooltip must stay on the badge"
         );
     }
 }

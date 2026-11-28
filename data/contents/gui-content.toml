@@ -523,6 +523,7 @@ scope = "Áp dụng"
 reset_confirm_title = "Khôi phục mặc định?"
 reset_confirm_body = "Mọi giá trị trong bảng trở về như lúc mới cài."
 effect = "Chỉnh"
+modes_tooltip = "P: gạch chân · S: Surrounding · F: Flow · FB: ForwardBackspace"
 [groups.tune.channel]
 title = "Kênh gửi chữ"
 
