@@ -408,16 +408,6 @@ impl Engine {
     /// (GTK4 on Ubuntu 26.04: the raw word stayed and the marked one was
     /// appended, then erased by its own deletes).
     fn forward_by_keys(&self, mode: Mode) -> bool {
-        // Surrounding keeps its contract on a client known to drop the
-        // protocol delete by deleting with forwarded keys instead — but only
-        // while its reports never described the committed word. A report that
-        // does describe it proves the delete lands (Chrome's omnibox), and
-        // switching that to keys would put the rewrite on the transport the
-        // client drops for its real field (Docs' canvas).
-        if mode == Mode::Surrounding {
-            return self.client_cannot_delete_surrounding()
-                && (self.drops_deletes() || !self.report_tracks_tail);
-        }
         forwards_delete(mode)
             && (self.report_prefix_len() == 0
                 || self.drops_deletes()

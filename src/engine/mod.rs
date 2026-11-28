@@ -223,11 +223,6 @@ pub struct Engine {
     /// Set once the client has been proven to drop DeleteSurroundingText:
     /// the server then injects real Backspace keys instead of the signal.
     delete_dropped: bool,
-    /// Whether the last report described the word we committed (or a shorter
-    /// one we typed on the way to it). Chrome reports only its tab-search box
-    /// while the Docs canvas holds none, so a report existing is not proof
-    /// that a delete reaches the text we wrote.
-    report_tracks_tail: bool,
     /// Verdicts from earlier focus sessions, keyed by client and app name, so
     /// walking back into an app that swallows rewrite deletes does not pay for
     /// the wrong first word again. Cleared by a client reset: that is the
@@ -601,7 +596,6 @@ impl Engine {
             preedit_for_xim: false,
             nav_key_while_preedit: NavKeyWhilePreedit::default(),
             delete_dropped: false,
-            report_tracks_tail: false,
             delete_verdicts: std::collections::HashMap::new(),
             awaiting_delete_proof: None,
             uinput_available: false,
@@ -1224,7 +1218,6 @@ impl Engine {
         self.surrounding = None;
         self.repair_delete = None;
         self.delete_dropped = false;
-        self.report_tracks_tail = false;
         self.suggestions = false;
         self.awaiting_delete_proof = None;
     }
@@ -1354,7 +1347,6 @@ impl Engine {
             // A proof belongs to the context it was measured in; the cache
             // restores it when this app comes back.
             self.delete_dropped = false;
-            self.report_tracks_tail = false;
         }
         self.app_name = name;
     }
