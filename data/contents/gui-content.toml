@@ -519,7 +519,9 @@ subtitle = "Chỉ dùng khi chèn dấu ·"
 [rows.nhip]
 reset = "Khôi phục mặc định"
 reset_tooltip = "Đưa cả bảng về giá trị gốc"
+reset_button = "Đặt lại"
 reset_one = "Về giá trị gốc"
+default_tooltip = "Giá trị gốc của dòng này"
 
 [groups.tune.channel]
 title = "Kênh gửi chữ"

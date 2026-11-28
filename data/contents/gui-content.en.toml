@@ -517,7 +517,9 @@ subtitle = "Only with the · marker fix"
 [rows.nhip]
 reset = "Restore defaults"
 reset_tooltip = "Put the whole table back to the shipped values"
+reset_button = "Reset"
 reset_one = "Back to the shipped value"
+default_tooltip = "The shipped value of this row"
 
 [groups.tune.channel]
 title = "Text channel"

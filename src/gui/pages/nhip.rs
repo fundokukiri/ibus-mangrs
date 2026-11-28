@@ -7,14 +7,20 @@ use super::*;
 
 /// One table row: the label pair, the spin that edits it and the shipped
 /// default that the reset button writes back.
-pub(crate) struct Row {
+struct Row {
     /// Translation key prefix; `.title` and `.subtitle` follow it.
-    pub key: &'static str,
+    key: &'static str,
     /// Vietnamese fallbacks, used when the catalogue has no entry.
-    pub title: &'static str,
-    pub subtitle: &'static str,
-    pub spin: gtk4::SpinButton,
-    pub default: u64,
+    title: &'static str,
+    subtitle: &'static str,
+    spin: gtk4::SpinButton,
+    default: u64,
+}
+
+impl Row {
+    fn title(&self) -> String {
+        t(&format!("{}.title", self.key), self.title)
+    }
 }
 
 pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
@@ -26,19 +32,87 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
         ))
         .build();
     let rows = rows(ui);
-    group.add(&reset_bar(&rows));
-    group.add(&grid(&rows));
-    // Every spin saves on its own: the table has no apply button, like the
-    // merged rows it replaces.
     for row in &rows {
+        let widget = row_row(row);
+        // Every spin saves on its own: the table has no apply button, like
+        // the merged rows it replaces.
         let s = ui.save_cb.clone();
         row.spin.connect_value_notify(move |_| {
             if let Some(save) = s.borrow().as_ref() {
                 save();
             }
         });
+        group.add(&widget);
     }
+    group.add(&reset_row(&rows));
     group
+}
+
+/// One row: the name and its description on the left; the shipped default,
+/// the reset button and the spin as three suffixes, so every row reads the
+/// same way down the group.
+fn row_row(row: &Row) -> adw::ActionRow {
+    let widget = action_row(
+        &row.title(),
+        &t(&format!("{}.subtitle", row.key), row.subtitle),
+    );
+    let default = gtk4::Label::new(Some(&format!("{} ms", row.default)));
+    default.add_css_class("dim-label");
+    default.add_css_class("numeric");
+    default.set_valign(gtk4::Align::Center);
+    default.set_tooltip_text(Some(&t(
+        "rows.nhip.default_tooltip",
+        "Giá trị gốc của dòng này",
+    )));
+
+    let reset = gtk4::Button::with_label("↺");
+    reset.add_css_class("flat");
+    reset.add_css_class("circular");
+    reset.set_valign(gtk4::Align::Center);
+    reset.set_tooltip_text(Some(&t("rows.nhip.reset_one", "Về giá trị gốc")));
+    reset.update_property(&[gtk4::accessible::Property::Label(&format!(
+        "{}: {}",
+        t("rows.nhip.reset_one", "Về giá trị gốc"),
+        row.title()
+    ))]);
+    {
+        let spin = row.spin.clone();
+        let value = row.default;
+        reset.connect_clicked(move |_| spin.set_value(value as f64));
+    }
+
+    row.spin.set_valign(gtk4::Align::Center);
+    row.spin
+        .update_property(&[gtk4::accessible::Property::Label(&format!(
+            "{} (ms)",
+            row.title()
+        ))]);
+
+    widget.add_suffix(&default);
+    widget.add_suffix(&reset);
+    widget.add_suffix(&row.spin);
+    widget
+}
+
+/// The group-level reset: one row at the bottom with the button on the
+/// right, matching the rows above instead of a stray toolbar button.
+fn reset_row(rows: &[Row]) -> adw::ActionRow {
+    let widget = action_row(
+        &t("rows.nhip.reset", "Khôi phục mặc định"),
+        &t("rows.nhip.reset_tooltip", "Đưa cả bảng về giá trị gốc"),
+    );
+    let button = gtk4::Button::with_label(&t("rows.nhip.reset_button", "Đặt lại"));
+    button.add_css_class("flat");
+    button.set_valign(gtk4::Align::Center);
+    let defaults: Vec<(gtk4::SpinButton, u64)> =
+        rows.iter().map(|r| (r.spin.clone(), r.default)).collect();
+    button.connect_clicked(move |_| {
+        for (spin, value) in &defaults {
+            spin.set_value(*value as f64);
+        }
+    });
+    widget.add_suffix(&button);
+    widget
 }
 
 fn rows(ui: &Rc<Ui>) -> Vec<Row> {
@@ -47,14 +121,14 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
         Row {
             key: "rows.backspace_interval",
             title: "Xoá lùi",
-            subtitle: "Nghỉ giữa các phím Backspace bấm thật",
+            subtitle: "Giảm nếu xoá chậm",
             spin: ui.backspace_interval.clone(),
             default: d.backspace_interval_ms,
         },
         Row {
             key: "rows.post_delay",
             title: "Chờ viết lại từ",
-            subtitle: "Nghỉ sau khi sửa màn hình",
+            subtitle: "Cho app xử lý phím chậm",
             spin: ui.post_delay.clone(),
             default: d.post_delay_ms,
         },
@@ -101,80 +175,4 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             default: d.marker_wait_ms,
         },
     ]
-}
-
-/// The group-level reset: every spin back to its shipped value in one click.
-fn reset_bar(rows: &[Row]) -> gtk4::Box {
-    let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    let button = gtk4::Button::with_label(&t("rows.nhip.reset", "Khôi phục mặc định"));
-    button.set_halign(gtk4::Align::End);
-    button.set_hexpand(true);
-    button.set_tooltip_text(Some(&t(
-        "rows.nhip.reset_tooltip",
-        "Đưa cả bảng về giá trị gốc",
-    )));
-    let defaults: Vec<(gtk4::SpinButton, u64)> =
-        rows.iter().map(|r| (r.spin.clone(), r.default)).collect();
-    button.connect_clicked(move |_| {
-        for (spin, value) in &defaults {
-            spin.set_value(*value as f64);
-        }
-    });
-    bar.append(&button);
-    bar
-}
-
-fn grid(rows: &[Row]) -> gtk4::Grid {
-    let grid = gtk4::Grid::builder()
-        .row_spacing(10)
-        .column_spacing(12)
-        .margin_top(6)
-        .margin_bottom(12)
-        .margin_start(12)
-        .margin_end(12)
-        .build();
-    for (col, caption) in ["", "Giá trị", "Mặc định"].iter().enumerate() {
-        let label = gtk4::Label::new(Some(caption));
-        label.add_css_class("caption");
-        label.set_halign(gtk4::Align::Start);
-        label.set_xalign(0.0);
-        grid.attach(&label, col as i32, 0, 1, 1);
-    }
-    for (i, row) in rows.iter().enumerate() {
-        let line = i as i32 + 1;
-        let text = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-        let title = gtk4::Label::new(Some(&t(&format!("{}.title", row.key), row.title)));
-        title.set_xalign(0.0);
-        let subtitle = gtk4::Label::new(Some(&t(&format!("{}.subtitle", row.key), row.subtitle)));
-        subtitle.set_xalign(0.0);
-        subtitle.add_css_class("dim-label");
-        subtitle.add_css_class("caption");
-        subtitle.set_wrap(true);
-        text.append(&title);
-        text.append(&subtitle);
-        grid.attach(&text, 0, line, 1, 1);
-
-        row.spin.set_valign(gtk4::Align::Center);
-        row.spin
-            .update_property(&[gtk4::accessible::Property::Label(&format!(
-                "{} (ms)",
-                t(&format!("{}.title", row.key), row.title)
-            ))]);
-        grid.attach(&row.spin, 1, line, 1, 1);
-
-        let default = gtk4::Label::new(Some(&format!("{} ms", row.default)));
-        default.add_css_class("dim-label");
-        default.set_xalign(1.0);
-        default.set_hexpand(true);
-        grid.attach(&default, 2, line, 1, 1);
-
-        let reset = gtk4::Button::with_label("↺");
-        reset.add_css_class("flat");
-        reset.set_tooltip_text(Some(&t("rows.nhip.reset_one", "Về giá trị gốc")));
-        let spin = row.spin.clone();
-        let value = row.default;
-        reset.connect_clicked(move |_| spin.set_value(value as f64));
-        grid.attach(&reset, 3, line, 1, 1);
-    }
-    grid
 }
