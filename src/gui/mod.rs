@@ -281,7 +281,6 @@ struct Ui {
     /// default-displayed and restored with them; needs the prediction
     /// model file to do anything.
     suggest_words: adw::SwitchRow,
-    dodge_row: adw::ActionRow,
     dodge_switch: adw::SwitchRow,
     dodge_fix: adw::ComboRow,
     preferred_backend: adw::ComboRow,
@@ -398,10 +397,11 @@ struct Ui {
     key_delete_grace_spin: gtk4::SpinButton,
     focus_bounce_spin: gtk4::SpinButton,
     marker_wait_spin: gtk4::SpinButton,
-    echo_stale_row: adw::ActionRow,
+    /// The "Nhịp gõ" rows that sit behind the experimental gate, filled by
+    /// `pages::nhip::build` so the gate can lock them.
+    nhip_gated: Rc<RefCell<Vec<gtk4::Widget>>>,
     echo_stale_switch: gtk4::Switch,
     echo_stale_spin: gtk4::SpinButton,
-    idle_commit_row: adw::ActionRow,
     idle_commit_switch: gtk4::Switch,
     idle_commit_spin: gtk4::SpinButton,
     flow_per_key_spin: gtk4::SpinButton,
@@ -927,17 +927,19 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 8] = [
+        let rows: [&gtk4::Widget; 5] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
             self.suggest_words.upcast_ref(),
-            self.dodge_row.upcast_ref(),
             self.preferred_backend.upcast_ref(),
-            self.echo_stale_row.upcast_ref(),
-            self.idle_commit_row.upcast_ref(),
         ];
         for row in rows {
+            row.set_sensitive(on);
+        }
+        // The four gated rows of the "Nhịp gõ" table live there, so the
+        // table hands back their widgets for the same pass.
+        for row in self.nhip_gated.borrow().iter() {
             row.set_sensitive(on);
         }
         if on {

@@ -333,37 +333,6 @@ pub(super) fn action_row(title: &str, subtitle: &str) -> adw::ActionRow {
     row
 }
 
-/// A merged feature row: the feature's title and subtitle on the left, its
-/// on/off switch as the first suffix and the value control as the second —
-/// one row per feature instead of a switch row plus a separate value row
-/// below it. Returns the switch for the save/twin-lock wiring; the row
-/// itself goes into the gate's lock list (locking the row greys both
-/// suffixes, since sensitivity cascades).
-pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
-    title: &str,
-    subtitle: &str,
-    value: &W,
-) -> (adw::ActionRow, gtk4::Switch) {
-    let row = action_row(title, subtitle);
-    let switch = gtk4::Switch::new();
-    switch.set_valign(gtk4::Align::Center);
-    value.set_valign(gtk4::Align::Center);
-    // A vertical divider draws the boundary between the two halves — the
-    // switch half and the value half — instead of an invisible gap.
-    let divider = pacing_divider();
-    row.add_suffix(&switch);
-    row.add_suffix(&divider);
-    row.add_suffix(value);
-    // Merged rows only: the control group hugs the text block instead of
-    // floating at the row's right edge — the suffix box expands so its
-    // start-packed children land right after the fixed-width title, and
-    // the slack moves to the row's end.
-    if let (Some(suffixes), _) = find_suffixes_and_switch(row.upcast_ref()) {
-        suffixes.set_hexpand(true);
-    }
-    (row, switch)
-}
-
 /// One width for every merged-row value control: the rows must read as a
 /// balanced column, not some boxes short and some long. In pixels, not
 /// width_chars — the spin's built-in arrow stack makes a 12-char spin
@@ -422,15 +391,6 @@ pub(super) fn spin_button(min: f64, max: f64, step: f64) -> gtk4::SpinButton {
     let spin = gtk4::SpinButton::new(Some(&adjustment), step, 0);
     spin.set_size_request(VALUE_WIDTH_PX, -1);
     spin
-}
-
-/// The vertical divider between two pacing columns of a merged row — the
-/// same separator `switch_value_row` draws between its halves.
-pub(super) fn pacing_divider() -> gtk4::Separator {
-    let divider = gtk4::Separator::new(gtk4::Orientation::Vertical);
-    divider.set_margin_start(8);
-    divider.set_margin_end(8);
-    divider
 }
 
 /// The text half of a merged row: a plain entry sized to the shared value

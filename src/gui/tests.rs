@@ -52,6 +52,7 @@ fn gtk_widget_scenarios() {
     external_reload_refreshes_without_saving();
     row_texts_render_as_plain_text();
     nhip_table_edits_and_resets_every_timing();
+    nhip_rows_name_their_config_key();
     rules_add_group_merges_the_focus_chip();
     rule_rows_round_trip_through_read();
     macro_page_helpers_count_and_preview();
@@ -1007,17 +1008,42 @@ fn nhip_table_edits_and_resets_every_timing() {
     );
 }
 
+/// Every row of the "Nhịp gõ" table names the config key it edits in its
+/// tooltip, so a user can go straight to config.toml and a bug report can
+/// quote the key.
+fn nhip_rows_name_their_config_key() {
+    let ui = widgets();
+    let page = crate::gui::pages::tune::build(&ui);
+    let rows = descendants::<adw::ActionRow>(page.upcast_ref());
+    let tip_of = |needle: &str| {
+        rows.iter()
+            .find(|r| r.title().contains(needle))
+            .and_then(|r| r.tooltip_text())
+            .map(|t| t.to_string())
+            .unwrap_or_default()
+    };
+    for (needle, key) in [
+        ("Xoá lùi", "backspace_interval_ms"),
+        ("Chờ sau phím xoá thật", "key_delete_grace_ms"),
+        ("Chờ sau phím xoá", "echo_apply_grace_ms"),
+        ("Hoãn reset khi mất focus", "focus_bounce_ms"),
+        ("Chờ sau dấu ·", "marker_wait_ms"),
+    ] {
+        let tip = tip_of(needle);
+        assert!(
+            tip.starts_with(&format!("`{key}`")),
+            "{needle}: the tooltip must lead with `{key}`, got {tip:?}"
+        );
+    }
+}
+
 /// Adw rows parse Pango markup in title/subtitle by default; the URL
 /// rule's subtitle carries a bare `&`, which failed to parse and rendered
 /// as nothing. The row builders switch markup off — assert one row per
 /// builder, plus the subtitle data of the reported row.
 fn row_texts_render_as_plain_text() {
     let ui = widgets();
-    for markup_off in [
-        !ui.bypass_url.uses_markup(),
-        !ui.method.uses_markup(),
-        !ui.echo_stale_row.uses_markup(),
-    ] {
+    for markup_off in [!ui.bypass_url.uses_markup(), !ui.method.uses_markup()] {
         assert!(markup_off, "row titles and subtitles must be plain text");
     }
     assert_eq!(
@@ -1332,16 +1358,15 @@ fn the_search_button_opens_the_entry() {
     Config::default().save().expect("config back off");
 }
 
-/// Every switch on a page ends on the same vertical edge, including the one
-/// whose row used to carry a second control in its suffix area (an expanded
-/// suffix box packed its children from the left, leaving that switch 46 px
-/// short of the others).
+/// Every switch on a page ends on the same vertical edge (an expanded
+/// suffix box packed its children from the left, leaving that switch short
+/// of the others).
 fn every_switch_on_a_page_lands_on_the_same_edge() {
     let app = adw::Application::builder()
         .application_id("org.freedesktop.IBus.mangrs.test-switch-line")
         .build();
     Config::default().save().expect("config on");
-    let win = crate::gui::content::build(&app, Some("experimental"));
+    let win = crate::gui::content::build(&app, Some("tune"));
     win.set_default_size(1180, 740);
     win.present();
     let ctx = gtk4::glib::MainContext::default();
@@ -1369,11 +1394,11 @@ fn every_switch_on_a_page_lands_on_the_same_edge() {
             .find(|r| r.title().contains(needle))
             .and_then(right_edge)
     };
-    let two_controls = pick("địa chỉ").expect("the address-bar row");
-    let plain = pick("Giữ từ khi gõ thêm").expect("a plain switch row");
+    let first = pick("Xoá đuôi từ").expect("the X11 delete row");
+    let second = pick("Preedit cho app XIM").expect("the XIM row");
     assert_eq!(
-        two_controls, plain,
-        "the switch of a two-control row must end where a plain row's does"
+        first, second,
+        "every switch on the page must end on the same edge"
     );
     win.close();
     Config::default().save().expect("config back off");
@@ -1683,6 +1708,9 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     // the row never reached the switch the merged rows wrap.
     let page = pages::experimental::build(&ui);
     assert!(page.has_css_class("experimental-page"));
+    // The gated timing rows live in the "Nhịp gõ" table now; building that
+    // page registers them with the gate, exactly like the real window.
+    let _tune = pages::tune::build(&ui);
     let macros = Macros::load();
     let dictionary = Dictionary::load();
     {
@@ -1706,7 +1734,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(ui.macro_valid_words.is_sensitive());
     assert!(ui.suggest_words.is_sensitive());
     // The merged row locks as one unit with the gate.
-    assert!(ui.echo_stale_row.is_sensitive());
+    assert!(ui.echo_stale_switch.is_sensitive());
     assert_eq!(ui.echo_stale_spin.value(), 250.0);
 
     // Off (driven through the file, as the real funnel produces it): rows
@@ -1718,7 +1746,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.refresh(&off, &macros, &dictionary);
     assert!(!ui.macro_valid_words.is_sensitive());
     assert!(!ui.suggest_words.is_sensitive());
-    assert!(!ui.echo_stale_row.is_sensitive());
+    assert!(!ui.echo_stale_switch.is_sensitive());
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
 
     // A save with the gate off — the funnel reads the default-displaying
@@ -1735,7 +1763,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.experimental_features.set_active(true);
     ui.restore_experimental_saved();
     ui.set_experimental_sensitive(true);
-    assert!(ui.echo_stale_row.is_sensitive());
+    assert!(ui.echo_stale_switch.is_sensitive());
     assert_eq!(
         ui.echo_stale_spin.value(),
         250.0,

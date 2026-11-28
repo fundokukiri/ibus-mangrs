@@ -522,7 +522,11 @@ reset_tooltip = "Đưa cả bảng về giá trị gốc"
 reset_button = "Đặt lại"
 reset_one = "Về giá trị gốc"
 default_tooltip = "Giá trị gốc của dòng này"
-
+filter = "Hiện"
+filter_subtitle = "Chọn nhóm thông số muốn xem"
+filter_all = "Tất cả"
+filter_time = "Thời gian"
+filter_insert = "Cách xoá"
 [groups.tune.channel]
 title = "Kênh gửi chữ"
 

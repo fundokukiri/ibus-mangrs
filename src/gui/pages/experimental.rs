@@ -58,15 +58,11 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     typing.add(&ui.keep_composed_words);
     typing.add(&ui.keep_repeats_raw);
     typing.add(&ui.suggest_words);
-    typing.add(&ui.dodge_row);
-    typing.add(&ui.dodge_fix);
     page.add(&typing);
 
     let tuning = adw::PreferencesGroup::builder()
         .title(t("groups.experimental.tuning.title", "Tinh chỉnh"))
         .build();
-    tuning.add(&ui.echo_stale_row);
-    tuning.add(&ui.idle_commit_row);
     tuning.add(&ui.preferred_backend);
     page.add(&tuning);
 
@@ -76,9 +72,6 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     decorate_experimental(&ui.keep_composed_words);
     decorate_experimental(&ui.keep_repeats_raw);
     decorate_experimental(&ui.suggest_words);
-    decorate_experimental(&ui.dodge_row);
-    decorate_experimental(&ui.echo_stale_row);
-    decorate_experimental(&ui.idle_commit_row);
     decorate_experimental(&ui.preferred_backend);
     // The amber trough cannot be expressed with built-in classes; load the
     // tab's one CSS block onto the display (a display exists whenever the

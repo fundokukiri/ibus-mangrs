@@ -228,7 +228,6 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Trước ra oỏ, giờ ra ỏ",
         ),
     );
-    let dodge_row: adw::ActionRow = dodge_switch.clone().upcast();
     let dodge_fix = combo_row(
         &t("rows.dodge_fix.title", "Cách sửa lỗi"),
         &t(
@@ -443,18 +442,10 @@ pub(super) fn widgets() -> Rc<Ui> {
     let post_delay = spin_button(0.0, 500.0, 1.0);
     let echo_stale_spin = spin_button(50.0, 1000.0, 10.0);
     echo_stale_spin.set_sensitive(false);
-    let (echo_stale_row, echo_stale_switch) = switch_value_row(
-        &t("rows.echo_stale.title", "Chờ phím ảo quay về (ms)"),
-        &t("rows.echo_stale.subtitle", "Quá hạn thì đổ chữ luôn"),
-        &echo_stale_spin,
-    );
+    let echo_stale_switch = gtk4::Switch::new();
     let idle_commit_spin = spin_button(300.0, 2000.0, 50.0);
     idle_commit_spin.set_sensitive(false);
-    let (idle_commit_row, idle_commit_switch) = switch_value_row(
-        &t("rows.idle_commit.title", "Tự chốt từ khi ngừng gõ (ms)"),
-        &t("rows.idle_commit.subtitle", "Như bấm dấu cách"),
-        &idle_commit_spin,
-    );
+    let idle_commit_switch = gtk4::Switch::new();
     let flow_per_key_spin = spin_button(0.0, 500.0, 5.0);
     let flow_backspace_restore_spin = spin_button(0.0, 1000.0, 10.0);
     // Both parked graces have a floor: a commit sent in the same breath as
@@ -657,7 +648,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Hiện từ đang gõ cùng dải gợi ý ngay cạnh con trỏ. Chọn bằng phím `, Alt+1 đến Alt+5 hoặc bấm vào dòng gợi ý. Mặc định tắt."
     );
     tip!(
-        dodge_row,
+        dodge_switch,
         "tips.dodge_inline_autocomplete",
         "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Chọn `Dấu chấm` nếu cách hiện tại vẫn lỗi. Mặc định tắt."
     );
@@ -667,12 +658,12 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Chọn cách chèn phím được ưu tiên. Để tự động là tốt nhất, chỉ đổi khi cần thử nghiệm."
     );
     tip!(
-        echo_stale_row,
+        echo_stale_switch,
         "tips.echo_stale",
         "Chờ các phím Backspace ảo quay về trước khi đổ chữ đã commit, để không mất chữ trên Wayland. Số ms là thời hạn chờ, mặc định 150."
     );
     tip!(
-        idle_commit_row,
+        idle_commit_switch,
         "tips.idle_commit",
         "Dừng tay quá lâu trên một từ còn gạch chân thì từ đó tự commit như bấm dấu cách. Số ms là ngưỡng nghỉ tay."
     );
@@ -727,7 +718,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_composed_words,
         keep_repeats_raw,
         suggest_words,
-        dodge_row,
         dodge_switch,
         dodge_fix,
         preferred_backend,
@@ -780,10 +770,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         key_delete_grace_spin,
         focus_bounce_spin,
         marker_wait_spin,
-        echo_stale_row,
+        nhip_gated: Rc::new(RefCell::new(Vec::new())),
         echo_stale_switch,
         echo_stale_spin,
-        idle_commit_row,
         idle_commit_switch,
         idle_commit_spin,
         flow_per_key_spin,

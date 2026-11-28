@@ -520,7 +520,11 @@ reset_tooltip = "Put the whole table back to the shipped values"
 reset_button = "Reset"
 reset_one = "Back to the shipped value"
 default_tooltip = "The shipped value of this row"
-
+filter = "Show"
+filter_subtitle = "Pick which group of values to show"
+filter_all = "All"
+filter_time = "Timings"
+filter_insert = "Deleting"
 [groups.tune.channel]
 title = "Text channel"
 
