@@ -1515,6 +1515,52 @@ fn a_browser_reporting_another_widget_deletes_with_real_keys() {
 }
 
 #[test]
+fn a_browser_that_never_reports_our_word_forwards_the_users_backspace() {
+    // Docs in Chrome reports only its tab-search box, so an engine-side delete
+    // never reaches the document: the owner pressed Backspace four times, the
+    // word stayed, and the fifth press (the first the app saw) deleted one
+    // character. The user's key must be forwarded instead.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_uinput_available(true);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    e.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        app_rules: vec![crate::config::AppRule {
+            pattern: "google-chrome".into(),
+            mode: crate::config::ModeConfig::Surrounding,
+        }],
+        ..Config::default()
+    });
+    e.set_surrounding("_".into(), 1);
+
+    let mut text = String::new();
+    for c in "chaof".chars() {
+        let actions = e.process_char(c);
+        text = replay_from(&text, &actions);
+        e.set_surrounding("_".into(), 1);
+    }
+    assert_eq!(text, "chào");
+    assert!(e.key_delete_only(), "the report describes no word of ours");
+
+    let actions = e.backspace().expect("a Backspace answer");
+    assert!(
+        actions.iter().any(|a| matches!(a, Action::Forward)),
+        "the key goes to the application: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_)
+                | Action::DeleteSurrounding { .. }
+                | Action::RewriteByBackspace { .. }
+        )),
+        "no engine-side delete in this context: {actions:?}"
+    );
+}
+
+#[test]
 fn a_browser_reporting_our_word_keeps_the_protocol_delete() {
     // Chrome's omnibox reports the text we committed, which proves the delete
     // lands there: it must keep the protocol delete and must not gain the

@@ -1848,6 +1848,21 @@ impl Engine {
             Mode::Off => None,
             Mode::Flow => None,
             Mode::Surrounding | Mode::ForwardBackspace => {
+                // This client never described our text (Docs in Chrome), so an
+                // engine-side delete only shrinks our model while the screen
+                // keeps the word: four Backspaces ate the composition and the
+                // fifth was the first the application ever saw. Forward the key
+                // and let the application delete its own character — the one
+                // transport this editor honours — and keep the model in step
+                // through the same bookkeeping the untransportable delete uses.
+                if self.key_delete_only() && !forwards_delete(mode) {
+                    debug_log::log("del mode=forward why=key_delete_only");
+                    self.tail = replace_tail(&self.tail, 1, "");
+                    self.note_backspace_forwarded();
+                    let mut actions = vec![Action::Forward];
+                    actions.extend(self.suggest_step_after_erase());
+                    return Some(actions);
+                }
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
                     // Backspace so the app deletes the last character itself.
