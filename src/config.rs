@@ -179,6 +179,11 @@ pub struct Config {
     /// it deletes with real keys every time (Docs in Chrome). Every mark key
     /// pays it, so it is shorter than the general park.
     pub key_delete_grace_ms: u64,
+    /// Experimental: forward the repeated Backspace presses of a held key
+    /// instead of leaving them to the session's pass-through, for a client
+    /// behind the compositor relay that reports no text (a terminal there
+    /// loses every pass-through press while the key is held).
+    pub forward_repeat_delete: bool,
     /// How long a FocusOut during a burst waits for the context to come
     /// back before the deferred reset runs as a real switch (ms). Quick
     /// unfocus/refocus of one window lands well inside this window (the logs
@@ -1000,6 +1005,7 @@ impl Default for Config {
             echo_apply_grace_ms: 60,
             key_delete_grace_ms: 15,
             focus_bounce_ms: 100,
+            forward_repeat_delete: false,
             marker_wait_ms: 10,
             experimental_features: false,
             show_toasts: true,

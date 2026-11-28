@@ -244,6 +244,9 @@ title = "Word suggestions while typing"
 subtitle = "A suggestion strip by the caret"
 
 
+[rows.forward_repeat]
+subtitle = "Send the repeat of a held key"
+
 [rows.dodge_fix]
 title = "Fix typing in the address bar"
 subtitle = "Used to type oỏ, now ỏ"

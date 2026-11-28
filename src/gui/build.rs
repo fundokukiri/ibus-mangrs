@@ -212,6 +212,13 @@ pub(super) fn widgets() -> Rc<Ui> {
             "giữ o → oooo… thay vì dừng ở ô",
         ),
     );
+    let forward_repeat = switch_row(
+        &t(
+            "rows.forward_repeat.title",
+            "Giữ Backspace ở terminal relay",
+        ),
+        &t("rows.forward_repeat.subtitle", "Gửi phím lặp khi giữ phím"),
+    );
     let suggest_words = switch_row(
         &t("rows.suggest_words.title", "Gợi ý từ khi gõ"),
         &t("rows.suggest_words.subtitle", "Dải gợi ý cạnh con trỏ"),
@@ -706,6 +713,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_composed_words,
         keep_repeats_raw,
         suggest_words,
+        forward_repeat,
         dodge_fix,
         preferred_backend,
         time_format,

@@ -999,6 +999,7 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.keep_composed_words);
     on_change!(ui.keep_repeats_raw);
     on_change!(ui.suggest_words);
+    on_change!(ui.forward_repeat);
     let s = Rc::clone(&save);
     ui.dodge_fix.connect_selected_notify(move |_| s());
     on_change!(ui.emoji_enabled);

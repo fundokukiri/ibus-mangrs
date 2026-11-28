@@ -1515,6 +1515,66 @@ fn a_browser_reporting_another_widget_deletes_with_real_keys() {
 }
 
 #[test]
+fn the_held_backspace_repeat_is_forwarded_when_the_trial_is_on() {
+    // A relayed terminal reports no text, so a held Backspace's repeat
+    // presses only reach it through the session pass-through — which drops
+    // them (91 presses, no deletion, until the key was released). With the
+    // trial switch on, the repeat is forwarded as a key event; the first
+    // press of the hold, and every press with the switch off, stay exactly as
+    // they were.
+    let build = |trial: bool, client: &str, report: bool| {
+        let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        e.set_uinput_available(true);
+        e.set_client(Some(client.into()));
+        e.set_app_name(Some("wayland:Alacritty".into()));
+        e.apply_config(&Config {
+            mode: crate::config::ModeConfig::ForwardBackspace,
+            experimental_features: trial,
+            forward_repeat_delete: trial,
+            ..Config::default()
+        });
+        if report {
+            e.set_surrounding("Xin chào".into(), 8);
+        }
+        e
+    };
+
+    // The switch off: nothing changes, the repeat is still the app's business.
+    let mut off = build(false, "gnome-shell", false);
+    assert!(off.backspace().is_none(), "first press: the app deletes");
+    assert!(
+        off.backspace().is_none(),
+        "repeat with the trial off: unchanged"
+    );
+
+    // The switch on, relayed client, no report: the repeat is forwarded.
+    let mut on = build(true, "gnome-shell", false);
+    assert!(
+        on.backspace().is_none(),
+        "the first press keeps pass-through"
+    );
+    let repeat = on.backspace().expect("the repeat is forwarded");
+    assert!(
+        repeat.iter().any(|a| matches!(a, Action::Forward)),
+        "{repeat:?}"
+    );
+
+    // Not the relay (X11 names its own program): no change.
+    let mut x11 = build(true, "Alacritty", false);
+    assert!(x11.backspace().is_none(), "first press");
+    assert!(x11.backspace().is_none(), "X11 keeps the pass-through");
+
+    // A client that reports its text: no change either.
+    let mut reporting = build(true, "gnome-shell", true);
+    assert!(reporting.backspace().is_none(), "first press");
+    assert!(
+        reporting.backspace().is_none(),
+        "a report means no relay loss"
+    );
+}
+
+#[test]
 fn a_terminal_behind_the_relay_gets_the_forwarded_transport() {
     // A terminal reports no surrounding text and renders no preedit; on a
     // mutter relay the injected keys never reach it either. Surrounding used

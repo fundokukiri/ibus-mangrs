@@ -791,6 +791,7 @@ fn refresh_round_trips_every_widget() {
         keep_composed_words: true,
         keep_repeats_raw: true,
         suggest_words: true,
+        forward_repeat_delete: true,
         dodge_inline_autocomplete: true,
         autocomplete_fix: crate::config::AutocompleteFix::Raw,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
@@ -1776,7 +1777,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 21] = [
+    let rows: [&adw::SwitchRow; 22] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -1793,6 +1794,7 @@ fn every_switch_triggers_save() {
         &ui.capitalize_macro,
         &ui.macro_in_off_mode,
         &ui.macro_valid_words,
+        &ui.forward_repeat,
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,

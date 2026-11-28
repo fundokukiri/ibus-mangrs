@@ -281,6 +281,7 @@ struct Ui {
     /// default-displayed and restored with them; needs the prediction
     /// model file to do anything.
     suggest_words: adw::SwitchRow,
+    forward_repeat: adw::SwitchRow,
     dodge_fix: adw::ComboRow,
     preferred_backend: adw::ComboRow,
     time_format: gtk4::DropDown,
@@ -665,6 +666,7 @@ impl Ui {
             .set_active(config.keep_composed_words);
         self.keep_repeats_raw.set_active(config.keep_repeats_raw);
         self.suggest_words.set_active(config.suggest_words);
+        self.forward_repeat.set_active(config.forward_repeat_delete);
         self.dodge_fix.set_selected(dodge_index(
             config.dodge_inline_autocomplete,
             config.autocomplete_fix,
@@ -849,6 +851,7 @@ impl Ui {
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
         config.suggest_words = self.suggest_words.is_active();
+        config.forward_repeat_delete = self.forward_repeat.is_active();
         let (dodge, fix) = dodge_from_index(self.dodge_fix.selected());
         config.dodge_inline_autocomplete = dodge;
         if let Some(fix) = fix {
@@ -933,7 +936,8 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 6] = [
+        let rows: [&gtk4::Widget; 7] = [
+            self.forward_repeat.upcast_ref(),
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
@@ -974,6 +978,7 @@ impl Ui {
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
         self.suggest_words.set_active(d.suggest_words);
+        self.forward_repeat.set_active(d.forward_repeat_delete);
         self.dodge_fix
             .set_selected(dodge_index(d.dodge_inline_autocomplete, d.autocomplete_fix));
         self.preferred_backend.set_selected(0);
@@ -995,6 +1000,7 @@ impl Ui {
         self.keep_composed_words.set_active(c.keep_composed_words);
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
         self.suggest_words.set_active(c.suggest_words);
+        self.forward_repeat.set_active(c.forward_repeat_delete);
         self.dodge_fix
             .set_selected(dodge_index(c.dodge_inline_autocomplete, c.autocomplete_fix));
         self.preferred_backend

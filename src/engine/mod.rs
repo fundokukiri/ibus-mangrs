@@ -331,6 +331,9 @@ pub struct Engine {
     /// one for a client that deletes with real keys every time.
     echo_apply_grace_ms: u64,
     key_delete_grace_ms: u64,
+    /// Experimental: forward the repeated presses of a held Backspace for a
+    /// relayed client that reports no text.
+    forward_repeat_delete: bool,
     /// Focus-bounce window and marker pause (ms).
     focus_bounce_ms: u64,
     marker_wait_ms: u64,
@@ -663,6 +666,7 @@ impl Engine {
             echo_apply_grace_ms: 60,
             key_delete_grace_ms: 15,
             focus_bounce_ms: 100,
+            forward_repeat_delete: false,
             marker_wait_ms: 10,
             echo_stale_enabled: false,
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
@@ -865,6 +869,7 @@ impl Engine {
         self.echo_apply_grace_ms = config.echo_apply_grace_ms;
         self.key_delete_grace_ms = config.key_delete_grace_ms;
         self.focus_bounce_ms = config.focus_bounce_ms;
+        self.forward_repeat_delete = experimental && config.forward_repeat_delete;
         self.marker_wait_ms = config.marker_wait_ms;
         self.echo_stale_enabled = experimental && config.echo_stale_enabled;
         self.echo_stale_ms = config.echo_stale_ms;
@@ -1787,6 +1792,9 @@ impl Engine {
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
+        // A press while the key is already down is the auto-repeat of a held
+        // Backspace: the one case a relayed client's pass-through drops.
+        let repeating = self.backspace_down;
         // The key is physically down until the server reports the release.
         self.backspace_down = true;
         // The idle-commit clock, like process_char.
@@ -1842,12 +1850,29 @@ impl Engine {
             // characters, so the tracked tail has to shrink with it. Left
             // stale, the next macro rewrite deleted more characters than the
             // client held (an out-of-range delete, mutter aborts on it).
-            debug_log::log(&format!("del mode=forward why=empty mode={mode:?}"));
+            // Nothing composed: the application deletes one of its own
+            // characters. A relayed client that reports no text never sees
+            // the pass-through press of a held key (measured: 91 presses, no
+            // deletion, until the key was released), so the repeat is sent as
+            // a forwarded key event instead. The first press of the hold keeps
+            // the pass-through exactly as before.
+            let forward_repeat = repeating
+                && self.forward_repeat_delete
+                && self.injection_forbidden()
+                && self.surrounding.is_none();
+            if forward_repeat {
+                debug_log::log(&format!("del mode=forward why=repeat mode={mode:?}"));
+            } else {
+                debug_log::log(&format!("del mode=forward why=empty mode={mode:?}"));
+            }
             self.tail = replace_tail(&self.tail, 1, "");
             self.note_backspace_forwarded();
             // The user is erasing an idle-committed word — re-entering it
             // would resurrect text they are deleting.
             self.idle_committed = None;
+            if forward_repeat {
+                return Some(vec![Action::Forward]);
+            }
             return None;
         };
         if !self.wrapper.has_composition() {
