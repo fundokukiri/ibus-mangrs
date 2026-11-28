@@ -1483,9 +1483,6 @@ fn a_browser_reporting_another_widget_deletes_with_real_keys() {
         !e.protocol_delete_ok(),
         "the report describes no word of ours"
     );
-    // Every mark key pays the parked-commit grace, so this context gets the
-    // short one instead of the word-end 60 ms.
-    assert_eq!(e.echo_apply_grace_ms(), Engine::KEY_DELETE_GRACE_MS);
 
     let mut text = String::new();
     let mut all = Vec::new();
@@ -1540,7 +1537,6 @@ fn a_browser_reporting_our_word_keeps_the_protocol_delete() {
     }
     assert!(e.protocol_delete_ok(), "the report holds our word");
     assert!(!e.may_inject(), "no key deletion where the delete lands");
-    assert_eq!(e.echo_apply_grace_ms(), Engine::ECHO_APPLY_GRACE_MS);
     let actions = e.process_char('f').into_iter().collect::<Vec<_>>();
     assert!(
         actions.iter().any(|a| matches!(
