@@ -6,6 +6,11 @@ use crate::engine::Mode;
 use crate::transport::{BackendOps, Injection, Kind};
 use dbus::arg::{RefArg, Variant};
 
+/// The shipped focus-bounce window, read once per wait.
+fn bounce_ms() -> u64 {
+    crate::config::Config::default().focus_bounce_ms
+}
+
 #[test]
 fn parse_hotkey_accepts_modifier_combinations() {
     let (mods, key) = parse_hotkey("Control+Alt+v").expect("hotkey");
@@ -1716,7 +1721,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
     // The window expires without a refocus: a real switch. The abort drops
     // the composition, disarms the burst and holds every parked commit —
     // the stash owns the rewrite now, the wire sees nothing.
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -1777,7 +1782,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
         &mut out
     ));
     std::thread::sleep(
-        Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS) + Duration::from_millis(20),
+        Duration::from_millis(Config::default().echo_apply_grace_ms) + Duration::from_millis(20),
     );
     bounce_pass(
         &mut e,
@@ -1839,7 +1844,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
         (stashed.text.as_str(), stashed.expected_tail.as_str()),
         ("h", "ng")
     );
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -1909,7 +1914,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
     ));
     let stashed = stash.as_ref().expect("stash armed");
     assert_eq!(stashed.expected_tail, "xy");
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -1965,7 +1970,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
         &mut bounce_deadline,
         &mut stash,
     ));
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -2074,7 +2079,7 @@ fn real_switch_drops_the_held_keys_a_bounce_keeps_them() {
         "the deferred reset holds the client through the window"
     );
     // The window expires: the real-switch abort drops them.
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -2356,7 +2361,7 @@ fn foreign_client_refuses_the_stashed_rewrite() {
         &mut bounce_deadline,
         &mut stash,
     ));
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,

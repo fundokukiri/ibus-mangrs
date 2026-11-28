@@ -437,47 +437,10 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ.",
         ),
     );
-    // One pacing row, three columns: the three uinput timings share the
-    // merged-row shape — a caption above each spin, dividers between the
-    // columns — and the row subtitle carries the shipped defaults.
+    // The "Nhịp gõ" table (pages/nhip.rs) builds its grid from these spins;
+    // the table itself carries the labels, the shipped default and a reset.
     let backspace_interval = spin_button(1.0, 100.0, 1.0);
     let post_delay = spin_button(0.0, 500.0, 1.0);
-    let pacing_defaults = crate::config::Config::default();
-    let pacing_row = action_row(
-        &t("rows.pacing.title", "Nhịp gõ phím ảo"),
-        &t("rows.pacing.subtitle", "Mặc định: {n}").replace(
-            "{n}",
-            &format!(
-                "{} · {}",
-                pacing_defaults.backspace_interval_ms, pacing_defaults.post_delay_ms
-            ),
-        ),
-    );
-    // Both merged rows share one column width (see below), so their
-    // caption+input clusters start at the same x instead of each row
-    // sizing itself.
-    let mut merged_columns = Vec::new();
-    // The caption is one short word: the full name and the advice ride as
-    // the column tooltip, and "ms" lives in the group description so it is
-    // not repeated on every column.
-    for (key, fallback, spin) in [
-        ("rows.backspace_interval", "Xoá lùi", &backspace_interval),
-        ("rows.post_delay", "Chờ viết lại từ", &post_delay),
-    ] {
-        if !merged_columns.is_empty() {
-            pacing_row.add_suffix(&pacing_divider());
-        }
-        let caption_text = t(&format!("{key}.title"), fallback);
-        let column = pacing_column(&caption_text, spin);
-        column.set_tooltip_text(Some(&t(
-            &format!("{key}.subtitle"),
-            "Nghỉ giữa các phím ảo",
-        )));
-        pacing_row.add_suffix(&column);
-        merged_columns.push(column);
-        let spoken = format!("{} (ms)", caption_text);
-        spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
-    }
     let echo_stale_spin = spin_button(50.0, 1000.0, 10.0);
     echo_stale_spin.set_sensitive(false);
     let (echo_stale_row, echo_stale_switch) = switch_value_row(
@@ -494,52 +457,12 @@ pub(super) fn widgets() -> Rc<Ui> {
     );
     let flow_per_key_spin = spin_button(0.0, 500.0, 5.0);
     let flow_backspace_restore_spin = spin_button(0.0, 1000.0, 10.0);
-    // The two Flow delays share the pacing row's caption-column shape — a
-    // caption above each spin, a divider between — so the group reads as
-    // one style. Caption-only row: the captions carry the names, the
-    // subtitle the shipped defaults; both knobs stay outside the
-    // experimental gate like the pacing knobs they pace with.
-    let flow_delay_row = action_row(
-        &t("rows.flow_delay.title", "Độ trễ Flow"),
-        &t("rows.flow_delay.subtitle", "Mặc định: {n}").replace(
-            "{n}",
-            &format!(
-                "{} · {}",
-                pacing_defaults.flow_per_key_delay_ms,
-                pacing_defaults.flow_backspace_restore_delay_ms
-            ),
-        ),
-    );
-    let mut first_flow_column = true;
-    for (key, fallback, spin) in [
-        ("rows.flow_per_key_delay", "Hiện dấu", &flow_per_key_spin),
-        (
-            "rows.flow_backspace_restore_delay",
-            "Hoàn dấu sau Backspace",
-            &flow_backspace_restore_spin,
-        ),
-    ] {
-        if !first_flow_column {
-            flow_delay_row.add_suffix(&pacing_divider());
-        }
-        first_flow_column = false;
-        let caption = t(&format!("{key}.title"), fallback);
-        let column = pacing_column(&caption, spin);
-        column.set_tooltip_text(Some(&t(
-            &format!("{key}.subtitle"),
-            "Chờ rồi mới sửa màn hình",
-        )));
-        // Center the column vertically: the default Fill stretches it to
-        // the row's height and top-packs the caption, leaving all the
-        // slack below the input.
-        column.set_valign(gtk4::Align::Center);
-        flow_delay_row.add_suffix(&column);
-        merged_columns.push(column);
-        // "ms" left the caption, so the spoken label adds the unit back.
-        let spoken = format!("{caption} (ms)");
-        spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
-    }
-    equalize_columns(&merged_columns);
+    // Both parked graces have a floor: a commit sent in the same breath as
+    // its deletes overtakes them (engine MIN_PARK_MS).
+    let echo_apply_grace_spin = spin_button(5.0, 500.0, 5.0);
+    let key_delete_grace_spin = spin_button(5.0, 500.0, 5.0);
+    let focus_bounce_spin = spin_button(0.0, 1000.0, 10.0);
+    let marker_wait_spin = spin_button(0.0, 100.0, 1.0);
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
@@ -851,16 +774,18 @@ pub(super) fn widgets() -> Rc<Ui> {
         debug_log_loading: Rc::new(Cell::new(false)),
         x11_delete,
         preedit_xim,
-        pacing_row,
         backspace_interval,
         post_delay,
+        echo_apply_grace_spin,
+        key_delete_grace_spin,
+        focus_bounce_spin,
+        marker_wait_spin,
         echo_stale_row,
         echo_stale_switch,
         echo_stale_spin,
         idle_commit_row,
         idle_commit_switch,
         idle_commit_spin,
-        flow_delay_row,
         flow_per_key_spin,
         flow_backspace_restore_spin,
         experimental_features,

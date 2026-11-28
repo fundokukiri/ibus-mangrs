@@ -942,11 +942,10 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
 /// keys are pressed inside the same arm, and the caller adds one press to
 /// remove the marker again.
 const MARKER: &str = "\u{b7}";
-const MARKER_WAIT_MS: u64 = 10;
 
-fn send_marker(t: &Transports) {
+fn send_marker(t: &Transports, wait_ms: u64) {
     (t.send_now)(signal("CommitText").append1(plain_text(MARKER)));
-    std::thread::sleep(std::time::Duration::from_millis(MARKER_WAIT_MS));
+    std::thread::sleep(std::time::Duration::from_millis(wait_ms));
     debug_log::log("del marker=dot");
 }
 
@@ -1436,12 +1435,6 @@ impl BurstBuffer {
     }
 }
 
-/// How long a FocusOut during a burst waits for the context to come back
-/// before the deferred reset runs as a real switch. Quick unfocus/refocus
-/// of one context lands well inside this window (the logs show the pair
-/// 1ms apart); a user switching apps takes longer.
-const FOCUS_BOUNCE_MS: u64 = 100;
-
 /// How long the rewrite stashed by an aborted burst waits for a focus-in
 /// whose client report can reconcile it. lotus's
 /// `reconcileAbortedUinputReplacement` semantics: the report still showing
@@ -1603,7 +1596,7 @@ fn defer_focus_out_during_burst(
         return false;
     }
     *stash = stash_in_flight_rewrite(engine);
-    *bounce_deadline = Some(Instant::now() + Duration::from_millis(FOCUS_BOUNCE_MS));
+    *bounce_deadline = Some(Instant::now() + Duration::from_millis(engine.focus_bounce_ms()));
     debug_log::log("ctx focus=out defer=reset why=burst");
     true
 }
@@ -1878,7 +1871,7 @@ fn emit_with(
                 // delete rather than dropping the deletion and leaving a
                 // commit deferred forever.
                 let n = if engine.marker_delete() {
-                    send_marker(t);
+                    send_marker(t, engine.marker_wait_ms());
                     *n + 1
                 } else {
                     *n
@@ -2041,7 +2034,7 @@ fn emit_with(
             // drop, and nothing left to wait for.
             Action::ForwardBackspaces(n) if inject && engine.transport_types_text() => {
                 let n = if engine.marker_delete() {
-                    send_marker(t);
+                    send_marker(t, engine.marker_wait_ms());
                     *n + 1
                 } else {
                     *n
@@ -2059,7 +2052,7 @@ fn emit_with(
             }
             Action::ForwardBackspaces(n) => {
                 let extra = if engine.marker_delete() {
-                    send_marker(t);
+                    send_marker(t, engine.marker_wait_ms());
                     1
                 } else {
                     0

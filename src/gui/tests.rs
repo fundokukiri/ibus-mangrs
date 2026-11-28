@@ -51,7 +51,7 @@ fn gtk_widget_scenarios() {
     shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
     row_texts_render_as_plain_text();
-    flow_delay_row_shows_captions();
+    nhip_table_edits_and_resets_every_timing();
     rules_add_group_merges_the_focus_chip();
     rule_rows_round_trip_through_read();
     macro_page_helpers_count_and_preview();
@@ -88,7 +88,6 @@ fn gtk_widget_scenarios() {
     mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
     close_test_windows();
-    pacing_columns_are_symmetric();
     close_test_windows();
     experimental_gate_locks_rows_and_preserves_values();
     preferred_backend_combo_saves_loads_and_survives_the_gate();
@@ -148,64 +147,6 @@ fn close_test_windows() {
     for _ in 0..3 {
         gtk4::glib::MainContext::default().iteration(false);
     }
-}
-
-/// The merged pacing row is laid out symmetrically: the two caption
-/// columns share one width and the divider between them sits at that
-/// pair's centre. Packed at natural widths ("Nhịp xoá lùi" is much shorter
-/// than "Chờ sau khi viết lại từ") the divider drifted and the row read
-/// lopsided.
-fn pacing_columns_are_symmetric() {
-    let ui = widgets();
-    let page = crate::gui::pages::tune::build(&ui);
-    let win = gtk4::Window::new();
-    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
-    win.present();
-    for _ in 0..10 {
-        gtk4::glib::MainContext::default().iteration(false);
-    }
-    let column_of = |row: &gtk4::Widget, caption: &str| {
-        let label = descendants::<gtk4::Label>(row)
-            .into_iter()
-            .find(|l| l.text() == caption)
-            .expect("the caption label");
-        label
-            .parent()
-            .and_downcast::<gtk4::Box>()
-            .expect("the caption column")
-    };
-    let pacing = ui.pacing_row.clone().upcast::<gtk4::Widget>();
-    let flow = ui.flow_delay_row.clone().upcast::<gtk4::Widget>();
-    let left = column_of(&pacing, "Xoá lùi");
-    let right = column_of(&pacing, "Chờ viết lại từ");
-    let bounds = |w: &gtk4::Widget| {
-        w.compute_bounds(ui.pacing_row.upcast_ref::<gtk4::Widget>())
-            .expect("an allocated column")
-    };
-    let (l, r) = (bounds(left.upcast_ref()), bounds(right.upcast_ref()));
-    assert_eq!(
-        l.width(),
-        r.width(),
-        "both caption columns take the same width"
-    );
-    let divider = descendants::<gtk4::Separator>(&pacing)
-        .into_iter()
-        .next()
-        .expect("the divider between the columns");
-    let d = bounds(divider.upcast_ref());
-    let pair_centre = (l.x() + r.x() + r.width()) / 2.0;
-    assert!(
-        (d.x() + d.width() / 2.0 - pair_centre).abs() <= 1.0,
-        "the divider sits at the pair's centre"
-    );
-    // The Flow row shares the width, so its first column starts at the same
-    // x — the two rows read as one grid instead of two clusters.
-    let flow_left = bounds(column_of(&flow, "Hiện dấu").upcast_ref::<gtk4::Widget>());
-    assert_eq!(
-        flow_left.x(),
-        l.x(),
-        "both merged rows start their columns at the same x"
-    );
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -881,6 +822,10 @@ fn refresh_round_trips_every_widget() {
         idle_commit_ms: 800,
         flow_per_key_delay_ms: 80,
         flow_backspace_restore_delay_ms: 40,
+        echo_apply_grace_ms: 45,
+        key_delete_grace_ms: 25,
+        focus_bounce_ms: 120,
+        marker_wait_ms: 5,
         experimental_features: true,
         show_toasts: false,
         debug_log: true,
@@ -1008,6 +953,60 @@ fn external_reload_refreshes_without_saving() {
     assert!(!ui.suppress_save.get(), "the flag must be cleared after");
 }
 
+/// The "Nhịp gõ" table edits every timing it lists, and each row goes back
+/// to its shipped default on its own.
+fn nhip_table_edits_and_resets_every_timing() {
+    let ui = widgets();
+    let macros = Macros::load();
+    let dictionary = Dictionary::load();
+    {
+        let ui_for_save = Rc::clone(&ui);
+        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
+            ui_for_save.save_all().expect("nhịp gõ save");
+        }));
+    }
+    ui.refresh(
+        &Config {
+            echo_apply_grace_ms: 45,
+            key_delete_grace_ms: 25,
+            focus_bounce_ms: 120,
+            marker_wait_ms: 5,
+            ..Config::default()
+        },
+        &macros,
+        &dictionary,
+    );
+    assert_eq!(
+        ui.echo_apply_grace_spin.value(),
+        45.0,
+        "refresh shows the file value"
+    );
+    assert_eq!(
+        ui.focus_bounce_spin.value(),
+        120.0,
+        "refresh shows the file value"
+    );
+    ui.echo_apply_grace_spin.set_value(30.0);
+    ui.key_delete_grace_spin.set_value(10.0);
+    ui.focus_bounce_spin.set_value(80.0);
+    ui.marker_wait_spin.set_value(7.0);
+    ui.fire_save();
+    let saved = Config::load();
+    assert_eq!(saved.echo_apply_grace_ms, 30, "the spin saves its key");
+    assert_eq!(saved.key_delete_grace_ms, 10, "the spin saves its key");
+    assert_eq!(saved.focus_bounce_ms, 80, "the spin saves its key");
+    assert_eq!(saved.marker_wait_ms, 7, "the spin saves its key");
+    // The row resets write the shipped value back through the same funnel.
+    let reset = ui.echo_apply_grace_spin.clone();
+    reset.set_value(Config::default().echo_apply_grace_ms as f64);
+    ui.fire_save();
+    assert_eq!(
+        Config::load().echo_apply_grace_ms,
+        Config::default().echo_apply_grace_ms,
+        "the reset value lands in the file"
+    );
+}
+
 /// Adw rows parse Pango markup in title/subtitle by default; the URL
 /// rule's subtitle carries a bare `&`, which failed to parse and rendered
 /// as nothing. The row builders switch markup off — assert one row per
@@ -1024,63 +1023,6 @@ fn row_texts_render_as_plain_text() {
     assert_eq!(
         ui.bypass_url.subtitle().as_deref(),
         Some("URL giữ nguyên tới dấu cách")
-    );
-}
-
-/// The per-key display switch died (the per-key look is the only Flow
-/// path) and both Backspace switches died (the retrack and the mark
-/// restore are standard Flow behavior): both delay spins survive as one
-/// always-active caption row, still wired to their config keys.
-fn flow_delay_row_shows_captions() {
-    let ui = widgets();
-    assert!(
-        !ui.flow_delay_row.uses_markup(),
-        "row titles and subtitles must be plain text"
-    );
-    assert!(
-        ui.flow_delay_row.is_sensitive()
-            && ui.flow_per_key_spin.is_sensitive()
-            && ui.flow_backspace_restore_spin.is_sensitive(),
-        "the delay row has no switch left to lock it"
-    );
-    let macros = Macros::load();
-    let dictionary = Dictionary::load();
-    {
-        let ui_for_save = Rc::clone(&ui);
-        *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
-            ui_for_save.save_all().expect("delay row save");
-        }));
-    }
-    ui.refresh(
-        &Config {
-            flow_per_key_delay_ms: 80,
-            flow_backspace_restore_delay_ms: 40,
-            ..Config::default()
-        },
-        &macros,
-        &dictionary,
-    );
-    assert_eq!(
-        ui.flow_per_key_spin.value(),
-        80.0,
-        "refresh shows the file value"
-    );
-    assert_eq!(
-        ui.flow_backspace_restore_spin.value(),
-        40.0,
-        "refresh shows the file value"
-    );
-    ui.flow_per_key_spin.set_value(200.0);
-    ui.flow_backspace_restore_spin.set_value(250.0);
-    ui.fire_save();
-    let saved = Config::load();
-    assert_eq!(
-        saved.flow_per_key_delay_ms, 200,
-        "the detached spin still saves the delay key"
-    );
-    assert_eq!(
-        saved.flow_backspace_restore_delay_ms, 250,
-        "the detached spin still saves the restore key"
     );
 }
 

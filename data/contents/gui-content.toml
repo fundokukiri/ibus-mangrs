@@ -321,12 +321,12 @@ title = "Điều hướng khi còn từ"
 subtitle = "Phím mũi tên đầu tiên khi còn từ gõ dở"
 
 [rows.flow_per_key_delay]
-title = "Hiện dấu"
-subtitle = "Thấp là dấu hiện sớm"
+title = "Flow: hiện dấu"
+subtitle = "Chờ rồi mới chèn lại từ"
 
 [rows.flow_backspace_restore_delay]
-title = "Hoàn dấu sau Backspace"
-subtitle = "Chờ rồi mới sửa màn hình"
+title = "Flow: hoàn dấu sau Backspace"
+subtitle = "Chờ Backspace đi khỏi rồi vá"
 
 [rows.flow_delay]
 title = "Độ trễ Flow"
@@ -495,6 +495,31 @@ title = "Dấu &amp; điều hướng"
 [groups.tune.pacing]
 title = "Nhịp gõ &amp; độ trễ uinput"
 description = "Chỉ áp dụng cho Flow, đơn vị ms."
+
+[groups.tune.nhip]
+title = "Nhịp gõ"
+description = "Thời gian chờ của cả bốn chế độ, tính bằng mili giây."
+
+[rows.echo_apply_grace]
+title = "Chờ sau phím xoá"
+subtitle = "Quá ngắn thì chữ hiện trước dấu"
+
+[rows.key_delete_grace]
+title = "Chờ sau phím xoá thật"
+subtitle = "Cho app không báo chữ đang gõ"
+
+[rows.focus_bounce]
+title = "Hoãn reset khi mất focus"
+subtitle = "Nháy mất focus vẫn giữ từ"
+
+[rows.marker_wait]
+title = "Chờ sau dấu ·"
+subtitle = "Chỉ dùng khi chèn dấu ·"
+
+[rows.nhip]
+reset = "Khôi phục mặc định"
+reset_tooltip = "Đưa cả bảng về giá trị gốc"
+reset_one = "Về giá trị gốc"
 
 [groups.tune.channel]
 title = "Kênh gửi chữ"

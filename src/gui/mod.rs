@@ -392,16 +392,18 @@ struct Ui {
     desktop_icon_loading: Rc<RefCell<bool>>,
     x11_delete: adw::SwitchRow,
     preedit_xim: adw::SwitchRow,
-    pacing_row: adw::ActionRow,
     backspace_interval: gtk4::SpinButton,
     post_delay: gtk4::SpinButton,
+    echo_apply_grace_spin: gtk4::SpinButton,
+    key_delete_grace_spin: gtk4::SpinButton,
+    focus_bounce_spin: gtk4::SpinButton,
+    marker_wait_spin: gtk4::SpinButton,
     echo_stale_row: adw::ActionRow,
     echo_stale_switch: gtk4::Switch,
     echo_stale_spin: gtk4::SpinButton,
     idle_commit_row: adw::ActionRow,
     idle_commit_switch: gtk4::Switch,
     idle_commit_spin: gtk4::SpinButton,
-    flow_delay_row: adw::ActionRow,
     flow_per_key_spin: gtk4::SpinButton,
     flow_backspace_restore_spin: gtk4::SpinButton,
     experimental_features: adw::SwitchRow,
@@ -705,6 +707,14 @@ impl Ui {
             .set_value(config.flow_per_key_delay_ms as f64);
         self.flow_backspace_restore_spin
             .set_value(config.flow_backspace_restore_delay_ms as f64);
+        self.echo_apply_grace_spin
+            .set_value(config.echo_apply_grace_ms as f64);
+        self.key_delete_grace_spin
+            .set_value(config.key_delete_grace_ms as f64);
+        self.focus_bounce_spin
+            .set_value(config.focus_bounce_ms as f64);
+        self.marker_wait_spin
+            .set_value(config.marker_wait_ms as f64);
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
@@ -864,6 +874,10 @@ impl Ui {
         config.idle_commit_ms = self.idle_commit_spin.value() as u64;
         config.flow_per_key_delay_ms = self.flow_per_key_spin.value() as u64;
         config.flow_backspace_restore_delay_ms = self.flow_backspace_restore_spin.value() as u64;
+        config.echo_apply_grace_ms = self.echo_apply_grace_spin.value() as u64;
+        config.key_delete_grace_ms = self.key_delete_grace_spin.value() as u64;
+        config.focus_bounce_ms = self.focus_bounce_spin.value() as u64;
+        config.marker_wait_ms = self.marker_wait_spin.value() as u64;
         config.experimental_features = self.experimental_features.is_active();
         config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove

@@ -433,39 +433,6 @@ pub(super) fn pacing_divider() -> gtk4::Separator {
     divider
 }
 
-/// One pacing column of a merged row: the caption above the spin. The
-/// caller places the column (dividers go between columns). The spin is
-/// centered, not the default Fill: the vertical box hands a filling child
-/// the whole column width — the caption's width — so a long caption
-/// ("Hoàn dấu sau Backspace (ms)") stretches its input while its siblings
-/// stay short. Centered, every spin renders at the shared VALUE_WIDTH_PX.
-pub(super) fn pacing_column(caption: &str, spin: &gtk4::SpinButton) -> gtk4::Box {
-    let label = gtk4::Label::new(Some(caption));
-    label.add_css_class("caption");
-    label.set_halign(gtk4::Align::Center);
-    spin.set_halign(gtk4::Align::Center);
-    let column = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-    column.append(&label);
-    column.append(spin);
-    column
-}
-
-/// Equalize the caption columns of the merged rows. Captions differ in
-/// length ("Nhịp xoá lùi" against "Chờ sau khi viết lại từ"), so packed at their
-/// natural widths the divider lands off-centre and each row starts at its
-/// own x. Every column takes the widest caption's width, which centres each
-/// divider and lines the rows up with each other.
-pub(super) fn equalize_columns(columns: &[gtk4::Box]) {
-    let widest = columns
-        .iter()
-        .map(|c| c.measure(gtk4::Orientation::Horizontal, -1).1)
-        .max()
-        .unwrap_or(0);
-    for column in columns {
-        column.set_size_request(widest, -1);
-    }
-}
-
 /// The text half of a merged row: a plain entry sized to the shared value
 /// width (a short character list, `: " ').
 pub(super) fn text_view(content: &str) -> TextView {

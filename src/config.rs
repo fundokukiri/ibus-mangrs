@@ -169,6 +169,23 @@ pub struct Config {
     /// that key is handled never reach the application, so 0 only means "as
     /// soon as the main loop wakes", not "during the key".
     pub flow_backspace_restore_delay_ms: u64,
+    /// Park of a rewrite commit after the last echo of its batch (ms), for
+    /// every transport that deletes with real keys or through the protocol
+    /// on a matched report. Measured on a mutter relay: the app applies the
+    /// forwarded Backspaces a beat behind the commit channel, and a shorter
+    /// park lets the word land before its deletes (`titiến`).
+    pub echo_apply_grace_ms: u64,
+    /// The same park for a client whose reports never described our word, so
+    /// it deletes with real keys every time (Docs in Chrome). Every mark key
+    /// pays it, so it is shorter than the general park.
+    pub key_delete_grace_ms: u64,
+    /// How long a FocusOut during a burst waits for the context to come
+    /// back before the deferred reset runs as a real switch (ms). Quick
+    /// unfocus/refocus of one window lands well inside this window (the logs
+    /// show the pair 1 ms apart); a user switching apps takes longer.
+    pub focus_bounce_ms: u64,
+    /// Pause between the trial `.` marker and the Backspaces behind it (ms).
+    pub marker_wait_ms: u64,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
     /// each switch and value stays saved in this file and comes back when
@@ -980,6 +997,10 @@ impl Default for Config {
             idle_commit_ms: 700,
             flow_per_key_delay_ms: 20,
             flow_backspace_restore_delay_ms: 5,
+            echo_apply_grace_ms: 60,
+            key_delete_grace_ms: 15,
+            focus_bounce_ms: 100,
+            marker_wait_ms: 10,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,

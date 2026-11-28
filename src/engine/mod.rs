@@ -326,6 +326,13 @@ pub struct Engine {
     /// Uinput pacing (ms): text/commit step, Backspace gap, post-rewrite idle.
     backspace_interval_ms: u64,
     post_delay_ms: u64,
+    /// The two parked-commit graces (ms): the general one and the shorter
+    /// one for a client that deletes with real keys every time.
+    echo_apply_grace_ms: u64,
+    key_delete_grace_ms: u64,
+    /// Focus-bounce window and marker pause (ms).
+    focus_bounce_ms: u64,
+    marker_wait_ms: u64,
     /// Custom lost-echo stale window (ms); the built-in default applies
     /// while the switch is off. Too small risks flushing the deferred
     /// commit over late echoes (lost characters); too large makes every
@@ -550,27 +557,30 @@ impl Engine {
     /// lengths of time — both read it through `echo_stale()`.
     pub const DEFAULT_ECHO_STALE_MS: u64 = 150;
 
-    /// How long the server parks a rewrite commit after the last echo of
-    /// its batch has been forwarded. Measured on a mutter relay (08/11):
-    /// the app applies the forwarded Backspaces a beat behind the commit
-    /// channel, and a commit emitted with the last echo overtook the
-    /// final deletes (`titiến`). 60 ms clears the observed ~7 ms apply
-    /// window with margin while staying imperceptible at word end.
-    pub const ECHO_APPLY_GRACE_MS: u64 = 60;
+    /// Floor for the two parked graces. A commit emitted in the same breath
+    /// as its deletes overtakes them on a mutter relay (`titiến`), so a
+    /// config value of 0 is not honoured.
+    pub const MIN_PARK_MS: u64 = 5;
 
-    /// The same grace for a client that deletes with real keys because its
-    /// reports never described our text (Docs in Chrome): every mark key pays
-    /// it, so the word-end 60 ms became 120-240 ms per word. Twice the
-    /// measured apply window instead.
-    pub const KEY_DELETE_GRACE_MS: u64 = 15;
-
-    /// This context's parked-commit grace (see `ECHO_APPLY_GRACE_MS`).
+    /// This context's parked-commit grace: the Docs-class grace for a client
+    /// whose report never described our word (every mark key pays it), the
+    /// general one everywhere else.
     pub fn echo_apply_grace_ms(&self) -> u64 {
         if self.key_delete_only() {
-            Self::KEY_DELETE_GRACE_MS
+            self.key_delete_grace_ms.max(Self::MIN_PARK_MS)
         } else {
-            Self::ECHO_APPLY_GRACE_MS
+            self.echo_apply_grace_ms.max(Self::MIN_PARK_MS)
         }
+    }
+
+    /// How long a focus-out in the middle of a burst is held back.
+    pub fn focus_bounce_ms(&self) -> u64 {
+        self.focus_bounce_ms
+    }
+
+    /// Pause between the trial `.` marker and the Backspaces behind it.
+    pub fn marker_wait_ms(&self) -> u64 {
+        self.marker_wait_ms
     }
 
     /// How long the Flow Backspace correction waits before rewriting the
@@ -648,11 +658,15 @@ impl Engine {
             cap_word: false,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
+            echo_apply_grace_ms: 60,
+            key_delete_grace_ms: 15,
+            focus_bounce_ms: 100,
+            marker_wait_ms: 10,
             echo_stale_enabled: false,
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
+            flow_per_key_delay_ms: crate::config::Config::default().flow_per_key_delay_ms,
             flow_backspace_restore_delay_ms: Self::DEFERRED_FIX_MS,
             landed_region: String::new(),
             region_plain: false,
@@ -846,6 +860,10 @@ impl Engine {
         self.hide_underline = config.hide_underline;
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
+        self.echo_apply_grace_ms = config.echo_apply_grace_ms;
+        self.key_delete_grace_ms = config.key_delete_grace_ms;
+        self.focus_bounce_ms = config.focus_bounce_ms;
+        self.marker_wait_ms = config.marker_wait_ms;
         self.echo_stale_enabled = experimental && config.echo_stale_enabled;
         self.echo_stale_ms = config.echo_stale_ms;
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;

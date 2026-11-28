@@ -17,42 +17,10 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
     marks.add(&ui.nav_key_while_preedit);
     page.add(&marks);
 
-    // uinput pacing plus the per-key park delay: everything only the
-    // uinput modes use.
-    let pacing = adw::PreferencesGroup::builder()
-        .title(t("groups.tune.pacing.title", "Nhịp gõ &amp; độ trễ uinput"))
-        .description(t("groups.tune.pacing.description", "Chỉ áp dụng cho Flow."))
-        .build();
-    pacing.add(&ui.pacing_row);
-    // The two Flow delays share the pacing row's caption-column shape: the
-    // per-key park delay paces the same uinput word rendering, the restore
-    // delay paces the same screen rewriting, both outside the gate.
-    pacing.add(&ui.flow_delay_row);
-    {
-        // The spins need their own value hooks, like the pacing spins.
-        let s = ui.save_cb.clone();
-        ui.flow_per_key_spin.connect_value_notify(move |_| {
-            if let Some(save) = s.borrow().as_ref() {
-                save();
-            }
-        });
-        let s = ui.save_cb.clone();
-        ui.flow_backspace_restore_spin
-            .connect_value_notify(move |_| {
-                if let Some(save) = s.borrow().as_ref() {
-                    save();
-                }
-            });
-    }
-    for spin in [&ui.backspace_interval, &ui.post_delay] {
-        let s = ui.save_cb.clone();
-        spin.connect_value_notify(move |_| {
-            if let Some(save) = s.borrow().as_ref() {
-                save();
-            }
-        });
-    }
-    page.add(&pacing);
+    // Every timing of the four transports in one table: the uinput pacing,
+    // both parked graces, the two Flow delays and the two robustness
+    // windows, each with its shipped default and a reset.
+    page.add(&nhip::build(ui));
 
     // X11/XIM workarounds.
     let xim = adw::PreferencesGroup::builder()

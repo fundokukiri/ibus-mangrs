@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::{MethodConfig, ModeConfig};
+use crate::config::{Config, MethodConfig, ModeConfig};
 
 /// Feed keystrokes like a real client: it reports capabilities and a
 /// SetSurroundingText update after every visible change. The first report
@@ -1485,7 +1485,10 @@ fn a_browser_reporting_another_widget_deletes_with_real_keys() {
     );
     // Every mark key pays the parked-commit grace, so this context gets the
     // short one instead of the word-end 60 ms.
-    assert_eq!(e.echo_apply_grace_ms(), Engine::KEY_DELETE_GRACE_MS);
+    assert_eq!(
+        e.echo_apply_grace_ms(),
+        Config::default().key_delete_grace_ms
+    );
 
     let mut text = String::new();
     let mut all = Vec::new();
@@ -1540,7 +1543,10 @@ fn a_browser_reporting_our_word_keeps_the_protocol_delete() {
     }
     assert!(e.protocol_delete_ok(), "the report holds our word");
     assert!(!e.may_inject(), "no key deletion where the delete lands");
-    assert_eq!(e.echo_apply_grace_ms(), Engine::ECHO_APPLY_GRACE_MS);
+    assert_eq!(
+        e.echo_apply_grace_ms(),
+        Config::default().echo_apply_grace_ms
+    );
     let actions = e.process_char('f').into_iter().collect::<Vec<_>>();
     assert!(
         actions.iter().any(|a| matches!(
@@ -2913,7 +2919,7 @@ fn parked_commit_flushes_only_past_its_deadline() {
     let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.park_commit(
         "tiếng".into(),
-        Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS),
+        Duration::from_millis(Config::default().echo_apply_grace_ms),
     );
     assert!(e.has_deferred());
     assert!(

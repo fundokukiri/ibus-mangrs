@@ -319,12 +319,12 @@ title = "Navigation while a word is open"
 subtitle = "The first arrow key while a word is open"
 
 [rows.flow_per_key_delay]
-title = "Marks per step"
-subtitle = "Lower shows marks sooner"
+title = "Flow: show the mark"
+subtitle = "Wait before re-inserting a word"
 
 [rows.flow_backspace_restore_delay]
-title = "Restore after Backspace"
-subtitle = "Waits before rewriting the screen"
+title = "Flow: restore after Backspace"
+subtitle = "Wait for the key, then redo it"
 
 [rows.flow_delay]
 title = "Flow delays"
@@ -493,6 +493,31 @@ title = "Marks & navigation"
 [groups.tune.pacing]
 title = "Key pace & uinput delay"
 description = "Flow only, in milliseconds."
+
+[groups.tune.nhip]
+title = "Key pace"
+description = "Park times of all four modes, in milliseconds."
+
+[rows.echo_apply_grace]
+title = "Wait after the delete"
+subtitle = "Too short shows the word first"
+
+[rows.key_delete_grace]
+title = "Wait after a real-key delete"
+subtitle = "For apps not reporting our text"
+
+[rows.focus_bounce]
+title = "Hold the reset on focus loss"
+subtitle = "A focus flicker keeps the word"
+
+[rows.marker_wait]
+title = "Wait after the · marker"
+subtitle = "Only with the · marker fix"
+
+[rows.nhip]
+reset = "Restore defaults"
+reset_tooltip = "Put the whole table back to the shipped values"
+reset_one = "Back to the shipped value"
 
 [groups.tune.channel]
 title = "Text channel"
