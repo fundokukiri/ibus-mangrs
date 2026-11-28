@@ -1515,6 +1515,55 @@ fn a_browser_reporting_another_widget_deletes_with_real_keys() {
 }
 
 #[test]
+fn a_terminal_behind_the_relay_gets_the_forwarded_transport() {
+    // A terminal reports no surrounding text and renders no preedit; on a
+    // mutter relay the injected keys never reach it either. Surrounding used
+    // to be chosen anyway because a backend existed, so every mark key fell
+    // back to forwarding its raw key and the terminal showed `chaof`.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    // mutter advertises the preedit capability for every client it relays,
+    // which is exactly what made the walk pick Surrounding here.
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_uinput_available(true);
+    e.set_injection_relay_safe(false);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:Alacritty".into()));
+    e.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        ..Config::default()
+    });
+    assert_eq!(
+        e.effective_mode(),
+        Mode::ForwardBackspace,
+        "no report and no injection that reaches it: the terminal transport"
+    );
+
+    // The same client off the relay (X11 names its own program) keeps the
+    // injected-keys transport Surrounding needs.
+    let mut plain = Engine::new(Method::Telex, Mode::Surrounding);
+    plain.set_capabilities(0);
+    plain.set_uinput_available(true);
+    plain.set_client(Some("Alacritty".into()));
+    plain.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        ..Config::default()
+    });
+    assert_eq!(plain.effective_mode(), Mode::ForwardBackspace);
+
+    // A client that renders preedit keeps Surrounding when injection reaches
+    // it, which is the case the walk must not lose.
+    let mut direct = Engine::new(Method::Telex, Mode::Surrounding);
+    direct.set_capabilities(CAP_PREEDIT_TEXT);
+    direct.set_uinput_available(true);
+    direct.set_client(Some("gnome-terminal-server".into()));
+    direct.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        ..Config::default()
+    });
+    assert_eq!(direct.effective_mode(), Mode::Surrounding);
+}
+
+#[test]
 fn a_browser_that_never_reports_our_word_forwards_the_users_backspace() {
     // Docs in Chrome reports only its tab-search box, so an engine-side delete
     // never reaches the document: the owner pressed Backspace four times, the

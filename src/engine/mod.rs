@@ -252,6 +252,7 @@ pub struct Engine {
     /// One-time gate for the Flow fallback log line: once per session,
     /// not per resolution.
     flow_fallback_logged: bool,
+    surround_fallback_logged: bool,
     /// The selected injection backend is routed by the compositor itself
     /// (Libei / wlr virtual keyboard), so the relay ban on injection does
     /// not apply to it — see `deletes_allowed`.
@@ -632,6 +633,7 @@ impl Engine {
             uinput_available: false,
             flow_needs_backend: false,
             flow_fallback_logged: false,
+            surround_fallback_logged: false,
             injection_relay_safe: false,
             transport_types_text: false,
             pending_injected: 0,
@@ -1313,6 +1315,12 @@ impl Engine {
             && (key_delete_only || self.drops_deletes() || self.surrounding.is_none())
     }
 
+    /// Whether an injected key reaches this client at all: the relay ban
+    /// clears only for a compositor-routed backend.
+    fn injection_reaches_client(&self) -> bool {
+        !self.injection_forbidden() || self.injection_relay_safe
+    }
+
     /// Contexts where injected key events are known to be lost.
     fn injection_forbidden(&self) -> bool {
         match self.client.as_deref() {
@@ -1679,8 +1687,26 @@ impl Engine {
         // caps-0 context (XIM, XWayland toolkits) renders no preedit and
         // reports nothing: the inline rewrite has no proof it lands there,
         // while the forwarded transport below reaches it by contract.
-        if self.uinput_available && can_preedit {
+        // A backend existing is not the same as it reaching this client: a
+        // mutter relay refuses injected keys for the context it owns, and a
+        // terminal there has no report either. Choosing Surrounding anyway
+        // left every mark key without a transport and the raw Telex letters
+        // on screen (`chaof`), so the walk takes the same gate the delete
+        // does and hands the word to the forwarded transport instead.
+        // Narrowed to the client that has no other path: it never sent a
+        // report (a terminal) and is not one of the delete-dropper apps the
+        // exemption above covers. Those keep today's choice — a report, even
+        // a foreign one, still proves something about the client.
+        let terminal_ish = self.surrounding.is_none() && !self.client_cannot_delete_surrounding();
+        if self.uinput_available
+            && can_preedit
+            && (self.injection_reaches_client() || !terminal_ish)
+        {
             return Mode::Surrounding;
+        }
+        if self.uinput_available && can_preedit && !self.surround_fallback_logged {
+            self.surround_fallback_logged = true;
+            debug_log::log("del mode=forwardbackspace why=relay");
         }
         // Terminal: the forwarded transport reaches clients with no report
         // and no backend (mutter-relayed Wayland, XIM) — never preedit.
