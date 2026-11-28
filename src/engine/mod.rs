@@ -554,10 +554,24 @@ impl Engine {
     /// its batch has been forwarded. Measured on a mutter relay (08/11):
     /// the app applies the forwarded Backspaces a beat behind the commit
     /// channel, and a commit emitted with the last echo overtook the
-    /// final deletes (`titiến`). 20 ms still covers the observed ~7 ms apply
-    /// window three times over, and a shorter park is a shorter window in
-    /// which the deleted text is visibly gone before the new one lands.
-    pub const ECHO_APPLY_GRACE_MS: u64 = 20;
+    /// final deletes (`titiến`). 60 ms clears the observed ~7 ms apply
+    /// window with margin while staying imperceptible at word end.
+    pub const ECHO_APPLY_GRACE_MS: u64 = 60;
+
+    /// The same grace for a client that deletes with real keys because its
+    /// reports never described our text (Docs in Chrome): every mark key pays
+    /// it, so the word-end 60 ms became 120-240 ms per word. Twice the
+    /// measured apply window instead.
+    pub const KEY_DELETE_GRACE_MS: u64 = 15;
+
+    /// This context's parked-commit grace (see `ECHO_APPLY_GRACE_MS`).
+    pub fn echo_apply_grace_ms(&self) -> u64 {
+        if self.key_delete_only() {
+            Self::KEY_DELETE_GRACE_MS
+        } else {
+            Self::ECHO_APPLY_GRACE_MS
+        }
+    }
 
     /// How long the Flow Backspace correction waits before rewriting the
     /// screen after the application applied the user's own Backspace.
