@@ -1150,6 +1150,16 @@ fn process_key(
         // check sits after the echo test on purpose — an echo must never
         // hold, or the burst would never settle.
         if buffer.holds_keystroke(engine, burst) {
+            // A held delete leaves no other trace: without this line a
+            // stalled Backspace looks exactly like one the application
+            // ignored. Measured while hunting the "holding Backspace stops"
+            // report, so it stays.
+            debug_log::log(&format!(
+                "key hold=backspace held={} echoes={} deferred={}",
+                buffer.len() + 1,
+                burst.expected_echoes(),
+                u8::from(engine.has_deferred())
+            ));
             buffer.push(keyval, keycode, state);
             return true;
         }
@@ -1424,6 +1434,12 @@ impl BurstBuffer {
     fn take(&mut self) -> Vec<(u32, u32, u32)> {
         self.overflow_logged = false;
         std::mem::take(&mut self.keys)
+    }
+
+    /// How many presses are waiting for the burst to settle (the diagnostic
+    /// log names it).
+    fn len(&self) -> usize {
+        self.keys.len()
     }
 
     /// Drop everything: the held keys belonged to a context or a word that

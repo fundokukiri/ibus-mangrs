@@ -1842,6 +1842,7 @@ impl Engine {
             // characters, so the tracked tail has to shrink with it. Left
             // stale, the next macro rewrite deleted more characters than the
             // client held (an out-of-range delete, mutter aborts on it).
+            debug_log::log(&format!("del mode=forward why=empty mode={mode:?}"));
             self.tail = replace_tail(&self.tail, 1, "");
             self.note_backspace_forwarded();
             // The user is erasing an idle-committed word — re-entering it
@@ -1921,6 +1922,15 @@ impl Engine {
                         self.tail = replace_tail(&self.tail, edit.delete_chars, "");
                     }
                     if actions.is_empty() {
+                        // Nothing to delete and nothing to insert: the key is
+                        // swallowed. Silent until a "held Backspace stops"
+                        // report made the difference between this and a
+                        // forwarded key impossible to see.
+                        debug_log::log(&format!(
+                            "del ok=0 why=consumed mode={mode:?} dc={} ins={}",
+                            edit.delete_chars,
+                            edit.insert.chars().count()
+                        ));
                         actions.push(Action::Consumed);
                     }
                     actions
