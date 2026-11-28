@@ -14,12 +14,36 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesPage {
         .title(t("groups.tune.marks.title", "Dấu &amp; điều hướng"))
         .build();
     marks.add(&ui.backspace_tone);
+    // The address-bar fix and the navigation choice change the typing feel
+    // too, so they sit with the two caret edits instead of in the table.
+    marks.add(&ui.dodge_fix);
+    marks.add(&ui.nav_key_while_preedit);
     page.add(&marks);
 
     // Every timing of the four transports in one table: the uinput pacing,
     // both parked graces, the two Flow delays and the two robustness
     // windows, each with its shipped default and a reset.
     page.add(&nhip::build(ui));
+
+    // X11/XIM workarounds last: they matter for those windows only.
+    let xim = adw::PreferencesGroup::builder()
+        .title(t("groups.tune.xim.title", "Tương thích X11/XIM"))
+        .description(t(
+            "groups.tune.xim.description",
+            "Cho app X11 trực tiếp và app XIM (Java/JetBrains).",
+        ))
+        .build();
+    xim.add(&ui.x11_delete);
+    xim.add(&ui.preedit_xim);
+    ui.x11_delete.set_subtitle(&t(
+        "rows.x11_delete.subtitle",
+        "App X11 xoá đuôi từ mà không báo cáo, giống ibus-bamboo. Có thể xoá nhầm ký tự nếu con trỏ bị đổi chỗ.",
+    ));
+    ui.preedit_xim.set_subtitle(&t(
+        "rows.preedit_xim.subtitle",
+        "Cửa sổ preedit riêng cho XIM",
+    ));
+    page.add(&xim);
 
     page
 }

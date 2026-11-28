@@ -933,12 +933,13 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 5] = [
+        let rows: [&gtk4::Widget; 6] = [
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
             self.suggest_words.upcast_ref(),
             self.preferred_backend.upcast_ref(),
+            self.dodge_fix.upcast_ref(),
         ];
         for row in rows {
             row.set_sensitive(on);

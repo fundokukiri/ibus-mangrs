@@ -390,6 +390,14 @@ pub(super) fn spin_button(min: f64, max: f64, step: f64) -> gtk4::SpinButton {
     let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
     let spin = gtk4::SpinButton::new(Some(&adjustment), step, 0);
     spin.set_size_request(VALUE_WIDTH_PX, -1);
+    // A wheel over a spin button steps its value, and a page that scrolls
+    // under the pointer makes that an edit nobody asked for. Captured and
+    // stopped, so neither the value nor the page moves: the table is a
+    // settings page, not a slider.
+    let scroll = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::VERTICAL);
+    scroll.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    scroll.connect_scroll(|_, _, _| gtk4::glib::Propagation::Stop);
+    spin.add_controller(scroll);
     spin
 }
 

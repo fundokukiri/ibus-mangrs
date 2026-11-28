@@ -5,23 +5,12 @@
 
 use super::*;
 
-/// Which half of the table a row belongs to — the filter's two buckets.
+/// The filter's two buckets: the two uinput pacing values, and everything
+/// that parks a commit.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Bucket {
-    Time,
-    Insert,
-}
-
-enum Kind {
-    /// A millisecond value, with the switch that gates it when there is one.
-    Spin {
-        spin: gtk4::SpinButton,
-        default: u64,
-        switch: Option<gtk4::Switch>,
-    },
-    /// A row built elsewhere that carries its own title and subtitle
-    /// (the switch rows and the choice rows of `build`).
-    Own(gtk4::Widget),
+    Uinput,
+    Park,
 }
 
 struct Row {
@@ -34,8 +23,13 @@ struct Row {
     subtitle: &'static str,
     /// One sentence on what the key does, under the key name in the tooltip.
     purpose: &'static str,
-    kind: Kind,
+    /// The modes the value reaches, in the tooltip's last line.
+    scope: &'static str,
+    spin: gtk4::SpinButton,
+    /// The switch that gates the value, for the two optional timings.
+    switch: Option<gtk4::Switch>,
     bucket: Bucket,
+    default: u64,
     /// Behind the experimental gate: locked while the gate is off.
     gated: bool,
 }
@@ -51,16 +45,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
         .title(t("groups.tune.nhip.title", "Nhịp gõ"))
         .description(t(
             "groups.tune.nhip.description",
-            "Thời gian chờ và cách xoá của cả bốn chế độ.",
+            "Thời gian chờ của cả bốn chế độ, tính bằng mili giây.",
         ))
         .build();
     let rows = rows(ui);
     let mut placed: Vec<(gtk4::Widget, Bucket)> = Vec::new();
     for row in &rows {
-        let widget: gtk4::Widget = match &row.kind {
-            Kind::Own(widget) => widget.clone(),
-            _ => spin_or_switch_row(row).upcast(),
-        };
+        let widget = spin_or_switch_row(row);
         // The tooltip leads with the config key, then the purpose (the
         // longer catalogue tip when the row already carries one).
         let key_line = format!("`{}`", row.config);
@@ -68,24 +59,17 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
             Some(existing) if !existing.is_empty() => format!("{key_line}\n{existing}"),
             _ => format!("{key_line}\n{}", row.purpose),
         };
+        let text = format!("{text}\n{}: {}", t("rows.nhip.scope", "Áp dụng"), row.scope);
         widget.set_tooltip_text(Some(&text));
         if row.gated {
-            ui.nhip_gated.borrow_mut().push(widget.clone());
+            ui.nhip_gated.borrow_mut().push(widget.clone().upcast());
         }
+        placed.push((widget.clone().upcast(), row.bucket));
         group.add(&widget);
-        placed.push((widget, row.bucket));
     }
-    group.add(&filter_row(placed));
-    group.add(&reset_row(&rows));
+    group.set_header_suffix(Some(&header_controls(&rows, placed)));
     // Every spin saves on its own: the table has no apply button.
-    let saves: Vec<gtk4::SpinButton> = rows
-        .iter()
-        .filter_map(|r| match &r.kind {
-            Kind::Spin { spin, .. } => Some(spin.clone()),
-            _ => None,
-        })
-        .collect();
-    for spin in saves {
+    for spin in rows.iter().map(|r| r.spin.clone()) {
         let s = ui.save_cb.clone();
         spin.connect_value_notify(move |_| {
             if let Some(save) = s.borrow().as_ref() {
@@ -96,45 +80,14 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
     group
 }
 
-/// The filter above the table's reset: three buckets, the whole table by
-/// default.
-fn filter_row(rows: Vec<(gtk4::Widget, Bucket)>) -> adw::ActionRow {
-    let widget = action_row(
-        &t("rows.nhip.filter", "Hiện"),
-        &t("rows.nhip.filter_subtitle", "Chọn nhóm thông số muốn xem"),
-    );
-    let drop = gtk4::DropDown::from_strings(&[
-        &t("rows.nhip.filter_all", "Tất cả"),
-        &t("rows.nhip.filter_time", "Thời gian"),
-        &t("rows.nhip.filter_insert", "Cách xoá"),
-    ]);
-    drop.set_valign(gtk4::Align::Center);
-    drop.set_selected(0);
-    drop.connect_selected_notify(move |d| {
-        let wanted = match d.selected() {
-            1 => Some(Bucket::Time),
-            2 => Some(Bucket::Insert),
-            _ => None,
-        };
-        for (row, bucket) in &rows {
-            row.set_visible(wanted.is_none_or(|w| w == *bucket));
-        }
-    });
-    widget.add_suffix(&drop);
-    widget
-}
-
 fn spin_or_switch_row(row: &Row) -> adw::ActionRow {
     let widget = action_row(
         &row.title(),
         &t(&format!("{}.subtitle", row.key), row.subtitle),
     );
-    match &row.kind {
-        Kind::Spin {
-            spin,
-            default,
-            switch,
-        } => {
+    {
+        let (spin, default, switch) = (&row.spin, row.default, &row.switch);
+        {
             // The switch first: it gates the value that follows it.
             if let Some(switch) = switch {
                 switch.set_valign(gtk4::Align::Center);
@@ -160,7 +113,7 @@ fn spin_or_switch_row(row: &Row) -> adw::ActionRow {
             ))]);
             {
                 let spin = spin.clone();
-                let default = *default;
+                let default = row.default;
                 reset.connect_clicked(move |_| spin.set_value(default as f64));
             }
             spin.set_valign(gtk4::Align::Center);
@@ -172,35 +125,56 @@ fn spin_or_switch_row(row: &Row) -> adw::ActionRow {
             widget.add_suffix(&reset);
             widget.add_suffix(spin);
         }
-        Kind::Own(_) => {}
     }
     widget
 }
 
-/// The group-level reset: one row at the bottom with the button on the
-/// right, matching the rows above.
-fn reset_row(rows: &[Row]) -> adw::ActionRow {
-    let widget = action_row(
-        &t("rows.nhip.reset", "Khôi phục mặc định"),
-        &t("rows.nhip.reset_tooltip", "Đưa cả bảng về giá trị gốc"),
-    );
-    let button = gtk4::Button::with_label(&t("rows.nhip.reset_button", "Đặt lại"));
-    button.add_css_class("flat");
-    button.set_valign(gtk4::Align::Center);
-    let defaults: Vec<(gtk4::SpinButton, u64)> = rows
-        .iter()
-        .filter_map(|r| match &r.kind {
-            Kind::Spin { spin, default, .. } => Some((spin.clone(), *default)),
-            _ => None,
-        })
-        .collect();
-    button.connect_clicked(move |_| {
-        for (spin, value) in &defaults {
-            spin.set_value(*value as f64);
-        }
-    });
-    widget.add_suffix(&button);
-    widget
+/// The group header carries both controls, right of the title: the filter
+/// that narrows the table and the button that puts every value back.
+fn header_controls(rows: &[Row], placed: Vec<(gtk4::Widget, Bucket)>) -> gtk4::Box {
+    let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    bar.set_valign(gtk4::Align::Center);
+
+    let filter = gtk4::DropDown::from_strings(&[
+        &t("rows.nhip.filter_all", "Tất cả"),
+        &t("rows.nhip.filter_uinput", "Phím ảo"),
+        &t("rows.nhip.filter_park", "Chờ chữ hiện"),
+    ]);
+    filter.set_tooltip_text(Some(&t(
+        "rows.nhip.filter_subtitle",
+        "Chọn nhóm thông số muốn xem",
+    )));
+    {
+        filter.connect_selected_notify(move |d| {
+            let wanted = match d.selected() {
+                1 => Some(Bucket::Uinput),
+                2 => Some(Bucket::Park),
+                _ => None,
+            };
+            for (row, bucket) in &placed {
+                row.set_visible(wanted.is_none_or(|w| w == *bucket));
+            }
+        });
+    }
+
+    let reset = gtk4::Button::with_label(&t("rows.nhip.reset", "Khôi phục mặc định"));
+    reset.set_tooltip_text(Some(&t(
+        "rows.nhip.reset_tooltip",
+        "Đưa cả bảng về giá trị gốc",
+    )));
+    {
+        let defaults: Vec<(gtk4::SpinButton, u64)> =
+            rows.iter().map(|r| (r.spin.clone(), r.default)).collect();
+        reset.connect_clicked(move |_| {
+            for (spin, value) in &defaults {
+                spin.set_value(*value as f64);
+            }
+        });
+    }
+
+    bar.append(&filter);
+    bar.append(&reset);
+    bar
 }
 
 fn rows(ui: &Rc<Ui>) -> Vec<Row> {
@@ -210,7 +184,9 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
                 title: &'static str,
                 subtitle: &'static str,
                 purpose: &'static str,
+                scope: &'static str,
                 spin: &gtk4::SpinButton,
+                bucket: Bucket,
                 default: u64,
                 gated: bool| Row {
         key,
@@ -218,12 +194,11 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
         title,
         subtitle,
         purpose,
-        kind: Kind::Spin {
-            spin: spin.clone(),
-            default,
-            switch: None,
-        },
-        bucket: Bucket::Time,
+        scope,
+        spin: spin.clone(),
+        switch: None,
+        bucket,
+        default,
         gated,
     };
     vec![
@@ -232,8 +207,10 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "rows.backspace_interval",
             "Xoá lùi",
             "Giảm nếu xoá chậm",
+            "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace",
             "Khoảng cách giữa các phím Backspace ảo; giảm khi app xoá chậm.",
             &ui.backspace_interval,
+            Bucket::Uinput,
             d.backspace_interval_ms,
             false,
         ),
@@ -242,8 +219,10 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "rows.post_delay",
             "Chờ viết lại từ",
             "Cho app xử lý phím chậm",
+            "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace",
             "Nghỉ sau mỗi lần sửa màn hình trước khi nhận phím tiếp.",
             &ui.post_delay,
+            Bucket::Uinput,
             d.post_delay_ms,
             false,
         ),
@@ -252,8 +231,10 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "rows.echo_apply_grace",
             "Chờ sau phím xoá",
             "Quá ngắn thì chữ hiện trước dấu",
+            "Surrounding, Flow, ForwardBackspace",
             "Commit chờ phím xoá áp xong; quá ngắn thì chữ hiện trước dấu, quá dài thì gõ bị trễ.",
             &ui.echo_apply_grace_spin,
+            Bucket::Park,
             d.echo_apply_grace_ms,
             false,
         ),
@@ -262,8 +243,10 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "rows.key_delete_grace",
             "Chờ sau phím xoá thật",
             "Cho app không báo chữ đang gõ",
+            "Surrounding, khi app không báo chữ đang gõ",
             "Mức chờ riêng cho app phải xoá bằng phím thật vì không báo chữ đang gõ, ví dụ Docs trong Chrome.",
             &ui.key_delete_grace_spin,
+            Bucket::Park,
             d.key_delete_grace_ms,
             false,
         ),
@@ -272,8 +255,10 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "rows.flow_per_key_delay",
             "Flow: hiện dấu",
             "Chờ rồi mới chèn lại từ",
+            "chỉ Flow",
             "Flow chờ chừng này rồi mới chèn lại từ sau khi đổi dấu.",
             &ui.flow_per_key_spin,
+            Bucket::Park,
             d.flow_per_key_delay_ms,
             false,
         ),
@@ -282,8 +267,10 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "rows.flow_backspace_restore_delay",
             "Flow: hoàn dấu sau Backspace",
             "Chờ Backspace đi khỏi rồi vá",
+            "chỉ Flow",
             "Chờ phím Backspace của bạn đi khỏi rồi mới vá lại dấu.",
             &ui.flow_backspace_restore_spin,
+            Bucket::Park,
             d.flow_backspace_restore_delay_ms,
             false,
         ),
@@ -292,8 +279,10 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "rows.focus_bounce",
             "Hoãn reset khi mất focus",
             "Nháy mất focus vẫn giữ từ",
+            "tất cả các chế độ",
             "Mất focus trong khoảng này thì coi là nháy, giữ nguyên từ đang gõ.",
             &ui.focus_bounce_spin,
+            Bucket::Park,
             d.focus_bounce_ms,
             false,
         ),
@@ -302,8 +291,10 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "rows.marker_wait",
             "Chờ sau dấu ·",
             "Chỉ dùng khi chèn dấu ·",
+            "tất cả, nhưng chỉ khi chọn cách Chèn dấu ·",
             "Chờ sau khi chèn dấu · để browser bỏ gợi ý trước khi xoá.",
             &ui.marker_wait_spin,
+            Bucket::Park,
             d.marker_wait_ms,
             false,
         ),
@@ -313,12 +304,11 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             title: "Chờ phím ảo quay về",
             subtitle: "Quá hạn thì đổ chữ luôn",
             purpose: "Quá hạn này không thấy phím ảo quay về thì đổ chữ đã treo, để không mất chữ trên Wayland.",
-            kind: Kind::Spin {
-                spin: ui.echo_stale_spin.clone(),
-                default: d.echo_stale_ms,
-                switch: Some(ui.echo_stale_switch.clone()),
-            },
-            bucket: Bucket::Time,
+            scope: "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace",
+            spin: ui.echo_stale_spin.clone(),
+            switch: Some(ui.echo_stale_switch.clone()),
+            bucket: Bucket::Park,
+            default: d.echo_stale_ms,
             gated: true,
         },
         Row {
@@ -327,53 +317,12 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             title: "Tự chốt từ khi ngừng gõ",
             subtitle: "Như bấm dấu cách",
             purpose: "Ngừng gõ quá lâu thì tự chốt từ đang gạch chân, như vừa bấm dấu cách.",
-            kind: Kind::Spin {
-                spin: ui.idle_commit_spin.clone(),
-                default: d.idle_commit_ms,
-                switch: Some(ui.idle_commit_switch.clone()),
-            },
-            bucket: Bucket::Time,
+            scope: "chế độ còn gạch chân từ đang gõ (Preedit)",
+            spin: ui.idle_commit_spin.clone(),
+            switch: Some(ui.idle_commit_switch.clone()),
+            bucket: Bucket::Park,
+            default: d.idle_commit_ms,
             gated: true,
-        },
-        Row {
-            key: "rows.dodge_fix",
-            config: "autocomplete_fix",
-            title: "Sửa lỗi gõ trong ô địa chỉ",
-            subtitle: "Tắt, hoặc chọn cách sửa",
-            purpose: "Tắt hẳn, hoặc chọn cách xoá khi gợi ý hiện trong ô: xoá thẳng, hay chèn dấu · để browser bỏ gợi ý trước.",
-            kind: Kind::Own(ui.dodge_fix.clone().upcast()),
-            bucket: Bucket::Insert,
-            gated: true,
-        },
-        Row {
-            key: "rows.nav_key_while_preedit",
-            config: "nav_key_while_preedit",
-            title: "Phím điều hướng khi đang gõ",
-            subtitle: "Mũi tên bấm lúc còn chữ chưa chốt",
-            purpose: "Bấm mũi tên khi còn chữ chưa chốt: chuyển tiếp phím cho app, hoặc chốt từ rồi mới chuyển.",
-            kind: Kind::Own(ui.nav_key_while_preedit.clone().upcast()),
-            bucket: Bucket::Insert,
-            gated: false,
-        },
-        Row {
-            key: "rows.x11_delete",
-            config: "x11_delete_without_report",
-            title: "Xoá đuôi từ ở app X11",
-            subtitle: "Xoá như ibus-bamboo khi app không báo",
-            purpose: "Cho app X11 xoá đuôi từ như ibus-bamboo khi app không gửi báo cáo văn bản.",
-            kind: Kind::Own(ui.x11_delete.clone().upcast()),
-            bucket: Bucket::Insert,
-            gated: false,
-        },
-        Row {
-            key: "rows.preedit_xim",
-            config: "preedit_for_xim",
-            title: "Preedit cho app XIM",
-            subtitle: "Giữ gạch chân cho Java/JetBrains",
-            purpose: "Dùng cửa sổ gạch chân riêng cho app XIM như Java và JetBrains, vốn không nhận gạch chân của IBus.",
-            kind: Kind::Own(ui.preedit_xim.clone().upcast()),
-            bucket: Bucket::Insert,
-            gated: false,
         },
     ]
 }

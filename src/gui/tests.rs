@@ -53,6 +53,7 @@ fn gtk_widget_scenarios() {
     row_texts_render_as_plain_text();
     nhip_table_edits_and_resets_every_timing();
     nhip_rows_name_their_config_key();
+    nhip_header_carries_the_filter_and_the_reset();
     rules_add_group_merges_the_focus_chip();
     rule_rows_round_trip_through_read();
     macro_page_helpers_count_and_preview();
@@ -1023,6 +1024,41 @@ fn the_address_bar_row_maps_both_keys() {
     assert_eq!(dodge_from_index(2), (true, Some(AutocompleteFix::Marker)));
 }
 
+/// The filter and the reset live in the group header, right of the title:
+/// they act on the whole table, so they do not take a row of their own.
+fn nhip_header_carries_the_filter_and_the_reset() {
+    let ui = widgets();
+    let page = crate::gui::pages::tune::build(&ui);
+    let group = descendants::<adw::PreferencesGroup>(page.upcast_ref())
+        .into_iter()
+        .find(|g| g.title().contains("Nhịp gõ"))
+        .expect("the table's group");
+    let suffix = group.header_suffix().expect("a header suffix");
+    let drop = descendants::<gtk4::DropDown>(&suffix);
+    let reset = descendants::<gtk4::Button>(&suffix)
+        .into_iter()
+        .find(|b| b.label().is_some_and(|l| l.contains("Khôi phục")))
+        .expect("the reset button in the header");
+    assert_eq!(drop.len(), 1, "one filter dropdown in the header");
+    assert_eq!(
+        drop[0]
+            .model()
+            .and_downcast::<gtk4::StringList>()
+            .map(|m| m.n_items()),
+        Some(3),
+        "all / key presses / park"
+    );
+    // Reset puts the spins back to the shipped values.
+    let shipped = crate::config::Config::default().echo_apply_grace_ms;
+    ui.echo_apply_grace_spin.set_value(37.0);
+    reset.emit_clicked();
+    assert_eq!(
+        ui.echo_apply_grace_spin.value(),
+        shipped as f64,
+        "the header reset restores the shipped value"
+    );
+}
+
 /// Every row of the "Nhịp gõ" table names the config key it edits in its
 /// tooltip, so a user can go straight to config.toml and a bug report can
 /// quote the key.
@@ -1048,6 +1084,10 @@ fn nhip_rows_name_their_config_key() {
         assert!(
             tip.starts_with(&format!("`{key}`")),
             "{needle}: the tooltip must lead with `{key}`, got {tip:?}"
+        );
+        assert!(
+            tip.contains("Áp dụng:"),
+            "{needle}: the tooltip must say which modes the value reaches, got {tip:?}"
         );
     }
 }
