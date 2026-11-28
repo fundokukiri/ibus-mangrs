@@ -1568,8 +1568,9 @@ fn note_burst_echo(engine: &mut Engine, burst: &mut BurstWatch) -> bool {
         return false;
     }
     burst.note_echo(engine);
+    let grace = engine.echo_apply_grace_ms();
     for text in engine.note_echo_forwarded() {
-        engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
+        engine.park_commit(text, Duration::from_millis(grace));
     }
     true
 }

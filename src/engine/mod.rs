@@ -558,6 +558,21 @@ impl Engine {
     /// window with margin while staying imperceptible at word end.
     pub const ECHO_APPLY_GRACE_MS: u64 = 60;
 
+    /// The same grace for a client that deletes with real keys because its
+    /// reports never described our text (Docs in Chrome): every mark key pays
+    /// it, so the word-end 60 ms became 120-240 ms per word. Twice the
+    /// measured apply window instead.
+    pub const KEY_DELETE_GRACE_MS: u64 = 15;
+
+    /// This context's parked-commit grace (see `ECHO_APPLY_GRACE_MS`).
+    pub fn echo_apply_grace_ms(&self) -> u64 {
+        if self.key_delete_only() {
+            Self::KEY_DELETE_GRACE_MS
+        } else {
+            Self::ECHO_APPLY_GRACE_MS
+        }
+    }
+
     /// How long the Flow Backspace correction waits before rewriting the
     /// screen after the application applied the user's own Backspace.
     /// Backspaces the engine injects while that key is still being handled
