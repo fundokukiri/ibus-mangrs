@@ -999,14 +999,6 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.keep_composed_words);
     on_change!(ui.keep_repeats_raw);
     on_change!(ui.suggest_words);
-    on_change!(ui.dodge_switch);
-    {
-        // The fix dropdown only matters while its switch is on.
-        let fix = ui.dodge_fix.clone();
-        ui.dodge_switch.connect_active_notify(move |sw| {
-            fix.set_sensitive(sw.is_active());
-        });
-    }
     let s = Rc::clone(&save);
     ui.dodge_fix.connect_selected_notify(move |_| s());
     on_change!(ui.emoji_enabled);

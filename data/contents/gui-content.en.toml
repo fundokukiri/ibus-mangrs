@@ -246,15 +246,11 @@ subtitle = "A suggestion strip by the caret"
 
 
 [rows.dodge_fix]
-title = "How to fix it"
-subtitle = "How the fix draws the suggestion"
-raw = "Delete straight"
-marker = "Insert dot ·"
-
-[rows.dodge_inline_autocomplete]
-title = "Fix typing in address bars"
-subtitle = "Used to give oỏ, now ỏ"
-
+title = "Fix typing in the address bar"
+subtitle = "Used to type oỏ, now ỏ"
+off = "Off"
+raw = "Delete directly"
+marker = "Insert the · marker"
 [rows.suggest_learn]
 title = "Learn from picked suggestions"
 subtitle = "Favors the words you picked"

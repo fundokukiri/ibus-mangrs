@@ -216,25 +216,13 @@ pub(super) fn widgets() -> Rc<Ui> {
         &t("rows.suggest_words.title", "Gợi ý từ khi gõ"),
         &t("rows.suggest_words.subtitle", "Dải gợi ý cạnh con trỏ"),
     );
-    // Two rows, like every other choice in the window: the switch turns the fix
-    // on, the combo under it picks how it works.
-    let dodge_switch = switch_row(
-        &t(
-            "rows.dodge_inline_autocomplete.title",
-            "Sửa lỗi gõ trong ô địa chỉ",
-        ),
-        &t(
-            "rows.dodge_inline_autocomplete.subtitle",
-            "Trước ra oỏ, giờ ra ỏ",
-        ),
-    );
+    // One row instead of a switch plus a dropdown: off is the first choice,
+    // and the row wears the feature's name rather than the mechanism's.
     let dodge_fix = combo_row(
-        &t("rows.dodge_fix.title", "Cách sửa lỗi"),
-        &t(
-            "rows.dodge_fix.subtitle",
-            "Chọn cách sửa khi gợi ý hiện trong ô",
-        ),
+        &t("rows.dodge_fix.title", "Sửa lỗi gõ trong ô địa chỉ"),
+        &t("rows.dodge_fix.subtitle", "Trước ra oỏ, giờ ra ỏ"),
         &[
+            &t("rows.dodge_fix.off", "Tắt"),
             &t("rows.dodge_fix.raw", "Xoá thẳng"),
             &t("rows.dodge_fix.marker", "Chèn dấu ·"),
         ],
@@ -648,7 +636,7 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Hiện từ đang gõ cùng dải gợi ý ngay cạnh con trỏ. Chọn bằng phím `, Alt+1 đến Alt+5 hoặc bấm vào dòng gợi ý. Mặc định tắt."
     );
     tip!(
-        dodge_switch,
+        dodge_fix,
         "tips.dodge_inline_autocomplete",
         "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Chọn `Dấu chấm` nếu cách hiện tại vẫn lỗi. Mặc định tắt."
     );
@@ -718,7 +706,6 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_composed_words,
         keep_repeats_raw,
         suggest_words,
-        dodge_switch,
         dodge_fix,
         preferred_backend,
         time_format,

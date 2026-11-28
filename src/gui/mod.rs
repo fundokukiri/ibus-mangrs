@@ -281,7 +281,6 @@ struct Ui {
     /// default-displayed and restored with them; needs the prediction
     /// model file to do anything.
     suggest_words: adw::SwitchRow,
-    dodge_switch: adw::SwitchRow,
     dodge_fix: adw::ComboRow,
     preferred_backend: adw::ComboRow,
     time_format: gtk4::DropDown,
@@ -457,19 +456,25 @@ fn method_index(m: MethodConfig) -> u32 {
     }
 }
 
-/// Dropdown order for the address-bar fix, matching the row's items.
-fn autocomplete_fix_index(fix: AutocompleteFix) -> u32 {
+/// Dropdown order for the address-bar row, matching its items: off first,
+/// then the two fix styles.
+fn dodge_index(dodge: bool, fix: AutocompleteFix) -> u32 {
+    if !dodge {
+        return 0;
+    }
     match fix {
-        AutocompleteFix::Raw => 0,
-        AutocompleteFix::Marker => 1,
+        AutocompleteFix::Raw => 1,
+        AutocompleteFix::Marker => 2,
     }
 }
 
-fn autocomplete_fix_from_index(index: u32) -> AutocompleteFix {
-    if index == 1 {
-        AutocompleteFix::Marker
-    } else {
-        AutocompleteFix::Raw
+/// The dropdown's pick as the two config keys it stands for. Off leaves the
+/// fix style alone, so turning the feature back on keeps the last choice.
+fn dodge_from_index(index: u32) -> (bool, Option<AutocompleteFix>) {
+    match index {
+        1 => (true, Some(AutocompleteFix::Raw)),
+        2 => (true, Some(AutocompleteFix::Marker)),
+        _ => (false, None),
     }
 }
 
@@ -660,12 +665,10 @@ impl Ui {
             .set_active(config.keep_composed_words);
         self.keep_repeats_raw.set_active(config.keep_repeats_raw);
         self.suggest_words.set_active(config.suggest_words);
-        self.dodge_switch
-            .set_active(config.dodge_inline_autocomplete);
-        self.dodge_fix
-            .set_selected(autocomplete_fix_index(config.autocomplete_fix));
-        self.dodge_fix
-            .set_sensitive(config.dodge_inline_autocomplete);
+        self.dodge_fix.set_selected(dodge_index(
+            config.dodge_inline_autocomplete,
+            config.autocomplete_fix,
+        ));
         self.preferred_backend
             .set_selected(preferred_backend_index(config.preferred_backend));
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
@@ -846,8 +849,11 @@ impl Ui {
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
         config.suggest_words = self.suggest_words.is_active();
-        config.dodge_inline_autocomplete = self.dodge_switch.is_active();
-        config.autocomplete_fix = autocomplete_fix_from_index(self.dodge_fix.selected());
+        let (dodge, fix) = dodge_from_index(self.dodge_fix.selected());
+        config.dodge_inline_autocomplete = dodge;
+        if let Some(fix) = fix {
+            config.autocomplete_fix = fix;
+        }
         config.preferred_backend = match self.preferred_backend.selected() {
             1 => PreferredBackendConfig::Uinput,
             2 => PreferredBackendConfig::XTest,
@@ -950,8 +956,7 @@ impl Ui {
                 .set_sensitive(gate && self.echo_stale_switch.is_active());
             self.idle_commit_spin
                 .set_sensitive(gate && self.idle_commit_switch.is_active());
-            self.dodge_fix
-                .set_sensitive(gate && self.dodge_switch.is_active());
+            self.dodge_fix.set_sensitive(gate);
         }
     }
 
@@ -968,9 +973,8 @@ impl Ui {
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
         self.suggest_words.set_active(d.suggest_words);
-        self.dodge_switch.set_active(d.dodge_inline_autocomplete);
         self.dodge_fix
-            .set_selected(autocomplete_fix_index(d.autocomplete_fix));
+            .set_selected(dodge_index(d.dodge_inline_autocomplete, d.autocomplete_fix));
         self.preferred_backend.set_selected(0);
         self.echo_stale_switch.set_active(d.echo_stale_enabled);
         self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
@@ -990,9 +994,8 @@ impl Ui {
         self.keep_composed_words.set_active(c.keep_composed_words);
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
         self.suggest_words.set_active(c.suggest_words);
-        self.dodge_switch.set_active(c.dodge_inline_autocomplete);
         self.dodge_fix
-            .set_selected(autocomplete_fix_index(c.autocomplete_fix));
+            .set_selected(dodge_index(c.dodge_inline_autocomplete, c.autocomplete_fix));
         self.preferred_backend
             .set_selected(preferred_backend_index(c.preferred_backend));
         self.echo_stale_switch.set_active(c.echo_stale_enabled);

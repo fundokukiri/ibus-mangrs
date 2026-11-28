@@ -1008,6 +1008,21 @@ fn nhip_table_edits_and_resets_every_timing() {
     );
 }
 
+/// The address-bar row is one dropdown over two config keys: off first,
+/// then the two fix styles, and picking "off" must not forget the style.
+#[test]
+fn the_address_bar_row_maps_both_keys() {
+    use super::{dodge_from_index, dodge_index};
+    use crate::config::AutocompleteFix;
+    assert_eq!(dodge_index(false, AutocompleteFix::Raw), 0);
+    assert_eq!(dodge_index(false, AutocompleteFix::Marker), 0);
+    assert_eq!(dodge_index(true, AutocompleteFix::Raw), 1);
+    assert_eq!(dodge_index(true, AutocompleteFix::Marker), 2);
+    assert_eq!(dodge_from_index(0), (false, None));
+    assert_eq!(dodge_from_index(1), (true, Some(AutocompleteFix::Raw)));
+    assert_eq!(dodge_from_index(2), (true, Some(AutocompleteFix::Marker)));
+}
+
 /// Every row of the "Nhịp gõ" table names the config key it edits in its
 /// tooltip, so a user can go straight to config.toml and a bug report can
 /// quote the key.
@@ -1634,7 +1649,7 @@ fn every_switch_triggers_save() {
     let saves = Rc::new(Cell::new(0u32));
     let counter = saves.clone();
     wire_switch_saves(&ui, Rc::new(move || counter.set(counter.get() + 1)));
-    let rows: [&adw::SwitchRow; 22] = [
+    let rows: [&adw::SwitchRow; 21] = [
         &ui.enabled,
         &ui.modern,
         &ui.free,
@@ -1651,7 +1666,6 @@ fn every_switch_triggers_save() {
         &ui.capitalize_macro,
         &ui.macro_in_off_mode,
         &ui.macro_valid_words,
-        &ui.dodge_switch,
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,

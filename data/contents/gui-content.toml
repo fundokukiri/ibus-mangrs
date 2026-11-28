@@ -248,15 +248,11 @@ subtitle = "Dải gợi ý cạnh con trỏ"
 
 
 [rows.dodge_fix]
-title = "Cách sửa lỗi"
-subtitle = "Chọn cách sửa khi gợi ý hiện trong ô"
-raw = "Xoá thẳng"
-marker = "Chèn dấu ·"
-
-[rows.dodge_inline_autocomplete]
 title = "Sửa lỗi gõ trong ô địa chỉ"
 subtitle = "Trước ra oỏ, giờ ra ỏ"
-
+off = "Tắt"
+raw = "Xoá thẳng"
+marker = "Chèn dấu ·"
 [rows.suggest_learn]
 title = "Học từ khi chọn gợi ý"
 subtitle = "Ưu tiên từ anh đã chọn"
