@@ -362,6 +362,12 @@ impl Engine {
     /// racing between our verify and the delete (mutter segfaults on
     /// out-of-range deletes even with the capability present).
     fn clamp_delete(&self, n: u32) -> u32 {
+        // A report that never described our own text says nothing about what
+        // sits before the caret (Chrome's tab-search box while Docs holds the
+        // word), and this client's delete goes out as real key presses.
+        if self.key_delete_only() {
+            return n;
+        }
         match &self.surrounding {
             Some((text, cursor)) => {
                 let have = text.chars().take(*cursor as usize).count() as u32;
@@ -434,7 +440,7 @@ impl Engine {
         // the last report says sit before the caret. An out-of-range delete
         // aborts mutter (`before >= start`) and hangs the desktop.
         let n = self.clamp_delete(n);
-        if insert_len == 0 {
+        if insert_len == 0 || self.key_delete_only() {
             return Action::DeleteBefore(n);
         }
         let prefix = self.report_prefix_len();

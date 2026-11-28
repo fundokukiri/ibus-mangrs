@@ -1455,6 +1455,105 @@ fn config_rule_bypasses_the_delete_fallback() {
 }
 
 #[test]
+fn a_browser_reporting_another_widget_deletes_with_real_keys() {
+    // Google Docs in Chrome on Wayland: the report is the tab-search box
+    // (`text="_"`) while the canvas holds the typed word, so the protocol
+    // delete lands in that other widget and every word stacked
+    // (`Xin chaoào`). The X11 session deletes the same app with real key
+    // presses (no report there at all); the relayed Wayland context must take
+    // the same path instead of sending DeleteSurroundingText.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_uinput_available(true);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    e.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        app_rules: vec![crate::config::AppRule {
+            pattern: "google-chrome".into(),
+            mode: crate::config::ModeConfig::Surrounding,
+        }],
+        ..Config::default()
+    });
+
+    // The report that exists when the word starts is what locks the mode.
+    e.set_surrounding("_".into(), 1);
+    assert!(e.may_inject(), "the key transport reaches this context");
+    assert!(
+        !e.protocol_delete_ok(),
+        "the report describes no word of ours"
+    );
+
+    let mut text = String::new();
+    let mut all = Vec::new();
+    for c in "chaof".chars() {
+        let actions = e.process_char(c);
+        all.extend(actions.iter().cloned());
+        text = replay_from(&text, &actions);
+        e.set_surrounding("_".into(), 1);
+    }
+    assert_eq!(text, "chào");
+    // The engine asks for a delete the server turns into real Backspace keys;
+    // the count is not clamped to the one character that report knows about.
+    assert!(
+        all.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+        "{all:?}"
+    );
+    assert!(
+        !all.iter().any(|a| matches!(
+            a,
+            Action::DeleteSurrounding { .. } | Action::RewriteByBackspace { .. }
+        )),
+        "{all:?}"
+    );
+}
+
+#[test]
+fn a_browser_reporting_our_word_keeps_the_protocol_delete() {
+    // Chrome's omnibox reports the text we committed, which proves the delete
+    // lands there: it must keep the protocol delete and must not gain the
+    // key transport the relay ban was measured against.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_uinput_available(true);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    e.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        app_rules: vec![crate::config::AppRule {
+            pattern: "google-chrome".into(),
+            mode: crate::config::ModeConfig::Surrounding,
+        }],
+        ..Config::default()
+    });
+
+    e.set_surrounding(String::new(), 0);
+    let mut text = String::new();
+    for c in "chao".chars() {
+        let actions = e.process_char(c);
+        text = replay_from(&text, &actions);
+        let cursor = text.chars().count() as u32;
+        e.set_surrounding(text.clone(), cursor);
+    }
+    assert!(e.protocol_delete_ok(), "the report holds our word");
+    assert!(!e.may_inject(), "no key deletion where the delete lands");
+    let actions = e.process_char('f').into_iter().collect::<Vec<_>>();
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+        )),
+        "{actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "{actions:?}"
+    );
+}
+
+#[test]
 fn none_rule_targets_unnamed_clients_in_every_display_mode() {
     // The special `none` pattern targets clients that never reported a
     // name (X11/XIM apps): with no name there is nothing to substring-

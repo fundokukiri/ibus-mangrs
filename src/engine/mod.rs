@@ -223,6 +223,11 @@ pub struct Engine {
     /// Set once the client has been proven to drop DeleteSurroundingText:
     /// the server then injects real Backspace keys instead of the signal.
     delete_dropped: bool,
+    /// Whether the last report described the word we committed (or the
+    /// shorter one we typed on the way to it). Chrome reports only its
+    /// tab-search box while the Docs canvas holds the text, so a report
+    /// existing is not proof that a delete reaches what we wrote.
+    report_tracks_tail: bool,
     /// Verdicts from earlier focus sessions, keyed by client and app name, so
     /// walking back into an app that swallows rewrite deletes does not pay for
     /// the wrong first word again. Cleared by a client reset: that is the
@@ -596,6 +601,7 @@ impl Engine {
             preedit_for_xim: false,
             nav_key_while_preedit: NavKeyWhilePreedit::default(),
             delete_dropped: false,
+            report_tracks_tail: false,
             delete_verdicts: std::collections::HashMap::new(),
             awaiting_delete_proof: None,
             uinput_available: false,
@@ -1218,6 +1224,7 @@ impl Engine {
         self.surrounding = None;
         self.repair_delete = None;
         self.delete_dropped = false;
+        self.report_tracks_tail = false;
         self.suggestions = false;
         self.awaiting_delete_proof = None;
     }
@@ -1265,8 +1272,12 @@ impl Engine {
     /// compositor itself routes its key events, so they cannot be lost the
     /// way device-injected ones are (same exemption as `deletes_allowed`).
     pub fn may_inject(&self) -> bool {
-        (!self.injection_forbidden() || self.injection_relay_safe)
-            && (self.drops_deletes() || self.surrounding.is_none())
+        // The browser-family foreign-report case is exempt from the relay ban:
+        // it has no other delete transport, and the same injected keys are
+        // what the X11 session has always used in that app.
+        let key_delete_only = self.key_delete_only();
+        (key_delete_only || !self.injection_forbidden() || self.injection_relay_safe)
+            && (key_delete_only || self.drops_deletes() || self.surrounding.is_none())
     }
 
     /// Contexts where injected key events are known to be lost.
@@ -1347,6 +1358,7 @@ impl Engine {
             // A proof belongs to the context it was measured in; the cache
             // restores it when this app comes back.
             self.delete_dropped = false;
+            self.report_tracks_tail = false;
         }
         self.app_name = name;
     }
@@ -1505,9 +1517,23 @@ impl Engine {
         self.dodge_inline_autocomplete && self.suggestions && self.protocol_delete_ok()
     }
 
+    /// A browser-family client whose report never described the word we
+    /// committed. Chrome reports its tab-search box (`text="_"`) while the
+    /// Docs canvas holds the typed word, so the protocol delete lands in that
+    /// other widget and the document keeps the old text (every word stacked:
+    /// `Xin chaoào`). The X11 session already deletes such a field with real
+    /// key presses (no report at all there); on Wayland the relay ban and the
+    /// foreign report were both satisfied, so nothing deleted.
+    pub(super) fn key_delete_only(&self) -> bool {
+        self.client_cannot_delete_surrounding() && !self.report_tracks_tail
+    }
+
     fn deletes_allowed(&self) -> bool {
         self.protocol_delete_ok()
-            || (self.uinput_available && (!self.injection_forbidden() || self.injection_relay_safe))
+            || (self.uinput_available
+                && (self.key_delete_only()
+                    || !self.injection_forbidden()
+                    || self.injection_relay_safe))
     }
 
     /// Whether the protocol delete may be sent right now.
@@ -1519,6 +1545,11 @@ impl Engine {
     /// required there — ibus-bamboo's surrounding mode deletes that way for
     /// every client, which is what makes X11 apps like Sublime work.
     pub fn protocol_delete_ok(&self) -> bool {
+        // A report that never described our own text is not proof that a
+        // delete reaches it: this client erases with real keys instead.
+        if self.key_delete_only() {
+            return false;
+        }
         self.surrounding_data_ok()
             || (self.x11_delete_without_report
                 && self.caps & CAP_SURROUNDING_TEXT != 0
