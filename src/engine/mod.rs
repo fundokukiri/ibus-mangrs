@@ -1871,7 +1871,11 @@ impl Engine {
             // would resurrect text they are deleting.
             self.idle_committed = None;
             if forward_repeat {
-                return Some(vec![Action::Forward]);
+                // A forwarded key event, not `Action::Forward`: that one
+                // emits nothing and the server turns it into the same
+                // pass-through the relay drops (measured: 399 repeats
+                // "forwarded" and not one character deleted).
+                return Some(vec![Action::ForwardBackspaces(1)]);
             }
             return None;
         };

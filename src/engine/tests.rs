@@ -1556,8 +1556,8 @@ fn the_held_backspace_repeat_is_forwarded_when_the_trial_is_on() {
     );
     let repeat = on.backspace().expect("the repeat is forwarded");
     assert!(
-        repeat.iter().any(|a| matches!(a, Action::Forward)),
-        "{repeat:?}"
+        matches!(repeat.as_slice(), [Action::ForwardBackspaces(1)]),
+        "a real key event, not Action::Forward (which emits nothing): {repeat:?}"
     );
 
     // Not the relay (X11 names its own program): no change.
