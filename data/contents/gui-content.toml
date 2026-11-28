@@ -522,6 +522,7 @@ filter_park = "Chờ chữ hiện"
 scope = "Áp dụng"
 reset_confirm_title = "Khôi phục mặc định?"
 reset_confirm_body = "Mọi giá trị trong bảng trở về như lúc mới cài."
+effect = "Chỉnh"
 [groups.tune.channel]
 title = "Kênh gửi chữ"
 

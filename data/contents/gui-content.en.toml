@@ -520,6 +520,7 @@ filter_park = "Commit park"
 scope = "Applies to"
 reset_confirm_title = "Restore defaults?"
 reset_confirm_body = "Every value in the table goes back to what it was when the app was installed."
+effect = "Adjusting"
 [groups.tune.channel]
 title = "Text channel"
 

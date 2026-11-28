@@ -1105,6 +1105,10 @@ fn nhip_rows_name_their_config_key() {
             tip.contains("Áp dụng:"),
             "{needle}: the tooltip must say which modes the value reaches, got {tip:?}"
         );
+        assert!(
+            tip.contains("Chỉnh:") && tip.contains("Tăng:") && tip.contains("giảm:"),
+            "{needle}: the tooltip must say what raising and lowering does, got {tip:?}"
+        );
     }
 }
 

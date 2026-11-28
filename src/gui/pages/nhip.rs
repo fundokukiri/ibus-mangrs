@@ -23,8 +23,10 @@ struct Row {
     subtitle: &'static str,
     /// One sentence on what the key does, under the key name in the tooltip.
     purpose: &'static str,
-    /// The modes the value reaches, in the tooltip's last line.
+    /// The modes the value reaches.
     scope: &'static str,
+    /// What raising or lowering it does, in the tooltip's last line.
+    effect: &'static str,
     spin: gtk4::SpinButton,
     /// The switch that gates the value, for the two optional timings.
     switch: Option<gtk4::Switch>,
@@ -59,7 +61,13 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
             Some(existing) if !existing.is_empty() => format!("{key_line}\n{existing}"),
             _ => format!("{key_line}\n{}", row.purpose),
         };
-        let text = format!("{text}\n{}: {}", t("rows.nhip.scope", "Áp dụng"), row.scope);
+        let text = format!(
+            "{text}\n{}: {}\n{}: {}",
+            t("rows.nhip.scope", "Áp dụng"),
+            row.scope,
+            t("rows.nhip.effect", "Chỉnh"),
+            row.effect
+        );
         widget.set_tooltip_text(Some(&text));
         if row.gated {
             ui.nhip_gated.borrow_mut().push(widget.clone().upcast());
@@ -228,6 +236,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
                 subtitle: &'static str,
                 purpose: &'static str,
                 scope: &'static str,
+                effect: &'static str,
                 spin: &gtk4::SpinButton,
                 bucket: Bucket,
                 default: u64,
@@ -238,6 +247,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
         subtitle,
         purpose,
         scope,
+        effect,
         spin: spin.clone(),
         switch: None,
         bucket,
@@ -252,6 +262,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "Giảm nếu xoá chậm",
             "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace",
             "Khoảng cách giữa các phím Backspace ảo; giảm khi app xoá chậm.",
+            "Tăng: xoá chậm mà chắc ở app nặng; giảm: xoá nhanh, dễ mất ký tự nếu app xử lý chậm.",
             &ui.backspace_interval,
             Bucket::Uinput,
             d.backspace_interval_ms,
@@ -264,6 +275,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "Cho app xử lý phím chậm",
             "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace",
             "Nghỉ sau mỗi lần sửa màn hình trước khi nhận phím tiếp.",
+            "Tăng: app kịp xử lý nhưng gõ thấy trễ; giảm: mượt hơn, dễ dính chữ khi app chậm.",
             &ui.post_delay,
             Bucket::Uinput,
             d.post_delay_ms,
@@ -276,6 +288,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "Quá ngắn thì chữ hiện trước dấu",
             "Surrounding, Flow, ForwardBackspace",
             "Commit chờ phím xoá áp xong; quá ngắn thì chữ hiện trước dấu, quá dài thì gõ bị trễ.",
+            "Tăng: chữ chắc chắn hiện sau khi xoá xong nhưng gõ trễ; giảm: mượt hơn, có thể hiện chữ trước dấu.",
             &ui.echo_apply_grace_spin,
             Bucket::Park,
             d.echo_apply_grace_ms,
@@ -288,6 +301,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "Cho app không báo chữ đang gõ",
             "Surrounding, khi app không báo chữ đang gõ",
             "Mức chờ riêng cho app phải xoá bằng phím thật vì không báo chữ đang gõ, ví dụ Docs trong Chrome.",
+            "Tăng: an toàn cho app chậm nhưng gõ trễ; giảm: nhanh hơn, dễ hiện chữ khi chưa xoá xong.",
             &ui.key_delete_grace_spin,
             Bucket::Park,
             d.key_delete_grace_ms,
@@ -300,6 +314,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "Chờ rồi mới chèn lại từ",
             "chỉ Flow",
             "Flow chờ chừng này rồi mới chèn lại từ sau khi đổi dấu.",
+            "Tăng: dấu hiện chậm mà chắc; giảm: dấu hiện ngay, dễ nhấp nháy hoặc lẫn dấu.",
             &ui.flow_per_key_spin,
             Bucket::Park,
             d.flow_per_key_delay_ms,
@@ -312,6 +327,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "Chờ Backspace đi khỏi rồi vá",
             "chỉ Flow",
             "Chờ phím Backspace của bạn đi khỏi rồi mới vá lại dấu.",
+            "Tăng: chắc phím Backspace đã xong nên hoàn dấu đúng hơn; giảm: sớm quá thì phím Backspace xoá mất.",
             &ui.flow_backspace_restore_spin,
             Bucket::Park,
             d.flow_backspace_restore_delay_ms,
@@ -324,6 +340,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "Nháy mất focus vẫn giữ từ",
             "tất cả các chế độ",
             "Mất focus trong khoảng này thì coi là nháy, giữ nguyên từ đang gõ.",
+            "Tăng: giữ từ qua lần mất focus lâu hơn; giảm: reset sớm, dễ mất từ khi cửa sổ nháy.",
             &ui.focus_bounce_spin,
             Bucket::Park,
             d.focus_bounce_ms,
@@ -336,6 +353,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             "Chỉ dùng khi chèn dấu ·",
             "tất cả, nhưng chỉ khi chọn cách Chèn dấu ·",
             "Chờ sau khi chèn dấu · để browser bỏ gợi ý trước khi xoá.",
+            "Tăng: browser kịp bỏ gợi ý rồi mới xoá; giảm: xoá sớm, dễ xoá nhầm gợi ý.",
             &ui.marker_wait_spin,
             Bucket::Park,
             d.marker_wait_ms,
@@ -348,6 +366,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             subtitle: "Quá hạn thì đổ chữ luôn",
             purpose: "Quá hạn này không thấy phím ảo quay về thì đổ chữ đã treo, để không mất chữ trên Wayland.",
             scope: "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace",
+            effect: "Tăng: chờ lâu hơn nên ít mất chữ nhưng chữ hiện trễ; giảm: đổ chữ sớm, dễ mất chữ khi phím ảo về chậm.",
             spin: ui.echo_stale_spin.clone(),
             switch: Some(ui.echo_stale_switch.clone()),
             bucket: Bucket::Park,
@@ -361,6 +380,7 @@ fn rows(ui: &Rc<Ui>) -> Vec<Row> {
             subtitle: "Như bấm dấu cách",
             purpose: "Ngừng gõ quá lâu thì tự chốt từ đang gạch chân, như vừa bấm dấu cách.",
             scope: "chế độ còn gạch chân từ đang gõ (Preedit)",
+            effect: "Tăng: từ giữ gạch chân lâu hơn; giảm: tự chốt từ sớm, gõ tiếp thành từ mới.",
             spin: ui.idle_commit_spin.clone(),
             switch: Some(ui.idle_commit_switch.clone()),
             bucket: Bucket::Park,
