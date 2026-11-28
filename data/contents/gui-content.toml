@@ -812,3 +812,56 @@ started = "Đang khởi động lại IBus…"
 done = "IBus đã chạy lại"
 timeout = "Chưa thấy IBus chạy lại"
 failed = "Không chạy được"
+
+# Tooltip lines of the "Nhịp gõ" table, one table per config key.
+
+[nhip.backspace_interval_ms]
+purpose = "Khoảng cách giữa các phím Backspace ảo; giảm khi app xoá chậm."
+scope = "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace"
+effect = "Tăng: xoá chậm mà chắc ở app nặng; giảm: xoá nhanh, dễ mất ký tự nếu app xử lý chậm."
+
+[nhip.post_delay_ms]
+purpose = "Nghỉ sau mỗi lần sửa màn hình trước khi nhận phím tiếp."
+scope = "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace"
+effect = "Tăng: app kịp xử lý nhưng gõ thấy trễ; giảm: mượt hơn, dễ dính chữ khi app chậm."
+
+[nhip.echo_apply_grace_ms]
+purpose = "Commit chờ phím xoá áp xong; quá ngắn thì chữ hiện trước dấu, quá dài thì gõ bị trễ."
+scope = "Surrounding, Flow, ForwardBackspace"
+effect = "Tăng: chữ chắc chắn hiện sau khi xoá xong nhưng gõ trễ; giảm: mượt hơn, có thể hiện chữ trước dấu."
+
+[nhip.key_delete_grace_ms]
+purpose = "Mức chờ riêng cho app phải xoá bằng phím thật vì không báo chữ đang gõ, ví dụ Docs trong Chrome."
+scope = "Surrounding, khi app không báo chữ đang gõ"
+effect = "Tăng: an toàn cho app chậm nhưng gõ trễ; giảm: nhanh hơn, dễ hiện chữ khi chưa xoá xong."
+
+[nhip.flow_per_key_delay_ms]
+purpose = "Flow chờ chừng này rồi mới chèn lại từ sau khi đổi dấu."
+scope = "chỉ Flow"
+effect = "Tăng: dấu hiện chậm mà chắc; giảm: dấu hiện ngay, dễ nhấp nháy hoặc lẫn dấu."
+
+[nhip.flow_backspace_restore_delay_ms]
+purpose = "Chờ phím Backspace của bạn đi khỏi rồi mới vá lại dấu."
+scope = "chỉ Flow"
+effect = "Tăng: chắc phím Backspace đã xong nên hoàn dấu đúng hơn; giảm: sớm quá thì phím Backspace xoá mất."
+
+[nhip.focus_bounce_ms]
+purpose = "Mất focus trong khoảng này thì coi là nháy, giữ nguyên từ đang gõ."
+scope = "tất cả các chế độ"
+effect = "Tăng: giữ từ qua lần mất focus lâu hơn; giảm: reset sớm, dễ mất từ khi cửa sổ nháy."
+
+[nhip.marker_wait_ms]
+purpose = "Chờ sau khi chèn dấu · để browser bỏ gợi ý trước khi xoá."
+scope = "tất cả, nhưng chỉ khi chọn cách \"Chèn dấu ·\""
+effect = "Tăng: browser kịp bỏ gợi ý rồi mới xoá; giảm: xoá sớm, dễ xoá nhầm gợi ý."
+
+[nhip.echo_stale_ms]
+purpose = "Quá hạn này không thấy phím ảo quay về thì đổ chữ đã treo, để không mất chữ trên Wayland."
+scope = "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace"
+effect = "Tăng: chờ lâu hơn nên ít mất chữ nhưng chữ hiện trễ; giảm: đổ chữ sớm, dễ mất chữ khi phím ảo về chậm."
+
+[nhip.idle_commit_ms]
+purpose = "Ngừng gõ quá lâu thì tự chốt từ đang gạch chân, như vừa bấm dấu cách."
+scope = "chế độ còn gạch chân từ đang gõ (Preedit)"
+effect = "Tăng: từ giữ gạch chân lâu hơn; giảm: tự chốt từ sớm, gõ tiếp thành từ mới."
+

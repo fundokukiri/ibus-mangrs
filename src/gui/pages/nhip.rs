@@ -54,19 +54,19 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::PreferencesGroup {
     let mut placed: Vec<(gtk4::Widget, Bucket)> = Vec::new();
     for row in &rows {
         let widget = spin_or_switch_row(row);
-        // The tooltip leads with the config key, then the purpose (the
-        // longer catalogue tip when the row already carries one).
-        let key_line = format!("`{}`", row.config);
-        let text = match widget.tooltip_text() {
-            Some(existing) if !existing.is_empty() => format!("{key_line}\n{existing}"),
-            _ => format!("{key_line}\n{}", row.purpose),
-        };
+        // The tooltip leads with the config key, then three catalogue lines:
+        // what the key does, the modes it reaches, what raising it does. All
+        // four travel through `t` so an English window reads English.
+        let line =
+            |field: &str, fallback: &str| t(&format!("nhip.{}.{}", row.config, field), fallback);
         let text = format!(
-            "{text}\n{}: {}\n{}: {}",
+            "`{}`\n{}\n{}: {}\n{}: {}",
+            row.config,
+            line("purpose", row.purpose),
             t("rows.nhip.scope", "Áp dụng"),
-            row.scope,
+            line("scope", row.scope),
             t("rows.nhip.effect", "Chỉnh"),
-            row.effect
+            line("effect", row.effect)
         );
         widget.set_tooltip_text(Some(&text));
         if row.gated {

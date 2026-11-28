@@ -1040,6 +1040,46 @@ fn the_marker_pause_follows_the_address_bar_style() {
     }
 }
 
+/// The tooltip's three catalogue lines follow the window's language: an
+/// English window that kept Vietnamese tooltips was the report.
+#[test]
+fn the_table_tooltip_speaks_the_window_language() {
+    let _g = crate::gui::text::LANG_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let tip = |lang: &str| {
+        super::text::set_language(lang);
+        let mut text = String::new();
+        for key in [
+            "backspace_interval_ms",
+            "echo_apply_grace_ms",
+            "key_delete_grace_ms",
+            "flow_per_key_delay_ms",
+            "focus_bounce_ms",
+            "marker_wait_ms",
+        ] {
+            let line = |field: &str| super::t(&format!("nhip.{key}.{field}"), "THIẾU");
+            text.push_str(&line("purpose"));
+            text.push_str(&line("scope"));
+            text.push_str(&line("effect"));
+        }
+        text
+    };
+    let vi = tip("vi");
+    let en = tip("en");
+    super::text::set_language("vi");
+    assert!(!vi.is_empty() && !en.is_empty());
+    assert_eq!(
+        en.matches("THIẾU").count(),
+        0,
+        "every tooltip line needs an English entry"
+    );
+    assert!(
+        en.contains("Higher:") && !en.contains("Tăng:"),
+        "the English tooltip must not fall back to Vietnamese"
+    );
+}
+
 /// The filter and the reset live in the group header, right of the title:
 /// they act on the whole table, so they do not take a row of their own.
 fn nhip_header_carries_the_filter_and_the_reset() {

@@ -808,3 +808,56 @@ started = "Restarting IBus…"
 done = "IBus is back"
 timeout = "IBus has not come back yet"
 failed = "Could not run"
+
+# Tooltip lines of the "Nhịp gõ" table, one table per config key.
+
+[nhip.backspace_interval_ms]
+purpose = "Gap between the injected Backspace presses; lower it when an app deletes slowly."
+scope = "the key-pressing modes: Flow, Surrounding, ForwardBackspace"
+effect = "Higher: slower but safer on a heavy app; lower: faster, and a slow app may lose characters."
+
+[nhip.post_delay_ms]
+purpose = "Pause after a screen rewrite before the next key is handled."
+scope = "the key-pressing modes: Flow, Surrounding, ForwardBackspace"
+effect = "Higher: the app keeps up but typing feels late; lower: smoother, and a slow app may merge words."
+
+[nhip.echo_apply_grace_ms]
+purpose = "The commit waits for the delete to apply; too short shows the word before its marks, too long feels late."
+scope = "Surrounding, Flow, ForwardBackspace"
+effect = "Higher: the word surely lands after its deletes but typing drags; lower: smoother, and the word may land first."
+
+[nhip.key_delete_grace_ms]
+purpose = "The wait for apps that must be deleted with real keys because they never report the text, Docs in Chrome for one."
+scope = "Surrounding, when the app does not report the text"
+effect = "Higher: safe on a slow app but typing drags; lower: faster, and the word may show before the delete lands."
+
+[nhip.flow_per_key_delay_ms]
+purpose = "How long Flow waits before re-inserting the word after a mark change."
+scope = "Flow only"
+effect = "Higher: marks show late but right; lower: marks show at once and may flicker or mix."
+
+[nhip.flow_backspace_restore_delay_ms]
+purpose = "Waits for your Backspace to land before restoring the mark."
+scope = "Flow only"
+effect = "Higher: sure the key is gone, so the restore is right; lower: the Backspace deletes the restored mark."
+
+[nhip.focus_bounce_ms]
+purpose = "A focus loss inside this window counts as a flicker and the word being typed is kept."
+scope = "all modes"
+effect = "Higher: the word survives a longer focus loss; lower: the reset runs early and the word can be lost."
+
+[nhip.marker_wait_ms]
+purpose = "Wait after the · marker so the browser drops its suggestion before the delete."
+scope = "all modes, but only with the · marker picked"
+effect = "Higher: the browser has time to drop the suggestion; lower: the delete may hit the suggestion itself."
+
+[nhip.echo_stale_ms]
+purpose = "Past this window a missing echo counts as lost and the parked word is flushed, so nothing is dropped on Wayland."
+scope = "the key-pressing modes: Flow, Surrounding, ForwardBackspace"
+effect = "Higher: fewer lost characters but words appear late; lower: flushed early, and a slow echo loses the text."
+
+[nhip.idle_commit_ms]
+purpose = "Stopping for this long commits the underlined word, as if a space was pressed."
+scope = "modes that keep an underline while typing (Preedit)"
+effect = "Higher: the underline lasts longer; lower: the word commits early and the next keys start a new word."
+
