@@ -1455,6 +1455,94 @@ fn config_rule_bypasses_the_delete_fallback() {
 }
 
 #[test]
+fn surrounding_deletes_with_keys_when_the_report_describes_another_widget() {
+    // Google Docs in Chrome: the client reports its tab-search box (`_`) while
+    // the canvas holds the typed word, and the protocol delete never reaches
+    // it — the rewrite stacked every word (`Xin chaoào`). Surrounding keeps its
+    // contract by deleting with forwarded keys, the transport areca uses there.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    e.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        app_rules: vec![crate::config::AppRule {
+            pattern: "google-chrome".into(),
+            mode: crate::config::ModeConfig::Surrounding,
+        }],
+        ..Config::default()
+    });
+
+    // The report that exists when the word starts is what locks the mode; the
+    // client then keeps sending this same foreign one.
+    e.set_surrounding("_".into(), 1);
+    let mut text = String::new();
+    let mut all = Vec::new();
+    for c in "chaof".chars() {
+        let actions = e.process_char(c);
+        all.extend(actions.iter().cloned());
+        text = replay_from(&text, &actions);
+        // The only report the client sends describes something else.
+        e.set_surrounding("_".into(), 1);
+    }
+    assert_eq!(text, "chào");
+    assert!(
+        all.iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "{all:?}"
+    );
+    assert!(
+        !all.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+        )),
+        "the protocol delete cannot reach this widget: {all:?}"
+    );
+}
+
+#[test]
+fn surrounding_keeps_the_protocol_delete_when_the_report_holds_the_word() {
+    // Chrome's omnibox reports the text we committed, which proves the delete
+    // lands: switching it to forwarded keys would break the one field that
+    // works and leave the rewrite on the transport a real browser field drops.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    e.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        app_rules: vec![crate::config::AppRule {
+            pattern: "google-chrome".into(),
+            mode: crate::config::ModeConfig::Surrounding,
+        }],
+        ..Config::default()
+    });
+
+    e.set_surrounding(String::new(), 0);
+    let mut text = String::new();
+    for c in "chao".chars() {
+        let actions = e.process_char(c);
+        text = replay_from(&text, &actions);
+        let cursor = text.chars().count() as u32;
+        e.set_surrounding(text.clone(), cursor);
+    }
+    let actions = e.process_char('f').into_iter().collect::<Vec<_>>();
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+        )),
+        "{actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "{actions:?}"
+    );
+}
+
+#[test]
 fn none_rule_targets_unnamed_clients_in_every_display_mode() {
     // The special `none` pattern targets clients that never reported a
     // name (X11/XIM apps): with no name there is nothing to substring-
