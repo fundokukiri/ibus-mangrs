@@ -25,6 +25,10 @@ pub(super) struct Line {
     /// The line's own timestamp, so the next line can measure against it.
     pub abs_ms: Option<u64>,
     pub body: Body,
+    /// Position in the viewer's cache, assigned as lines are appended. The
+    /// pane uses it to tell what it has already drawn: a cache at its cap
+    /// drops its oldest lines every poll, so a line count would never move.
+    pub seq: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,6 +108,7 @@ pub(super) fn parse(raw: &str, prev_ms: Option<u64>) -> Option<Line> {
         rel_ms,
         abs_ms: (ms != 0).then_some(ms),
         body,
+        seq: 0,
     })
 }
 

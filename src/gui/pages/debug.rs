@@ -92,7 +92,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     let parsed: Rc<RefCell<Vec<Line>>> = Rc::new(RefCell::new(Vec::new()));
     // How many of the shown lines are already in the buffer, and under which
     // filter they were drawn.
-    let drawn = Rc::new(Cell::new(0usize));
+    let drawn_seq = Rc::new(Cell::new(0u64));
     let drawn_key: Rc<RefCell<(Option<Kind>, String)>> =
         Rc::new(RefCell::new((None, String::new())));
     let kind_filter: Rc<RefCell<Option<Kind>>> = Rc::new(RefCell::new(None));
@@ -489,7 +489,7 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
     // --- Rendering --------------------------------------------------------
     let render: Rc<dyn Fn()> = {
         let parsed = Rc::clone(&parsed);
-        let drawn = Rc::clone(&drawn);
+        let drawn_seq = Rc::clone(&drawn_seq);
         let drawn_key = Rc::clone(&drawn_key);
         let kind_filter = Rc::clone(&kind_filter);
         let query = Rc::clone(&query);
@@ -517,13 +517,17 @@ pub(crate) fn build(ui: &Rc<Ui>) -> adw::ToastOverlay {
             // Appending the handful of new lines keeps this in the microsecond
             // range; anything else (a new filter, a cleared log) starts over.
             let same_filter = *drawn_key.borrow() == (kind, needle.clone());
-            if same_filter && shown.len() >= drawn.get() {
-                draw_more(&view, &shown[drawn.get()..]);
-            } else {
+            let fresh = undrawn_count(&shown, drawn_seq.get());
+            if !same_filter || fresh >= shown.len() {
                 draw_all(&view, &shown);
                 *drawn_key.borrow_mut() = (kind, needle.clone());
+            } else if fresh > 0 {
+                draw_more(&view, &shown[shown.len() - fresh..]);
             }
-            drawn.set(shown.len());
+            // The newest sequence seen, not a count: a cache at its cap drops
+            // its oldest lines every poll, so a count never moves and the pane
+            // would stop drawing for good.
+            drawn_seq.set(cache.last().map(|line| line.seq).unwrap_or(0));
             // An empty log is a state, not a blank card.
             if shown.is_empty() {
                 if log_pause.is_active() {
@@ -1172,10 +1176,13 @@ fn macro_block(hide: bool, entries: Vec<(String, String)>) -> Vec<String> {
 /// cache rather than from the batch.
 fn extend_tail(cache: &mut Vec<Line>, fresh: &[String], cap: usize) {
     let mut prev = cache.last().and_then(|line| line.abs_ms);
+    let mut seq = cache.last().map(|line| line.seq + 1).unwrap_or(1);
     for raw in fresh {
-        let Some(line) = parse(raw, prev) else {
+        let Some(mut line) = parse(raw, prev) else {
             continue;
         };
+        line.seq = seq;
+        seq += 1;
         prev = line.abs_ms.or(prev);
         cache.push(line);
     }
@@ -1183,6 +1190,13 @@ fn extend_tail(cache: &mut Vec<Line>, fresh: &[String], cap: usize) {
     if over > 0 {
         cache.drain(..over);
     }
+}
+
+/// How many of the lines the filter keeps have not been drawn yet: everything
+/// newer than `drawn_seq`. `shown` keeps the cache's order, so the undrawn
+/// lines are always a suffix of it.
+fn undrawn_count(shown: &[&Line], drawn_seq: u64) -> usize {
+    shown.iter().filter(|line| line.seq > drawn_seq).count()
 }
 
 /// The clear button's work: the file goes, and so does the cache the pane draws
@@ -1364,6 +1378,47 @@ mod tests {
 
         let plain = report_log_lines(Some(&path), false);
         assert!(plain.join("\n").contains("Gia"), "off means the text stays");
+    }
+
+    /// The pane stopped updating once the log filled the cache: it decided
+    /// what to draw by comparing line counts, and a cache at its cap drops the
+    /// same number of lines it gains, so the counts never moved again.
+    #[test]
+    fn a_full_cache_still_offers_its_newest_lines() {
+        let mut cache = Vec::new();
+        let first: Vec<String> = (0..VIEW_LINES + 2)
+            .map(|i| format!("1795619563000 del ok=1 n={i}"))
+            .collect();
+        extend_tail(&mut cache, &first, VIEW_LINES);
+        assert_eq!(cache.len(), VIEW_LINES, "the cache keeps its cap");
+        let drawn_seq = cache.last().expect("a line").seq;
+        let shown: Vec<&Line> = cache.iter().collect();
+        assert_eq!(undrawn_count(&shown, drawn_seq), 0, "nothing is new yet");
+
+        extend_tail(
+            &mut cache,
+            &[
+                "1795619564000 del ok=1 n=x".to_string(),
+                "1795619564000 del ok=1 n=y".to_string(),
+            ],
+            VIEW_LINES,
+        );
+        assert_eq!(cache.len(), VIEW_LINES, "the cap still holds");
+        let shown: Vec<&Line> = cache.iter().collect();
+        assert_eq!(
+            undrawn_count(&shown, drawn_seq),
+            2,
+            "the two newest lines are new even though the count did not move"
+        );
+        assert_eq!(shown[shown.len() - 1].seq, drawn_seq + 2);
+        // The rule that replaced this compared line counts: at the cap the
+        // count is unchanged, so its slice was empty and nothing was drawn.
+        let old_drawn_count = VIEW_LINES;
+        assert_eq!(shown.len(), old_drawn_count, "counts stay equal at the cap");
+        assert!(
+            shown[old_drawn_count..].is_empty(),
+            "the old rule saw no new lines"
+        );
     }
 
     #[test]
