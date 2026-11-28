@@ -70,8 +70,24 @@ impl Engine {
         if let Some((healthy, swallowed)) = self.awaiting_delete_proof.take() {
             if swallowed != healthy && cursor.min(len) == swallowed {
                 self.delete_dropped = true;
+                self.note_delete_verdict(true);
                 debug_log::log("del mode=swallowed why=report_proof");
             }
+        }
+        // Does this report describe the word we committed, or the shorter one
+        // we typed on the way to it? A browser reports its own search box
+        // while another widget (Chrome's tab search, Docs' canvas) holds the
+        // text, and no protocol delete reaches that widget — see
+        // `key_delete_only`. Only a report with a word to compare moves the
+        // verdict: an empty one says nothing either way.
+        if !self.tail.is_empty() {
+            let prefix_end = text
+                .char_indices()
+                .nth(cursor)
+                .map_or(text.len(), |(byte, _)| byte);
+            let actual = &text[..prefix_end];
+            self.report_tracks_tail =
+                actual.ends_with(self.tail.as_str()) || self.tail.starts_with(actual);
         }
         // The previous report (only the inline-suggestion check below still
         // needs it); the incoming text is cloned once for the store.
@@ -194,7 +210,7 @@ impl Engine {
             let commit = actual[a2.len()..].to_string();
             let extra = extra as u32;
             let offset = -((k as i32) + extra as i32);
-            if self.repair_delete.is_some() || self.delete_dropped {
+            if self.repair_delete.is_some() || self.drops_deletes() {
                 // A repair was already attempted since the last verified
                 // state and the text is still off: the client drops the
                 // protocol delete (the drift shape may differ each time).

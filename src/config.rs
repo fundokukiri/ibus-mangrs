@@ -57,11 +57,18 @@ pub struct Config {
     /// default. Serves every preset: the pick keys are `Alt`+digits and
     /// `` ` ``, leaving each preset's own digit tone keys alone.
     pub suggest_words: bool,
+    /// Experimental: a browser's deletes for the ForwardBackspace mode ride
+    /// real Backspace keys through the injection backend instead of forwarded
+    /// key events. Measured on Ubuntu 26.04 with IBus 1.5.34: Chrome drops both
+    /// the protocol delete and the forwarded pair, so Google Docs doubled every
+    /// word (`Xin chaoào cacác banạn`) while the same build on Arch is correct.
     /// Experimental: a browser's inline autocomplete appends its completion
     /// after the caret, so a rewrite delete lands on that text (an address
     /// bar committed `oỏ` for `o` then `r`). On, keys go straight to the app
     /// while the completion is visible. Off by default.
     pub dodge_inline_autocomplete: bool,
+    /// Which of the two address-bar fixes runs while that switch is on.
+    pub autocomplete_fix: AutocompleteFix,
     /// Experimental: the suggestion strip's display while the strip is up —
     /// `floating` (default) only in the box (the client's field stays clean
     /// until the word commits), `mirror` in both places (the box's input line
@@ -162,6 +169,28 @@ pub struct Config {
     /// that key is handled never reach the application, so 0 only means "as
     /// soon as the main loop wakes", not "during the key".
     pub flow_backspace_restore_delay_ms: u64,
+    /// Park of a rewrite commit after the last echo of its batch (ms), for
+    /// every transport that deletes with real keys or through the protocol
+    /// on a matched report. Measured on a mutter relay: the app applies the
+    /// forwarded Backspaces a beat behind the commit channel, and a shorter
+    /// park lets the word land before its deletes (`titiến`).
+    pub echo_apply_grace_ms: u64,
+    /// The same park for a client whose reports never described our word, so
+    /// it deletes with real keys every time (Docs in Chrome). Every mark key
+    /// pays it, so it is shorter than the general park.
+    pub key_delete_grace_ms: u64,
+    /// Experimental: forward the repeated Backspace presses of a held key
+    /// instead of leaving them to the session's pass-through, for a client
+    /// behind the compositor relay that reports no text (a terminal there
+    /// loses every pass-through press while the key is held).
+    pub forward_repeat_delete: bool,
+    /// How long a FocusOut during a burst waits for the context to come
+    /// back before the deferred reset runs as a real switch (ms). Quick
+    /// unfocus/refocus of one window lands well inside this window (the logs
+    /// show the pair 1 ms apart); a user switching apps takes longer.
+    pub focus_bounce_ms: u64,
+    /// Pause between the trial `.` marker and the Backspaces behind it (ms).
+    pub marker_wait_ms: u64,
     /// Master gate for every experimental feature: off hides their rows in
     /// the settings window and forces them all off in the engine, while
     /// each switch and value stays saved in this file and comes back when
@@ -180,6 +209,16 @@ pub struct Config {
     /// report as-is. Turn both on only when reproducing a lost/wrong
     /// character bug.
     pub debug_log_text: bool,
+    /// GUI-only: the debug tab's copy switch, remembered so the window opens
+    /// the way it was left. On by default — a report pasted into an issue
+    /// should not carry the text the user typed unless they asked for it.
+    pub debug_hide_text: bool,
+    /// The debug tab's pause button: keeps every log tier switched on in
+    /// this file while the engine writes nothing, so a user who is hunting a
+    /// bug keeps their tiers but stops the file growing (or can capture a
+    /// snapshot of the current run before clearing it). Only read while
+    /// `debug_log` is on.
+    pub debug_log_paused: bool,
     /// Third log tier: record one line per key event (keyval/state). Only
     /// read while `debug_log` is on — the default log stays free of the
     /// per-keystroke spam that once filled it; turn on only when debugging
@@ -634,6 +673,18 @@ pub enum BackspaceToneConfig {
     UnikeyWalk,
 }
 
+/// How the address-bar fix in `dodge_inline_autocomplete` works, when it is
+/// on: `raw` keeps what shipped (the rewrite takes the protocol delete while
+/// the completion stands), `marker` types a `·` first so the browser drops
+/// its completion and the deletes land on real text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AutocompleteFix {
+    #[default]
+    Raw,
+    Marker,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum W2uConfig {
@@ -917,6 +968,7 @@ impl Default for Config {
             keep_repeats_raw: false,
             suggest_words: false,
             dodge_inline_autocomplete: false,
+            autocomplete_fix: AutocompleteFix::Raw,
             preferred_backend: PreferredBackendConfig::Auto,
             backspace_tone: BackspaceToneConfig::WholeChar,
             auto_restore: true,
@@ -950,9 +1002,16 @@ impl Default for Config {
             idle_commit_ms: 700,
             flow_per_key_delay_ms: 20,
             flow_backspace_restore_delay_ms: 5,
+            echo_apply_grace_ms: 60,
+            key_delete_grace_ms: 15,
+            focus_bounce_ms: 100,
+            forward_repeat_delete: false,
+            marker_wait_ms: 10,
             experimental_features: false,
             show_toasts: true,
             debug_log: false,
+            debug_log_paused: false,
+            debug_hide_text: true,
             debug_log_text: false,
             debug_log_keys: false,
             x11_delete_without_report: true,
@@ -1045,6 +1104,15 @@ impl Config {
             }
         }
         toml::Value::Table(kept).try_into().unwrap_or_default()
+    }
+
+    /// Whether the engine writes the debug log: the pause switch keeps the
+    /// tiers saved and stops the file, so both fields together decide. One
+    /// place on purpose — the three apply sites (startup, engine start, hot
+    /// reload) each used to write the expression out, and the reload path
+    /// dropped the pause term, so the switch only took effect after a restart.
+    pub fn log_enabled(&self) -> bool {
+        self.debug_log && !self.debug_log_paused
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -1599,6 +1667,38 @@ children = ["preedit", "flow"]
         );
         assert_eq!(c.mode, ModeConfig::Preedit, "the good keys must survive");
         assert!(!c.auto_restore);
+    }
+
+    #[test]
+    fn the_copy_switch_defaults_on_and_is_remembered() {
+        // On by default: a pasted report should not carry typed text unless the
+        // user turned masking off on purpose.
+        assert!(Config::from_toml("").debug_hide_text);
+        assert!(!Config::from_toml("debug_hide_text = false\n").debug_hide_text);
+    }
+
+    #[test]
+    fn the_pause_wins_over_the_master_log_switch() {
+        let mut c = Config::from_toml("debug_log = true\n");
+        assert!(c.log_enabled(), "tiers on, not paused: the file is written");
+        c.debug_log_paused = true;
+        assert!(
+            !c.log_enabled(),
+            "a paused log writes nothing while its tiers stay saved"
+        );
+        c.debug_log = false;
+        c.debug_log_paused = false;
+        assert!(!c.log_enabled(), "the master switch still turns it off");
+    }
+
+    #[test]
+    fn debug_log_pause_defaults_off_and_parses() {
+        // The pause button keeps the log tiers as the user set them and only
+        // stops the writer, so it has to survive a save/load round trip.
+        let c = Config::from_toml("");
+        assert!(!c.debug_log_paused);
+        let c = Config::from_toml("debug_log = true\ndebug_log_paused = true\n");
+        assert!(c.debug_log && c.debug_log_paused);
     }
 
     #[test]

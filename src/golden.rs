@@ -1047,10 +1047,14 @@ mod matrix {
     }
 
     #[test]
-    fn forward_key_event_mode_types_correctly_when_deletes_are_swallowed() {
-        // The point of the mode: a Chrome-style client that drops the
-        // protocol delete still gets exact text, because the rewrite uses
-        // Backspace key events forwarded through IBus, not the protocol.
+    fn forward_key_event_mode_switches_to_keys_once_the_protocol_delete_is_dropped() {
+        // The mode deletes by protocol for any client that reports its buffer (a
+        // report proves the delete has a target and needs no wait), and presses
+        // keys only where the client never reports or is in the browser and
+        // Electron family. A client that instead drops protocol deletes pays for
+        // its first word, until its own report proves the drop
+        // (`del mode=swallowed why=report_proof`); every word after that is
+        // rewritten with forwarded keys and comes out exact.
         let got = run_session(
             Method::Telex,
             Mode::ForwardBackspace,
@@ -1062,8 +1066,8 @@ mod matrix {
             "aa tieengs ",
         );
         assert_eq!(
-            got, "â tiếng ",
-            "ForwardBackspace must not rely on the protocol delete"
+            got, "aâ tiếng ",
+            "the first word pays, the switch to forwarded keys follows"
         );
     }
 

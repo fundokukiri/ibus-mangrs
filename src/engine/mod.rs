@@ -25,7 +25,7 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::bamboo_wrapper::{encode, BambooWrapper, Charset, Method, Outcome};
-use crate::config::{AppRule, BackspaceToneConfig, Config};
+use crate::config::{AppRule, AutocompleteFix, BackspaceToneConfig, Config};
 use crate::debug_log::{self, brief};
 use crate::emoji::UserEmoji;
 use crate::macros::{Dictionary, Macros};
@@ -223,6 +223,16 @@ pub struct Engine {
     /// Set once the client has been proven to drop DeleteSurroundingText:
     /// the server then injects real Backspace keys instead of the signal.
     delete_dropped: bool,
+    /// Whether the last report described the word we committed (or the
+    /// shorter one we typed on the way to it). Chrome reports only its
+    /// tab-search box while the Docs canvas holds the text, so a report
+    /// existing is not proof that a delete reaches what we wrote.
+    report_tracks_tail: bool,
+    /// Verdicts from earlier focus sessions, keyed by client and app name, so
+    /// walking back into an app that swallows rewrite deletes does not pay for
+    /// the wrong first word again. Cleared by a client reset: that is the
+    /// click signal, and nothing else can tell us the app changed.
+    delete_verdicts: std::collections::HashMap<String, bool>,
     /// Delivery proof for the last rewrite delete: `(expected prefix length
     /// when the delete lands, expected when it is swallowed)`. The next ST
     /// report settles it — a report matching the swallowed shape proves the
@@ -242,10 +252,15 @@ pub struct Engine {
     /// One-time gate for the Flow fallback log line: once per session,
     /// not per resolution.
     flow_fallback_logged: bool,
+    surround_fallback_logged: bool,
     /// The selected injection backend is routed by the compositor itself
     /// (Libei / wlr virtual keyboard), so the relay ban on injection does
     /// not apply to it — see `deletes_allowed`.
     injection_relay_safe: bool,
+    /// Set by the server from the held transport: it types a rewrite's word
+    /// itself (the wlroots virtual keyboard), so the word and the deletes it
+    /// serves travel one channel and need no wait between them.
+    transport_types_text: bool,
     /// Backspace keys injected through uinput that will echo back as
     /// ProcessKeyEvent; those must be forwarded untouched.
     pending_injected: u32,
@@ -312,6 +327,16 @@ pub struct Engine {
     /// Uinput pacing (ms): text/commit step, Backspace gap, post-rewrite idle.
     backspace_interval_ms: u64,
     post_delay_ms: u64,
+    /// The two parked-commit graces (ms): the general one and the shorter
+    /// one for a client that deletes with real keys every time.
+    echo_apply_grace_ms: u64,
+    key_delete_grace_ms: u64,
+    /// Experimental: forward the repeated presses of a held Backspace for a
+    /// relayed client that reports no text.
+    forward_repeat_delete: bool,
+    /// Focus-bounce window and marker pause (ms).
+    focus_bounce_ms: u64,
+    marker_wait_ms: u64,
     /// Custom lost-echo stale window (ms); the built-in default applies
     /// while the switch is off. Too small risks flushing the deferred
     /// commit over late echoes (lost characters); too large makes every
@@ -448,6 +473,8 @@ pub struct Engine {
     /// The `dodge_inline_autocomplete` switch, baked under the experimental
     /// gate like the strip.
     dodge_inline_autocomplete: bool,
+    /// Which address-bar fix runs under that switch (see `AutocompleteFix`).
+    autocomplete_fix: AutocompleteFix,
     /// Pick learning, baked with `suggest_words` under the experimental
     /// gate — picks land in the config dir's TSV files and buy an in-band
     /// bonus only while that is on.
@@ -534,13 +561,31 @@ impl Engine {
     /// lengths of time — both read it through `echo_stale()`.
     pub const DEFAULT_ECHO_STALE_MS: u64 = 150;
 
-    /// How long the server parks a rewrite commit after the last echo of
-    /// its batch has been forwarded. Measured on a mutter relay (08/11):
-    /// the app applies the forwarded Backspaces a beat behind the commit
-    /// channel, and a commit emitted with the last echo overtook the
-    /// final deletes (`titiến`). 60 ms clears the observed ~7 ms apply
-    /// window with margin while staying imperceptible at word end.
-    pub const ECHO_APPLY_GRACE_MS: u64 = 60;
+    /// Floor for the two parked graces. A commit emitted in the same breath
+    /// as its deletes overtakes them on a mutter relay (`titiến`), so a
+    /// config value of 0 is not honoured.
+    pub const MIN_PARK_MS: u64 = 5;
+
+    /// This context's parked-commit grace: the Docs-class grace for a client
+    /// whose report never described our word (every mark key pays it), the
+    /// general one everywhere else.
+    pub fn echo_apply_grace_ms(&self) -> u64 {
+        if self.key_delete_only() {
+            self.key_delete_grace_ms.max(Self::MIN_PARK_MS)
+        } else {
+            self.echo_apply_grace_ms.max(Self::MIN_PARK_MS)
+        }
+    }
+
+    /// How long a focus-out in the middle of a burst is held back.
+    pub fn focus_bounce_ms(&self) -> u64 {
+        self.focus_bounce_ms
+    }
+
+    /// Pause between the trial `.` marker and the Backspaces behind it.
+    pub fn marker_wait_ms(&self) -> u64 {
+        self.marker_wait_ms
+    }
 
     /// How long the Flow Backspace correction waits before rewriting the
     /// screen after the application applied the user's own Backspace.
@@ -585,11 +630,15 @@ impl Engine {
             preedit_for_xim: false,
             nav_key_while_preedit: NavKeyWhilePreedit::default(),
             delete_dropped: false,
+            report_tracks_tail: false,
+            delete_verdicts: std::collections::HashMap::new(),
             awaiting_delete_proof: None,
             uinput_available: false,
             flow_needs_backend: false,
             flow_fallback_logged: false,
+            surround_fallback_logged: false,
             injection_relay_safe: false,
+            transport_types_text: false,
             pending_injected: 0,
             deferred: Vec::new(),
             echoes_forwarded: 0,
@@ -614,11 +663,16 @@ impl Engine {
             cap_word: false,
             backspace_interval_ms: 5,
             post_delay_ms: 10,
+            echo_apply_grace_ms: 60,
+            key_delete_grace_ms: 15,
+            focus_bounce_ms: 100,
+            forward_repeat_delete: false,
+            marker_wait_ms: 10,
             echo_stale_enabled: false,
             echo_stale_ms: Self::DEFAULT_ECHO_STALE_MS,
             idle_commit_enabled: false,
             idle_commit_ms: 700,
-            flow_per_key_delay_ms: Self::ECHO_APPLY_GRACE_MS,
+            flow_per_key_delay_ms: crate::config::Config::default().flow_per_key_delay_ms,
             flow_backspace_restore_delay_ms: Self::DEFERRED_FIX_MS,
             landed_region: String::new(),
             region_plain: false,
@@ -638,6 +692,7 @@ impl Engine {
             prev_committed_word: None,
             suggest_words: false,
             dodge_inline_autocomplete: false,
+            autocomplete_fix: AutocompleteFix::Raw,
             learn_dir: std::path::PathBuf::new(),
             picks: None,
             password_quiet: false,
@@ -784,6 +839,7 @@ impl Engine {
         // closed means the strip stays off, whatever the saved switch says.
         self.suggest_words = experimental && config.suggest_words;
         self.dodge_inline_autocomplete = experimental && config.dodge_inline_autocomplete;
+        self.autocomplete_fix = config.autocomplete_fix;
         // Learning has no switch of its own: it rides the suggestion switch,
         // so an open strip always personalizes and a closed one touches
         // nothing.
@@ -810,6 +866,11 @@ impl Engine {
         self.hide_underline = config.hide_underline;
         self.backspace_interval_ms = config.backspace_interval_ms;
         self.post_delay_ms = config.post_delay_ms;
+        self.echo_apply_grace_ms = config.echo_apply_grace_ms;
+        self.key_delete_grace_ms = config.key_delete_grace_ms;
+        self.focus_bounce_ms = config.focus_bounce_ms;
+        self.forward_repeat_delete = experimental && config.forward_repeat_delete;
+        self.marker_wait_ms = config.marker_wait_ms;
         self.echo_stale_enabled = experimental && config.echo_stale_enabled;
         self.echo_stale_ms = config.echo_stale_ms;
         self.idle_commit_enabled = experimental && config.idle_commit_enabled;
@@ -956,7 +1017,7 @@ impl Engine {
     /// The client dropped the protocol delete at least once; the server
     /// should inject real key events for deletions from now on.
     pub fn delete_dropped(&self) -> bool {
-        self.delete_dropped
+        self.drops_deletes()
     }
 
     /// Record that `n` Backspace keys were injected; their echoes must be
@@ -1147,6 +1208,17 @@ impl Engine {
     }
 
     /// Whether the server can inject keys (called once at startup).
+    /// The selected transport types a rewrite's word itself, so its deletes
+    /// and that word share one channel and no wait is needed between them.
+    pub fn set_transport_types_text(&mut self, types: bool) {
+        self.transport_types_text = types;
+    }
+
+    /// See `set_transport_types_text`.
+    pub fn transport_types_text(&self) -> bool {
+        self.transport_types_text
+    }
+
     pub fn set_uinput_available(&mut self, available: bool) {
         self.uinput_available = available;
     }
@@ -1192,6 +1264,7 @@ impl Engine {
         self.surrounding = None;
         self.repair_delete = None;
         self.delete_dropped = false;
+        self.report_tracks_tail = false;
         self.suggestions = false;
         self.awaiting_delete_proof = None;
     }
@@ -1239,8 +1312,18 @@ impl Engine {
     /// compositor itself routes its key events, so they cannot be lost the
     /// way device-injected ones are (same exemption as `deletes_allowed`).
     pub fn may_inject(&self) -> bool {
-        (!self.injection_forbidden() || self.injection_relay_safe)
-            && (self.delete_dropped || self.surrounding.is_none())
+        // The browser-family foreign-report case is exempt from the relay ban:
+        // it has no other delete transport, and the same injected keys are
+        // what the X11 session has always used in that app.
+        let key_delete_only = self.key_delete_only();
+        (key_delete_only || !self.injection_forbidden() || self.injection_relay_safe)
+            && (key_delete_only || self.drops_deletes() || self.surrounding.is_none())
+    }
+
+    /// Whether an injected key reaches this client at all: the relay ban
+    /// clears only for a compositor-routed backend.
+    fn injection_reaches_client(&self) -> bool {
+        !self.injection_forbidden() || self.injection_relay_safe
     }
 
     /// Contexts where injected key events are known to be lost.
@@ -1317,7 +1400,50 @@ impl Engine {
     /// The focused application's name from the focus extension or the X
     /// active window. Rule matching only — see the field docs.
     pub fn set_app_name(&mut self, name: Option<String>) {
+        if self.app_name != name {
+            // A proof belongs to the context it was measured in; the cache
+            // restores it when this app comes back.
+            self.delete_dropped = false;
+            self.report_tracks_tail = false;
+        }
         self.app_name = name;
+    }
+
+    /// The cache key for this context: the IBus client id plus the focus
+    /// extension's app name. On Wayland the id is the same `gnome-shell` for
+    /// every app, so the app name is what actually separates contexts.
+    fn delete_verdict_key(&self) -> Option<String> {
+        let client = self.client.as_deref()?;
+        Some(format!(
+            "{client}|{}",
+            self.app_name.as_deref().unwrap_or("")
+        ))
+    }
+
+    /// Remember that this context swallows rewrite deletes, and forget every
+    /// verdict on a client reset (the only signal that the app may have
+    /// changed).
+    fn note_delete_verdict(&mut self, dropped: bool) {
+        if let Some(key) = self.delete_verdict_key() {
+            self.delete_verdicts.insert(key, dropped);
+        }
+    }
+
+    /// Drop the cached verdicts; called when the client resets.
+    pub fn forget_delete_verdicts(&mut self) {
+        self.delete_verdicts.clear();
+    }
+
+    /// Whether this context swallows rewrite deletes: proven in this focus
+    /// session, or measured earlier for the same client and app. The second
+    /// half is the whole of R5 — walking back into such an app no longer pays
+    /// for another wrong first word.
+    pub fn drops_deletes(&self) -> bool {
+        self.delete_dropped
+            || self
+                .delete_verdict_key()
+                .and_then(|key| self.delete_verdicts.get(&key).copied())
+                .unwrap_or(false)
     }
 
     /// The name set by `set_app_name`, for callers outside the engine (the
@@ -1388,14 +1514,20 @@ impl Engine {
     /// True when the focused app drops `DeleteSurroundingText`, so non-preedit
     /// rewriting would duplicate characters there.
     fn client_cannot_delete_surrounding(&self) -> bool {
-        let Some(client) = self.client.as_deref() else {
-            return false;
-        };
-        // `gtk4-im:<prgname>`; the prefix only says which toolkit glued us in.
-        let prgname = client.split_once(':').map_or(client, |(_, p)| p);
-        FALLBACK_NO_DELETE_SURROUNDING
-            .iter()
-            .any(|p| prgname.contains(p))
+        // The IBus client id names the toolkit, not the app: on Wayland mutter
+        // relays every client as `gnome-shell`, so a browser is only visible
+        // through the name the focus extension reported
+        // (`wayland:google-chrome`). A `.desktop` name arrives capitalised.
+        [self.client.as_deref(), self.app_name()]
+            .into_iter()
+            .flatten()
+            .any(|name| {
+                let prgname = name.split_once(':').map_or(name, |(_, p)| p);
+                let lower = prgname.to_lowercase();
+                FALLBACK_NO_DELETE_SURROUNDING
+                    .iter()
+                    .any(|p| lower.contains(p))
+            })
     }
 
     /// Delete-based rewriting is only safe once the client has actually
@@ -1409,19 +1541,45 @@ impl Engine {
     /// the focused client, so the relay race cannot arise. Also several
     /// clients silently drop the protocol delete, which used to duplicate
     /// words.
+    /// Whether a browser client should delete with real keys: the experimental
+    /// switch is on and this is a client that drops the protocol delete. The
     /// Whether a browser's inline completion is selected at our caret — the
     /// experimental switch turned a selection report that starts exactly
     /// where we left the caret into this evidence (see
     /// `set_surrounding_with_anchor`). The protocol delete is the only
     /// transport that reaches our own characters while that selection
     /// stands, so every rewrite takes it.
+    /// R6, under the same switch: type a marker so the browser drops its
+    /// inline completion before the delete, instead of relying on the protocol
+    /// delete reaching our characters. Browsers only — an app that reports its
+    /// buffer would see the marker in the next report.
+    pub fn marker_delete(&self) -> bool {
+        self.dodge_inline_autocomplete
+            && self.autocomplete_fix == AutocompleteFix::Marker
+            && self.client_cannot_delete_surrounding()
+    }
+
     fn autocomplete_selection(&self) -> bool {
         self.dodge_inline_autocomplete && self.suggestions && self.protocol_delete_ok()
     }
 
+    /// A browser-family client whose report never described the word we
+    /// committed. Chrome reports its tab-search box (`text="_"`) while the
+    /// Docs canvas holds the typed word, so the protocol delete lands in that
+    /// other widget and the document keeps the old text (every word stacked:
+    /// `Xin chaoào`). The X11 session already deletes such a field with real
+    /// key presses (no report at all there); on Wayland the relay ban and the
+    /// foreign report were both satisfied, so nothing deleted.
+    pub(super) fn key_delete_only(&self) -> bool {
+        self.client_cannot_delete_surrounding() && !self.report_tracks_tail
+    }
+
     fn deletes_allowed(&self) -> bool {
         self.protocol_delete_ok()
-            || (self.uinput_available && (!self.injection_forbidden() || self.injection_relay_safe))
+            || (self.uinput_available
+                && (self.key_delete_only()
+                    || !self.injection_forbidden()
+                    || self.injection_relay_safe))
     }
 
     /// Whether the protocol delete may be sent right now.
@@ -1433,6 +1591,11 @@ impl Engine {
     /// required there — ibus-bamboo's surrounding mode deletes that way for
     /// every client, which is what makes X11 apps like Sublime work.
     pub fn protocol_delete_ok(&self) -> bool {
+        // A report that never described our own text is not proof that a
+        // delete reaches it: this client erases with real keys instead.
+        if self.key_delete_only() {
+            return false;
+        }
         self.surrounding_data_ok()
             || (self.x11_delete_without_report
                 && self.caps & CAP_SURROUNDING_TEXT != 0
@@ -1520,7 +1683,7 @@ impl Engine {
         // A report (or the direct-client opt-in) proves the protocol delete
         // safe, with drift repair as today. A client PROVEN to swallow
         // rewrite deletes skips it: the terminal transport below serves it.
-        if self.protocol_delete_ok() && !self.delete_dropped {
+        if self.protocol_delete_ok() && !self.drops_deletes() {
             return Mode::Surrounding;
         }
         // No usable report yet: injected Backspaces serve when a backend
@@ -1529,8 +1692,26 @@ impl Engine {
         // caps-0 context (XIM, XWayland toolkits) renders no preedit and
         // reports nothing: the inline rewrite has no proof it lands there,
         // while the forwarded transport below reaches it by contract.
-        if self.uinput_available && can_preedit {
+        // A backend existing is not the same as it reaching this client: a
+        // mutter relay refuses injected keys for the context it owns, and a
+        // terminal there has no report either. Choosing Surrounding anyway
+        // left every mark key without a transport and the raw Telex letters
+        // on screen (`chaof`), so the walk takes the same gate the delete
+        // does and hands the word to the forwarded transport instead.
+        // Narrowed to the client that has no other path: it never sent a
+        // report (a terminal) and is not one of the delete-dropper apps the
+        // exemption above covers. Those keep today's choice — a report, even
+        // a foreign one, still proves something about the client.
+        let terminal_ish = self.surrounding.is_none() && !self.client_cannot_delete_surrounding();
+        if self.uinput_available
+            && can_preedit
+            && (self.injection_reaches_client() || !terminal_ish)
+        {
             return Mode::Surrounding;
+        }
+        if self.uinput_available && can_preedit && !self.surround_fallback_logged {
+            self.surround_fallback_logged = true;
+            debug_log::log("del mode=forwardbackspace why=relay");
         }
         // Terminal: the forwarded transport reaches clients with no report
         // and no backend (mutter-relayed Wayland, XIM) — never preedit.
@@ -1611,6 +1792,9 @@ impl Engine {
     /// Backspace over the composition. Returns `None` when there is nothing
     /// composed, so the application handles the key itself.
     pub fn backspace(&mut self) -> Option<Vec<Action>> {
+        // A press while the key is already down is the auto-repeat of a held
+        // Backspace: the one case a relayed client's pass-through drops.
+        let repeating = self.backspace_down;
         // The key is physically down until the server reports the release.
         self.backspace_down = true;
         // The idle-commit clock, like process_char.
@@ -1666,11 +1850,33 @@ impl Engine {
             // characters, so the tracked tail has to shrink with it. Left
             // stale, the next macro rewrite deleted more characters than the
             // client held (an out-of-range delete, mutter aborts on it).
+            // Nothing composed: the application deletes one of its own
+            // characters. A relayed client that reports no text never sees
+            // the pass-through press of a held key (measured: 91 presses, no
+            // deletion, until the key was released), so the repeat is sent as
+            // a forwarded key event instead. The first press of the hold keeps
+            // the pass-through exactly as before.
+            let forward_repeat = repeating
+                && self.forward_repeat_delete
+                && self.injection_forbidden()
+                && self.surrounding.is_none();
+            if forward_repeat {
+                debug_log::log(&format!("del mode=forward why=repeat mode={mode:?}"));
+            } else {
+                debug_log::log(&format!("del mode=forward why=empty mode={mode:?}"));
+            }
             self.tail = replace_tail(&self.tail, 1, "");
             self.note_backspace_forwarded();
             // The user is erasing an idle-committed word — re-entering it
             // would resurrect text they are deleting.
             self.idle_committed = None;
+            if forward_repeat {
+                // A forwarded key event, not `Action::Forward`: that one
+                // emits nothing and the server turns it into the same
+                // pass-through the relay drops (measured: 399 repeats
+                // "forwarded" and not one character deleted).
+                return Some(vec![Action::ForwardBackspaces(1)]);
+            }
             return None;
         };
         if !self.wrapper.has_composition() {
@@ -1698,6 +1904,21 @@ impl Engine {
             Mode::Off => None,
             Mode::Flow => None,
             Mode::Surrounding | Mode::ForwardBackspace => {
+                // This client never described our text (Docs in Chrome), so an
+                // engine-side delete only shrinks our model while the screen
+                // keeps the word: four Backspaces ate the composition and the
+                // fifth was the first the application ever saw. Forward the key
+                // and let the application delete its own character — the one
+                // transport this editor honours — and keep the model in step
+                // through the same bookkeeping the untransportable delete uses.
+                if self.key_delete_only() && !forwards_delete(mode) {
+                    debug_log::log("del mode=forward why=key_delete_only");
+                    self.tail = replace_tail(&self.tail, 1, "");
+                    self.note_backspace_forwarded();
+                    let mut actions = vec![Action::Forward];
+                    actions.extend(self.suggest_step_after_erase());
+                    return Some(actions);
+                }
                 if !self.deletes_allowed() && !forwards_delete(mode) {
                     // The delete cannot reach the application: forward the
                     // Backspace so the app deletes the last character itself.
@@ -1730,6 +1951,15 @@ impl Engine {
                         self.tail = replace_tail(&self.tail, edit.delete_chars, "");
                     }
                     if actions.is_empty() {
+                        // Nothing to delete and nothing to insert: the key is
+                        // swallowed. Silent until a "held Backspace stops"
+                        // report made the difference between this and a
+                        // forwarded key impossible to see.
+                        debug_log::log(&format!(
+                            "del ok=0 why=consumed mode={mode:?} dc={} ins={}",
+                            edit.delete_chars,
+                            edit.insert.chars().count()
+                        ));
                         actions.push(Action::Consumed);
                     }
                     actions

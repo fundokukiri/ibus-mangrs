@@ -17,6 +17,9 @@ pub(super) enum Status {
 /// One row of the tools column.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Cell {
+    /// Stable name for a row, so the page can place the fact it needs without
+    /// matching on translated text.
+    pub id: &'static str,
     pub label: String,
     pub value: String,
     pub status: Status,
@@ -33,8 +36,9 @@ pub(super) struct Cell {
 }
 
 impl Cell {
-    fn info(label: &str, value: String) -> Cell {
+    fn info(id: &'static str, label: &str, value: String) -> Cell {
         Cell {
+            id,
             label: label.to_string(),
             value,
             status: Status::Info,
@@ -47,12 +51,13 @@ impl Cell {
 
     /// A file row shows the file's name only: the full path is long, and the
     /// row has a folder button for anyone who needs it.
-    fn path(label: &str, path: &std::path::Path) -> Cell {
+    fn path(id: &'static str, label: &str, path: &std::path::Path) -> Cell {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| path.display().to_string());
         Cell {
+            id,
             label: label.to_string(),
             value: name,
             status: Status::Info,
@@ -100,6 +105,10 @@ pub(super) struct Facts<'a> {
     pub engine: Option<&'a EngineStatus>,
     /// The backend the log says was used for the last keystroke.
     pub backend: Option<&'a str>,
+    /// Why the engine landed there: `matrix` is the automatic walk doing its
+    /// job, `preferred` is the backend the user forced, and `denied` means
+    /// their choice could not be built on this machine.
+    pub backend_why: Option<&'a str>,
 }
 
 /// The rows, grouped the way the right-hand column stacks them. The version,
@@ -120,41 +129,58 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
         Some(_) => Status::Info,
     };
     system.push(
-        Cell::info(&t("rows.debug_engine.selected", "Engine"), selected)
-            .with_status(
-                selected_status,
-                &t(
-                    "rows.debug_engine.selected_hint",
-                    "IBus đang chạy engine khác. Chọn MăngRS trong menu bộ gõ.",
-                ),
-            )
-            .report_only(),
+        Cell::info(
+            "engine",
+            &t("rows.debug_engine.selected", "Engine"),
+            selected,
+        )
+        .with_status(
+            selected_status,
+            &t(
+                "rows.debug_engine.selected_hint",
+                "IBus đang chạy engine khác. Chọn MăngRS trong menu bộ gõ.",
+            ),
+        )
+        .report_only(),
     );
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let install = match status {
-        Some(s) if s.stale => {
-            Cell::info(&t("rows.debug_engine.version", "Phiên bản MăngRS"), version).with_status(
-                Status::Warn,
-                &t(
-                    "rows.debug_engine.stale_hint",
-                    "Bản cài mới hơn tiến trình đang chạy. Khởi động lại IBus để dùng bản mới.",
-                ),
-            )
-        }
+        Some(s) if s.stale => Cell::info(
+            "version",
+            &t("rows.debug_engine.version", "Phiên bản MăngRS"),
+            version,
+        )
+        .with_status(
+            Status::Warn,
+            &t(
+                "rows.debug_engine.stale_hint",
+                "Bản cài mới hơn tiến trình đang chạy. Khởi động lại IBus để dùng bản mới.",
+            ),
+        ),
         // The tooltip names the binary that is actually typing: the only way
         // to tell two installs apart without opening a terminal.
-        Some(s) => Cell::info(&t("rows.debug_engine.version", "Phiên bản MăngRS"), version)
-            .with_status(Status::Ok, &s.exe.display().to_string()),
-        None => Cell::info(&t("rows.debug_engine.version", "Phiên bản MăngRS"), version),
+        Some(s) => Cell::info(
+            "version",
+            &t("rows.debug_engine.version", "Phiên bản MăngRS"),
+            version,
+        )
+        .with_status(Status::Ok, &s.exe.display().to_string()),
+        None => Cell::info(
+            "version",
+            &t("rows.debug_engine.version", "Phiên bản MăngRS"),
+            version,
+        ),
     };
     system.push(install.report_only());
     // The IBus daemon's own version belongs with the two rows about IBus.
     system.push(Cell::info(
+        "ibus",
         &t("rows.debug_machine.ibus", "Phiên bản IBus"),
         facts.machine.ibus.clone(),
     ));
     let (ext_key, ext_fallback, ext_running) = facts.extension;
     let extension = Cell::info(
+        "extension",
         &t("rows.debug_info.extension", "Extension"),
         t(ext_key, ext_fallback).to_string(),
     );
@@ -171,26 +197,30 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
     });
     // From this install down to the machine it sits on, ending with the session
     // it was typed in: the order the facts are usually asked in.
-    for (label_key, label_fallback, value) in [
+    for (id, label_key, label_fallback, value) in [
         (
+            "os",
             "rows.debug_machine.os",
             "Hệ điều hành",
             facts.machine.os.clone(),
         ),
         (
+            "kernel",
             "rows.debug_machine.kernel",
             "Kernel",
             facts.machine.kernel.clone(),
         ),
         (
+            "desktop",
             "rows.debug_machine.desktop",
             "DE/WM",
             facts.machine.desktop.clone(),
         ),
     ] {
-        system.push(Cell::info(&t(label_key, label_fallback), value));
+        system.push(Cell::info(id, &t(label_key, label_fallback), value));
     }
     system.push(Cell::info(
+        "session",
         &t("rows.debug_info.session", "Session"),
         std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "?".to_string()),
     ));
@@ -202,6 +232,7 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
 
     let mut insert = Vec::new();
     insert.push(Cell::info(
+        "mode",
         &t("rows.debug_info.mode", "Chế độ gõ toàn cục"),
         mode_label(facts.mode).to_string(),
     ));
@@ -210,35 +241,40 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
         .backend
         .map(|s| s.to_string())
         .unwrap_or_else(|| t("rows.debug_transport.none", "chưa thấy trong log"));
-    // Auto landing on a concrete backend is normal, but it is also the case
-    // where typing breaks in one application and not another.
-    let auto_fallback = facts.preferred == crate::config::PreferredBackendConfig::Auto
-        && facts.backend.is_some_and(|b| b != "auto");
+    // Landing on a concrete backend is what `auto` is FOR: uinput on GNOME
+    // Wayland, xtest on X11, the virtual keyboard or libei elsewhere. Only a
+    // backend the user forced and this machine refused is worth a warning.
+    let denied = facts.backend_why == Some("denied");
     // Both rows carry the same tint when they disagree: the pair is the
     // evidence, and one of them alone says nothing.
     let configured_cell = Cell::info(
+        "backend",
         &t("rows.debug_info.backend", "Backend"),
         configured.to_string(),
     );
-    insert.push(if auto_fallback {
+    insert.push(if denied {
         configured_cell.with_status(Status::Warn, "")
     } else {
         configured_cell
     });
-    let actual = Cell::info(&t("rows.debug_transport.title", "Backend thực tế"), shown);
-    insert.push(if auto_fallback {
+    let actual = Cell::info(
+        "actual",
+        &t("rows.debug_transport.title", "Backend thực tế"),
+        shown,
+    );
+    insert.push(if denied {
         actual.with_status(
             Status::Warn,
             &format!(
                 "{} {}. {}",
                 t(
-                    "rows.debug_transport.auto_note",
-                    "Cách chèn auto đang rơi về"
+                    "rows.debug_transport.denied_note",
+                    "Máy này không dựng được cách chèn đã chọn, đang dùng"
                 ),
                 facts.backend.unwrap_or("?"),
                 t(
-                    "rows.debug_transport.auto_hint",
-                    "Nếu gõ lỗi ở một ứng dụng, hãy đặt luật theo app cho nó.",
+                    "rows.debug_transport.denied_hint",
+                    "Chọn Tự động để bộ gõ tự đi theo phiên đang đăng nhập.",
                 )
             ),
         )
@@ -255,15 +291,25 @@ pub(super) fn sections(facts: &Facts) -> Vec<Section> {
 
     let mut files = Vec::new();
     match facts.config_path {
-        Some(path) => files.push(Cell::path(&t("rows.debug_info.config", "Cấu hình"), path)),
+        Some(path) => files.push(Cell::path(
+            "config",
+            &t("rows.debug_info.config", "Cấu hình"),
+            path,
+        )),
         None => files.push(Cell::info(
+            "config",
             &t("rows.debug_info.config", "Cấu hình"),
             t("misc.debug_log_missing", "Không có đường dẫn"),
         )),
     }
     match facts.log_path {
-        Some(path) => files.push(Cell::path(&t("rows.debug_info.log", "Nhật ký"), path)),
+        Some(path) => files.push(Cell::path(
+            "log",
+            &t("rows.debug_info.log", "Nhật ký"),
+            path,
+        )),
         None => files.push(Cell::info(
+            "log",
             &t("rows.debug_info.log", "Nhật ký"),
             t("misc.debug_log_missing", "Không có đường dẫn log"),
         )),
@@ -289,6 +335,17 @@ pub(super) fn backend_from_log(lines: &[String]) -> Option<String> {
         }
     }
     transport_from_log(lines)
+}
+
+/// The reason on the engine's own `ctx backend=... why=...` line: `matrix`
+/// means the automatic walk chose it, `denied` that the chosen backend could
+/// not be built here.
+pub(super) fn backend_why_from_log(lines: &[String]) -> Option<String> {
+    lines.iter().rev().find_map(|line| {
+        let rest = line.split_once("ctx backend=")?.1;
+        let why = rest.split("why=").nth(1)?;
+        Some(why.split_whitespace().next().unwrap_or("").to_string())
+    })
 }
 
 /// Older logs and the transport's own lines name a backend without the
@@ -348,7 +405,10 @@ pub(super) fn report(sections: &[Section], config: &[String], log: &[String]) ->
     if !config.is_empty() {
         out.push_str(&format!(
             "\n### {}\n\n```toml\n{}\n```\n",
-            t("debug_report.config_section", "config.toml đang nạp"),
+            t(
+                "debug_report.config_section",
+                "config.toml (chỉ mục khác mặc định)"
+            ),
             config.join("\n")
         ));
     }
@@ -418,6 +478,15 @@ mod tests {
         backend: Option<&'a str>,
         preferred: crate::config::PreferredBackendConfig,
     ) -> Facts<'a> {
+        facts_why(engine, backend, None, preferred)
+    }
+
+    fn facts_why<'a>(
+        engine: Option<&'a EngineStatus>,
+        backend: Option<&'a str>,
+        backend_why: Option<&'a str>,
+        preferred: crate::config::PreferredBackendConfig,
+    ) -> Facts<'a> {
         Facts {
             machine: machine(),
             preferred,
@@ -429,6 +498,7 @@ mod tests {
             log_path: Some(std::path::Path::new("/home/u/.cache/ibus-mangrs/debug.log")),
             engine,
             backend,
+            backend_why,
         }
     }
 
@@ -473,7 +543,11 @@ mod tests {
             .iter()
             .find(|c| c.label == "Phiên bản MăngRS")
             .expect("an install row");
-        assert_eq!(install.value, "v1.2.8", "the row names the version");
+        assert_eq!(
+            install.value,
+            format!("v{}", env!("CARGO_PKG_VERSION")),
+            "the row names the version"
+        );
         assert_eq!(install.status, Status::Warn);
         assert!(install
             .hint
@@ -487,27 +561,71 @@ mod tests {
     }
 
     #[test]
-    fn auto_landing_on_a_real_backend_is_the_one_known_warning() {
-        let boxes = rows(Some(&status(false)), Some("uinput"));
-        let actual = boxes
-            .iter()
-            .find(|c| c.label == "Backend thực tế")
-            .expect("a backend row");
-        assert_eq!(actual.value, "uinput");
-        assert_eq!(actual.status, Status::Warn, "{actual:?}");
-        assert!(actual.hint.as_deref().unwrap_or("").contains("auto"));
-
-        // A backend the user picked on purpose is not a warning.
-        let explicit = flat(&sections(&facts(
+    fn only_a_refused_choice_warns_about_the_backend() {
+        // `auto` landing on a concrete backend is the normal answer on every
+        // session — uinput on GNOME Wayland, xtest on X11, the virtual
+        // keyboard or libei elsewhere — and used to be painted amber anyway.
+        let auto = flat(&sections(&facts_why(
             Some(&status(false)),
             Some("uinput"),
+            Some("matrix"),
+            crate::config::PreferredBackendConfig::Auto,
+        )))
+        .into_iter()
+        .find(|c| c.label == "Backend thực tế")
+        .expect("a backend row");
+        assert_eq!(auto.value, "uinput");
+        assert_eq!(auto.status, Status::Info, "{auto:?}");
+        assert_eq!(auto.hint, None, "{auto:?}");
+
+        // A backend the user picked and the machine built is not a warning.
+        let explicit = flat(&sections(&facts_why(
+            Some(&status(false)),
+            Some("uinput"),
+            Some("preferred"),
             crate::config::PreferredBackendConfig::Uinput,
         )))
         .into_iter()
         .find(|c| c.label == "Backend thực tế")
-        .expect("a backend row")
-        .status;
-        assert_eq!(explicit, Status::Info);
+        .expect("a backend row");
+        assert_eq!(explicit.status, Status::Info, "{explicit:?}");
+
+        // The choice that could not be built is.
+        let denied = flat(&sections(&facts_why(
+            Some(&status(false)),
+            Some("uinput"),
+            Some("denied"),
+            crate::config::PreferredBackendConfig::Libei,
+        )))
+        .into_iter()
+        .find(|c| c.label == "Backend thực tế")
+        .expect("a backend row");
+        assert_eq!(denied.status, Status::Warn, "{denied:?}");
+        assert!(
+            denied.hint.as_deref().unwrap_or("").contains("Tự động"),
+            "{denied:?}"
+        );
+    }
+
+    #[test]
+    fn the_reason_comes_from_the_engines_own_backend_line() {
+        let log = lines(&[
+            "1795789846882 ctx backend=uinput pref=none why=matrix",
+            "1795789846890 ctx backend=xtest pref=xtest why=preferred",
+            "1795789846899 ctx backend=uinput pref=libei why=denied",
+        ]);
+        assert_eq!(backend_why_from_log(&log), Some("denied".to_string()));
+        assert_eq!(
+            backend_why_from_log(&lines(&[
+                "1795789846882 ctx backend=uinput pref=none why=matrix"
+            ])),
+            Some("matrix".to_string())
+        );
+        // A log with no backend line reports nothing rather than guessing.
+        assert_eq!(
+            backend_why_from_log(&lines(&["st cur=1 len=1 comp=true"])),
+            None
+        );
     }
 
     #[test]
@@ -595,8 +713,8 @@ mod tests {
             title: "Hệ thống".to_string(),
             report: true,
             rows: vec![
-                Cell::info("Engine", "đang chạy".to_string()).with_status(Status::Ok, ""),
-                Cell::info("Đăng ký", "không thấy".to_string())
+                Cell::info("engine", "Engine", "đang chạy".to_string()).with_status(Status::Ok, ""),
+                Cell::info("register", "Đăng ký", "không thấy".to_string())
                     .with_status(Status::Warn, "cài lại"),
             ],
         }];

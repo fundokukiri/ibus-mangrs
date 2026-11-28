@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::{MethodConfig, ModeConfig};
+use crate::config::{Config, MethodConfig, ModeConfig};
 
 /// Feed keystrokes like a real client: it reports capabilities and a
 /// SetSurroundingText update after every visible change. The first report
@@ -1129,7 +1129,15 @@ fn forward_key_event_mode_deletes_by_forwarding_backspaces() {
     let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT); // no ST capability at all
-    let actions = type_str(&mut e, "tieengs");
+                                          // A client that reports gets the protocol delete (see the test below), so
+                                          // this one keeps the report empty on every key.
+    let actions: Vec<Action> = "tieengs"
+        .chars()
+        .flat_map(|c| {
+            e.set_surrounding(String::new(), 0);
+            e.process_char(c)
+        })
+        .collect();
     assert!(
         !actions.iter().any(|a| matches!(
             a,
@@ -1273,7 +1281,10 @@ fn forward_key_event_backspace_never_deletes_by_protocol() {
     let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
     e.set_client(Some("gnome-shell".into()));
     e.set_capabilities(CAP_PREEDIT_TEXT);
-    type_str(&mut e, "tiee");
+    for c in "tiee".chars() {
+        e.set_surrounding(String::new(), 0);
+        e.process_char(c);
+    }
     let Some(actions) = e.backspace() else {
         panic!("a composition is in flight");
     };
@@ -1284,6 +1295,141 @@ fn forward_key_event_backspace_never_deletes_by_protocol() {
         )),
         "backspace must use the forwarded transport: {actions:?}"
     );
+}
+
+#[test]
+fn forward_mode_deletes_by_protocol_for_a_client_that_reports() {
+    // The forward mode presses keys only for a client that never reports its
+    // buffer. A report means the protocol delete has a target and no wait: the
+    // key transport is the one GTK4 discards (Ubuntu 26.04: the raw word stayed
+    // and the marked word was appended on top of it).
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    let actions = type_str(&mut e, "tieengs");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "a reporting client gets no forwarded keys: {actions:?}"
+    );
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+        )),
+        "the rewrite deletes by protocol: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn forward_mode_presses_keys_for_a_client_that_never_reports() {
+    // Terminal and XIM contexts report nothing: there the forwarded keys are
+    // the only transport, which is what the mode exists for.
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.set_client(Some("gtk4-im:test".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_surrounding(String::new(), 0);
+    let actions: Vec<Action> = "tieengs"
+        .chars()
+        .flat_map(|c| {
+            e.set_surrounding(String::new(), 0);
+            e.process_char(c)
+        })
+        .collect();
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "a silent client keeps the forwarded transport: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn forward_mode_presses_keys_for_a_browser_that_drops_protocol_deletes() {
+    // Google Docs in Chrome reports its buffer and then drops the protocol
+    // delete, which duplicated every word (`chao` + mark -> `chaoào`). The
+    // browser and Electron family keeps the forwarded keys; the list is the
+    // one the walk already uses for the same behaviour.
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.set_client(Some("gtk4-im:chrome".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    let actions = type_str(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "a browser keeps the forwarded transport: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+        )),
+        "no protocol delete for that family: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn forward_mode_finds_a_relayed_browser_by_its_app_name() {
+    // On Wayland the IBus client is `gnome-shell` for every app; only the focus
+    // extension names the browser. Chrome must still be recognised as a client
+    // that drops the protocol delete, or Google Docs duplicates every word
+    // (`chao` plus a mark -> `chaoào`, measured on the owner's Arch log).
+    let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    let actions = type_str(&mut e, "tieengs");
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "the relayed browser keeps the forwarded transport: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+        )),
+        "no protocol delete for it: {actions:?}"
+    );
+    assert_eq!(replay(&actions), "tiếng");
+}
+
+#[test]
+fn a_proven_delete_dropper_is_remembered_across_focus_changes() {
+    // R5: the first rewrite in an app that swallows the protocol delete costs
+    // that word, but walking back into the same app must not cost another one.
+    // A client reset (the click signal) forgets the verdict.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_client(Some("gtk4-im:matrix".into()));
+    e.set_app_name(Some("wayland:org.example.App".into()));
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+
+    let actions = type_str(&mut e, "tie");
+    assert_eq!(replay(&actions), "tie");
+    e.set_surrounding("tie".into(), 3);
+    let actions = e.process_char('e').into_iter().collect::<Vec<_>>();
+    assert!(actions.contains(&Action::Commit("ê".into())), "{actions:?}");
+    // The client shows `tieê`: the delete missing, the insert landed.
+    e.set_surrounding("tieê".into(), 4);
+    assert!(e.delete_dropped(), "the report proved the drop");
+
+    // Another app is unmeasured; the first one is remembered.
+    e.set_app_name(Some("wayland:org.example.Other".into()));
+    assert!(!e.drops_deletes(), "a fresh context is unmeasured");
+    e.set_app_name(Some("wayland:org.example.App".into()));
+    assert!(e.drops_deletes(), "the verdict survives a focus round-trip");
+
+    // The click signal forgets every verdict.
+    e.forget_delete_verdicts();
+    e.set_app_name(Some("wayland:org.example.Other".into()));
+    e.set_app_name(Some("wayland:org.example.App".into()));
+    assert!(!e.drops_deletes(), "a reset forgets the verdict");
 }
 
 #[test]
@@ -1306,6 +1452,270 @@ fn config_rule_bypasses_the_delete_fallback() {
     assert!(!actions
         .iter()
         .any(|a| matches!(a, Action::UpdatePreedit { .. })));
+}
+
+#[test]
+fn a_browser_reporting_another_widget_deletes_with_real_keys() {
+    // Google Docs in Chrome on Wayland: the report is the tab-search box
+    // (`text="_"`) while the canvas holds the typed word, so the protocol
+    // delete lands in that other widget and every word stacked
+    // (`Xin chaoào`). The X11 session deletes the same app with real key
+    // presses (no report there at all); the relayed Wayland context must take
+    // the same path instead of sending DeleteSurroundingText.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_uinput_available(true);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    e.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        app_rules: vec![crate::config::AppRule {
+            pattern: "google-chrome".into(),
+            mode: crate::config::ModeConfig::Surrounding,
+        }],
+        ..Config::default()
+    });
+
+    // The report that exists when the word starts is what locks the mode.
+    e.set_surrounding("_".into(), 1);
+    assert!(e.may_inject(), "the key transport reaches this context");
+    assert!(
+        !e.protocol_delete_ok(),
+        "the report describes no word of ours"
+    );
+    // Every mark key pays the parked-commit grace, so this context gets the
+    // short one instead of the word-end 60 ms.
+    assert_eq!(
+        e.echo_apply_grace_ms(),
+        Config::default().key_delete_grace_ms
+    );
+
+    let mut text = String::new();
+    let mut all = Vec::new();
+    for c in "chaof".chars() {
+        let actions = e.process_char(c);
+        all.extend(actions.iter().cloned());
+        text = replay_from(&text, &actions);
+        e.set_surrounding("_".into(), 1);
+    }
+    assert_eq!(text, "chào");
+    // The engine asks for a delete the server turns into real Backspace keys;
+    // the count is not clamped to the one character that report knows about.
+    assert!(
+        all.iter().any(|a| matches!(a, Action::DeleteBefore(_))),
+        "{all:?}"
+    );
+    assert!(
+        !all.iter().any(|a| matches!(
+            a,
+            Action::DeleteSurrounding { .. } | Action::RewriteByBackspace { .. }
+        )),
+        "{all:?}"
+    );
+}
+
+#[test]
+fn the_held_backspace_repeat_is_forwarded_when_the_trial_is_on() {
+    // A relayed terminal reports no text, so a held Backspace's repeat
+    // presses only reach it through the session pass-through — which drops
+    // them (91 presses, no deletion, until the key was released). With the
+    // trial switch on, the repeat is forwarded as a key event; the first
+    // press of the hold, and every press with the switch off, stay exactly as
+    // they were.
+    let build = |trial: bool, client: &str, report: bool| {
+        let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+        e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+        e.set_uinput_available(true);
+        e.set_client(Some(client.into()));
+        e.set_app_name(Some("wayland:Alacritty".into()));
+        e.apply_config(&Config {
+            mode: crate::config::ModeConfig::ForwardBackspace,
+            experimental_features: trial,
+            forward_repeat_delete: trial,
+            ..Config::default()
+        });
+        if report {
+            e.set_surrounding("Xin chào".into(), 8);
+        }
+        e
+    };
+
+    // The switch off: nothing changes, the repeat is still the app's business.
+    let mut off = build(false, "gnome-shell", false);
+    assert!(off.backspace().is_none(), "first press: the app deletes");
+    assert!(
+        off.backspace().is_none(),
+        "repeat with the trial off: unchanged"
+    );
+
+    // The switch on, relayed client, no report: the repeat is forwarded.
+    let mut on = build(true, "gnome-shell", false);
+    assert!(
+        on.backspace().is_none(),
+        "the first press keeps pass-through"
+    );
+    let repeat = on.backspace().expect("the repeat is forwarded");
+    assert!(
+        matches!(repeat.as_slice(), [Action::ForwardBackspaces(1)]),
+        "a real key event, not Action::Forward (which emits nothing): {repeat:?}"
+    );
+
+    // Not the relay (X11 names its own program): no change.
+    let mut x11 = build(true, "Alacritty", false);
+    assert!(x11.backspace().is_none(), "first press");
+    assert!(x11.backspace().is_none(), "X11 keeps the pass-through");
+
+    // A client that reports its text: no change either.
+    let mut reporting = build(true, "gnome-shell", true);
+    assert!(reporting.backspace().is_none(), "first press");
+    assert!(
+        reporting.backspace().is_none(),
+        "a report means no relay loss"
+    );
+}
+
+#[test]
+fn a_terminal_behind_the_relay_gets_the_forwarded_transport() {
+    // A terminal reports no surrounding text and renders no preedit; on a
+    // mutter relay the injected keys never reach it either. Surrounding used
+    // to be chosen anyway because a backend existed, so every mark key fell
+    // back to forwarding its raw key and the terminal showed `chaof`.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    // mutter advertises the preedit capability for every client it relays,
+    // which is exactly what made the walk pick Surrounding here.
+    e.set_capabilities(CAP_PREEDIT_TEXT);
+    e.set_uinput_available(true);
+    e.set_injection_relay_safe(false);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:Alacritty".into()));
+    e.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        ..Config::default()
+    });
+    assert_eq!(
+        e.effective_mode(),
+        Mode::ForwardBackspace,
+        "no report and no injection that reaches it: the terminal transport"
+    );
+
+    // The same client off the relay (X11 names its own program) keeps the
+    // injected-keys transport Surrounding needs.
+    let mut plain = Engine::new(Method::Telex, Mode::Surrounding);
+    plain.set_capabilities(0);
+    plain.set_uinput_available(true);
+    plain.set_client(Some("Alacritty".into()));
+    plain.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        ..Config::default()
+    });
+    assert_eq!(plain.effective_mode(), Mode::ForwardBackspace);
+
+    // A client that renders preedit keeps Surrounding when injection reaches
+    // it, which is the case the walk must not lose.
+    let mut direct = Engine::new(Method::Telex, Mode::Surrounding);
+    direct.set_capabilities(CAP_PREEDIT_TEXT);
+    direct.set_uinput_available(true);
+    direct.set_client(Some("gnome-terminal-server".into()));
+    direct.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        ..Config::default()
+    });
+    assert_eq!(direct.effective_mode(), Mode::Surrounding);
+}
+
+#[test]
+fn a_browser_that_never_reports_our_word_forwards_the_users_backspace() {
+    // Docs in Chrome reports only its tab-search box, so an engine-side delete
+    // never reaches the document: the owner pressed Backspace four times, the
+    // word stayed, and the fifth press (the first the app saw) deleted one
+    // character. The user's key must be forwarded instead.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_uinput_available(true);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    e.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        app_rules: vec![crate::config::AppRule {
+            pattern: "google-chrome".into(),
+            mode: crate::config::ModeConfig::Surrounding,
+        }],
+        ..Config::default()
+    });
+    e.set_surrounding("_".into(), 1);
+
+    let mut text = String::new();
+    for c in "chaof".chars() {
+        let actions = e.process_char(c);
+        text = replay_from(&text, &actions);
+        e.set_surrounding("_".into(), 1);
+    }
+    assert_eq!(text, "chào");
+    assert!(e.key_delete_only(), "the report describes no word of ours");
+
+    let actions = e.backspace().expect("a Backspace answer");
+    assert!(
+        actions.iter().any(|a| matches!(a, Action::Forward)),
+        "the key goes to the application: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_)
+                | Action::DeleteSurrounding { .. }
+                | Action::RewriteByBackspace { .. }
+        )),
+        "no engine-side delete in this context: {actions:?}"
+    );
+}
+
+#[test]
+fn a_browser_reporting_our_word_keeps_the_protocol_delete() {
+    // Chrome's omnibox reports the text we committed, which proves the delete
+    // lands there: it must keep the protocol delete and must not gain the
+    // key transport the relay ban was measured against.
+    let mut e = Engine::new(Method::Telex, Mode::Surrounding);
+    e.set_capabilities(CAP_PREEDIT_TEXT | CAP_SURROUNDING_TEXT);
+    e.set_uinput_available(true);
+    e.set_client(Some("gnome-shell".into()));
+    e.set_app_name(Some("wayland:google-chrome".into()));
+    e.apply_config(&Config {
+        mode: crate::config::ModeConfig::Surrounding,
+        app_rules: vec![crate::config::AppRule {
+            pattern: "google-chrome".into(),
+            mode: crate::config::ModeConfig::Surrounding,
+        }],
+        ..Config::default()
+    });
+
+    e.set_surrounding(String::new(), 0);
+    let mut text = String::new();
+    for c in "chao".chars() {
+        let actions = e.process_char(c);
+        text = replay_from(&text, &actions);
+        let cursor = text.chars().count() as u32;
+        e.set_surrounding(text.clone(), cursor);
+    }
+    assert!(e.protocol_delete_ok(), "the report holds our word");
+    assert!(!e.may_inject(), "no key deletion where the delete lands");
+    assert_eq!(
+        e.echo_apply_grace_ms(),
+        Config::default().echo_apply_grace_ms
+    );
+    let actions = e.process_char('f').into_iter().collect::<Vec<_>>();
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            Action::DeleteBefore(_) | Action::DeleteSurrounding { .. }
+        )),
+        "{actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        "{actions:?}"
+    );
 }
 
 #[test]
@@ -2603,9 +3013,12 @@ fn flow_without_backend_types_through_forward_backspace() {
     e.set_capabilities(CAP_PREEDIT_TEXT);
     let actions = type_str(&mut e, "vieetj");
     assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::ForwardBackspaces(_))),
+        actions.iter().any(|a| matches!(
+            a,
+            Action::ForwardBackspaces(_)
+                | Action::DeleteBefore(_)
+                | Action::DeleteSurrounding { .. }
+        )),
         "the downgrade must serve the word: {actions:?}"
     );
     assert!(
@@ -2661,7 +3074,7 @@ fn parked_commit_flushes_only_past_its_deadline() {
     let mut e = Engine::new(Method::Telex, Mode::Flow);
     e.park_commit(
         "tiếng".into(),
-        Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS),
+        Duration::from_millis(Config::default().echo_apply_grace_ms),
     );
     assert!(e.has_deferred());
     assert!(

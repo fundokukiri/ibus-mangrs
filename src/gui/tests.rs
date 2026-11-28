@@ -51,7 +51,11 @@ fn gtk_widget_scenarios() {
     shortcut_helpers_render_and_capture();
     external_reload_refreshes_without_saving();
     row_texts_render_as_plain_text();
-    flow_delay_row_shows_captions();
+    nhip_table_edits_and_resets_every_timing();
+    nhip_rows_name_their_config_key();
+    nhip_header_carries_the_filter_and_the_reset();
+    nhip_rows_name_their_modes();
+    the_marker_pause_follows_the_address_bar_style();
     rules_add_group_merges_the_focus_chip();
     rule_rows_round_trip_through_read();
     macro_page_helpers_count_and_preview();
@@ -60,11 +64,20 @@ fn gtk_widget_scenarios() {
     toggling_off_releases_the_editor_caret();
     close_test_windows();
     the_debug_tab_follows_the_switch();
+    each_column_carries_its_own_header_bar();
+    the_window_can_shrink_to_fit_a_small_screen();
+    close_test_windows();
+    close_test_windows();
+    the_search_button_opens_the_entry();
+    close_test_windows();
+    every_switch_on_a_page_lands_on_the_same_edge();
+    the_debug_pause_switches_keep_their_places();
+    close_test_windows();
     the_debug_tab_row_appears_only_with_debug_mode();
     the_open_log_pane_picks_up_what_is_written();
     the_debug_page_opens_with_both_columns();
     close_test_windows();
-    the_debug_page_shows_the_status_the_rows_and_the_footer();
+    the_debug_page_shows_the_status_the_facts_and_the_action_bar();
     close_test_windows();
     close_test_windows();
     every_switch_triggers_save();
@@ -79,7 +92,6 @@ fn gtk_widget_scenarios() {
     mode_dropdowns_list_every_mode();
     cycle_subtitle_lists_the_five_modes();
     close_test_windows();
-    pacing_columns_are_symmetric();
     close_test_windows();
     experimental_gate_locks_rows_and_preserves_values();
     preferred_backend_combo_saves_loads_and_survives_the_gate();
@@ -102,6 +114,9 @@ fn gtk_widget_scenarios() {
         Some(dir) => std::env::set_var("XDG_CONFIG_HOME", dir),
         None => std::env::remove_var("XDG_CONFIG_HOME"),
     }
+    close_test_windows();
+    the_empty_log_pane_keeps_polling_for_new_lines();
+    the_window_controls_survive_a_narrow_window();
 }
 
 /// The combo item lists (mode/charset/method/...) render in the window's
@@ -136,64 +151,6 @@ fn close_test_windows() {
     for _ in 0..3 {
         gtk4::glib::MainContext::default().iteration(false);
     }
-}
-
-/// The merged pacing row is laid out symmetrically: the two caption
-/// columns share one width and the divider between them sits at that
-/// pair's centre. Packed at natural widths ("Nhịp xoá lùi" is much shorter
-/// than "Chờ sau khi viết lại từ") the divider drifted and the row read
-/// lopsided.
-fn pacing_columns_are_symmetric() {
-    let ui = widgets();
-    let page = crate::gui::pages::tune::build(&ui);
-    let win = gtk4::Window::new();
-    win.set_child(Some(page.upcast_ref::<gtk4::Widget>()));
-    win.present();
-    for _ in 0..10 {
-        gtk4::glib::MainContext::default().iteration(false);
-    }
-    let column_of = |row: &gtk4::Widget, caption: &str| {
-        let label = descendants::<gtk4::Label>(row)
-            .into_iter()
-            .find(|l| l.text() == caption)
-            .expect("the caption label");
-        label
-            .parent()
-            .and_downcast::<gtk4::Box>()
-            .expect("the caption column")
-    };
-    let pacing = ui.pacing_row.clone().upcast::<gtk4::Widget>();
-    let flow = ui.flow_delay_row.clone().upcast::<gtk4::Widget>();
-    let left = column_of(&pacing, "Xoá lùi");
-    let right = column_of(&pacing, "Chờ viết lại từ");
-    let bounds = |w: &gtk4::Widget| {
-        w.compute_bounds(ui.pacing_row.upcast_ref::<gtk4::Widget>())
-            .expect("an allocated column")
-    };
-    let (l, r) = (bounds(left.upcast_ref()), bounds(right.upcast_ref()));
-    assert_eq!(
-        l.width(),
-        r.width(),
-        "both caption columns take the same width"
-    );
-    let divider = descendants::<gtk4::Separator>(&pacing)
-        .into_iter()
-        .next()
-        .expect("the divider between the columns");
-    let d = bounds(divider.upcast_ref());
-    let pair_centre = (l.x() + r.x() + r.width()) / 2.0;
-    assert!(
-        (d.x() + d.width() / 2.0 - pair_centre).abs() <= 1.0,
-        "the divider sits at the pair's centre"
-    );
-    // The Flow row shares the width, so its first column starts at the same
-    // x — the two rows read as one grid instead of two clusters.
-    let flow_left = bounds(column_of(&flow, "Hiện dấu").upcast_ref::<gtk4::Widget>());
-    assert_eq!(
-        flow_left.x(),
-        l.x(),
-        "both merged rows start their columns at the same x"
-    );
 }
 
 /// Every widget below `w` matching `T`, in tree order. Test-only — the
@@ -820,6 +777,8 @@ fn refresh_round_trips_every_widget() {
     // else without a widget.
     let baseline = ui.read();
     let config = Config {
+        debug_log_paused: false,
+        debug_hide_text: true,
         enabled: false,
         method: MethodConfig::Vni,
         mode: ModeConfig::ForwardBackspace,
@@ -832,7 +791,9 @@ fn refresh_round_trips_every_widget() {
         keep_composed_words: true,
         keep_repeats_raw: true,
         suggest_words: true,
+        forward_repeat_delete: true,
         dodge_inline_autocomplete: true,
+        autocomplete_fix: crate::config::AutocompleteFix::Raw,
         preferred_backend: crate::config::PreferredBackendConfig::WlrVirtualKeyboard,
         auto_restore: false,
         bypass_url: false,
@@ -866,6 +827,10 @@ fn refresh_round_trips_every_widget() {
         idle_commit_ms: 800,
         flow_per_key_delay_ms: 80,
         flow_backspace_restore_delay_ms: 40,
+        echo_apply_grace_ms: 45,
+        key_delete_grace_ms: 25,
+        focus_bounce_ms: 120,
+        marker_wait_ms: 5,
         experimental_features: true,
         show_toasts: false,
         debug_log: true,
@@ -993,79 +958,240 @@ fn external_reload_refreshes_without_saving() {
     assert!(!ui.suppress_save.get(), "the flag must be cleared after");
 }
 
-/// Adw rows parse Pango markup in title/subtitle by default; the URL
-/// rule's subtitle carries a bare `&`, which failed to parse and rendered
-/// as nothing. The row builders switch markup off — assert one row per
-/// builder, plus the subtitle data of the reported row.
-fn row_texts_render_as_plain_text() {
+/// The "Nhịp gõ" table edits every timing it lists, and each row goes back
+/// to its shipped default on its own.
+fn nhip_table_edits_and_resets_every_timing() {
     let ui = widgets();
-    for markup_off in [
-        !ui.bypass_url.uses_markup(),
-        !ui.method.uses_markup(),
-        !ui.echo_stale_row.uses_markup(),
-    ] {
-        assert!(markup_off, "row titles and subtitles must be plain text");
-    }
-    assert_eq!(
-        ui.bypass_url.subtitle().as_deref(),
-        Some("URL giữ nguyên tới dấu cách")
-    );
-}
-
-/// The per-key display switch died (the per-key look is the only Flow
-/// path) and both Backspace switches died (the retrack and the mark
-/// restore are standard Flow behavior): both delay spins survive as one
-/// always-active caption row, still wired to their config keys.
-fn flow_delay_row_shows_captions() {
-    let ui = widgets();
-    assert!(
-        !ui.flow_delay_row.uses_markup(),
-        "row titles and subtitles must be plain text"
-    );
-    assert!(
-        ui.flow_delay_row.is_sensitive()
-            && ui.flow_per_key_spin.is_sensitive()
-            && ui.flow_backspace_restore_spin.is_sensitive(),
-        "the delay row has no switch left to lock it"
-    );
     let macros = Macros::load();
     let dictionary = Dictionary::load();
     {
         let ui_for_save = Rc::clone(&ui);
         *ui.save_cb.borrow_mut() = Some(Rc::new(move || {
-            ui_for_save.save_all().expect("delay row save");
+            ui_for_save.save_all().expect("nhịp gõ save");
         }));
     }
     ui.refresh(
         &Config {
-            flow_per_key_delay_ms: 80,
-            flow_backspace_restore_delay_ms: 40,
+            echo_apply_grace_ms: 45,
+            key_delete_grace_ms: 25,
+            focus_bounce_ms: 120,
+            marker_wait_ms: 5,
             ..Config::default()
         },
         &macros,
         &dictionary,
     );
     assert_eq!(
-        ui.flow_per_key_spin.value(),
-        80.0,
+        ui.echo_apply_grace_spin.value(),
+        45.0,
         "refresh shows the file value"
     );
     assert_eq!(
-        ui.flow_backspace_restore_spin.value(),
-        40.0,
+        ui.focus_bounce_spin.value(),
+        120.0,
         "refresh shows the file value"
     );
-    ui.flow_per_key_spin.set_value(200.0);
-    ui.flow_backspace_restore_spin.set_value(250.0);
+    ui.echo_apply_grace_spin.set_value(30.0);
+    ui.key_delete_grace_spin.set_value(10.0);
+    ui.focus_bounce_spin.set_value(80.0);
+    ui.marker_wait_spin.set_value(7.0);
     ui.fire_save();
     let saved = Config::load();
+    assert_eq!(saved.echo_apply_grace_ms, 30, "the spin saves its key");
+    assert_eq!(saved.key_delete_grace_ms, 10, "the spin saves its key");
+    assert_eq!(saved.focus_bounce_ms, 80, "the spin saves its key");
+    assert_eq!(saved.marker_wait_ms, 7, "the spin saves its key");
+    // The row resets write the shipped value back through the same funnel.
+    let reset = ui.echo_apply_grace_spin.clone();
+    reset.set_value(Config::default().echo_apply_grace_ms as f64);
+    ui.fire_save();
     assert_eq!(
-        saved.flow_per_key_delay_ms, 200,
-        "the detached spin still saves the delay key"
+        Config::load().echo_apply_grace_ms,
+        Config::default().echo_apply_grace_ms,
+        "the reset value lands in the file"
     );
+}
+
+/// The address-bar row is one dropdown over two config keys: off first,
+/// then the two fix styles, and picking "off" must not forget the style.
+#[test]
+fn the_address_bar_row_maps_both_keys() {
+    use super::{dodge_from_index, dodge_index};
+    use crate::config::AutocompleteFix;
+    assert_eq!(dodge_index(false, AutocompleteFix::Raw), 0);
+    assert_eq!(dodge_index(false, AutocompleteFix::Marker), 0);
+    assert_eq!(dodge_index(true, AutocompleteFix::Raw), 1);
+    assert_eq!(dodge_index(true, AutocompleteFix::Marker), 2);
+    assert_eq!(dodge_from_index(0), (false, None));
+    assert_eq!(dodge_from_index(1), (true, Some(AutocompleteFix::Raw)));
+    assert_eq!(dodge_from_index(2), (true, Some(AutocompleteFix::Marker)));
+}
+
+/// The marker pause is only reachable while the address-bar style is the
+/// `·` marker: the other two styles never press it.
+fn the_marker_pause_follows_the_address_bar_style() {
+    let ui = widgets();
+    let _page = crate::gui::pages::tune::build(&ui);
+    for (pick, editable) in [(0u32, false), (1, false), (2, true)] {
+        ui.dodge_fix.set_selected(pick);
+        assert_eq!(
+            ui.marker_wait_spin.is_sensitive(),
+            editable,
+            "pick {pick}: the marker pause editable == {editable}"
+        );
+    }
+}
+
+/// The tooltip's three catalogue lines follow the window's language: an
+/// English window that kept Vietnamese tooltips was the report.
+#[test]
+fn the_table_tooltip_speaks_the_window_language() {
+    let _g = crate::gui::text::LANG_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let tip = |lang: &str| {
+        super::text::set_language(lang);
+        let mut text = String::new();
+        for key in [
+            "backspace_interval_ms",
+            "echo_apply_grace_ms",
+            "key_delete_grace_ms",
+            "flow_per_key_delay_ms",
+            "focus_bounce_ms",
+            "marker_wait_ms",
+        ] {
+            let line = |field: &str| super::t(&format!("nhip.{key}.{field}"), "THIẾU");
+            text.push_str(&line("purpose"));
+            text.push_str(&line("scope"));
+            text.push_str(&line("effect"));
+        }
+        text
+    };
+    let vi = tip("vi");
+    let en = tip("en");
+    super::text::set_language("vi");
+    assert!(!vi.is_empty() && !en.is_empty());
     assert_eq!(
-        saved.flow_backspace_restore_delay_ms, 250,
-        "the detached spin still saves the restore key"
+        en.matches("THIẾU").count(),
+        0,
+        "every tooltip line needs an English entry"
+    );
+    assert!(
+        en.contains("Higher:") && !en.contains("Tăng:"),
+        "the English tooltip must not fall back to Vietnamese"
+    );
+}
+
+/// Every row names the modes it acts on under its subtitle: the Flow pair
+/// is Flow-only, the parked grace covers the three delete transports.
+fn nhip_rows_name_their_modes() {
+    let ui = widgets();
+    let page = crate::gui::pages::tune::build(&ui);
+    let rows = descendants::<adw::ActionRow>(page.upcast_ref());
+    let badge_of = |needle: &str| {
+        let row = rows
+            .iter()
+            .find(|r| r.title().contains(needle))
+            .expect("the row");
+        row.subtitle()
+            .and_then(|s| s.split(' ').next().map(|w| w.to_string()))
+            .filter(|w| w.starts_with('['))
+            .unwrap_or_default()
+    };
+    assert_eq!(badge_of("Flow: hiện dấu"), "[F]");
+    assert_eq!(badge_of("Chờ sau phím xoá thật"), "[S]");
+    assert_eq!(badge_of("Hoãn reset khi mất focus"), "[P,S,F,FB]");
+    assert_eq!(badge_of("Chờ sau phím xoá"), "[S,F,FB]");
+}
+
+/// The filter and the reset live in the group header, right of the title:
+/// they act on the whole table, so they do not take a row of their own.
+fn nhip_header_carries_the_filter_and_the_reset() {
+    let ui = widgets();
+    let page = crate::gui::pages::tune::build(&ui);
+    let group = descendants::<adw::PreferencesGroup>(page.upcast_ref())
+        .into_iter()
+        .find(|g| g.title().contains("Nhịp gõ"))
+        .expect("the table's group");
+    let suffix = group.header_suffix().expect("a header suffix");
+    let drop = descendants::<gtk4::DropDown>(&suffix);
+    let reset = descendants::<gtk4::Button>(&suffix)
+        .into_iter()
+        .find(|b| b.label().is_some_and(|l| l.contains("Khôi phục")))
+        .expect("the reset button in the header");
+    assert_eq!(drop.len(), 1, "one filter dropdown in the header");
+    assert_eq!(
+        drop[0]
+            .model()
+            .and_downcast::<gtk4::StringList>()
+            .map(|m| m.n_items()),
+        Some(3),
+        "all / key presses / park"
+    );
+    // Reset puts the spins back to the shipped values.
+    let shipped = crate::config::Config::default().echo_apply_grace_ms;
+    ui.echo_apply_grace_spin.set_value(37.0);
+    reset.emit_clicked();
+    assert_eq!(
+        ui.echo_apply_grace_spin.value(),
+        shipped as f64,
+        "the header reset restores the shipped value"
+    );
+}
+
+/// Every row of the "Nhịp gõ" table names the config key it edits in its
+/// tooltip, so a user can go straight to config.toml and a bug report can
+/// quote the key.
+fn nhip_rows_name_their_config_key() {
+    let ui = widgets();
+    let page = crate::gui::pages::tune::build(&ui);
+    let rows = descendants::<adw::ActionRow>(page.upcast_ref());
+    let tip_of = |needle: &str| {
+        rows.iter()
+            .find(|r| r.title().contains(needle))
+            .and_then(|r| r.tooltip_text())
+            .map(|t| t.to_string())
+            .unwrap_or_default()
+    };
+    for (needle, key) in [
+        ("Xoá lùi", "backspace_interval_ms"),
+        ("Chờ sau phím xoá thật", "key_delete_grace_ms"),
+        ("Chờ sau phím xoá", "echo_apply_grace_ms"),
+        ("Hoãn reset khi mất focus", "focus_bounce_ms"),
+        ("Chờ sau dấu ·", "marker_wait_ms"),
+    ] {
+        let tip = tip_of(needle);
+        assert!(
+            tip.starts_with(&format!("`{key}`")),
+            "{needle}: the tooltip must lead with `{key}`, got {tip:?}"
+        );
+        assert!(
+            tip.contains("Áp dụng:"),
+            "{needle}: the tooltip must say which modes the value reaches, got {tip:?}"
+        );
+        assert!(
+            tip.contains("Chỉnh:") && tip.contains("Tăng:") && tip.contains("giảm:"),
+            "{needle}: the tooltip must say what raising and lowering does, got {tip:?}"
+        );
+        assert!(
+            tip.contains("modes_tooltip") == false,
+            "{needle}: the badge tooltip must stay on the badge"
+        );
+    }
+}
+
+/// Adw rows parse Pango markup in title/subtitle by default; the URL
+/// rule's subtitle carries a bare `&`, which failed to parse and rendered
+/// as nothing. The row builders switch markup off — assert one row per
+/// builder, plus the subtitle data of the reported row.
+fn row_texts_render_as_plain_text() {
+    let ui = widgets();
+    for markup_off in [!ui.bypass_url.uses_markup(), !ui.method.uses_markup()] {
+        assert!(markup_off, "row titles and subtitles must be plain text");
+    }
+    assert_eq!(
+        ui.bypass_url.subtitle().as_deref(),
+        Some("URL giữ nguyên tới dấu cách")
     );
 }
 
@@ -1173,6 +1299,286 @@ fn the_debug_tab_row_appears_only_with_debug_mode() {
     Config::default().save().expect("config back off");
 }
 
+/// Both split-view pages carry a header bar. A collapsed split view shows the
+/// sidebar as the root page, so a sidebar without one loses the window controls
+/// — the close button disappeared as soon as the window got narrow.
+fn each_column_carries_its_own_header_bar() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-sidebar-header")
+        .build();
+    Config::default().save().expect("config on");
+    let win = crate::gui::content::build(&app, Some("typing"));
+    let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the shell is a split view");
+    // Both columns start at the top of the window: a bar on each, so neither
+    // leaves an empty strip above its first row.
+    for page in [split.sidebar(), split.content()] {
+        let page = page.expect("both pages exist");
+        assert_eq!(
+            descendants::<adw::HeaderBar>(page.upcast_ref()).len(),
+            1,
+            "each column carries exactly one header bar"
+        );
+    }
+    // The search button lives in the sidebar's bar, not in a row of its own.
+    let sidebar_bar = descendants::<adw::HeaderBar>(split.sidebar().unwrap().upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the sidebar bar");
+    assert!(
+        descendants::<gtk4::Button>(sidebar_bar.upcast_ref())
+            .into_iter()
+            .any(|b| b.icon_name().is_some_and(|i| i.contains("search"))),
+        "the search button sits in the sidebar's bar"
+    );
+    // The window controls live in the content column's bar.
+    let content_bar = descendants::<adw::HeaderBar>(split.content().unwrap().upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the content bar");
+    assert!(
+        descendants::<gtk4::WindowControls>(content_bar.upcast_ref())
+            .into_iter()
+            .any(|c| c.side() == gtk4::PackType::End),
+        "the window controls live in the content bar"
+    );
+    // The window holds the split view directly: nothing above either column.
+    assert!(
+        win.content()
+            .and_downcast::<adw::NavigationSplitView>()
+            .is_some(),
+        "the split view is the window's own content"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// The window's own minimum width has to stay under what a small screen
+/// allows: a content wider than its window also makes the header bar wider
+/// than the window, and the close button at its right end falls outside.
+/// Measured at 1030 px while the footer kept its four labels on one row.
+fn the_window_can_shrink_to_fit_a_small_screen() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-window-min")
+        .build();
+    Config {
+        debug_log: true,
+        ..Config::default()
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("debugging"));
+    let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the shell is a split view");
+    let (min, _, _, _) = split.measure(gtk4::Orientation::Horizontal, -1);
+    assert!(
+        min <= 850,
+        "the window cannot shrink below {min} px, so a narrower screen clips its close button"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// The close button must survive a resized window: at 700 px the header bar
+/// (window level, outside the split view) still holds the window controls and
+/// the sidebar has collapsed. This is the case that used to push the controls
+/// past the window edge, because each page carried its own header bar at the
+/// page's minimum width.
+fn the_window_controls_survive_a_narrow_window() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-narrow-window")
+        .build();
+    Config {
+        debug_log: true,
+        ..Config::default()
+    }
+    .save()
+    .expect("config on");
+    let win = crate::gui::content::build(&app, Some("debugging"));
+    win.set_default_size(700, 700);
+    win.present();
+    let ctx = gtk4::glib::MainContext::default();
+    for _ in 0..40 {
+        while ctx.pending() {
+            ctx.iteration(false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // Whichever pane is shown, one bar inside the window carries the controls.
+    let end = descendants::<gtk4::WindowControls>(win.upcast_ref())
+        .into_iter()
+        .filter(|c| c.side() == gtk4::PackType::End)
+        .find(|c| c.is_mapped() && c.allocation().x() >= 0 && c.width() > 0)
+        .expect("a visible set of window controls");
+    assert!(
+        end.allocation().x() + end.width() <= win.width(),
+        "the window controls end at {} px, past the window's {} px",
+        end.allocation().x() + end.width(),
+        win.width()
+    );
+    let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the shell is a split view");
+    assert!(
+        split.is_collapsed(),
+        "900 px is the collapse width, so 700 px is collapsed"
+    );
+    // The pages' own minimum (623 px) must not reach the window: a horizontal
+    // scroller under the header bar keeps the bar at the window's width even
+    // when the window is narrower than every page.
+    let content_min = win
+        .content()
+        .map(|c| c.measure(gtk4::Orientation::Horizontal, -1).0)
+        .unwrap_or(-1);
+    assert!(
+        content_min <= 420,
+        "the window content asks for {content_min} px, so the window cannot be narrowed to its own minimum"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// The search button sits in the sidebar's header bar now, and pressing it has
+/// to open the entry: the row it lives in starts hidden, and an entry inside a
+/// hidden row is neither mapped nor focusable.
+fn the_search_button_opens_the_entry() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-search-button")
+        .build();
+    Config::default().save().expect("config on");
+    let win = crate::gui::content::build(&app, Some("typing"));
+    win.set_default_size(1000, 700);
+    win.present();
+    let ctx = gtk4::glib::MainContext::default();
+    let pump = |ticks: usize| {
+        for _ in 0..ticks {
+            while ctx.pending() {
+                ctx.iteration(false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    pump(60);
+    let split = descendants::<adw::NavigationSplitView>(win.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the shell is a split view");
+    let sidebar = split.sidebar().expect("the sidebar page");
+    let btn = descendants::<gtk4::Button>(sidebar.upcast_ref())
+        .into_iter()
+        .find(|b| {
+            b.tooltip_text()
+                .is_some_and(|t| t.contains("Tìm chức năng"))
+        })
+        .expect("the search button");
+    let entry = descendants::<gtk4::SearchEntry>(sidebar.upcast_ref())
+        .into_iter()
+        .next()
+        .expect("the search entry");
+    assert!(!entry.is_visible(), "the entry starts hidden");
+    btn.emit_clicked();
+    pump(30);
+    assert!(entry.is_visible(), "pressing the button opens the entry");
+    assert!(
+        entry.is_mapped(),
+        "the entry is on screen, not just visible"
+    );
+    entry.set_text("luật");
+    pump(40);
+    let content = split.content().expect("the content page");
+    assert!(
+        descendants::<gtk4::Label>(content.upcast_ref())
+            .into_iter()
+            .any(|l| l.text().contains("Luật")),
+        "typing in the entry lists matching rows over the page"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// Every switch on a page ends on the same vertical edge (an expanded
+/// suffix box packed its children from the left, leaving that switch short
+/// of the others).
+fn every_switch_on_a_page_lands_on_the_same_edge() {
+    let app = adw::Application::builder()
+        .application_id("org.freedesktop.IBus.mangrs.test-switch-line")
+        .build();
+    Config::default().save().expect("config on");
+    let win = crate::gui::content::build(&app, Some("tune"));
+    win.set_default_size(1180, 740);
+    win.present();
+    let ctx = gtk4::glib::MainContext::default();
+    for _ in 0..60 {
+        while ctx.pending() {
+            ctx.iteration(false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let right_edge = |row: &adw::ActionRow| -> Option<i32> {
+        let sw = descendants::<gtk4::Switch>(row.upcast_ref())
+            .into_iter()
+            .next()?;
+        let (mut x, _) = (0, 0);
+        let mut cur = Some(sw.upcast_ref::<gtk4::Widget>().clone());
+        while let Some(c) = cur {
+            x += c.allocation().x();
+            cur = c.parent();
+        }
+        Some(x + sw.width())
+    };
+    let rows: Vec<adw::ActionRow> = descendants::<adw::ActionRow>(win.upcast_ref());
+    let pick = |needle: &str| {
+        rows.iter()
+            .find(|r| r.title().contains(needle))
+            .and_then(right_edge)
+    };
+    let first = pick("Xoá đuôi từ").expect("the X11 delete row");
+    let second = pick("Preedit cho app XIM").expect("the XIM row");
+    assert_eq!(
+        first, second,
+        "every switch on the page must end on the same edge"
+    );
+    win.close();
+    Config::default().save().expect("config back off");
+}
+
+/// The log's own pause sits above the log it stops, and the switch that hides
+/// the typed text sits in the action bar: neither one is a second copy of the
+/// other, and a narrow window may not push either out of reach.
+fn the_debug_pause_switches_keep_their_places() {
+    let ui = widgets();
+    let overlay = pages::debug::build(&ui);
+    let switches = descendants::<gtk4::Switch>(overlay.upcast_ref());
+    assert_eq!(
+        switches.len(),
+        2,
+        "the log pause and the copy masking switch"
+    );
+    let inside_log_column = |switch: &gtk4::Switch| {
+        let mut node = switch.parent();
+        while let Some(ancestor) = node {
+            if ancestor.has_css_class("diag-log") {
+                return true;
+            }
+            node = ancestor.parent();
+        }
+        false
+    };
+    assert!(
+        inside_log_column(&switches[0]),
+        "the log's pause belongs above the log it stops"
+    );
+    assert!(
+        !inside_log_column(&switches[1]),
+        "the masking switch belongs in the action bar"
+    );
+}
+
 /// The window opens wide enough for the two columns: the stacked layout is
 /// for a window the user has narrowed, not for the first look.
 fn the_debug_page_opens_with_both_columns() {
@@ -1203,21 +1609,13 @@ fn the_debug_page_opens_with_both_columns() {
         split_view.iter().all(|view| !view.is_collapsed()),
         "the sidebar stays open at the default size"
     );
-    // The page's own split is the box holding a separator between two halves.
-    let split = descendants::<gtk4::Box>(win.upcast_ref())
+    // The page's own body: the log card beside the tools column.
+    let body = descendants::<gtk4::Box>(win.upcast_ref())
         .into_iter()
-        .find(|b| {
-            let mut child = b.first_child();
-            let mut separator = false;
-            while let Some(w) = child {
-                separator |= w.downcast_ref::<gtk4::Separator>().is_some();
-                child = w.next_sibling();
-            }
-            separator && b.orientation() == Orientation::Horizontal
-        })
-        .expect("the two-column split");
+        .find(|b| b.has_css_class("diag-body"))
+        .expect("the two-column body");
     assert_eq!(
-        split.orientation(),
+        body.orientation(),
         Orientation::Horizontal,
         "the log and the tools sit side by side on the first look"
     );
@@ -1296,17 +1694,6 @@ fn the_open_log_pane_picks_up_what_is_written() {
         adj.upper(),
         adj.page_size()
     );
-    let pause = descendants::<gtk4::ToggleButton>(overlay.upcast_ref())
-        .into_iter()
-        .find(|b| {
-            b.icon_name()
-                .is_some_and(|i| i.contains("pause") || i.contains("play"))
-        })
-        .expect("the pause button");
-    assert!(
-        pause.is_active(),
-        "scrolling never pauses following on its own"
-    );
     let view = descendants::<gtk4::TextView>(overlay.upcast_ref());
     let text = view
         .first()
@@ -1326,53 +1713,59 @@ fn the_open_log_pane_picks_up_what_is_written() {
     win.close();
 }
 
-fn the_debug_page_shows_the_status_the_rows_and_the_footer() {
+fn the_debug_page_shows_the_status_the_facts_and_the_action_bar() {
     let ui = widgets();
     let overlay = pages::debug::build(&ui);
-    // Two system rows hide (Engine and the MăngRS version travel only in the
-    // report), leaving six there, three for the insert path and two files.
-    let rows = descendants::<adw::ActionRow>(overlay.upcast_ref());
-    assert_eq!(rows.len(), 11, "the diagnostics rows");
+    // The filter is a bar of linked toggles: a dropdown hid both the choices
+    // and the kind in force.
     assert_eq!(
-        descendants::<adw::PreferencesGroup>(overlay.upcast_ref()).len(),
-        4,
-        "a group per section, plus the typing test"
+        descendants::<gtk4::DropDown>(overlay.upcast_ref()).len(),
+        0,
+        "the kinds are buttons, not a menu"
     );
-    let dots = descendants::<gtk4::Label>(overlay.upcast_ref())
+    let toggles = descendants::<gtk4::ToggleButton>(overlay.upcast_ref());
+    let kinds: Vec<&gtk4::ToggleButton> =
+        toggles.iter().filter(|btn| btn.label().is_some()).collect();
+    assert_eq!(kinds.len(), 6, "Tất cả and the five kinds");
+    assert!(
+        kinds.iter().any(|btn| btn.is_active()),
+        "one kind is always in force"
+    );
+    // The scroll switch sits beside the delete button and starts on: the pane
+    // follows the newest line until the reader says otherwise.
+    let follow = toggles
         .iter()
-        .filter(|l| l.text() == "●")
+        .find(|btn| {
+            btn.icon_name()
+                .is_some_and(|icon| icon.contains("pause") || icon.contains("play"))
+        })
+        .expect("the scroll switch");
+    assert!(follow.is_active(), "following is the default");
+    // A card each: the engine's state, the typing test, the three blocks, and
+    // the action bar across the bottom. The log sits in its own pane.
+    let cards = descendants::<gtk4::Box>(overlay.upcast_ref())
+        .into_iter()
+        .filter(|box_| box_.has_css_class("card"))
         .count();
-    assert_eq!(dots, 12, "a dot per row, plus the status bar's");
-    let picks = descendants::<gtk4::DropDown>(overlay.upcast_ref()).len();
-    assert_eq!(picks, 1, "the type list");
-    let labels: Vec<String> = descendants::<gtk4::Label>(overlay.upcast_ref())
-        .iter()
-        .map(|l| l.text().to_string())
-        .collect();
-    for wanted in ["Hệ thống", "Cách chèn", "Tệp", "Thử gõ"] {
-        assert!(
-            labels.iter().any(|l| l == wanted),
-            "the page has a `{wanted}` group: {labels:?}"
-        );
-    }
-    assert!(
-        labels
-            .iter()
-            .any(|l| l.starts_with("Engine đang chạy") || l.starts_with("Engine không chạy")),
-        "the status bar names the engine: {labels:?}"
+    assert_eq!(cards, 6, "the page's cards");
+    // Six facts in the grid and the two chips below it, each a value the mouse
+    // can select and copy.
+    let values = descendants::<gtk4::Label>(overlay.upcast_ref())
+        .into_iter()
+        .filter(|label| label.has_css_class("monospace") && label.is_selectable())
+        .count();
+    assert_eq!(values, 8, "six tiles and two pills");
+    assert_eq!(
+        descendants::<adw::StatusPage>(overlay.upcast_ref()).len(),
+        1,
+        "an empty log says so instead of showing a blank card"
     );
-    assert!(
-        labels.iter().any(|l| l.starts_with("Trễ TB")),
-        "the status bar carries the latency: {labels:?}"
-    );
-    assert!(
-        labels.iter().any(|l| l == "Khởi động lại IBus"),
-        "the footer carries the restart button"
-    );
-    assert!(
-        labels.iter().any(|l| l.contains("Sao chép")),
-        "the footer carries the report button: {labels:?}"
-    );
+    // The status card names the engine; the numbers ride beside it.
+    let headings = descendants::<gtk4::Label>(overlay.upcast_ref())
+        .into_iter()
+        .filter(|label| label.has_css_class("heading"))
+        .count();
+    assert_eq!(headings, 1, "one engine state");
 }
 
 /// Every switch wired by `wire_switch_saves` must fire the save funnel
@@ -1401,10 +1794,10 @@ fn every_switch_triggers_save() {
         &ui.capitalize_macro,
         &ui.macro_in_off_mode,
         &ui.macro_valid_words,
+        &ui.forward_repeat,
         &ui.emoji_enabled,
         &ui.dictionary_enabled,
         &ui.hide_underline,
-        &ui.dodge_inline_autocomplete,
         // `debug_log` has its own confirmation dialog and is covered by
         // `debug_mode_switch_keeps_the_dialog_choice` instead.
         &ui.x11_delete,
@@ -1458,6 +1851,9 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     // the row never reached the switch the merged rows wrap.
     let page = pages::experimental::build(&ui);
     assert!(page.has_css_class("experimental-page"));
+    // The gated timing rows live in the "Nhịp gõ" table now; building that
+    // page registers them with the gate, exactly like the real window.
+    let _tune = pages::tune::build(&ui);
     let macros = Macros::load();
     let dictionary = Dictionary::load();
     {
@@ -1481,7 +1877,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     assert!(ui.macro_valid_words.is_sensitive());
     assert!(ui.suggest_words.is_sensitive());
     // The merged row locks as one unit with the gate.
-    assert!(ui.echo_stale_row.is_sensitive());
+    assert!(ui.echo_stale_switch.is_sensitive());
     assert_eq!(ui.echo_stale_spin.value(), 250.0);
 
     // Off (driven through the file, as the real funnel produces it): rows
@@ -1493,7 +1889,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.refresh(&off, &macros, &dictionary);
     assert!(!ui.macro_valid_words.is_sensitive());
     assert!(!ui.suggest_words.is_sensitive());
-    assert!(!ui.echo_stale_row.is_sensitive());
+    assert!(!ui.echo_stale_switch.is_sensitive());
     assert_eq!(ui.echo_stale_spin.value(), 150.0);
 
     // A save with the gate off — the funnel reads the default-displaying
@@ -1510,7 +1906,7 @@ fn experimental_gate_locks_rows_and_preserves_values() {
     ui.experimental_features.set_active(true);
     ui.restore_experimental_saved();
     ui.set_experimental_sensitive(true);
-    assert!(ui.echo_stale_row.is_sensitive());
+    assert!(ui.echo_stale_switch.is_sensitive());
     assert_eq!(
         ui.echo_stale_spin.value(),
         250.0,
@@ -2074,4 +2470,65 @@ fn a_save_only_rewrites_the_list_that_changed() {
         parse_macros("gs = giờ sáng\n= hỏng\nxx =\n"),
         vec![("gs".to_string(), "giờ sáng".to_string())]
     );
+}
+
+/// An empty pane shows the status page, which unmaps the text view. Gating the
+/// poll on the view therefore stopped it: after "Xoá log" the first line the
+/// engine wrote never arrived, and a filter that matched nothing could never
+/// fill again.
+fn the_empty_log_pane_keeps_polling_for_new_lines() {
+    let dir = crate::debug_log::TempLogDir::new("empty-log-poll");
+    let path = dir.dir().join("debug.log");
+    std::fs::write(&path, "").expect("an empty log");
+    let ui = widgets();
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = Some(path.clone());
+    let overlay = pages::debug::build(&ui);
+    *crate::debug_log::PATH_OVERRIDE.lock().unwrap() = None;
+
+    let win = gtk4::Window::builder()
+        .default_width(1180)
+        .default_height(740)
+        .build();
+    win.set_child(Some(&overlay));
+    win.present();
+    let pump = |ms: u64| {
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < end {
+            while gtk4::glib::MainContext::default().iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    for _ in 0..300 {
+        while gtk4::glib::MainContext::default().iteration(false) {}
+        if win.width() > 1 && overlay.is_mapped() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    pump(600);
+    {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("the log file");
+        file.write_all(b"1795619563000 ctx appeared=1\n")
+            .expect("a write");
+    }
+    // One poll every 400 ms: two of them, plus room for the redraw.
+    pump(1100);
+    let text = descendants::<gtk4::TextView>(overlay.upcast_ref())
+        .first()
+        .map(|view| {
+            let buffer = view.buffer();
+            buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string()
+        })
+        .unwrap_or_default();
+    assert!(
+        text.contains("appeared=1"),
+        "the first line after an empty pane reaches it: {text:?}"
+    );
+    win.close();
 }

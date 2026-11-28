@@ -6,6 +6,11 @@ use crate::engine::Mode;
 use crate::transport::{BackendOps, Injection, Kind};
 use dbus::arg::{RefArg, Variant};
 
+/// The shipped focus-bounce window, read once per wait.
+fn bounce_ms() -> u64 {
+    crate::config::Config::default().focus_bounce_ms
+}
+
 #[test]
 fn parse_hotkey_accepts_modifier_combinations() {
     let (mods, key) = parse_hotkey("Control+Alt+v").expect("hotkey");
@@ -232,7 +237,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
     let press = |handler: &mut EngineHandler, keyval: u32| {
         let msg = engine_msg("ProcessKeyEvent").append3(keyval, 0u32, 0u32);
         let mut out = Vec::new();
-        let reply = handler.process_key_call(&msg, &mut out);
+        let reply = handler.process_key_call(None, &msg, &mut out);
         let consumed = reply.read1::<bool>().expect("bool reply");
         (consumed, out)
     };
@@ -247,7 +252,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
 
     // The context loses focus and no FocusIn ever comes back.
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+    handler.engine_call(None, &engine_msg("FocusOut"), "FocusOut", &mut out);
     assert!(
         lock_engine(&engine).is_enabled(),
         "FocusOut must not disable the wrapper"
@@ -263,7 +268,7 @@ fn focus_out_keeps_the_engine_enabled_only_disable_turns_it_off() {
 
     // The panel toggle still disables, and keys then pass through.
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("Disable"), "Disable", &mut out);
+    handler.engine_call(None, &engine_msg("Disable"), "Disable", &mut out);
     assert!(!lock_engine(&engine).is_enabled());
     let (consumed, _) = press(&mut handler, 110); // 'n'
     assert!(!consumed, "a disabled engine forwards keys to the app");
@@ -1127,6 +1132,7 @@ fn press_key(
             state: 0,
         },
         out,
+        None,
     )
 }
 
@@ -1715,7 +1721,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
     // The window expires without a refocus: a real switch. The abort drops
     // the composition, disarms the burst and holds every parked commit —
     // the stash owns the rewrite now, the wire sees nothing.
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -1776,7 +1782,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
         &mut out
     ));
     std::thread::sleep(
-        Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS) + Duration::from_millis(20),
+        Duration::from_millis(Config::default().echo_apply_grace_ms) + Duration::from_millis(20),
     );
     bounce_pass(
         &mut e,
@@ -1838,7 +1844,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
         (stashed.text.as_str(), stashed.expected_tail.as_str()),
         ("h", "ng")
     );
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -1908,7 +1914,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
     ));
     let stashed = stash.as_ref().expect("stash armed");
     assert_eq!(stashed.expected_tail, "xy");
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -1964,7 +1970,7 @@ fn stashed_rewrite_reconciles_within_the_window_or_drops() {
         &mut bounce_deadline,
         &mut stash,
     ));
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -2073,7 +2079,7 @@ fn real_switch_drops_the_held_keys_a_bounce_keeps_them() {
         "the deferred reset holds the client through the window"
     );
     // The window expires: the real-switch abort drops them.
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -2164,7 +2170,7 @@ fn focus_out_arm_defers_the_reset_for_a_live_burst() {
         handler.burst.deadline = Some(Instant::now() + Duration::from_secs(10));
     }
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+    handler.engine_call(None, &engine_msg("FocusOut"), "FocusOut", &mut out);
     assert!(
         handler.bounce_deadline.is_some(),
         "the arm defers the reset for the bounce window"
@@ -2355,7 +2361,7 @@ fn foreign_client_refuses_the_stashed_rewrite() {
         &mut bounce_deadline,
         &mut stash,
     ));
-    std::thread::sleep(Duration::from_millis(FOCUS_BOUNCE_MS + 20));
+    std::thread::sleep(Duration::from_millis(bounce_ms() + 20));
     bounce_pass(
         &mut e,
         &mut injection,
@@ -2503,6 +2509,119 @@ fn forward_key_event_emits_backspace_press_and_release() {
             .all(|(keyval, keycode, _)| *keyval == 0xff08 && *keycode == 14),
         "Backspace keyval with the evdev scancode: {keys:?}"
     );
+}
+
+#[test]
+fn a_transport_that_types_the_word_keeps_the_rewrite_on_one_channel() {
+    // The wlroots virtual keyboard types the word itself, so the deletes and
+    // the text share one channel: the deletes stop being forwarded key events
+    // (which a client may drop) and the text stops being a CommitText (which
+    // could overtake them). Every other transport keeps the shipped path.
+    for typed in [false, true] {
+        let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_uinput_available(true);
+        e.set_transport_types_text(typed);
+        let base = fake_transports(&|_, _| true);
+        let typed_text: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
+        let t = Transports {
+            backspaces: base.backspaces,
+            type_text: &|text| {
+                typed_text.borrow_mut().push(text.to_string());
+                true
+            },
+            send_now: &|_| {},
+        };
+        let mut out = Vec::new();
+        emit_with(
+            &mut e,
+            &[Action::ForwardBackspaces(2), Action::Commit("chào".into())],
+            &mut out,
+            &t,
+        );
+        let names = |want: &str| {
+            out.iter()
+                .filter(|m| m.member().map(|n| &*n == want).unwrap_or(false))
+                .count()
+        };
+        assert_eq!(
+            names("ForwardKeyEvent"),
+            if typed { 0 } else { 4 },
+            "typed={typed}: the delete transport"
+        );
+        assert_eq!(
+            names("CommitText"),
+            if typed { 0 } else { 1 },
+            "typed={typed}: the word transport"
+        );
+        assert_eq!(
+            typed_text.borrow().clone(),
+            if typed {
+                vec!["chào".to_string()]
+            } else {
+                vec![]
+            },
+            "typed={typed}: the word reaches the transport"
+        );
+    }
+}
+
+#[test]
+fn the_marker_fix_commits_a_dot_before_the_deletes() {
+    // R6: the dot goes out on its own, before the keys, and one extra press
+    // removes it again — the browser drops its inline completion in between.
+    for marker in [false, true] {
+        let (_injection, ops) = recorded_injection();
+        let fix = if marker {
+            crate::config::AutocompleteFix::Marker
+        } else {
+            crate::config::AutocompleteFix::Raw
+        };
+        let mut e = Engine::new(Method::Telex, Mode::ForwardBackspace);
+        e.apply_config(&Config {
+            experimental_features: true,
+            dodge_inline_autocomplete: true,
+            autocomplete_fix: fix,
+            ..Config::default()
+        });
+        e.set_mode(Mode::ForwardBackspace);
+        // A direct client so the injected path is reachable; the browser name
+        // is what turns the marker on.
+        e.set_client(Some("gtk4-im:test".into()));
+        e.set_app_name(Some("wayland:google-chrome".into()));
+        e.set_uinput_available(true);
+        let sent = std::cell::RefCell::new(Vec::new());
+        let base = fake_transports(&|_, _| true);
+        let t = Transports {
+            backspaces: base.backspaces,
+            type_text: &|_| false,
+            send_now: &|m| sent.borrow_mut().push(m),
+        };
+        let mut out = Vec::new();
+        emit_with(&mut e, &[Action::ForwardBackspaces(2)], &mut out, &t);
+        assert_eq!(
+            sent.borrow().len(),
+            usize::from(marker),
+            "marker={marker}: one immediate commit"
+        );
+        assert!(
+            ops.lock().unwrap().is_empty(),
+            "marker={marker}: this arm forwards the keys, it does not press them"
+        );
+        let keys = out
+            .iter()
+            .filter(|m| {
+                m.member()
+                    .map(|n| &*n == "ForwardKeyEvent")
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(
+            keys,
+            if marker { 6 } else { 4 },
+            "marker={marker}: press and release per Backspace, plus the dot's"
+        );
+    }
 }
 
 #[test]
@@ -2666,6 +2785,7 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
                 state: 0,
             },
             &mut Vec::new(),
+            None,
         );
     }
     let mut out = Vec::new();
@@ -2681,6 +2801,7 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
                 state: 0,
             },
             &mut out,
+            None
         ),
         "Left must be consumed"
     );
@@ -2704,7 +2825,8 @@ fn first_navigation_key_with_pending_preedit_is_swallowed_on_relays() {
             keycode: 0,
             state: 0,
         },
-        &mut out
+        &mut out,
+        None
     ));
 }
 
@@ -2733,6 +2855,7 @@ fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
                 state: 0,
             },
             &mut Vec::new(),
+            None,
         );
     }
     e.set_capabilities(0b100000); // preedit bit gone, preedit still visible
@@ -2747,7 +2870,8 @@ fn first_navigation_key_commits_preedit_even_after_a_capability_flip() {
             keycode: 0,
             state: keymap::SHIFT_MASK,
         },
-        &mut out
+        &mut out,
+        None
     ));
     assert!(
         out.iter()
@@ -2775,7 +2899,8 @@ fn navigation_key_forwards_normally_without_pending_preedit() {
             keycode: 0,
             state: 0,
         },
-        &mut out
+        &mut out,
+        None
     ));
 }
 
@@ -2798,6 +2923,7 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
                 state: 0,
             },
             &mut Vec::new(),
+            None,
         );
     }
     let mut out = Vec::new();
@@ -2811,7 +2937,8 @@ fn in_process_clients_keep_navigation_keys_forwarded() {
             keycode: 0,
             state: 0,
         },
-        &mut out
+        &mut out,
+        None
     ));
 }
 
@@ -2838,6 +2965,7 @@ fn pending_preedit_engine(value: &str) -> Engine {
                 state: 0,
             },
             &mut Vec::new(),
+            None,
         );
     }
     e
@@ -2867,6 +2995,7 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
                 state: 0,
             },
             &mut out,
+            None
         ),
         "Left must be forwarded"
     );
@@ -2887,7 +3016,8 @@ fn forward_mode_commits_and_forwards_the_first_navigation_key() {
             keycode: 0,
             state: 0,
         },
-        &mut out
+        &mut out,
+        None
     ));
 }
 
@@ -2910,6 +3040,7 @@ fn replay_mode_re_emits_the_navigation_key_after_the_commit() {
                 state: 0,
             },
             &mut out,
+            None
         ),
         "Left must be consumed"
     );
@@ -2951,7 +3082,8 @@ fn replay_falls_back_to_swallow_for_a_modified_navigation_key() {
             keycode: 0,
             state: keymap::SHIFT_MASK,
         },
-        &mut out
+        &mut out,
+        None
     ));
     let members = member_names(&out);
     assert!(
@@ -2983,6 +3115,7 @@ fn the_nav_key_choice_applies_without_the_experimental_gate() {
                 state: 0,
             },
             &mut out,
+            None
         ),
         "Left must be forwarded without the gate"
     );
@@ -3005,6 +3138,7 @@ fn the_nav_key_choice_applies_without_the_experimental_gate() {
                 state: 0,
             },
             &mut out,
+            None
         ),
         "Left must be consumed with a saved swallow"
     );
@@ -3053,10 +3187,11 @@ fn hotkey_registry_maps_assigned_specs_in_page_order() {
 }
 
 /// A shell that answers late is not a shell without the extension: the picker
-/// tries once more before it says "chưa bật", and both attempts are logged so a
-/// report can tell the two apart.
+/// tries once more before it gives up on naming the app, and both attempts are
+/// logged so a report can tell the two apart. Without a name the menu opens on
+/// the global mode rather than refusing to open at all.
 #[test]
-fn the_picker_retries_the_extension_before_blaming_it() {
+fn the_picker_retries_the_extension_before_falling_back_to_the_global_mode() {
     let _guard = crate::debug_log::test_guard();
     let dir = crate::debug_log::TempLogDir::new("picker-ext-retry");
     let path = dir.dir().join("debug.log");
@@ -3097,15 +3232,15 @@ fn the_picker_retries_the_extension_before_blaming_it() {
         "the failure is logged as one: {text}"
     );
     assert!(
-        text.contains("ext picker=hotkey why=no_extension"),
-        "the warning follows both attempts: {text}"
+        text.contains("ext picker=hotkey why=no_extension scope=global"),
+        "the fallback follows both attempts: {text}"
     );
     assert!(
         handler
             .picker
             .as_ref()
-            .is_some_and(|state| state.warnings_only()),
-        "the menu offers nothing to pick"
+            .is_some_and(|state| state.is_global()),
+        "the menu opens on the global mode, not on a warning"
     );
     let _ = std::fs::remove_file(&path);
 }
@@ -3530,7 +3665,8 @@ fn self_heal_picks_uinput_up_mid_session() {
             keycode: 0,
             state: 0,
         },
-        &mut out
+        &mut out,
+        None
     ));
     assert_eq!(injection.current(), Some(Kind::Uinput));
     assert!(engine.uinput_available());
@@ -3755,7 +3891,7 @@ fn press(handler: &mut EngineHandler, keyval: u32) -> (bool, Vec<Message>) {
 fn press_with_state(handler: &mut EngineHandler, keyval: u32, state: u32) -> (bool, Vec<Message>) {
     let msg = engine_msg("ProcessKeyEvent").append3(keyval, 0u32, state);
     let mut out = Vec::new();
-    let reply = handler.process_key_call(&msg, &mut out);
+    let reply = handler.process_key_call(None, &msg, &mut out);
     (reply.read1::<bool>().expect("bool reply"), out)
 }
 
@@ -4064,7 +4200,7 @@ fn panel_pager_methods_page_the_strip() {
     let (_engine, mut handler) = strip_handler(false);
     let (_, _) = press(&mut handler, 0x74); // 't'
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    handler.engine_call(None, &engine_msg("PageDown"), "PageDown", &mut out);
     assert!(
         !members(&out).contains(&"UpdateLookupTable".to_string()),
         "no strip, no table: {:?}",
@@ -4088,7 +4224,7 @@ fn panel_pager_methods_page_the_strip() {
     }
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    handler.engine_call(None, &engine_msg("PageDown"), "PageDown", &mut out);
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
@@ -4098,7 +4234,7 @@ fn panel_pager_methods_page_the_strip() {
     // The seeded list has seven items: the second PageDown clamps on the
     // partial last page instead of walking past it.
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    handler.engine_call(None, &engine_msg("PageDown"), "PageDown", &mut out);
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
@@ -4106,7 +4242,7 @@ fn panel_pager_methods_page_the_strip() {
     let (_, cursor, ..) = table_parts(&table);
     assert_eq!(cursor, 5, "the last page clamps");
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("PageUp"), "PageUp", &mut out);
+    handler.engine_call(None, &engine_msg("PageUp"), "PageUp", &mut out);
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
@@ -4136,7 +4272,7 @@ fn candidate_clicked_picks_through_the_strip() {
     assert!(!cands.is_empty(), "candidates on screen: {cands:?}");
     let mut out = Vec::new();
     let msg = engine_msg("CandidateClicked").append3(0u32, 1u32, 0u32);
-    handler.engine_call(&msg, "CandidateClicked", &mut out);
+    handler.engine_call(None, &msg, "CandidateClicked", &mut out);
     let members_seen = members(&out);
     assert!(
         members_seen.contains(&"HideLookupTable".to_string())
@@ -4382,7 +4518,7 @@ fn alt_digits_pick_while_the_strip_is_paged() {
         "the second letter updates the word and the list"
     );
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut out);
+    handler.engine_call(None, &engine_msg("PageDown"), "PageDown", &mut out);
     assert_eq!(members(&out), vec!["UpdateLookupTable"]);
     let (table, _) = out[0]
         .read2::<Variant<Box<dyn RefArg>>, bool>()
@@ -4489,7 +4625,7 @@ fn a_digit_beyond_the_list_falls_through_to_the_engine() {
         );
     }
     let mut page = Vec::new();
-    handler.engine_call(&engine_msg("PageDown"), "PageDown", &mut page);
+    handler.engine_call(None, &engine_msg("PageDown"), "PageDown", &mut page);
     assert_eq!(
         members(&page),
         vec!["UpdateLookupTable"],
@@ -4582,7 +4718,7 @@ fn focus_out_and_reset_teardown_the_strip() {
     // and the engine's own HideCandidates stays silent behind the taken
     // state instead of doubling it.
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("FocusOut"), "FocusOut", &mut out);
+    handler.engine_call(None, &engine_msg("FocusOut"), "FocusOut", &mut out);
     assert_eq!(
         members(&out)
             .iter()
@@ -4602,7 +4738,7 @@ fn focus_out_and_reset_teardown_the_strip() {
     let (_, out) = press(&mut handler, 0x68); // 'h'
     assert!(members(&out).iter().any(|m| m == "UpdateLookupTable"));
     let mut out = Vec::new();
-    handler.engine_call(&engine_msg("Reset"), "Reset", &mut out);
+    handler.engine_call(None, &engine_msg("Reset"), "Reset", &mut out);
     assert_eq!(
         members(&out)
             .iter()

@@ -105,7 +105,12 @@ pub(crate) fn focus_extension_answers() -> bool {
 impl EngineHandler {
     /// `ProcessKeyEvent`: hot-reload the config, check the shortcut
     /// registry, then feed the key to the engine. Signals go into `out`.
-    pub(super) fn process_key_call(&mut self, msg: &Message, out: &mut Vec<Message>) -> Message {
+    pub(super) fn process_key_call(
+        &mut self,
+        conn: Option<&Connection>,
+        msg: &Message,
+        out: &mut Vec<Message>,
+    ) -> Message {
         let Ok((keyval, keycode, state)) = msg.read3::<u32, u32, u32>() else {
             return msg.method_return().append1(false);
         };
@@ -148,6 +153,7 @@ impl EngineHandler {
                 state,
             },
             out,
+            conn,
         );
         msg.method_return().append1(consumed)
     }
@@ -189,6 +195,9 @@ impl EngineHandler {
             Some((_, t)) => *t = now,
             None => self.last_fire.push((action, now)),
         }
+        // Which action fired, so a report from a desktop where nothing appeared
+        // can say whether the key was ours or the menu went undrawn.
+        debug_log::log(&format!("ctx hotkey={action:?}"));
         match action {
             HotkeyAction::ToggleEnabled => self.toggle_enabled(out),
             HotkeyAction::CycleMode => self.cycle_mode(out),
@@ -368,7 +377,10 @@ impl EngineHandler {
     /// `UpdateProperty`, not a full `RegisterProperties` — GNOME applies
     /// only the former mid-session (see prop.rs).
     pub(super) fn maybe_reload_config(&mut self, out: &mut Vec<Message>) {
-        if self.last_config_check.elapsed() < Duration::from_secs(1) {
+        // The window's switches write the file and nothing else, so this gate
+        // is the only latency between a click and its effect. 150 ms is one
+        // stat per pass and reads as immediate; the old second did not.
+        if self.last_config_check.elapsed() < CONFIG_POLL {
             return;
         }
         self.last_config_check = Instant::now();
@@ -378,7 +390,7 @@ impl EngineHandler {
         if mtime.is_some() && mtime != self.last_config_mtime {
             self.last_config_mtime = mtime;
             let config = Config::load();
-            debug_log::set_enabled(config.debug_log);
+            debug_log::set_enabled(config.log_enabled());
             debug_log::set_text_enabled(config.debug_log_text);
             debug_log::set_keys_enabled(config.debug_log_keys);
             self.refresh_hotkey_cache(&config);
@@ -393,6 +405,11 @@ impl EngineHandler {
         }
     }
 }
+
+/// How often the main loop re-reads `config.toml`: the settings window writes
+/// the file, so this is the whole latency of a toggle (see
+/// `EngineHandler::maybe_reload_config`).
+pub(super) const CONFIG_POLL: Duration = Duration::from_millis(150);
 
 /// Parse a hotkey spec like `Control+Alt+v` into (modifier mask, keysym).
 /// Returns `None` for specs it does not understand. The key may be a single

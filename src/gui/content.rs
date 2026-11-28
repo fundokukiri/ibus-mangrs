@@ -192,11 +192,8 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
 
     let title_label = gtk4::Label::new(Some("Chung"));
     title_label.add_css_class("title");
-    let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&title_label));
     let sidebar_btn = gtk4::Button::from_icon_name("sidebar-show-symbolic");
     sidebar_btn.set_visible(false);
-    header.pack_start(&sidebar_btn);
 
     // Sidebar rows in GNOME Settings groups: the everyday pages, the
     // feature targets, the advanced ones — one thin separator between
@@ -415,25 +412,49 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     search_entry.set_placeholder_text(Some(&t("search.placeholder", "Tìm chức năng…")));
     search_entry.set_hexpand(true);
     search_entry.set_visible(false);
-    {
-        let entry = search_entry.clone();
-        search_btn.connect_clicked(move |_| {
-            let show = !entry.is_visible();
-            entry.set_visible(show);
-            if show {
-                entry.grab_focus();
-            } else {
-                entry.set_text("");
-            }
-        });
-    }
+    // The entry lives in its own row under the header bar and only exists
+    // while it is open: the button that opens it sits in the sidebar's own
+    // bar, so a closed search leaves no empty strip there.
     let search_box = gtk4::Box::new(Orientation::Horizontal, 6);
     search_box.set_margin_top(6);
     search_box.set_margin_bottom(6);
     search_box.set_margin_start(6);
     search_box.set_margin_end(6);
-    search_box.append(&search_btn);
     search_box.append(&search_entry);
+    search_box.set_visible(false);
+    search_entry.connect_visible_notify(|entry| {
+        // `get_visible`, not `is_visible`: the notify fires before the row is
+        // shown, so the ancestor-aware check is still false here and the row
+        // would never appear. Closing the entry (Esc, a jump to a result) goes
+        // through here too, and takes the row with it.
+        if let Some(row) = entry.parent() {
+            row.set_visible(entry.get_visible());
+        }
+    });
+    {
+        let entry = search_entry.clone();
+        let row = search_box.clone();
+        search_btn.connect_clicked(move |_| {
+            let show = !entry.is_visible();
+            // The row first: an entry inside a hidden row is not mapped, and an
+            // unmapped widget cannot take focus.
+            row.set_visible(show);
+            entry.set_visible(show);
+            if show {
+                // The split view moves focus back to the page when the row
+                // appears, so focus lands one frame later.
+                let entry = entry.clone();
+                gtk4::glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(50),
+                    move || {
+                        entry.grab_focus();
+                    },
+                );
+            } else {
+                entry.set_text("");
+            }
+        });
+    }
     let sidebar_box = gtk4::Box::new(Orientation::Vertical, 0);
     sidebar_box.append(&search_box);
     // The main list keeps its natural height; an expanding spacer pins the
@@ -443,14 +464,22 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     spacer.set_vexpand(true);
     sidebar_box.append(&spacer);
     sidebar_box.append(&about_list);
+    // Each column carries its own bar, so both start at the top of the window
+    // and neither leaves an empty strip above its first row. The search button
+    // sits in the sidebar's bar; the title and the window controls in the
+    // content's.
+    let sidebar_bar = adw::HeaderBar::new();
+    sidebar_bar.pack_start(&search_btn);
+    let sidebar_toolbar = adw::ToolbarView::new();
+    sidebar_toolbar.add_top_bar(&sidebar_bar);
+    sidebar_toolbar.set_content(Some(&sidebar_box));
     let sidebar_page = adw::NavigationPage::builder()
         .title(&app_name)
-        .child(&sidebar_box)
+        .child(&sidebar_toolbar)
         .build();
 
     let page_overlay = gtk4::Overlay::new();
     page_overlay.set_child(Some(&stack));
-    let content_toolbar = adw::ToolbarView::new();
 
     // --- search: the sidebar entry, results over every page -----------------
     // Typing in the sidebar entry shows a flat list of matching rows across
@@ -600,8 +629,21 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
         });
     }
 
-    content_toolbar.add_top_bar(&header);
-    content_toolbar.set_content(Some(&page_overlay));
+    let window_bar = adw::HeaderBar::new();
+    window_bar.set_title_widget(Some(&title_label));
+    window_bar.pack_start(&sidebar_btn);
+    // The bar must keep its width at every window size, and a toolbar view is
+    // never narrower than its content's minimum — which is the widest page
+    // (623 px). A horizontal scroller does not propagate that minimum, so the
+    // page slides sideways below it instead of widening the bar past the
+    // window and taking the close button with them.
+    let pane_scroller = gtk4::ScrolledWindow::new();
+    pane_scroller.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Never);
+    pane_scroller.set_propagate_natural_width(false);
+    pane_scroller.set_child(Some(&page_overlay));
+    let content_toolbar = adw::ToolbarView::new();
+    content_toolbar.add_top_bar(&window_bar);
+    content_toolbar.set_content(Some(&pane_scroller));
     let content_page = adw::NavigationPage::builder()
         .title(&app_name)
         .child(&content_toolbar)
@@ -624,10 +666,13 @@ pub(super) fn build(app: &adw::Application, initial_page: Option<&str>) -> adw::
     // Collapse the sidebar into an overlay pattern on narrow widths: the
     // toggle button (visible only while collapsed) flips between the page
     // and the sidebar list. NavigationSplitView has no manual show-sidebar —
-    // collapsed mode is managed through show-content.
+    // collapsed mode is managed through show-content. The width has to stay
+    // above the window's own minimum (the sidebar plus the widest page), or
+    // the window can never be narrowed into the breakpoint and the sidebar
+    // never collapses at all.
     let bp = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
         adw::BreakpointConditionLengthType::MaxWidth,
-        700.0,
+        900.0,
         adw::LengthUnit::Px,
     ));
     bp.add_setter(&split_view, "collapsed", Some(&true.to_value()));
@@ -954,7 +999,9 @@ pub(super) fn wire_switch_saves(ui: &Ui, save: Rc<dyn Fn()>) {
     on_change!(ui.keep_composed_words);
     on_change!(ui.keep_repeats_raw);
     on_change!(ui.suggest_words);
-    on_change!(ui.dodge_inline_autocomplete);
+    on_change!(ui.forward_repeat);
+    let s = Rc::clone(&save);
+    ui.dodge_fix.connect_selected_notify(move |_| s());
     on_change!(ui.emoji_enabled);
     on_change!(ui.dictionary_enabled);
     on_change!(ui.hide_underline);

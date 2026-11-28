@@ -43,6 +43,7 @@ debug_copy_path = "Sao chép đường dẫn"
 section_try = "Thử gõ"
 debug_open_folder = "Mở thư mục"
 debug_clear_log = "Xoá log"
+debug_log_pause = "Tạm dừng ghi log"
 debug_copy_report = "Sao chép báo cáo"
 debug_filter_placeholder = "Lọc dòng"
 debug_pause = "Tạm dừng cuộn"
@@ -104,7 +105,6 @@ extension_update_button = "Cập nhật"
 extension_enable_button = "Bật"
 extension_disable_button = "Tắt"
 extension_remove_button = "Gỡ"
-reset_button = "Khôi phục"
 other_icon_toast_hidden = "Đã ẩn khỏi menu ứng dụng"
 other_icon_toast_shown = "Đã hiện lại trong menu ứng dụng"
 dbus_error = "Không nối được D-Bus: {e}"
@@ -245,10 +245,16 @@ subtitle = "giữ o → oooo… thay vì dừng ở ô"
 title = "Gợi ý từ khi gõ"
 subtitle = "Dải gợi ý cạnh con trỏ"
 
-[rows.dodge_inline_autocomplete]
+
+[rows.forward_repeat]
+subtitle = "Gửi phím lặp khi giữ phím"
+
+[rows.dodge_fix]
 title = "Sửa lỗi gõ trong ô địa chỉ"
 subtitle = "Trước ra oỏ, giờ ra ỏ"
-
+off = "Tắt"
+raw = "Xoá thẳng"
+marker = "Chèn dấu ·"
 [rows.suggest_learn]
 title = "Học từ khi chọn gợi ý"
 subtitle = "Ưu tiên từ anh đã chọn"
@@ -313,12 +319,12 @@ title = "Điều hướng khi còn từ"
 subtitle = "Phím mũi tên đầu tiên khi còn từ gõ dở"
 
 [rows.flow_per_key_delay]
-title = "Hiện dấu"
-subtitle = "Thấp là dấu hiện sớm"
+title = "Flow: hiện dấu"
+subtitle = "Chờ rồi mới chèn lại từ"
 
 [rows.flow_backspace_restore_delay]
-title = "Hoàn dấu sau Backspace"
-subtitle = "Chờ rồi mới sửa màn hình"
+title = "Flow: hoàn dấu sau Backspace"
+subtitle = "Chờ Backspace đi khỏi rồi vá"
 
 [rows.flow_delay]
 title = "Độ trễ Flow"
@@ -448,7 +454,6 @@ move_up = "Lên"
 move_down = "Xuống"
 move_out = "Đưa ra khỏi thư mục"
 item_delete = "Xóa"
-reset_button = "Đặt lại"
 reset_heading = "Đặt lại menu?"
 reset_body = "Mọi thay đổi thiết kế hiện tại sẽ mất."
 reset_tooltip = "Đặt lại menu về thiết kế mặc định"
@@ -488,6 +493,39 @@ title = "Dấu &amp; điều hướng"
 title = "Nhịp gõ &amp; độ trễ uinput"
 description = "Chỉ áp dụng cho Flow, đơn vị ms."
 
+[groups.tune.nhip]
+title = "Nhịp gõ"
+description = "Thời gian chờ của cả bốn chế độ, tính bằng mili giây. P: gạch chân · S: Surrounding · F: Flow · FB: ForwardBackspace."
+
+[rows.echo_apply_grace]
+title = "Chờ sau phím xoá"
+subtitle = "Quá ngắn thì chữ hiện trước dấu"
+
+[rows.key_delete_grace]
+title = "Chờ sau phím xoá thật"
+subtitle = "Cho app không báo chữ đang gõ"
+
+[rows.focus_bounce]
+title = "Hoãn reset khi mất focus"
+subtitle = "Nháy mất focus vẫn giữ từ"
+
+[rows.marker_wait]
+title = "Chờ sau dấu ·"
+subtitle = "Chỉ dùng khi chèn dấu ·"
+
+[rows.nhip]
+reset = "Khôi phục mặc định"
+reset_tooltip = "Đưa cả bảng về giá trị gốc"
+reset_one = "Về giá trị gốc"
+default_tooltip = "Giá trị gốc của dòng này"
+filter_subtitle = "Chọn nhóm thông số muốn xem"
+filter_all = "Tất cả"
+filter_uinput = "Phím ảo"
+filter_park = "Chờ chữ hiện"
+scope = "Áp dụng"
+reset_confirm_title = "Khôi phục mặc định?"
+reset_confirm_body = "Mọi giá trị trong bảng trở về như lúc mới cài."
+effect = "Chỉnh"
 [groups.tune.channel]
 title = "Kênh gửi chữ"
 
@@ -652,6 +690,7 @@ hotkey_settings = "Mở Cài đặt"
 
 [tips]
 debug_buffer = "Chữ đang có trong ô thử, lấy ngay từ ô chứ không phải từ bộ gõ."
+debug_log_pause = "Tạm dừng việc ghi log, engine không thêm dòng nào cho tới khi bạn bật lại."
 debug_hide = "Bật: báo cáo thay chữ đã gõ bằng ***, macro chỉ còn số lượng. Tắt: báo cáo mang cả hai."
 debug_filter = "Gõ một phần nội dung để lọc, không phân biệt hoa thường."
 debug_kind = "Chỉ hiện một loại dòng. Dòng không thuộc loại nào chỉ hiện khi chọn Tất cả."
@@ -734,8 +773,8 @@ selected_hint = "IBus đang chạy engine khác. Chọn MăngRS trong menu bộ 
 [rows.debug_transport]
 title = "Backend thực tế"
 none = "chưa thấy trong log"
-auto_note = "Cách chèn auto đang rơi về"
-auto_hint = "Đặt luật theo app nếu gõ lỗi ở một ứng dụng."
+denied_note = "Máy này không dựng được cách chèn đã chọn, đang dùng"
+denied_hint = "Chọn Tự động để bộ gõ tự đi theo phiên đang đăng nhập."
 
 [rows.debug_machine]
 os = "Hệ điều hành"
@@ -776,3 +815,56 @@ started = "Đang khởi động lại IBus…"
 done = "IBus đã chạy lại"
 timeout = "Chưa thấy IBus chạy lại"
 failed = "Không chạy được"
+
+# Tooltip lines of the "Nhịp gõ" table, one table per config key.
+
+[nhip.backspace_interval_ms]
+purpose = "Khoảng cách giữa các phím Backspace ảo; giảm khi app xoá chậm."
+scope = "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace"
+effect = "Tăng: xoá chậm mà chắc ở app nặng; giảm: xoá nhanh, dễ mất ký tự nếu app xử lý chậm."
+
+[nhip.post_delay_ms]
+purpose = "Nghỉ sau mỗi lần sửa màn hình trước khi nhận phím tiếp."
+scope = "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace"
+effect = "Tăng: app kịp xử lý nhưng gõ thấy trễ; giảm: mượt hơn, dễ dính chữ khi app chậm."
+
+[nhip.echo_apply_grace_ms]
+purpose = "Commit chờ phím xoá áp xong; quá ngắn thì chữ hiện trước dấu, quá dài thì gõ bị trễ."
+scope = "Surrounding, Flow, ForwardBackspace"
+effect = "Tăng: chữ chắc chắn hiện sau khi xoá xong nhưng gõ trễ; giảm: mượt hơn, có thể hiện chữ trước dấu."
+
+[nhip.key_delete_grace_ms]
+purpose = "Mức chờ riêng cho app phải xoá bằng phím thật vì không báo chữ đang gõ, ví dụ Docs trong Chrome."
+scope = "Surrounding, khi app không báo chữ đang gõ"
+effect = "Tăng: an toàn cho app chậm nhưng gõ trễ; giảm: nhanh hơn, dễ hiện chữ khi chưa xoá xong."
+
+[nhip.flow_per_key_delay_ms]
+purpose = "Flow chờ chừng này rồi mới chèn lại từ sau khi đổi dấu."
+scope = "chỉ Flow"
+effect = "Tăng: dấu hiện chậm mà chắc; giảm: dấu hiện ngay, dễ nhấp nháy hoặc lẫn dấu."
+
+[nhip.flow_backspace_restore_delay_ms]
+purpose = "Chờ phím Backspace của bạn đi khỏi rồi mới vá lại dấu."
+scope = "chỉ Flow"
+effect = "Tăng: chắc phím Backspace đã xong nên hoàn dấu đúng hơn; giảm: sớm quá thì phím Backspace xoá mất."
+
+[nhip.focus_bounce_ms]
+purpose = "Mất focus trong khoảng này thì coi là nháy, giữ nguyên từ đang gõ."
+scope = "tất cả các chế độ"
+effect = "Tăng: giữ từ qua lần mất focus lâu hơn; giảm: reset sớm, dễ mất từ khi cửa sổ nháy."
+
+[nhip.marker_wait_ms]
+purpose = "Chờ sau khi chèn dấu · để browser bỏ gợi ý trước khi xoá."
+scope = "tất cả, nhưng chỉ khi chọn cách \"Chèn dấu ·\""
+effect = "Tăng: browser kịp bỏ gợi ý rồi mới xoá; giảm: xoá sớm, dễ xoá nhầm gợi ý."
+
+[nhip.echo_stale_ms]
+purpose = "Quá hạn này không thấy phím ảo quay về thì đổ chữ đã treo, để không mất chữ trên Wayland."
+scope = "các chế độ bấm phím ảo: Flow, Surrounding, ForwardBackspace"
+effect = "Tăng: chờ lâu hơn nên ít mất chữ nhưng chữ hiện trễ; giảm: đổ chữ sớm, dễ mất chữ khi phím ảo về chậm."
+
+[nhip.idle_commit_ms]
+purpose = "Ngừng gõ quá lâu thì tự chốt từ đang gạch chân, như vừa bấm dấu cách."
+scope = "chế độ còn gạch chân từ đang gõ (Preedit)"
+effect = "Tăng: từ giữ gạch chân lâu hơn; giảm: tự chốt từ sớm, gõ tiếp thành từ mới."
+

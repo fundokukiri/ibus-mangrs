@@ -15,16 +15,6 @@ pub(super) enum Kind {
     Other,
 }
 
-/// The kinds the type list offers, in the order it shows them. Any other kind
-/// is visible only with "Tất cả" picked.
-pub(super) const CHIPS: [Kind; 5] = [
-    Kind::Key,
-    Kind::Insert,
-    Kind::Delete,
-    Kind::Flush,
-    Kind::Error,
-];
-
 /// A decoded line, ready to be drawn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Line {
@@ -35,6 +25,10 @@ pub(super) struct Line {
     /// The line's own timestamp, so the next line can measure against it.
     pub abs_ms: Option<u64>,
     pub body: Body,
+    /// Position in the viewer's cache, assigned as lines are appended. The
+    /// pane uses it to tell what it has already drawn: a cache at its cap
+    /// drops its oldest lines every poll, so a line count would never move.
+    pub seq: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +108,7 @@ pub(super) fn parse(raw: &str, prev_ms: Option<u64>) -> Option<Line> {
         rel_ms,
         abs_ms: (ms != 0).then_some(ms),
         body,
+        seq: 0,
     })
 }
 
@@ -269,12 +264,19 @@ pub(super) fn mask_private(msg: &str) -> String {
         out.push_str(&rest[..field_start + quote_start + 1]);
         let inner_start = field_start + quote_start + 1;
         let mut end = inner_start;
-        let bytes = rest.as_bytes();
+        // Every step lands on a character boundary, so the walk cannot end up
+        // inside a multi-byte character: an escape may be followed by one
+        // (`\à`), and this slice is the only place that would notice.
         while end < rest.len() {
-            match bytes[end] {
-                b'\\' => end += 2,
+            match rest.as_bytes()[end] {
+                b'\\' => {
+                    end += 1;
+                    if let Some(c) = rest[end..].chars().next() {
+                        end += c.len_utf8();
+                    }
+                }
                 b'"' => break,
-                _ => end += 1,
+                _ => end += rest[end..].chars().next().map_or(1, char::len_utf8),
             }
         }
         let inner = &rest[inner_start..end.min(rest.len())];
@@ -401,5 +403,18 @@ mod tests {
         // Both fields on one line are masked, not just the first.
         let two = mask_private("tail=\"ab\" text=\"cd\" extra=1");
         assert_eq!(two, "tail=\"**\" text=\"**\" extra=1");
+    }
+
+    #[test]
+    fn masking_survives_an_escape_before_a_multibyte_character() {
+        // A backslash in front of a Vietnamese letter is three bytes across
+        // two characters; the walk has to stay on character boundaries so the
+        // masked shape counts characters, escapes included.
+        let masked = mask_private("text=\"\\à chào\"");
+        assert_eq!(
+            masked, "text=\"*******\"",
+            "seven characters, escape included"
+        );
+        assert!(!masked.contains('à'), "{masked}");
     }
 }

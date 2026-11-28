@@ -311,6 +311,9 @@ pub(super) fn action_button(icon_name: Option<&str>, label: &str) -> gtk4::Butto
         // Detach the label before re-parenting it into the content box.
         btn.set_child(None::<&gtk4::Widget>);
         let content = gtk4::Box::new(Orientation::Horizontal, 6);
+        // Centred: a box fills its button, so its two children would otherwise
+        // sit at the left edge of a widened button.
+        content.set_halign(gtk4::Align::Center);
         content.append(&icon);
         content.append(&text);
         btn.set_child(Some(&content));
@@ -328,37 +331,6 @@ pub(super) fn action_row(title: &str, subtitle: &str) -> adw::ActionRow {
     row.set_subtitle(subtitle);
     row.set_activatable(false);
     row
-}
-
-/// A merged feature row: the feature's title and subtitle on the left, its
-/// on/off switch as the first suffix and the value control as the second —
-/// one row per feature instead of a switch row plus a separate value row
-/// below it. Returns the switch for the save/twin-lock wiring; the row
-/// itself goes into the gate's lock list (locking the row greys both
-/// suffixes, since sensitivity cascades).
-pub(super) fn switch_value_row<W: IsA<gtk4::Widget>>(
-    title: &str,
-    subtitle: &str,
-    value: &W,
-) -> (adw::ActionRow, gtk4::Switch) {
-    let row = action_row(title, subtitle);
-    let switch = gtk4::Switch::new();
-    switch.set_valign(gtk4::Align::Center);
-    value.set_valign(gtk4::Align::Center);
-    // A vertical divider draws the boundary between the two halves — the
-    // switch half and the value half — instead of an invisible gap.
-    let divider = pacing_divider();
-    row.add_suffix(&switch);
-    row.add_suffix(&divider);
-    row.add_suffix(value);
-    // Merged rows only: the control group hugs the text block instead of
-    // floating at the row's right edge — the suffix box expands so its
-    // start-packed children land right after the fixed-width title, and
-    // the slack moves to the row's end.
-    if let (Some(suffixes), _) = find_suffixes_and_switch(row.upcast_ref()) {
-        suffixes.set_hexpand(true);
-    }
-    (row, switch)
 }
 
 /// One width for every merged-row value control: the rows must read as a
@@ -418,49 +390,15 @@ pub(super) fn spin_button(min: f64, max: f64, step: f64) -> gtk4::SpinButton {
     let adjustment = gtk4::Adjustment::new(min, min, max, step, step * 10.0, 0.0);
     let spin = gtk4::SpinButton::new(Some(&adjustment), step, 0);
     spin.set_size_request(VALUE_WIDTH_PX, -1);
+    // A wheel over a spin button steps its value, and a page that scrolls
+    // under the pointer makes that an edit nobody asked for. Captured and
+    // stopped, so neither the value nor the page moves: the table is a
+    // settings page, not a slider.
+    let scroll = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::VERTICAL);
+    scroll.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    scroll.connect_scroll(|_, _, _| gtk4::glib::Propagation::Stop);
+    spin.add_controller(scroll);
     spin
-}
-
-/// The vertical divider between two pacing columns of a merged row — the
-/// same separator `switch_value_row` draws between its halves.
-pub(super) fn pacing_divider() -> gtk4::Separator {
-    let divider = gtk4::Separator::new(gtk4::Orientation::Vertical);
-    divider.set_margin_start(8);
-    divider.set_margin_end(8);
-    divider
-}
-
-/// One pacing column of a merged row: the caption above the spin. The
-/// caller places the column (dividers go between columns). The spin is
-/// centered, not the default Fill: the vertical box hands a filling child
-/// the whole column width — the caption's width — so a long caption
-/// ("Hoàn dấu sau Backspace (ms)") stretches its input while its siblings
-/// stay short. Centered, every spin renders at the shared VALUE_WIDTH_PX.
-pub(super) fn pacing_column(caption: &str, spin: &gtk4::SpinButton) -> gtk4::Box {
-    let label = gtk4::Label::new(Some(caption));
-    label.add_css_class("caption");
-    label.set_halign(gtk4::Align::Center);
-    spin.set_halign(gtk4::Align::Center);
-    let column = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-    column.append(&label);
-    column.append(spin);
-    column
-}
-
-/// Equalize the caption columns of the merged rows. Captions differ in
-/// length ("Nhịp xoá lùi" against "Chờ sau khi viết lại từ"), so packed at their
-/// natural widths the divider lands off-centre and each row starts at its
-/// own x. Every column takes the widest caption's width, which centres each
-/// divider and lines the rows up with each other.
-pub(super) fn equalize_columns(columns: &[gtk4::Box]) {
-    let widest = columns
-        .iter()
-        .map(|c| c.measure(gtk4::Orientation::Horizontal, -1).1)
-        .max()
-        .unwrap_or(0);
-    for column in columns {
-        column.set_size_request(widest, -1);
-    }
 }
 
 /// The text half of a merged row: a plain entry sized to the shared value

@@ -16,8 +16,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::config::{
-    BackspaceToneConfig, BracketConfig, CharsetConfig, Config, MenuNode, MethodConfig, ModeConfig,
-    PreferredBackendConfig, W2uConfig,
+    AutocompleteFix, BackspaceToneConfig, BracketConfig, CharsetConfig, Config, MenuNode,
+    MethodConfig, ModeConfig, PreferredBackendConfig, W2uConfig,
 };
 use crate::macros::{Dictionary, Macros};
 use gtk4::prelude::*;
@@ -281,7 +281,8 @@ struct Ui {
     /// default-displayed and restored with them; needs the prediction
     /// model file to do anything.
     suggest_words: adw::SwitchRow,
-    dodge_inline_autocomplete: adw::SwitchRow,
+    forward_repeat: adw::SwitchRow,
+    dodge_fix: adw::ComboRow,
     preferred_backend: adw::ComboRow,
     time_format: gtk4::DropDown,
     date_format: gtk4::DropDown,
@@ -390,16 +391,19 @@ struct Ui {
     desktop_icon_loading: Rc<RefCell<bool>>,
     x11_delete: adw::SwitchRow,
     preedit_xim: adw::SwitchRow,
-    pacing_row: adw::ActionRow,
     backspace_interval: gtk4::SpinButton,
     post_delay: gtk4::SpinButton,
-    echo_stale_row: adw::ActionRow,
+    echo_apply_grace_spin: gtk4::SpinButton,
+    key_delete_grace_spin: gtk4::SpinButton,
+    focus_bounce_spin: gtk4::SpinButton,
+    marker_wait_spin: gtk4::SpinButton,
+    /// The "Nhịp gõ" rows that sit behind the experimental gate, filled by
+    /// `pages::nhip::build` so the gate can lock them.
+    nhip_gated: Rc<RefCell<Vec<gtk4::Widget>>>,
     echo_stale_switch: gtk4::Switch,
     echo_stale_spin: gtk4::SpinButton,
-    idle_commit_row: adw::ActionRow,
     idle_commit_switch: gtk4::Switch,
     idle_commit_spin: gtk4::SpinButton,
-    flow_delay_row: adw::ActionRow,
     flow_per_key_spin: gtk4::SpinButton,
     flow_backspace_restore_spin: gtk4::SpinButton,
     experimental_features: adw::SwitchRow,
@@ -450,6 +454,28 @@ fn method_index(m: MethodConfig) -> u32 {
         MethodConfig::VniFrench => 6,
         MethodConfig::Viqr => 7,
         MethodConfig::Microsoft => 8,
+    }
+}
+
+/// Dropdown order for the address-bar row, matching its items: off first,
+/// then the two fix styles.
+fn dodge_index(dodge: bool, fix: AutocompleteFix) -> u32 {
+    if !dodge {
+        return 0;
+    }
+    match fix {
+        AutocompleteFix::Raw => 1,
+        AutocompleteFix::Marker => 2,
+    }
+}
+
+/// The dropdown's pick as the two config keys it stands for. Off leaves the
+/// fix style alone, so turning the feature back on keeps the last choice.
+fn dodge_from_index(index: u32) -> (bool, Option<AutocompleteFix>) {
+    match index {
+        1 => (true, Some(AutocompleteFix::Raw)),
+        2 => (true, Some(AutocompleteFix::Marker)),
+        _ => (false, None),
     }
 }
 
@@ -640,8 +666,11 @@ impl Ui {
             .set_active(config.keep_composed_words);
         self.keep_repeats_raw.set_active(config.keep_repeats_raw);
         self.suggest_words.set_active(config.suggest_words);
-        self.dodge_inline_autocomplete
-            .set_active(config.dodge_inline_autocomplete);
+        self.forward_repeat.set_active(config.forward_repeat_delete);
+        self.dodge_fix.set_selected(dodge_index(
+            config.dodge_inline_autocomplete,
+            config.autocomplete_fix,
+        ));
         self.preferred_backend
             .set_selected(preferred_backend_index(config.preferred_backend));
         select_format(&self.time_format, TIME_FORMATS, &config.time_format);
@@ -683,6 +712,14 @@ impl Ui {
             .set_value(config.flow_per_key_delay_ms as f64);
         self.flow_backspace_restore_spin
             .set_value(config.flow_backspace_restore_delay_ms as f64);
+        self.echo_apply_grace_spin
+            .set_value(config.echo_apply_grace_ms as f64);
+        self.key_delete_grace_spin
+            .set_value(config.key_delete_grace_ms as f64);
+        self.focus_bounce_spin
+            .set_value(config.focus_bounce_ms as f64);
+        self.marker_wait_spin
+            .set_value(config.marker_wait_ms as f64);
         self.experimental_features
             .set_active(config.experimental_features);
         self.show_toasts.set_active(config.show_toasts);
@@ -814,7 +851,12 @@ impl Ui {
         config.keep_composed_words = self.keep_composed_words.is_active();
         config.keep_repeats_raw = self.keep_repeats_raw.is_active();
         config.suggest_words = self.suggest_words.is_active();
-        config.dodge_inline_autocomplete = self.dodge_inline_autocomplete.is_active();
+        config.forward_repeat_delete = self.forward_repeat.is_active();
+        let (dodge, fix) = dodge_from_index(self.dodge_fix.selected());
+        config.dodge_inline_autocomplete = dodge;
+        if let Some(fix) = fix {
+            config.autocomplete_fix = fix;
+        }
         config.preferred_backend = match self.preferred_backend.selected() {
             1 => PreferredBackendConfig::Uinput,
             2 => PreferredBackendConfig::XTest,
@@ -841,6 +883,10 @@ impl Ui {
         config.idle_commit_ms = self.idle_commit_spin.value() as u64;
         config.flow_per_key_delay_ms = self.flow_per_key_spin.value() as u64;
         config.flow_backspace_restore_delay_ms = self.flow_backspace_restore_spin.value() as u64;
+        config.echo_apply_grace_ms = self.echo_apply_grace_spin.value() as u64;
+        config.key_delete_grace_ms = self.key_delete_grace_spin.value() as u64;
+        config.focus_bounce_ms = self.focus_bounce_spin.value() as u64;
+        config.marker_wait_ms = self.marker_wait_spin.value() as u64;
         config.experimental_features = self.experimental_features.is_active();
         config.show_toasts = self.show_toasts.is_active();
         // The designed menu tree; never empty (the editor refuses to remove
@@ -890,17 +936,21 @@ impl Ui {
     pub(crate) fn set_experimental_sensitive(&self, on: bool) {
         // One entry per feature: the merged rows carry switch and value
         // together, and locking the row greys both suffixes.
-        let rows: [&gtk4::Widget; 8] = [
+        let rows: [&gtk4::Widget; 7] = [
+            self.forward_repeat.upcast_ref(),
             self.macro_valid_words.upcast_ref(),
             self.keep_composed_words.upcast_ref(),
             self.keep_repeats_raw.upcast_ref(),
             self.suggest_words.upcast_ref(),
-            self.dodge_inline_autocomplete.upcast_ref(),
             self.preferred_backend.upcast_ref(),
-            self.echo_stale_row.upcast_ref(),
-            self.idle_commit_row.upcast_ref(),
+            self.dodge_fix.upcast_ref(),
         ];
         for row in rows {
+            row.set_sensitive(on);
+        }
+        // The four gated rows of the "Nhịp gõ" table live there, so the
+        // table hands back their widgets for the same pass.
+        for row in self.nhip_gated.borrow().iter() {
             row.set_sensitive(on);
         }
         if on {
@@ -911,6 +961,7 @@ impl Ui {
                 .set_sensitive(gate && self.echo_stale_switch.is_active());
             self.idle_commit_spin
                 .set_sensitive(gate && self.idle_commit_switch.is_active());
+            self.dodge_fix.set_sensitive(gate);
         }
     }
 
@@ -927,8 +978,9 @@ impl Ui {
         self.keep_composed_words.set_active(d.keep_composed_words);
         self.keep_repeats_raw.set_active(d.keep_repeats_raw);
         self.suggest_words.set_active(d.suggest_words);
-        self.dodge_inline_autocomplete
-            .set_active(d.dodge_inline_autocomplete);
+        self.forward_repeat.set_active(d.forward_repeat_delete);
+        self.dodge_fix
+            .set_selected(dodge_index(d.dodge_inline_autocomplete, d.autocomplete_fix));
         self.preferred_backend.set_selected(0);
         self.echo_stale_switch.set_active(d.echo_stale_enabled);
         self.echo_stale_spin.set_value(d.echo_stale_ms as f64);
@@ -948,8 +1000,9 @@ impl Ui {
         self.keep_composed_words.set_active(c.keep_composed_words);
         self.keep_repeats_raw.set_active(c.keep_repeats_raw);
         self.suggest_words.set_active(c.suggest_words);
-        self.dodge_inline_autocomplete
-            .set_active(c.dodge_inline_autocomplete);
+        self.forward_repeat.set_active(c.forward_repeat_delete);
+        self.dodge_fix
+            .set_selected(dodge_index(c.dodge_inline_autocomplete, c.autocomplete_fix));
         self.preferred_backend
             .set_selected(preferred_backend_index(c.preferred_backend));
         self.echo_stale_switch.set_active(c.echo_stale_enabled);

@@ -46,6 +46,7 @@ mod picker;
 #[cfg(feature = "gui")]
 pub(crate) use hotkey::focus_extension_answers;
 #[cfg(feature = "gui")]
+#[cfg(feature = "gui")]
 pub(crate) use picker::focus_extension_path;
 
 // the lib build resolves the name inside hotkey itself, hence the allow.
@@ -189,9 +190,12 @@ impl Server {
                 // deadlines: a lost burst must wake the loop on its own
                 // clock, not the 1s poll. The bounce deadline folds the same
                 // way: an expired bounce window aborts promptly.
-                let engine_ms = e.ms_until_tick().map_or(1000, |ms| ms.min(1000));
-                let watch_ms = handler.burst.ms_until().map_or(1000, |ms| ms.min(1000));
-                let bounce_ms = handler.bounce_deadline.map_or(1000, |d| {
+                // The idle cap is the config poll: sleeping longer than that
+                // would delay every toggle by the difference.
+                let poll = hotkey::CONFIG_POLL.as_millis() as u64;
+                let engine_ms = e.ms_until_tick().map_or(poll, |ms| ms.min(poll));
+                let watch_ms = handler.burst.ms_until().map_or(poll, |ms| ms.min(poll));
+                let bounce_ms = handler.bounce_deadline.map_or(poll, |d| {
                     d.saturating_duration_since(Instant::now())
                         .as_millis()
                         .max(1) as u64
@@ -402,7 +406,7 @@ impl EngineHandler {
             }
             (ENGINE_IFACE, m) => {
                 let mut out: Vec<Message> = Vec::new();
-                let reply = self.engine_call(msg, m, &mut out);
+                let reply = self.engine_call(Some(conn), msg, m, &mut out);
                 for m in out {
                     send(conn, m);
                 }
@@ -493,9 +497,15 @@ impl EngineHandler {
     /// Handle one `org.freedesktop.IBus.Engine` call: push any signals into
     /// `out` and return the method reply. The engine mutex is taken lazily —
     /// `ProcessKeyEvent` re-checks the config first, which locks by itself.
-    fn engine_call(&mut self, msg: &Message, member: &str, out: &mut Vec<Message>) -> Message {
+    fn engine_call(
+        &mut self,
+        conn: Option<&Connection>,
+        msg: &Message,
+        member: &str,
+        out: &mut Vec<Message>,
+    ) -> Message {
         if member == "ProcessKeyEvent" {
-            return self.process_key_call(msg, out);
+            return self.process_key_call(conn, msg, out);
         }
         if member == "CandidateClicked" {
             // A mouse click on a picker entry (GNOME's candidate popup
@@ -686,7 +696,7 @@ impl EngineHandler {
                 }
                 // Pick up settings changed in the GUI since the last focus.
                 let config = Config::load();
-                debug_log::set_enabled(config.debug_log);
+                debug_log::set_enabled(config.log_enabled());
                 debug_log::set_text_enabled(config.debug_log_text);
                 debug_log::set_keys_enabled(config.debug_log_keys);
                 // Direct field assignment: the engine guard held by this
@@ -847,6 +857,9 @@ impl EngineHandler {
                 // arrives (GTK sends it on a mouse click, a focus change and a
                 // button press).
                 debug_log::log("ctx reset cause=client");
+                // A reset is the click signal: nothing else tells us the app
+                // may have changed, so the cached delete verdicts go too.
+                engine.forget_delete_verdicts();
                 for text in engine.flush_deferred() {
                     out.push(signal("CommitText").append1(plain_text(&text)));
                 }
@@ -923,6 +936,19 @@ fn push_forward_keys(out: &mut Vec<Message>, keyval: u32, keycode: u32, state: u
     );
 }
 
+/// The R6 marker: one committed character that makes a browser drop its
+/// inline completion, so the Backspaces that follow land on real text instead
+/// of the completion. It is committed immediately (not queued) because the
+/// keys are pressed inside the same arm, and the caller adds one press to
+/// remove the marker again.
+const MARKER: &str = "\u{b7}";
+
+fn send_marker(t: &Transports, wait_ms: u64) {
+    (t.send_now)(signal("CommitText").append1(plain_text(MARKER)));
+    std::thread::sleep(std::time::Duration::from_millis(wait_ms));
+    debug_log::log("del marker=dot");
+}
+
 /// Push both engine backend flags from the holder's current state — the
 /// self-heal and the paced Flow re-request share it, so every re-select
 /// refreshes both (a stale relay-safe mark would let injection back onto
@@ -933,6 +959,7 @@ fn refresh_backend_flags(engine: &mut Engine, injection: &Injection) {
         injection.current(),
         Some(Kind::Libei | Kind::WlrVirtualKeyboard)
     ));
+    engine.set_transport_types_text(injection.supports_text());
 }
 
 /// The config's preferred injection backend, `None` for `auto`: the
@@ -981,6 +1008,7 @@ fn process_key(
     buffer: &mut BurstBuffer,
     ev: KeyEvent,
     out: &mut Vec<Message>,
+    conn: Option<&Connection>,
 ) -> bool {
     let KeyEvent {
         keyval,
@@ -1104,7 +1132,7 @@ fn process_key(
             }
         }
         let actions = engine.reset();
-        let injected = emit(engine, injection, &actions, out);
+        let injected = emit_key(engine, injection, &actions, out, conn);
         add_injected_batch(engine, burst, injected);
         return false;
     }
@@ -1122,12 +1150,22 @@ fn process_key(
         // check sits after the echo test on purpose — an echo must never
         // hold, or the burst would never settle.
         if buffer.holds_keystroke(engine, burst) {
+            // A held delete leaves no other trace: without this line a
+            // stalled Backspace looks exactly like one the application
+            // ignored. Measured while hunting the "holding Backspace stops"
+            // report, so it stays.
+            debug_log::log(&format!(
+                "key hold=backspace held={} echoes={} deferred={}",
+                buffer.len() + 1,
+                burst.expected_echoes(),
+                u8::from(engine.has_deferred())
+            ));
             buffer.push(keyval, keycode, state);
             return true;
         }
         return match engine.backspace() {
             Some(actions) => {
-                let injected = emit(engine, injection, &actions, out);
+                let injected = emit_key(engine, injection, &actions, out, conn);
                 add_injected_batch(engine, burst, injected);
                 !actions.contains(&Action::Forward)
             }
@@ -1182,7 +1220,7 @@ fn process_key(
             && engine.preedit_commit_pending();
         let nav_behavior = engine.nav_key_while_preedit();
         let actions = engine.reset();
-        let injected = emit(engine, injection, &actions, out);
+        let injected = emit_key(engine, injection, &actions, out, conn);
         add_injected_batch(engine, burst, injected);
         if nav_pending {
             match nav_behavior {
@@ -1218,7 +1256,7 @@ fn process_key(
     };
     let actions = engine.process_char(c);
     let consumed = !actions.contains(&Action::Forward);
-    let injected = emit(engine, injection, &actions, out);
+    let injected = emit_key(engine, injection, &actions, out, conn);
     add_injected_batch(engine, burst, injected);
     // Char path only, after the actions are emitted: a backend arriving
     // must not disturb the word in flight (its lock serves the rest of it;
@@ -1398,6 +1436,12 @@ impl BurstBuffer {
         std::mem::take(&mut self.keys)
     }
 
+    /// How many presses are waiting for the burst to settle (the diagnostic
+    /// log names it).
+    fn len(&self) -> usize {
+        self.keys.len()
+    }
+
     /// Drop everything: the held keys belonged to a context or a word that
     /// is going away (focus out, client reset) — replaying them would type
     /// into the wrong place.
@@ -1406,12 +1450,6 @@ impl BurstBuffer {
         self.keys.clear();
     }
 }
-
-/// How long a FocusOut during a burst waits for the context to come back
-/// before the deferred reset runs as a real switch. Quick unfocus/refocus
-/// of one context lands well inside this window (the logs show the pair
-/// 1ms apart); a user switching apps takes longer.
-const FOCUS_BOUNCE_MS: u64 = 100;
 
 /// How long the rewrite stashed by an aborted burst waits for a focus-in
 /// whose client report can reconcile it. lotus's
@@ -1480,7 +1518,7 @@ fn replay_buffered_keys(
             keycode,
             state,
         };
-        if !process_key(engine, injection, burst, buffer, ev, out) {
+        if !process_key(engine, injection, burst, buffer, ev, out, None) {
             // The engine passed the key through (an editing key, a disabled
             // engine, plain Latin): the original ProcessKeyEvent reply would
             // have handed it to the application, but the replay rides the
@@ -1539,8 +1577,9 @@ fn note_burst_echo(engine: &mut Engine, burst: &mut BurstWatch) -> bool {
         return false;
     }
     burst.note_echo(engine);
+    let grace = engine.echo_apply_grace_ms();
     for text in engine.note_echo_forwarded() {
-        engine.park_commit(text, Duration::from_millis(Engine::ECHO_APPLY_GRACE_MS));
+        engine.park_commit(text, Duration::from_millis(grace));
     }
     true
 }
@@ -1573,7 +1612,7 @@ fn defer_focus_out_during_burst(
         return false;
     }
     *stash = stash_in_flight_rewrite(engine);
-    *bounce_deadline = Some(Instant::now() + Duration::from_millis(FOCUS_BOUNCE_MS));
+    *bounce_deadline = Some(Instant::now() + Duration::from_millis(engine.focus_bounce_ms()));
     debug_log::log("ctx focus=out defer=reset why=burst");
     true
 }
@@ -1738,7 +1777,7 @@ fn reconcile_stashed_rewrite(
             actions.push(Action::InjectBackspaces(erase as u32));
         }
         actions.push(Action::Commit(insert.clone()));
-        let injected = emit(engine, injection, &actions, out);
+        let injected = emit_key(engine, injection, &actions, out, None);
         add_injected_batch(engine, burst, injected);
         // The engine's belief follows the repair: the screen will hold the
         // stashed tail once it lands.
@@ -1765,6 +1804,31 @@ fn emit(
 ) -> u32 {
     let transports = Transports {
         backspaces: &|n, gap| injection.backspaces(n, gap),
+        type_text: &|text| injection.type_text(text),
+        send_now: &|_| {},
+    };
+    emit_with(engine, actions, out, &transports)
+}
+
+/// The key path: the marker fix has to reach the client before the keys the
+/// same call presses, so the sender goes live when a connection is in reach.
+/// `None` (key replay, tests) keeps a no-op sender — no rewrite happens there.
+fn emit_key(
+    engine: &mut Engine,
+    injection: &Injection,
+    actions: &[Action],
+    out: &mut Vec<Message>,
+    conn: Option<&Connection>,
+) -> u32 {
+    let send_now = move |msg: Message| {
+        if let Some(conn) = conn {
+            send(conn, msg);
+        }
+    };
+    let transports = Transports {
+        backspaces: &|n, gap| injection.backspaces(n, gap),
+        type_text: &|text| injection.type_text(text),
+        send_now: &send_now,
     };
     emit_with(engine, actions, out, &transports)
 }
@@ -1776,6 +1840,10 @@ fn emit(
 /// `n` times `gap` ms apart.
 struct Transports<'a> {
     backspaces: &'a dyn Fn(u32, u64) -> bool,
+    type_text: &'a dyn Fn(&str) -> bool,
+    /// Put one message on the wire right now. The marker fix needs it: a
+    /// queued commit would be sent after the keys the arm presses.
+    send_now: &'a dyn Fn(Message),
 }
 
 /// `emit` with injectable transports. Tests use it to exercise the injection
@@ -1806,6 +1874,7 @@ fn emit_with(
         match action {
             Action::Commit(text) => push_commit(
                 engine,
+                t,
                 out,
                 text.clone(),
                 &mut delete_failed,
@@ -1817,10 +1886,16 @@ fn emit_with(
                 // (permissions lost mid-session), fall back to the protocol
                 // delete rather than dropping the deletion and leaving a
                 // commit deferred forever.
-                if (t.backspaces)(*n, bs_gap) {
+                let n = if engine.marker_delete() {
+                    send_marker(t, engine.marker_wait_ms());
+                    *n + 1
+                } else {
+                    *n
+                };
+                if (t.backspaces)(n, bs_gap) {
                     debug_log::log(&format!("del mode=protocol n={n} op=inject"));
-                    injected_since_commit += *n;
-                    injected_total += *n;
+                    injected_since_commit += n;
+                    injected_total += n;
                 } else if engine.delete_dropped() {
                     // The device is gone for the session (the handle is
                     // opened once) and the client swallows the protocol
@@ -1834,7 +1909,7 @@ fn emit_with(
                 } else {
                     debug_log::log(&format!("del ok=0 mode=protocol why=inject_failed n={n}"));
                     let mut m = signal("DeleteSurroundingText");
-                    m = m.append1(-(*n as i32)).append1(*n);
+                    m = m.append1(-(n as i32)).append1(n);
                     out.push(m);
                 }
             }
@@ -1970,9 +2045,36 @@ fn emit_with(
             // vanished from screen yet Backspace revealed it — the buffer
             // and the display desynced). The pacing stays on the injected
             // Backspace transport only.
+            // With a transport that types the word too, the deletes go through
+            // it as well: one channel means no forwarded pair the client may
+            // drop, and nothing left to wait for.
+            Action::ForwardBackspaces(n) if inject && engine.transport_types_text() => {
+                let n = if engine.marker_delete() {
+                    send_marker(t, engine.marker_wait_ms());
+                    *n + 1
+                } else {
+                    *n
+                };
+                if (t.backspaces)(n, bs_gap) {
+                    debug_log::log(&format!("del mode=forward n={n} op=inject"));
+                    injected_since_commit += n;
+                    injected_total += n;
+                } else {
+                    debug_log::log(&format!("del mode=forward n={n}"));
+                    for _ in 0..n {
+                        push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
+                    }
+                }
+            }
             Action::ForwardBackspaces(n) => {
+                let extra = if engine.marker_delete() {
+                    send_marker(t, engine.marker_wait_ms());
+                    1
+                } else {
+                    0
+                };
                 debug_log::log(&format!("del mode=forward n={n}"));
-                for _ in 0..*n {
+                for _ in 0..(*n + extra) {
                     push_forward_keys(out, keymap::BACKSPACE, BACKSPACE_KEYCODE, 0);
                 }
             }
@@ -2171,7 +2273,7 @@ fn strip_pick(
     if actions.is_empty() {
         return false;
     }
-    let injected = emit(engine, injection, &actions, out);
+    let injected = emit_key(engine, injection, &actions, out, None);
     add_injected_batch(engine, burst, injected);
     true
 }
@@ -2189,6 +2291,7 @@ fn signal(member: &str) -> Message {
 /// is dropped.
 fn push_commit(
     engine: &mut Engine,
+    t: &Transports,
     out: &mut Vec<Message>,
     text: String,
     delete_failed: &mut bool,
@@ -2196,6 +2299,16 @@ fn push_commit(
 ) {
     if std::mem::take(delete_failed) {
         debug_log::log("buf commit=suppressed why=no_delete");
+    } else if *injected_since_commit > 0 && engine.transport_types_text() {
+        // One channel: the transport presses the deletes and types the word,
+        // in that order, so nothing can overtake anything and no wait is
+        // needed after the deletes.
+        *injected_since_commit = 0;
+        if (t.type_text)(&text) {
+            debug_log::log(&format!("buf commit=typed len={}", text.chars().count()));
+        } else {
+            out.push(signal("CommitText").append1(plain_text(&text)));
+        }
     } else if *injected_since_commit > 0 {
         // The injected Backspaces travel through the compositor while this
         // commit would go straight over D-Bus — a synchronous commit here
@@ -2231,5 +2344,9 @@ const INTROSPECT_XML: &str = r#"<node>
 /// Fake transports for tests: every key press "succeeds".
 #[cfg(test)]
 fn fake_transports<'a>(backspaces: &'a dyn Fn(u32, u64) -> bool) -> Transports<'a> {
-    Transports { backspaces }
+    Transports {
+        backspaces,
+        type_text: &|_| false,
+        send_now: &|_| {},
+    }
 }

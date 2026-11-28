@@ -4,7 +4,12 @@
 //! whitelist: Backspace and Delete. Injected keys enter the input pipeline
 //! like the user's own keystrokes, so a bug in an injection path could type
 //! text desktop-wide; the whitelist keeps that damage structural — no op
-//! presses a letter or a digit. Text travels over IBus instead (CommitText).
+//! presses a letter or a digit out of the user's own key stream. The one
+//! exception is [`BackendOps::type_text`], offered by the wlroots backend
+//! only: it types the word a rewrite is replacing, through a keymap whose
+//! entire alphabet is those few codepoints, so the residual damage is the
+//! word being written twice. Text travels over IBus (CommitText) everywhere
+//! else.
 //!
 //! [`Injection`] holds the selected backend. [`Injection::select`] walks a
 //! preference list through [`constructors`] — led by a config-fed preferred
@@ -20,6 +25,7 @@ use crate::uinput::Uinput;
 
 mod ei_sys;
 mod libei;
+mod libei_portal;
 mod uinput;
 mod wlr_vk;
 mod xtest;
@@ -65,6 +71,16 @@ pub trait BackendOps: Send {
     fn backspaces(&self, n: u32, gap_ms: u64) -> bool;
     /// Press Delete `n` times.
     fn delete(&self, n: u32) -> bool;
+    /// Whether `type_text` can work at all here; cheap, unlike the call.
+    fn supports_text(&self) -> bool {
+        false
+    }
+    /// Type `text` as key events from this transport. Only the compositor
+    /// backends can, and only for a whole rewrite: with the deletes on the
+    /// same channel there is no ordering race left to wait out.
+    fn type_text(&self, _text: &str) -> bool {
+        false
+    }
 }
 
 /// Builds the backend for `kind`; `None` means the kind cannot be used, and
@@ -102,13 +118,21 @@ pub fn preference_order() -> Vec<Kind> {
         } else {
             // wlroots-family compositors (Hyprland, sway, ...) expose the
             // virtual-keyboard protocol without any device node. Mutter
-            // exposes no such global, hence the arm above.
-            vec![Kind::WlrVirtualKeyboard, Kind::Uinput]
+            // exposes no such global, hence the arm above. Libei comes last:
+            // on a compositor that offers only the portal it is the only rung
+            // that works without the input group, but it costs a permission
+            // prompt and a 5 s acquisition, so the two prompt-free transports
+            // are tried first.
+            vec![Kind::WlrVirtualKeyboard, Kind::Uinput, Kind::Libei]
         }
     } else if std::env::var_os("DISPLAY").is_some() {
-        // X11 sessions: the kernel device first, XTest where the device
-        // node is unreachable (no input group, containerized).
-        vec![Kind::Uinput, Kind::XTest]
+        // X11 sessions: XTest first. Both transports deliver the same events,
+        // and XTest needs no `/dev/uinput` access at all, so it works on a
+        // stock account without the input group (the availability goal of R3;
+        // the earlier measurement that the order does not change the echo race
+        // still holds). The kernel device stays as the fallback for the X11
+        // sessions XTest cannot serve.
+        vec![Kind::XTest, Kind::Uinput]
     } else {
         // No session evidence at all (tests, exotic launches): the legacy
         // default rather than a guess.
@@ -272,6 +296,22 @@ impl Injection {
     /// for nothing.
     pub fn retry_denied(&mut self, kind: Kind) {
         self.denied.retain(|k| *k != kind);
+    }
+
+    /// Whether the held backend can type a word by itself.
+    pub fn supports_text(&self) -> bool {
+        self.inner
+            .as_ref()
+            .is_some_and(|backend| backend.supports_text())
+    }
+
+    /// Type `text` through the held backend; `false` means the caller keeps
+    /// the word on CommitText.
+    pub fn type_text(&self, text: &str) -> bool {
+        match &self.inner {
+            Some(backend) => backend.type_text(text),
+            None => false,
+        }
     }
 
     pub fn backspaces(&self, n: u32, gap_ms: u64) -> bool {
@@ -572,13 +612,13 @@ mod tests {
     use super::test_env::{EnvGuard, ENV_LOCK};
 
     #[test]
-    fn x11_session_prefers_uinput_then_xtest() {
+    fn x11_session_prefers_xtest_then_uinput() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _env = EnvGuard::save(&["DISPLAY", "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP"]);
         _env.set("DISPLAY", ":0");
         _env.unset("WAYLAND_DISPLAY");
         _env.unset("XDG_CURRENT_DESKTOP");
-        assert_eq!(preference_order(), vec![Kind::Uinput, Kind::XTest]);
+        assert_eq!(preference_order(), vec![Kind::XTest, Kind::Uinput]);
     }
 
     #[test]
@@ -590,7 +630,7 @@ mod tests {
         _env.set("XDG_CURRENT_DESKTOP", "Hyprland");
         assert_eq!(
             preference_order(),
-            vec![Kind::WlrVirtualKeyboard, Kind::Uinput]
+            vec![Kind::WlrVirtualKeyboard, Kind::Uinput, Kind::Libei]
         );
     }
 

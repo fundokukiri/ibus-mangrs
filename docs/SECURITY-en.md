@@ -26,7 +26,7 @@ larger than what those channels already give an ordinary process of the account.
 
 | Action | Mechanism | Limit |
 | --- | --- | --- |
-| Inject key events | one of the injection backends chosen per session — `/dev/uinput` (kernel device), XTest (X11), the wlroots virtual-keyboard protocol (Hyprland/wlroots), or libei over mutter's direct API (GNOME) — see `ARCHITECTURE.md` "Injection transports" | every backend is held to the same whitelist by the engine: Backspace and Delete only — text always travels over IBus, never through injection. On `/dev/uinput` the kernel enforces it (only those keycodes are registered); on the protocol backends the trait method set is the enforcement |
+| Inject key events | one of the injection backends chosen per session — `/dev/uinput` (kernel device), XTest (X11), the wlroots virtual-keyboard protocol (Hyprland/wlroots), or libei — over mutter's direct API (GNOME), or over `org.freedesktop.portal.RemoteDesktop` on a compositor that offers only the portal — see `ARCHITECTURE.md` "Injection transports" | every backend is held to the same whitelist by the engine: Backspace and Delete only — text always travels over IBus, never through injection. On `/dev/uinput` the kernel enforces it (only those keycodes are registered); on the protocol backends the trait method set is the enforcement |
 | Commit text | IBus `CommitText` to the focused input context | the focused client only |
 | Write files | `~/.config/ibus-mangrs/`, `~/.cache/ibus-mangrs/`, exports from the settings window | nothing under `/usr`, `/etc`, or another user's home |
 
@@ -45,7 +45,11 @@ compositor trusts processes of the session, which is exactly the trust boundary 
 already assumes (the engine runs as the logged-in user, and such a process could use
 XTEST/XRecord on X11 or `/dev/uinput` with the uaccess ACL anyway). What the engine adds on
 top is the same whitelist as every other backend: only Backspace and Delete,
-enforced by the backend trait's method set — no backend call can type text. The
+enforced by the backend trait's method set — no backend call can type text. On a compositor that
+offers only the portal the engine asks for the session through
+`org.freedesktop.portal.RemoteDesktop` (`ConnectToEIS`): the same EIS socket, but the first use
+raises the portal's own permission dialog — that path carries user consent, unlike the direct
+mutter API above. The
 `libei.so.1` library is loaded at runtime (dlopen): a system without it builds and runs the
 engine fine, and the libei backend simply never activates.
 
@@ -67,7 +71,9 @@ file in `rules.d`, so an old copy would keep the group access alive next to the 
 `/dev/uinput` is opened lazily and retried every two seconds while it is unavailable, because
 logind can apply the ACL a moment after the engine starts. If it never becomes available,
 commit-as-you-type typing falls back to the protocol delete where the client reports its text
-and to Backspace keys forwarded through IBus otherwise — it does not fail silently.
+and to Backspace keys forwarded through IBus otherwise — it does not fail silently. On X11 XTest
+is tried before `/dev/uinput`, so this ACL is no longer what typing on an Xorg session depends on;
+the kernel device is the fallback there.
 
 ## Residual risks (accepted)
 

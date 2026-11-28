@@ -72,14 +72,11 @@ fn desktop_label(current: &str, version: Option<String>) -> String {
 /// desktop simply has none.
 fn desktop_version(current: &str) -> Option<String> {
     let current = current.to_ascii_uppercase();
-    let text = if current.contains("GNOME") {
-        command_version(&["gnome-shell", "--version"])?
-    } else if current.contains("KDE") {
-        command_version(&["plasmashell", "--version"])?
-    } else {
+    if !current.contains("GNOME") {
         return None;
-    };
-    // "GNOME Shell 47.1" and "plasmashell 6.2.3" both end in the number.
+    }
+    let text = command_version(&["gnome-shell", "--version"])?;
+    // "GNOME Shell 47.1" ends in the number.
     let version = text.split_whitespace().last()?.trim();
     let looks_like_version =
         version.starts_with(|c: char| c.is_ascii_digit()) && version.chars().any(|c| c == '.');

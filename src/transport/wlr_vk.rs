@@ -51,6 +51,64 @@ const KEYMAP: &str = r#"xkb_keymap {
     xkb_symbols { include "pc+us" };
 }"#;
 
+// Text typing works through a keymap we upload per rewrite: the protocol only
+// sends keycodes, so typed text needs keysyms to point at. This is the same
+// approach fcitx5-lotus ships (`lotus-wlr-virtual-keyboard.cpp`): a keymap
+// whose whole alphabet is the word's own codepoints, uploaded and then
+// replaced by the base keymap again.
+//
+// The slots are ordinary letter keycodes the evdev keymap already has, so the
+// compositor cannot map them onto anything unusual.
+const TEXT_KEYCODES: [u32; 48] = [
+    10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+    38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 65,
+];
+
+/// The keymap that types `text`, or `None` when it does not fit the slots.
+/// Keycodes carry `<BKSP>`, the shift key and the Delete key alongside the
+/// text slots, so one uploaded keymap serves a whole rewrite.
+fn text_keymap(text: &str) -> Option<String> {
+    let cps: Vec<u32> = text.chars().map(|c| c as u32).collect();
+    if cps.is_empty() || cps.len() > TEXT_KEYCODES.len() {
+        return None;
+    }
+    let max = TEXT_KEYCODES
+        .last()
+        .copied()
+        .unwrap_or(65)
+        .max(KEYCODE_DELETE);
+    let mut keycodes = format!(
+        "    <BKSP> = {KEYCODE_BACKSPACE};\n    <LFSH> = 50;\n    <DELE> = {KEYCODE_DELETE};\n"
+    );
+    let mut symbols = String::from(
+        "    key <BKSP> { [ BackSpace ] };\n    key <LFSH> { [ Shift_L ] };\n    \
+         key <DELE> { [ Delete ] };\n    modifier_map Shift { <LFSH> };\n",
+    );
+    for (i, cp) in cps.iter().enumerate() {
+        let code = TEXT_KEYCODES[i];
+        keycodes.push_str(&format!("    <K{i}> = {code};\n"));
+        let sym = sym_name(*cp);
+        symbols.push_str(&format!(
+            "    key <K{i}> {{ type = \"TWO_LEVEL\", [ {sym}, {sym} ] }};\n"
+        ));
+    }
+    Some(format!(
+        "xkb_keymap {{\n xkb_keycodes \"ibus-mangrs-vk\" {{\n  minimum = 8;\n  maximum = {max};\n\
+         {keycodes} }};\n xkb_types \"complete\" {{ include \"complete\" }};\n \
+         xkb_compatibility \"complete\" {{ include \"complete\" }};\n \
+         xkb_symbols \"mangrs_vk\" {{\n  name[Group1] = \"ibus-mangrs\";\n{symbols} }};\n}};\n"
+    ))
+}
+
+/// The keysym name for a codepoint: `U1EA1` below the BMP, `U0001F600` above.
+fn sym_name(cp: u32) -> String {
+    if cp <= 0xFFFF {
+        format!("U{cp:04X}")
+    } else {
+        format!("U{cp:08X}")
+    }
+}
+
 pub struct WlrVkBackend {
     conn: Connection,
     keyboard: ZwpVirtualKeyboardV1,
@@ -136,7 +194,7 @@ impl WlrVkBackend {
         if !keyboard.is_alive() {
             return None;
         }
-        let (fd, size) = keymap_fd()?;
+        let (fd, size) = keymap_fd(KEYMAP)?;
         keyboard.keymap(u32::from(KeymapFormat::XkbV1), fd.as_fd(), size);
         // Flushes the keymap request and dispatches the seat capabilities
         // queued at bind time; a compositor-side rejection surfaces here.
@@ -171,7 +229,7 @@ impl WlrVkBackend {
 
 /// The keymap over a memfd, as the protocol wants a file descriptor it can
 /// mmap. On failure the fd closes with the `File` and the kind is denied.
-fn keymap_fd() -> Option<(OwnedFd, u32)> {
+fn keymap_fd(keymap: &str) -> Option<(OwnedFd, u32)> {
     // SAFETY: memfd_create returns -1 or a fresh fd we then own; nothing else
     // holds it.
     let raw = unsafe { libc::memfd_create(c"ibus-mangrs-keymap".as_ptr(), libc::MFD_CLOEXEC) };
@@ -180,11 +238,24 @@ fn keymap_fd() -> Option<(OwnedFd, u32)> {
     }
     // SAFETY: raw is the fresh fd from memfd_create, owned only by us.
     let mut file = unsafe { File::from_raw_fd(raw) };
-    file.write_all(KEYMAP.as_bytes()).ok()?;
+    file.write_all(keymap.as_bytes()).ok()?;
     // The compositor maps at offset 0; the rewind is for any reader that
     // uses read() instead of mmap.
     file.rewind().ok()?;
-    Some((file.into(), KEYMAP.len() as u32))
+    Some((file.into(), keymap.len() as u32))
+}
+
+impl WlrVkBackend {
+    /// Send `keymap` as the keyboard's keymap and wait for the compositor to
+    /// take it; the text typing below is one upload, one burst, one restore.
+    fn upload_keymap(&self, keymap: &str) -> bool {
+        let Some((fd, size)) = keymap_fd(keymap) else {
+            return false;
+        };
+        self.keyboard
+            .keymap(u32::from(KeymapFormat::XkbV1), fd.as_fd(), size);
+        self.conn.roundtrip().is_ok()
+    }
 }
 
 impl BackendOps for WlrVkBackend {
@@ -211,6 +282,30 @@ impl BackendOps for WlrVkBackend {
         true
     }
 
+    fn supports_text(&self) -> bool {
+        true
+    }
+
+    fn type_text(&self, text: &str) -> bool {
+        let Some(keymap) = text_keymap(text) else {
+            return false;
+        };
+        if !self.upload_keymap(&keymap) {
+            return false;
+        }
+        let mut ok = true;
+        for code in TEXT_KEYCODES.iter().take(text.chars().count()) {
+            if !self.key(*code, true) || !self.key(*code, false) {
+                ok = false;
+                break;
+            }
+        }
+        // The base keymap has to come back even when a press failed, or the
+        // keyboard keeps an alphabet nobody asked for.
+        self.upload_keymap(KEYMAP);
+        ok
+    }
+
     fn delete(&self, n: u32) -> bool {
         for _ in 0..n {
             if !self.key(KEYCODE_DELETE, true) || !self.key(KEYCODE_DELETE, false) {
@@ -223,7 +318,42 @@ impl BackendOps for WlrVkBackend {
 
 #[cfg(test)]
 mod tests {
+    use super::{sym_name, text_keymap};
     use crate::transport::{constructors, Kind};
+
+    #[test]
+    fn the_text_keymap_types_the_words_own_codepoints() {
+        let keymap = text_keymap("chào").expect("four characters fit");
+        // One slot per character, each carrying its keysym twice (two levels).
+        for (i, sym) in ["U0063", "U0068", "U00E0", "U006F"].iter().enumerate() {
+            assert!(
+                keymap.contains(&format!("<K{i}>")),
+                "slot {i} missing: {keymap}"
+            );
+            assert!(
+                keymap.contains(&format!("[ {sym}, {sym} ]")),
+                "keysym {sym} missing: {keymap}"
+            );
+        }
+        // The rewrite's own delete key rides the same keymap.
+        assert!(keymap.contains("<BKSP> = 22;"));
+        assert!(keymap.contains("<DELE> = 119;"));
+        assert!(!keymap.contains("<K4>"), "no empty slot: {keymap}");
+    }
+
+    #[test]
+    fn a_word_too_long_for_the_slots_keeps_commit_text() {
+        let long = "a".repeat(super::TEXT_KEYCODES.len() + 1);
+        assert!(text_keymap(&long).is_none());
+        assert!(text_keymap("").is_none());
+    }
+
+    #[test]
+    fn keysym_names_follow_the_xkb_spelling() {
+        assert_eq!(sym_name('à' as u32), "U00E0");
+        assert_eq!(sym_name('ạ' as u32), "U1EA1");
+        assert_eq!(sym_name(0x1F600), "U0001F600");
+    }
 
     #[test]
     fn constructor_returns_none_without_wayland_socket() {

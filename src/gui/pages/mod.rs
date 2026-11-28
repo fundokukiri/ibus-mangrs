@@ -14,6 +14,7 @@ pub(super) mod emoji;
 pub(super) mod experimental;
 pub(super) mod hotkeys;
 pub(super) mod macros;
+pub(super) mod nhip;
 pub(super) mod other;
 pub(super) mod panel;
 pub(super) mod rules;

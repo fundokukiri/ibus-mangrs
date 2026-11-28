@@ -212,19 +212,27 @@ pub(super) fn widgets() -> Rc<Ui> {
             "giữ o → oooo… thay vì dừng ở ô",
         ),
     );
+    let forward_repeat = switch_row(
+        &t(
+            "rows.forward_repeat.title",
+            "Giữ Backspace ở terminal relay",
+        ),
+        &t("rows.forward_repeat.subtitle", "Gửi phím lặp khi giữ phím"),
+    );
     let suggest_words = switch_row(
         &t("rows.suggest_words.title", "Gợi ý từ khi gõ"),
         &t("rows.suggest_words.subtitle", "Dải gợi ý cạnh con trỏ"),
     );
-    let dodge_inline_autocomplete = switch_row(
-        &t(
-            "rows.dodge_inline_autocomplete.title",
-            "Sửa lỗi gõ trong ô địa chỉ",
-        ),
-        &t(
-            "rows.dodge_inline_autocomplete.subtitle",
-            "Trước ra oỏ, giờ ra ỏ",
-        ),
+    // One row instead of a switch plus a dropdown: off is the first choice,
+    // and the row wears the feature's name rather than the mechanism's.
+    let dodge_fix = combo_row(
+        &t("rows.dodge_fix.title", "Sửa lỗi gõ trong ô địa chỉ"),
+        &t("rows.dodge_fix.subtitle", "Trước ra oỏ, giờ ra ỏ"),
+        &[
+            &t("rows.dodge_fix.off", "Tắt"),
+            &t("rows.dodge_fix.raw", "Xoá thẳng"),
+            &t("rows.dodge_fix.marker", "Chèn dấu ·"),
+        ],
     );
     let preferred_backend = combo_row(
         &t("rows.preferred_backend.title", "Cách chèn phím"),
@@ -423,109 +431,24 @@ pub(super) fn widgets() -> Rc<Ui> {
             "Giữ gạch chân cho app XIM (Java/JetBrains): chữ đang gõ hiện trong cửa sổ riêng rồi commit khi hết từ.",
         ),
     );
-    // One pacing row, three columns: the three uinput timings share the
-    // merged-row shape — a caption above each spin, dividers between the
-    // columns — and the row subtitle carries the shipped defaults.
+    // The "Nhịp gõ" table (pages/nhip.rs) builds its grid from these spins;
+    // the table itself carries the labels, the shipped default and a reset.
     let backspace_interval = spin_button(1.0, 100.0, 1.0);
     let post_delay = spin_button(0.0, 500.0, 1.0);
-    let pacing_defaults = crate::config::Config::default();
-    let pacing_row = action_row(
-        &t("rows.pacing.title", "Nhịp gõ phím ảo"),
-        &t("rows.pacing.subtitle", "Mặc định: {n}").replace(
-            "{n}",
-            &format!(
-                "{} · {}",
-                pacing_defaults.backspace_interval_ms, pacing_defaults.post_delay_ms
-            ),
-        ),
-    );
-    // Both merged rows share one column width (see below), so their
-    // caption+input clusters start at the same x instead of each row
-    // sizing itself.
-    let mut merged_columns = Vec::new();
-    // The caption is one short word: the full name and the advice ride as
-    // the column tooltip, and "ms" lives in the group description so it is
-    // not repeated on every column.
-    for (key, fallback, spin) in [
-        ("rows.backspace_interval", "Xoá lùi", &backspace_interval),
-        ("rows.post_delay", "Chờ viết lại từ", &post_delay),
-    ] {
-        if !merged_columns.is_empty() {
-            pacing_row.add_suffix(&pacing_divider());
-        }
-        let caption_text = t(&format!("{key}.title"), fallback);
-        let column = pacing_column(&caption_text, spin);
-        column.set_tooltip_text(Some(&t(
-            &format!("{key}.subtitle"),
-            "Nghỉ giữa các phím ảo",
-        )));
-        pacing_row.add_suffix(&column);
-        merged_columns.push(column);
-        let spoken = format!("{} (ms)", caption_text);
-        spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
-    }
     let echo_stale_spin = spin_button(50.0, 1000.0, 10.0);
     echo_stale_spin.set_sensitive(false);
-    let (echo_stale_row, echo_stale_switch) = switch_value_row(
-        &t("rows.echo_stale.title", "Chờ phím ảo quay về (ms)"),
-        &t("rows.echo_stale.subtitle", "Quá hạn thì đổ chữ luôn"),
-        &echo_stale_spin,
-    );
+    let echo_stale_switch = gtk4::Switch::new();
     let idle_commit_spin = spin_button(300.0, 2000.0, 50.0);
     idle_commit_spin.set_sensitive(false);
-    let (idle_commit_row, idle_commit_switch) = switch_value_row(
-        &t("rows.idle_commit.title", "Tự chốt từ khi ngừng gõ (ms)"),
-        &t("rows.idle_commit.subtitle", "Như bấm dấu cách"),
-        &idle_commit_spin,
-    );
+    let idle_commit_switch = gtk4::Switch::new();
     let flow_per_key_spin = spin_button(0.0, 500.0, 5.0);
     let flow_backspace_restore_spin = spin_button(0.0, 1000.0, 10.0);
-    // The two Flow delays share the pacing row's caption-column shape — a
-    // caption above each spin, a divider between — so the group reads as
-    // one style. Caption-only row: the captions carry the names, the
-    // subtitle the shipped defaults; both knobs stay outside the
-    // experimental gate like the pacing knobs they pace with.
-    let flow_delay_row = action_row(
-        &t("rows.flow_delay.title", "Độ trễ Flow"),
-        &t("rows.flow_delay.subtitle", "Mặc định: {n}").replace(
-            "{n}",
-            &format!(
-                "{} · {}",
-                pacing_defaults.flow_per_key_delay_ms,
-                pacing_defaults.flow_backspace_restore_delay_ms
-            ),
-        ),
-    );
-    let mut first_flow_column = true;
-    for (key, fallback, spin) in [
-        ("rows.flow_per_key_delay", "Hiện dấu", &flow_per_key_spin),
-        (
-            "rows.flow_backspace_restore_delay",
-            "Hoàn dấu sau Backspace",
-            &flow_backspace_restore_spin,
-        ),
-    ] {
-        if !first_flow_column {
-            flow_delay_row.add_suffix(&pacing_divider());
-        }
-        first_flow_column = false;
-        let caption = t(&format!("{key}.title"), fallback);
-        let column = pacing_column(&caption, spin);
-        column.set_tooltip_text(Some(&t(
-            &format!("{key}.subtitle"),
-            "Chờ rồi mới sửa màn hình",
-        )));
-        // Center the column vertically: the default Fill stretches it to
-        // the row's height and top-packs the caption, leaving all the
-        // slack below the input.
-        column.set_valign(gtk4::Align::Center);
-        flow_delay_row.add_suffix(&column);
-        merged_columns.push(column);
-        // "ms" left the caption, so the spoken label adds the unit back.
-        let spoken = format!("{caption} (ms)");
-        spin.update_property(&[gtk4::accessible::Property::Label(&spoken)]);
-    }
-    equalize_columns(&merged_columns);
+    // Both parked graces have a floor: a commit sent in the same breath as
+    // its deletes overtakes them (engine MIN_PARK_MS).
+    let echo_apply_grace_spin = spin_button(5.0, 500.0, 5.0);
+    let key_delete_grace_spin = spin_button(5.0, 500.0, 5.0);
+    let focus_bounce_spin = spin_button(0.0, 1000.0, 10.0);
+    let marker_wait_spin = spin_button(0.0, 100.0, 1.0);
     let experimental_features = switch_row(
         &t("rows.experimental_features.title", "Tính năng thử nghiệm"),
         &t(
@@ -720,9 +643,9 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Hiện từ đang gõ cùng dải gợi ý ngay cạnh con trỏ. Chọn bằng phím `, Alt+1 đến Alt+5 hoặc bấm vào dòng gợi ý. Mặc định tắt."
     );
     tip!(
-        dodge_inline_autocomplete,
+        dodge_fix,
         "tips.dodge_inline_autocomplete",
-        "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Mặc định tắt."
+        "Khi trình duyệt hiện gợi ý trong ô địa chỉ, từ vẫn gõ được dấu và không còn bị lẫn thành `oỏ`. Chọn `Dấu chấm` nếu cách hiện tại vẫn lỗi. Mặc định tắt."
     );
     tip!(
         preferred_backend,
@@ -730,12 +653,12 @@ pub(super) fn widgets() -> Rc<Ui> {
         "Chọn cách chèn phím được ưu tiên. Để tự động là tốt nhất, chỉ đổi khi cần thử nghiệm."
     );
     tip!(
-        echo_stale_row,
+        echo_stale_switch,
         "tips.echo_stale",
         "Chờ các phím Backspace ảo quay về trước khi đổ chữ đã commit, để không mất chữ trên Wayland. Số ms là thời hạn chờ, mặc định 150."
     );
     tip!(
-        idle_commit_row,
+        idle_commit_switch,
         "tips.idle_commit",
         "Dừng tay quá lâu trên một từ còn gạch chân thì từ đó tự commit như bấm dấu cách. Số ms là ngưỡng nghỉ tay."
     );
@@ -790,7 +713,8 @@ pub(super) fn widgets() -> Rc<Ui> {
         keep_composed_words,
         keep_repeats_raw,
         suggest_words,
-        dodge_inline_autocomplete,
+        forward_repeat,
+        dodge_fix,
         preferred_backend,
         time_format,
         date_format,
@@ -835,16 +759,17 @@ pub(super) fn widgets() -> Rc<Ui> {
         debug_log_loading: Rc::new(Cell::new(false)),
         x11_delete,
         preedit_xim,
-        pacing_row,
         backspace_interval,
         post_delay,
-        echo_stale_row,
+        echo_apply_grace_spin,
+        key_delete_grace_spin,
+        focus_bounce_spin,
+        marker_wait_spin,
+        nhip_gated: Rc::new(RefCell::new(Vec::new())),
         echo_stale_switch,
         echo_stale_spin,
-        idle_commit_row,
         idle_commit_switch,
         idle_commit_spin,
-        flow_delay_row,
         flow_per_key_spin,
         flow_backspace_restore_spin,
         experimental_features,

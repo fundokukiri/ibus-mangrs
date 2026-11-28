@@ -41,6 +41,7 @@ debug_copy_path = "Copy path"
 section_try = "Try typing"
 debug_open_folder = "Open folder"
 debug_clear_log = "Delete log"
+debug_log_pause = "Pause log"
 debug_copy_report = "Copy report"
 debug_filter_placeholder = "Filter lines"
 debug_pause = "Pause scrolling"
@@ -102,7 +103,6 @@ extension_update_button = "Update"
 extension_enable_button = "Turn on"
 extension_disable_button = "Turn off"
 extension_remove_button = "Remove"
-reset_button = "Restore"
 other_icon_toast_hidden = "Hidden from the app menu"
 other_icon_toast_shown = "Shown in the app menu again"
 dbus_error = "Could not connect to D-Bus: {e}"
@@ -243,10 +243,16 @@ subtitle = "hold o → oooo… instead of stopping at ô"
 title = "Word suggestions while typing"
 subtitle = "A suggestion strip by the caret"
 
-[rows.dodge_inline_autocomplete]
-title = "Fix typing in address bars"
-subtitle = "Used to give oỏ, now ỏ"
 
+[rows.forward_repeat]
+subtitle = "Send the repeat of a held key"
+
+[rows.dodge_fix]
+title = "Fix typing in the address bar"
+subtitle = "Used to type oỏ, now ỏ"
+off = "Off"
+raw = "Delete directly"
+marker = "Insert the · marker"
 [rows.suggest_learn]
 title = "Learn from picked suggestions"
 subtitle = "Favors the words you picked"
@@ -311,12 +317,12 @@ title = "Navigation while a word is open"
 subtitle = "The first arrow key while a word is open"
 
 [rows.flow_per_key_delay]
-title = "Marks per step"
-subtitle = "Lower shows marks sooner"
+title = "Flow: show the mark"
+subtitle = "Wait before re-inserting a word"
 
 [rows.flow_backspace_restore_delay]
-title = "Restore after Backspace"
-subtitle = "Waits before rewriting the screen"
+title = "Flow: restore after Backspace"
+subtitle = "Wait for the key, then redo it"
 
 [rows.flow_delay]
 title = "Flow delays"
@@ -446,7 +452,6 @@ move_up = "Up"
 move_down = "Down"
 move_out = "Move out of the folder"
 item_delete = "Delete"
-reset_button = "Reset"
 reset_heading = "Reset the menu?"
 reset_body = "All changes to the current design will be lost."
 reset_tooltip = "Reset the menu to the default design"
@@ -486,6 +491,39 @@ title = "Marks & navigation"
 title = "Key pace & uinput delay"
 description = "Flow only, in milliseconds."
 
+[groups.tune.nhip]
+title = "Key pace"
+description = "Park times of all four modes, in milliseconds. P: Preedit · S: Surrounding · F: Flow · FB: ForwardBackspace."
+
+[rows.echo_apply_grace]
+title = "Wait after the delete"
+subtitle = "Too short shows the word first"
+
+[rows.key_delete_grace]
+title = "Wait after a real-key delete"
+subtitle = "For apps not reporting our text"
+
+[rows.focus_bounce]
+title = "Hold the reset on focus loss"
+subtitle = "A focus flicker keeps the word"
+
+[rows.marker_wait]
+title = "Wait after the · marker"
+subtitle = "Only with the · marker fix"
+
+[rows.nhip]
+reset = "Restore defaults"
+reset_tooltip = "Put the whole table back to the shipped values"
+reset_one = "Back to the shipped value"
+default_tooltip = "The shipped value of this row"
+filter_subtitle = "Pick which group of values to show"
+filter_all = "All"
+filter_uinput = "Key presses"
+filter_park = "Commit park"
+scope = "Applies to"
+reset_confirm_title = "Restore defaults?"
+reset_confirm_body = "Every value in the table goes back to what it was when the app was installed."
+effect = "Adjusting"
 [groups.tune.channel]
 title = "Text channel"
 
@@ -649,6 +687,7 @@ hotkey_settings = "Open Settings"
 
 [tips]
 debug_buffer = "The text currently in the test box, read from the box itself rather than from the IME."
+debug_log_pause = "Pauses the log the engine writes; nothing is appended until you switch it back on."
 debug_hide = "On: the report replaces what was typed with *** and keeps only the macro count. Off: it carries both."
 debug_filter = "Type part of a line to filter it, case does not matter."
 debug_kind = "Shows one kind of line at a time. Anything else only appears under All."
@@ -730,8 +769,8 @@ selected_hint = "IBus is running another engine. Pick MăngRS in the input metho
 [rows.debug_transport]
 title = "Backend in use"
 none = "not in the log yet"
-auto_note = "Auto currently falls back to"
-auto_hint = "Set a per-application rule if typing misbehaves in one app."
+denied_note = "This machine cannot build the chosen insertion backend, using"
+denied_hint = "Pick Automatic to let the engine follow the session it runs in."
 
 [rows.debug_machine]
 os = "Operating system"
@@ -772,3 +811,56 @@ started = "Restarting IBus…"
 done = "IBus is back"
 timeout = "IBus has not come back yet"
 failed = "Could not run"
+
+# Tooltip lines of the "Nhịp gõ" table, one table per config key.
+
+[nhip.backspace_interval_ms]
+purpose = "Gap between the injected Backspace presses; lower it when an app deletes slowly."
+scope = "the key-pressing modes: Flow, Surrounding, ForwardBackspace"
+effect = "Higher: slower but safer on a heavy app; lower: faster, and a slow app may lose characters."
+
+[nhip.post_delay_ms]
+purpose = "Pause after a screen rewrite before the next key is handled."
+scope = "the key-pressing modes: Flow, Surrounding, ForwardBackspace"
+effect = "Higher: the app keeps up but typing feels late; lower: smoother, and a slow app may merge words."
+
+[nhip.echo_apply_grace_ms]
+purpose = "The commit waits for the delete to apply; too short shows the word before its marks, too long feels late."
+scope = "Surrounding, Flow, ForwardBackspace"
+effect = "Higher: the word surely lands after its deletes but typing drags; lower: smoother, and the word may land first."
+
+[nhip.key_delete_grace_ms]
+purpose = "The wait for apps that must be deleted with real keys because they never report the text, Docs in Chrome for one."
+scope = "Surrounding, when the app does not report the text"
+effect = "Higher: safe on a slow app but typing drags; lower: faster, and the word may show before the delete lands."
+
+[nhip.flow_per_key_delay_ms]
+purpose = "How long Flow waits before re-inserting the word after a mark change."
+scope = "Flow only"
+effect = "Higher: marks show late but right; lower: marks show at once and may flicker or mix."
+
+[nhip.flow_backspace_restore_delay_ms]
+purpose = "Waits for your Backspace to land before restoring the mark."
+scope = "Flow only"
+effect = "Higher: sure the key is gone, so the restore is right; lower: the Backspace deletes the restored mark."
+
+[nhip.focus_bounce_ms]
+purpose = "A focus loss inside this window counts as a flicker and the word being typed is kept."
+scope = "all modes"
+effect = "Higher: the word survives a longer focus loss; lower: the reset runs early and the word can be lost."
+
+[nhip.marker_wait_ms]
+purpose = "Wait after the · marker so the browser drops its suggestion before the delete."
+scope = "all modes, but only with the · marker picked"
+effect = "Higher: the browser has time to drop the suggestion; lower: the delete may hit the suggestion itself."
+
+[nhip.echo_stale_ms]
+purpose = "Past this window a missing echo counts as lost and the parked word is flushed, so nothing is dropped on Wayland."
+scope = "the key-pressing modes: Flow, Surrounding, ForwardBackspace"
+effect = "Higher: fewer lost characters but words appear late; lower: flushed early, and a slow echo loses the text."
+
+[nhip.idle_commit_ms]
+purpose = "Stopping for this long commits the underlined word, as if a space was pressed."
+scope = "modes that keep an underline while typing (Preedit)"
+effect = "Higher: the underline lasts longer; lower: the word commits early and the next keys start a new word."
+
